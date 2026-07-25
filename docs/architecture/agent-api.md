@@ -2,7 +2,7 @@
 
 How an agent produces geometry for wade. The model is deliberately **out-of-band**: the agent authors and verifies parts with brepjs's own Node tooling, and wade imports the validated result. There is no live command bus into the running browser kernel.
 
-> **Status: designed, not built.** The STEP import path lands in Phase 4 (issues P4-0, P4-6); the authoring workflow is documentation (P4-8). See [`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md).
+> **Status: designed, not built.** The STEP import path lands in Phase 4 (issue #38); the authoring workflow is documentation (#74). See [`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md).
 
 ## Why posture 1 (out-of-band), not a live command bus
 
@@ -50,7 +50,7 @@ Importing a part reuses the existing kernel seam — Phase 4 already lists STEP 
 
 **Longer-term (defer, gate on demand): wade executes `.brep.ts` in its own worker.** Transpile `.brep.ts` in-worker with the esbuild already present under Vite, evaluate the default export inside `kernel.worker.ts` (brepjs already lives there — invariant 1 holds), and mesh the result. Then the agent and the UI share **one parametric source**: a `def.kind: 'brep-script'` holding the source, exposed as an `evalBrep` `KernelClient` request kind (invariant 4 — the UI never evaluates code directly).
 
-This is the one genuinely delicate item: evaluating transpiled TypeScript in the worker. It is acceptable under posture 1 because the source is locally authored and trusted, but it is called out and gated rather than assumed. **Ship STEP import now; reserve `brep-script` in the `ObjectDef` union; build the executor only when a parametric round-trip is actually needed** (issue P4-9, deferred).
+This is the one genuinely delicate item: evaluating transpiled TypeScript in the worker. It is acceptable under posture 1 because the source is locally authored and trusted, but it is called out and gated rather than assumed. **Ship STEP import now; reserve `brep-script` in the `ObjectDef` union; build the executor only when a parametric round-trip is actually needed** (issue #75, deferred).
 
 ## Related
 

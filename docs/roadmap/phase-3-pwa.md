@@ -31,22 +31,21 @@ The good news is that the fallback path this depends on **already exists and is 
 - Code-split the renderer and the kernel so neither sits in the initial bundle.
 - **Investigate a slim OCCT build.** OpenCascade custom builds can include only the modules brepjs actually calls, which cuts the binary substantially. Adopt it only if it reduces payload materially.
 
-### Document model + persistence
+### Persistence
 
-The scene is hard-wired to exactly one box + one cylinder today, with no model of user-created objects. Phase 3 introduces the [document model](../architecture/document-model.md) as an **enabling refactor** — it is the prerequisite for all the Phase 4 manipulation and agent work — and adds local persistence, which is a genuine offline concern: "offline-capable" needs something to persist.
+"Offline-capable" needs something to persist, and the thing worth persisting is the user's document — so local persistence is a genuine Phase 3 concern rather than a stowaway.
 
-- **P3-1 Document model core.** `src/lib/scene/document.svelte.ts` — N objects, each `{ id, def, transform }`, with a command-shaped mutation API (`addObject` / `removeObject` / `setParam` / `setTransform`). Replaces `params.svelte.ts`. Getters return fresh plain objects (never the proxy); no `three` imports and no runtime kernel dependency — type-only sharing of wire-contract types from `$lib/kernel/types` is fine (invariants 3, 4). _Depends on: nothing. Blocks: everything below._
-- **P3-2 `SolidNode` + Scene generalization.** `src/lib/viewport/SolidNode.svelte`, one per object; `Scene.svelte` becomes a keyed `{#each}`; generic pick / snap / `onMesh` routing replaces the hard-coded two-solid branches. Preserves one `invalidateFor(…, 'model')` per settled mesh (invariant 2) and retains the `boxExtents` probe. _Depends on: P3-1._
-- **P3-3 Panel adapts to the document.** `ParamsPanel` drives the two default objects through the document model (not yet selection-driven). App stays visually unchanged. _Depends on: P3-1, P3-2._
-- **P3-4 IndexedDB persistence.** Serialize / restore the document (defs + transforms, and STEP bytes once import exists) to IndexedDB; load on boot, debounced save on change. _Depends on: P3-1._
+- **Issue #76 — IndexedDB persistence.** Serialize / restore the document (defs + transforms, and STEP bytes once import exists) to IndexedDB; load on boot, debounced save on change.
 
-This foundation is an enabling refactor: it does **not** change the Phase 3 verification bar below except for the offline-restore item, which the persistence issue (P3-4) earns.
+**This is the one cross-phase dependency in the roadmap, and it is deliberate.** #76 needs the [document model](../architecture/document-model.md) (issue #65), which is scoped into [Phase 4](./phase-4-cad-depth.md) rather than here — because every _other_ consumer of that model (inspector, gizmo, undo, STEP import) is Phase 4 work, and a large scene-architecture refactor does not belong in a phase named "PWA hardening" on the strength of one dependent.
+
+The practical consequence: start #76 when #65 lands, not when Phase 3 begins. Everything else in this phase is independent and can proceed immediately.
 
 ## Verification
 
 - Lighthouse installability passes.
 - After a first load, a **full offline reload** still boots the app and the viewport.
-- A **full offline reload restores the user's edited document** — object dimensions and transforms survive (P3-4).
+- A **full offline reload restores the user's edited document** — object dimensions and transforms survive (#76).
 - The shell is interactive **before** the kernel finishes loading — confirm under throttled network, not on a fast connection.
 - The WASM binary is fetched once, then served from cache on subsequent loads.
 

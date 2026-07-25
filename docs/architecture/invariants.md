@@ -52,7 +52,9 @@ The distinction that matters: some invariants are **checked** — CI fails if yo
 
 It uses the **base** `no-restricted-imports` rule rather than the `@typescript-eslint` one. That is deliberate — the base rule also flags `import type`, so the invariant stays true even for type-only imports. The payoff is that invariant 1 reduces to a claim CI can actually check:
 
-> the string `brepjs` appears in exactly one file.
+> no file other than `kernel.worker.ts` **imports** `brepjs` or `occt-wasm` — type-only imports included.
+
+Note the word _imports_. The rule inspects import statements, not file text, so it is not the same as "the string `brepjs` appears once": the name also shows up in explanatory comments in `types.ts`, `KernelClient.ts`, `geometry.ts`, `geometry.spec.ts`, and `viewport/orientation.ts`. A `grep -rl brepjs src/` returning more than one file is expected and is **not** a violation.
 
 The converse rule also exists: `kernel.worker.ts` may not import `three`, `@threlte/*`, `$app/*`, or `$lib/*`. The worker has no DOM, no renderer, and no SvelteKit runtime — it talks to the main thread only through the typed wire contract in `kernel/types.ts`.
 

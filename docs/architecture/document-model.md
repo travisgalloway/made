@@ -2,7 +2,7 @@
 
 `src/lib/scene/document.svelte.ts` — the client-side model of what the user has built. It is the **"document model" row** of the three-kinds-of-state table in [`state-and-errors.md`](./state-and-errors.md), made real.
 
-> **Status: designed, not built.** This describes the model that replaces the hard-wired one-box-one-cylinder scene. See [`../roadmap/phases.md`](../roadmap/phases.md) — the foundation lands in Phase 3 (issue P3-1); everything in [`ui-controls.md`](./ui-controls.md) and [`agent-api.md`](./agent-api.md) depends on it.
+> **Status: designed, not built.** This describes the model that replaces the hard-wired one-box-one-cylinder scene. See [`../roadmap/phases.md`](../roadmap/phases.md) — the foundation lands in Phase 4 as issue #65; everything in [`ui-controls.md`](./ui-controls.md) and [`agent-api.md`](./agent-api.md) depends on it.
 
 ## Why it has to exist first
 
@@ -59,7 +59,7 @@ setTransform(id, transform): void; // gizmo + inspector write here
 
 This is deliberate. Phase 4 calls for **undo/redo on the document model, not on geometry** ([`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md)). If every mutation is expressible as one serializable command — and these four are — then undo/redo is an _additive_ `createHistory(doc)` wrapper that records inverse commands, not a refactor of the model.
 
-**Do not build the history stack in the foundation.** The foundation's only obligation is that no mutation bypasses these four calls. History comes later (issue P4-5).
+**Do not build the history stack in the foundation.** The foundation's only obligation is that no mutation bypasses these four calls. History comes later (issue #39).
 
 ## How the scene consumes it
 

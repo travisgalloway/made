@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-// Three projects, because "a frame rendered" is true on *either* graphics backend and so cannot by
+// Five projects, because "a frame rendered" is true on *either* graphics backend and so cannot by
 // itself prove invariant 5 (WebGPU by default, WebGL2 as the escape hatch). Each project pins down
 // one part of the suite:
 //

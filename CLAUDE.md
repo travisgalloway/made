@@ -59,13 +59,13 @@ These are the design contract. `docs/architecture/invariants.md` is the canonica
 
 Most are enforced mechanically, not by convention:
 
-| #   | Enforced by                                                                                                                                                                                                                                                                                                                                                   |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `eslint.config.js` bans `brepjs`/`occt-wasm` across `src/**` with one exception: `kernel.worker.ts`. It uses the **base** `no-restricted-imports` rule, not the TS one, so `import type` is caught too — the invariant is checkable as "the string `brepjs` appears in exactly one file". The converse rule bans `three`/`@threlte`/`$lib` inside the worker. |
-| 2   | `viewport/renderLoop.ts` — no `requestAnimationFrame` anywhere; e2e asserts the render count is flat at idle.                                                                                                                                                                                                                                                 |
-| 4   | `KernelClient.ts` imports only `./types` — no comlink, no three, no brepjs.                                                                                                                                                                                                                                                                                   |
-| 5   | Playwright's `chromium` project runs **without** the WebGPU flag, so the WebGL2 fallback stays exercised rather than theoretical.                                                                                                                                                                                                                             |
-| 6   | `types.ts` pins `Float32Array<ArrayBuffer>` (not `ArrayBufferLike`) so `.buffer` is statically `Transferable`; `types.spec.ts` asserts source buffers detach.                                                                                                                                                                                                 |
+| #   | Enforced by                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `eslint.config.js` bans `brepjs`/`occt-wasm` across `src/**` with one exception: `kernel.worker.ts`. It uses the **base** `no-restricted-imports` rule, not the TS one, so `import type` is caught too — the invariant is checkable as "no file but `kernel.worker.ts` _imports_ brepjs/occt-wasm". It checks imports, not file text; the name appears in comments elsewhere. The converse rule bans `three`/`@threlte`/`$app`/`$lib` inside the worker. |
+| 2   | `viewport/renderLoop.ts` — no `requestAnimationFrame` anywhere; e2e asserts the render count is flat at idle.                                                                                                                                                                                                                                                                                                                                            |
+| 4   | `KernelClient.ts` imports only `./types` — no comlink, no three, no brepjs.                                                                                                                                                                                                                                                                                                                                                                              |
+| 5   | Playwright's `chromium` project runs **without** the WebGPU flag, so the WebGL2 fallback stays exercised rather than theoretical.                                                                                                                                                                                                                                                                                                                        |
+| 6   | `types.ts` pins `Float32Array<ArrayBuffer>` (not `ArrayBufferLike`) so `.buffer` is statically `Transferable`; `types.spec.ts` asserts source buffers detach.                                                                                                                                                                                                                                                                                            |
 
 ## The kernel boundary (`src/lib/kernel/`)
 
@@ -110,7 +110,7 @@ Both pure modules take plain pointer-ish structs, not real `PointerEvent`s, so t
 
 ## Svelte 5 / SvelteKit specifics
 
-- **Runes are forced on** for every non-`node_modules` file (`vite.config.ts`). Stores follow one shape: `.svelte.ts` file, factory function, closure-local runes, an object of getters.
+- **Runes are forced on** for every non-`node_modules` file (`vite.config.ts`). Scene stores follow one shape: `.svelte.ts` file, factory function, closure-local runes, an object of getters. `settings.svelte.ts` is the exception — a module-level singleton.
 - **Static SPA.** `src/routes/+layout.ts` is `ssr = false` + `prerender = true`, with `adapter-static`. There is **no `svelte.config.js`** — the adapter is configured inline in `vite.config.ts`.
 - The prerender pass still executes the module graph, so `new Worker`, `document`, and canvas textures must stay inside an `$effect`, never at module scope.
 
@@ -124,7 +124,11 @@ Both pure modules take plain pointer-ish structs, not real `PointerEvent`s, so t
 
 ## Current phase
 
-Phases 0 (foundation), 1 (viewport MVP), and 2 (kernel worker) are done. **Phase 3 — PWA hardening — is next and not started**: no `@vite-pwa/sveltekit`, no manifest, no service worker. Complete phases in order; do not start one until the previous passes its verification checklist in `docs/roadmap/phases.md`.
+Phases 0 (foundation), 1 (viewport MVP), and 2 (kernel worker) are done. **Phase 3 — PWA hardening — is next and not started**: no `@vite-pwa/sveltekit`, no manifest, no service worker.
+
+Complete phases in **dependency** order (see `docs/roadmap/phases.md`): finish a phase before declaring it done, but an item whose dependencies are met may start even if its phase's other items are outstanding. There is one deliberate cross-phase edge — Phase 3's persistence (#76) depends on Phase 4's document model (#65).
+
+If you are picking up Phase 4, **start with #65**: it replaces the hard-wired two-solid scene with an N-object document model behind a command API, and nearly everything else in Phases 3–4 depends on it.
 
 ## Conventions
 
