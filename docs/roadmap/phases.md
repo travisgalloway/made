@@ -2,7 +2,7 @@
 
 ## Rules of engagement
 
-- **Complete phases in order.** Do not start a phase until the previous one passes its verification checklist.
+- **Complete phases in order — meaning _dependency_ order, not calendar order.** Finish a phase before declaring it done, and do not skip ahead casually. But the rule exists to stop work building on foundations that do not exist yet, not to serialize independent work: an item whose dependencies are all met may start even if its phase's other items are outstanding. The roadmap has one deliberate cross-phase edge — Phase 3's persistence (#76) depends on Phase 4's document model (#65) — and reading the rule as strict calendar order would make that edge unsatisfiable.
 - **Keep commits small within a phase**, and commit at the end of each phase with a clear message.
 - **The [architectural invariants](../architecture/invariants.md) are non-negotiable.** If a task seems to require breaking one, stop and flag it rather than working around it.
 - **After each phase, run the build and the dev server** and confirm the verification items yourself before reporting the phase done.
@@ -57,10 +57,16 @@ brepjs runs in a worker behind `KernelClient`, and the viewport renders a live p
 
 **This is next, and it has not been started** — there is no `@vite-pwa/sveltekit` dependency, no manifest, and no service worker.
 
-See [`phase-3-pwa.md`](./phase-3-pwa.md).
+Tracked by epic #5 (#28–#33, #49, #76). See [`phase-3-pwa.md`](./phase-3-pwa.md).
+
+Note the one cross-phase edge: persistence (#76) depends on the document model (#65), a Phase 4 item. Everything else in Phase 3 is independent and can start immediately.
 
 ---
 
 ## Phase 4 — CAD depth ⬜
 
-Larger and open-ended. See [`phase-4-cad-depth.md`](./phase-4-cad-depth.md).
+Larger and open-ended. Tracked by epic #6.
+
+**Start with the document model (#65).** It replaces the hard-wired two-solid scene with an N-object model behind a command API, and nearly everything else — inspector, gizmo write-back, undo, STEP import, the feature tree, and Phase 3's persistence — depends on it. `KernelClient` is already N-solid-capable; the ceiling is entirely in the scene wiring above it.
+
+See [`phase-4-cad-depth.md`](./phase-4-cad-depth.md).

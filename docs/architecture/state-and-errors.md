@@ -20,7 +20,7 @@ Svelte 5 runes give fine-grained updates, which makes the split cheap to hold: k
 
 ## The store pattern
 
-Every store is a `.svelte.ts` file — that suffix is what enables runes outside a component — following one shape: **factory function, closure-local runes, an object of getters.**
+Every store is a `.svelte.ts` file — that suffix is what enables runes outside a component. The per-scene stores follow one shape: **factory function, closure-local runes, an object of getters.** The one exception is `settings.svelte.ts`, which is a module-level singleton because there is exactly one settings object per document and nothing needs to instantiate a second — see below.
 
 - **`scene/params.svelte.ts`** — the parametric definition. Each field is its **own `$state` primitive**, deliberately _not_ one `$state` object: reading through `get box()` must subscribe to every field individually, and merely holding a reference to a parent state object would not establish that fine-grained dependency.
 

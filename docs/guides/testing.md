@@ -51,7 +51,7 @@ Splitting `snapping` and `orientation` out rather than folding them into `kernel
 pnpm test:e2e                                                    # all five
 pnpm exec playwright test --project=kernel                       # one project
 pnpm exec playwright test e2e/snapping.e2e.ts                    # one file
-pnpm exec playwright test --project=webgpu -g 'WebGPU is active' # by title
+pnpm exec playwright test --project=webgpu -g 'WebGPU is the active backend' # by title
 ```
 
 Omitting `--project` runs all five, including the slow kernel-driven ones.

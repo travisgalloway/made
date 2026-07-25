@@ -29,7 +29,7 @@ fix: Viewport up-axis disagrees with the kernel: Height renders horizontally (#6
 chore: Add CI (GitHub Actions) (#52)
 ```
 
-- **Types in use:** `feat`, `fix`, `test`, `chore`, `ci`.
+- **Types in use:** `feat`, `fix`, `docs`, `test`, `chore`, `ci`.
 - **Scopes in use:** `kernel`, `viewport`, `input`, `infra`. Scope is optional.
 - **Bodies are explanatory prose, not bullet dumps.** The house style: state what changed, **name the invariant the change upholds**, explain why the alternatives were rejected, and describe how it was verified. "Reintroduced the bug and watched the test fail" is a normal thing to write here.
 

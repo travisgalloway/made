@@ -2,7 +2,7 @@
 
 How the user edits objects: a DOM inspector for exact values, an in-viewport gizmo for direct manipulation. Invariant 9 — "set intent by selection, exact value by entry."
 
-> **Status: designed, not built.** Depends on [`document-model.md`](./document-model.md). Lands across Phase 4 (issues P4-1a, P4-2, P4-3, P4-4). See [`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md).
+> **Status: designed, not built.** Depends on [`document-model.md`](./document-model.md). Lands across Phase 4 (issues #68, #70, #71, #72). See [`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md).
 
 ## Two surfaces, one source of truth
 
