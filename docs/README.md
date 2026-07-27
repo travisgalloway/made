@@ -89,12 +89,12 @@ src/
       gestureArbiter.ts    # lock navigate-vs-manipulate on first move
       snapping.ts          # vertex > edge > grid
     scene/           # view models only — never geometry
-      params.svelte.ts, SceneModel.svelte.ts, SnapModel.svelte.ts
+      document.svelte.ts, SceneModel.svelte.ts, SnapModel.svelte.ts
     settings/        # forceWebGL, kernel on/off
     ui/              # reactive panels. Never imports three.
   routes/
     +layout.ts       # ssr = false, prerender = true
-    +page.svelte     # app shell; owns the shared params model
+    +page.svelte     # app shell; owns the shared document model
 e2e/                 # Playwright — five projects
 static/models/       # sample-part.stl (regenerate: scripts/make-sample-part.ts)
 ```
