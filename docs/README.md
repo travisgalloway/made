@@ -92,6 +92,8 @@ src/
       document.svelte.ts, SceneModel.svelte.ts, SnapModel.svelte.ts
     settings/        # forceWebGL, kernel on/off
     ui/              # reactive panels. Never imports three.
+      controls/           # in-house control kit (issue #68): NumberField, Slider, Section, Toggle
+                           # + tokens.css, scrub.ts, numberEntry.ts
   routes/
     +layout.ts       # ssr = false, prerender = true
     +page.svelte     # app shell; owns the shared document model

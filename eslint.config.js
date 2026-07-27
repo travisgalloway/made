@@ -66,5 +66,19 @@ export default defineConfig(
 				{ patterns: ['three', 'three/*', '@threlte/*', '$app/*', '$lib/*'] }
 			]
 		}
+	},
+	{
+		// Architecture invariant 3 (issue #68): the in-house control kit is plain DOM and never
+		// imports `three` — reactive state drives UI panels only, geometry and per-frame state
+		// never live behind a `$state` these controls could reach into. Until this rule existed,
+		// invariant 3 was only *asserted* ("`ParamsPanel.svelte` never imports `three`. Reviewed,
+		// not automated.", per invariants.md) — this makes it *checked*, matching invariants 1,
+		// 2, 4, 5, and 6. Same base (non-TS) `no-restricted-imports` rule as the brepjs/occt-wasm
+		// ban above, for the same reason: it also flags `import type`, so the invariant holds
+		// even for type-only imports.
+		files: ['src/lib/ui/**'],
+		rules: {
+			'no-restricted-imports': ['error', { patterns: ['three', 'three/*', '@threlte/*'] }]
+		}
 	}
 );

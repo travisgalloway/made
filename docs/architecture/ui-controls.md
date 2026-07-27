@@ -2,7 +2,7 @@
 
 How the user edits objects: a DOM inspector for exact values, an in-viewport gizmo for direct manipulation. Invariant 9 — "set intent by selection, exact value by entry."
 
-> **Status: designed, not built.** Depends on [`document-model.md`](./document-model.md). Lands across Phase 4 (issues #68, #70, #71, #72). See [`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md).
+> **Status: the component kit is built (issue #68); the inspector and the gizmo are still designed, not built.** The kit is additive — nothing mounts it yet, so `ParamsPanel.svelte` and the existing e2e contract are untouched. Depends on [`document-model.md`](./document-model.md). Lands across Phase 4 (issues #68, #70, #71, #72). See [`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md).
 
 ## Two surfaces, one source of truth
 
@@ -19,16 +19,20 @@ The DOM controls are built as a **small in-house Svelte kit**, reaching for a **
 
 ```
 src/lib/ui/
-  controls/
-    NumberField.svelte   # native <input>, drag-to-scrub
-    Slider.svelte
-    Section.svelte
-    Toggle.svelte
-    tokens.css           # shared design tokens
-  InspectorPanel.svelte  # binds to the document model
+  controls/               # built, issue #68
+    NumberField.svelte   # native <input>, typed exact entry + drag-to-scrub
+    Slider.svelte         # native <input type="range">, testid pass-through
+    Section.svelte        # collapsible; <button type="button"> header + Snippet body
+    Toggle.svelte          # native <input type="checkbox">
+    scrub.ts               # pure: pointer delta -> value (modifier-aware fine/coarse step)
+    numberEntry.ts          # pure: parse, step/precision rounding, arrow-key increment, Esc-revert
+    tokens.css             # shared design tokens — the repo's first
+  InspectorPanel.svelte  # binds to the document model — not yet built, see #70
 ```
 
-Reach for a headless, Svelte-5-native lib (Bits UI / Melt UI) **only** for the widgets where rolling your own accessibility is a real cost: the drag-scrub number field's focus/keyboard behavior, popovers and context menus, and the eventual virtualized feature tree. Those arrive later in Phase 4; the common case ships dependency-free.
+The pure logic (`scrub.ts`, `numberEntry.ts`) is split out from the four `.svelte` files for the same reason `gestureArbiter.ts`/`pointerRouter.ts`/`snapping.ts`/`framing.ts` are: the single Node-only Vitest project has no DOM, so anything worth unit-testing has to be DOM-free (see [`../guides/testing.md`](../guides/testing.md)). The components themselves are exercised by e2e once something mounts them (#70+), not by a jsdom/browser Vitest tier — this repo deliberately has no middle tier.
+
+**The zero-new-dependency decision for #68, recorded so it isn't relitigated:** `NumberField`, `Slider`, `Section`, and `Toggle` are exactly the "common case" below — ships dependency-free, no Bits UI, no Melt UI. Reach for a headless, Svelte-5-native lib (Bits UI / Melt UI) **only** for the widgets where rolling your own accessibility is a real cost: popovers and context menus (#42) and the eventual virtualized feature tree (#34). Those arrive later in Phase 4.
 
 **Why not a parameter-panel lib (tweakpane / lil-gui):** they manage their own DOM imperatively, which fights Svelte 5 runes and the reactive document model — you would reconcile two state systems — and they read as debug panels, not a product UI. (tweakpane is fine as a _dev-only_ debug overlay if one is ever wanted; it is not the product inspector.)
 

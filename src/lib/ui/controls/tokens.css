@@ -1,0 +1,43 @@
+/* The repo's first design tokens (issue #68). `src/app.css` was, until now, five declarations and
+   `ParamsPanel.svelte` hardcoded every colour in its own scoped <style> block — this file is what
+   the in-house control kit's "no per-component hardcoded colours" AC needs to exist at all.
+
+   Seeded from ParamsPanel.svelte's current hardcoded values — rgba(20, 22, 26, 0.72) panel
+   background, #e6e9ee text, 12px/1.4 system-ui sans-serif — so that #70's eventual port of
+   ParamsPanel onto these controls is a visual no-op, not a redesign in disguise.
+
+   Imported once from +layout.svelte, alongside the existing `import '../app.css'` — that is the
+   app's only CSS entry point, so :root here reaches every component's scoped <style> block via
+   var(--wade-...), including ones mounted deep in the tree with no other way to reach a global
+   stylesheet. */
+
+:root {
+	/* Surfaces */
+	--wade-surface: rgba(20, 22, 26, 0.72);
+	--wade-surface-raised: rgba(38, 41, 48, 0.85);
+
+	/* Text */
+	--wade-text: #e6e9ee;
+	--wade-text-muted: rgba(230, 233, 238, 0.6);
+
+	/* Structure */
+	--wade-border: rgba(230, 233, 238, 0.16);
+	--wade-radius: 0.375rem;
+	--wade-radius-sm: 0.25rem;
+
+	/* Interaction */
+	--wade-accent: #4f8cff;
+	--wade-focus-ring: #7db0ff;
+	--wade-control-height: 1.75rem;
+
+	/* Spacing scale */
+	--wade-space-1: 0.25rem;
+	--wade-space-2: 0.5rem;
+	--wade-space-3: 0.75rem;
+	--wade-space-4: 1rem;
+
+	/* Type */
+	--wade-font-family: system-ui, sans-serif;
+	--wade-font-size: 12px;
+	--wade-line-height: 1.4;
+}
