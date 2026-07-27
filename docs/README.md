@@ -99,6 +99,10 @@ src/
     +page.svelte     # app shell; owns the shared document model
 e2e/                 # Playwright — five projects
 static/models/       # sample-part.stl (regenerate: scripts/make-sample-part.ts)
+parts/               # agent-authoring scratch (#74) — out-of-band, not built by the app
 ```
 
-`src/lib/pwa/` does not exist yet — it arrives with [Phase 3](./roadmap/phase-3-pwa.md).
+`src/lib/pwa/` does not exist yet — it arrives with [Phase 3](./roadmap/phase-3-pwa.md). `parts/` does not
+exist yet either — see [`agent-api.md`](./architecture/agent-api.md). Nothing in `.prettierignore` or
+`eslint.config.js` excludes it, so once it exists it is Prettier- and ESLint-checked like the rest of the
+repo, not a scratch directory that skips CI.
