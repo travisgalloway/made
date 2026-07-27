@@ -49,7 +49,7 @@ These are the touch-first ideas the input model was designed around:
 
 Out-of-band, via brepjs's own Node tooling — the agent authors and verifies parts, wade imports the validated result. No live command bus into the browser kernel. Full design in [`../architecture/agent-api.md`](../architecture/agent-api.md).
 
-- **#74 — Agent authoring workflow (docs).** Document the local `brep-mcp` loop and the `.brep.ts` contract. No app code — the STEP import path (#38) is the wade-side half.
+- **#74 — Agent authoring workflow (docs only). Done.** Document the local `brep-mcp` loop and the `.brep.ts` contract. No app code — the STEP import path (#38) is the wade-side half.
 - **#75 (deferred) — `brep-script` in-worker executor.** Transpile + evaluate `.brep.ts` in wade's own worker so the agent and the UI share one parametric source. The one delicate item (evaluating TS in the worker); reserve `def.kind: 'brep-script'` now, build the executor only when a parametric round-trip is actually needed. Must stay in the worker (invariant 1), behind `KernelClient` (invariant 4).
 
 ## Rendering

@@ -14,6 +14,8 @@
 
 "Front" is −Y. The ground plane is Z = 0. This matches AutoCAD, SketchUp, and Blender.
 
+**Units are millimetres.** brepjs — and therefore OCCT — works in millimetres by convention: `box(40, 20, 10)` is a 40×20×10 mm box. wade applies no scale factor at the kernel boundary, so a three.js unit is a millimetre throughout the app, same as the coordinate axes above: one convention, chosen once, at the seam.
+
 Read the exported constants rather than writing vectors inline:
 
 ```ts
