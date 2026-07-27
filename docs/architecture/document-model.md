@@ -2,13 +2,13 @@
 
 `src/lib/scene/document.svelte.ts` — the client-side model of what the user has built. It is the **"document model" row** of the three-kinds-of-state table in [`state-and-errors.md`](./state-and-errors.md), made real.
 
-> **Status: designed, not built.** This describes the model that replaces the hard-wired one-box-one-cylinder scene. See [`../roadmap/phases.md`](../roadmap/phases.md) — the foundation lands in Phase 4 as issue #65; everything in [`ui-controls.md`](./ui-controls.md) and [`agent-api.md`](./agent-api.md) depends on it.
+> **Status: core built (#65), consumption still designed.** `src/lib/scene/document.svelte.ts` and its command API (`addObject` / `removeObject` / `setParam` / `setTransform`) exist and are unit-tested. `Scene.svelte` still only reads the two default objects the model happens to ship with — the `SolidNode` + keyed `{#each}` generalization (#66) and the selection-driven panel (#67) that make the rest of this document true remain designed, not built. See [`../roadmap/phases.md`](../roadmap/phases.md); everything in [`ui-controls.md`](./ui-controls.md) and [`agent-api.md`](./agent-api.md) depends on the built core.
 
 ## Why it has to exist first
 
-Today the scene is hard-wired to exactly two solids. `src/lib/scene/params.svelte.ts` holds five scalar `$state` fields, `Scene.svelte` has two literal `<T.Mesh>` branches with two per-solid `$effect`s and a two-way `onMesh` switch, and the gizmo throws its transform away. There is no collection, no per-object transform, and no way to add or remove an object.
+Before #65, the scene was hard-wired to exactly two solids. `src/lib/scene/params.svelte.ts` held five scalar `$state` fields, `Scene.svelte` had two literal `<T.Mesh>` branches with two per-solid `$effect`s and a two-way `onMesh` switch, and the gizmo threw its transform away. There was no collection, no per-object transform, and no way to add or remove an object.
 
-Both new workstreams — direct manipulation and agent integration — need to represent _N_ objects with position and dimensions. Neither can start until this exists. `KernelClient` is already N-solid-capable (all its state is keyed by `SolidId`); the limit is entirely above it, in the scene wiring. This model removes that limit.
+Both new workstreams — direct manipulation and agent integration — need to represent _N_ objects with position and dimensions. Neither can start until a model exists. `KernelClient` is already N-solid-capable (all its state is keyed by `SolidId`); the limit was entirely above it, in the scene wiring. This model removes that limit — though, per the status note above, `Scene.svelte` itself hasn't been generalized to _consume_ more than two objects yet (#66).
 
 ## Shape
 
@@ -40,11 +40,11 @@ interface SceneObject {
 
 ## Reactivity, and the one carried-over lesson
 
-Hold `let objects = $state<SceneObject[]>([...])`. Svelte 5 deep-proxies the entries, so reading `obj.def.params.width` inside a per-object `$effect` subscribes at field granularity — the same fine-grained-dependency goal `params.svelte.ts` reaches today with one `$state` primitive per field, now without hand-rolling them.
+Holds `let objects = $state<SceneObject[]>([...])`. Svelte 5 deep-proxies the entries, so reading `obj.def.params.width` inside a per-object `$effect` subscribes at field granularity — the same fine-grained-dependency goal the old `params.svelte.ts` reached with one `$state` primitive per field, now without hand-rolling them.
 
-**The lesson that must survive the move:** the getter that hands params to the kernel must return a **fresh plain object**, never the Svelte proxy. A proxy does not survive `structuredClone` / `postMessage` — it would throw at the worker boundary. So expose `paramsFor(id)` (or equivalent) that spreads: `{ ...obj.def.params }`. This is the same rule `state-and-errors.md` records for the current params model; it is why that rule is written down.
+**The lesson that survived the move:** the getter that hands params to the kernel returns a **fresh plain object**, never the Svelte proxy. A proxy does not survive `structuredClone` / `postMessage` — it would throw at the worker boundary. `paramsFor(id)` spreads: `{ ...obj.def.params }`. This is the same rule `state-and-errors.md` recorded for the old params model; it is why that rule was written down.
 
-Clamping stays: keep or re-export `clampBoxParam` / `clampCylinderParam` and `BOX_LIMITS` / `CYLINDER_LIMITS`, so a value can never reach the kernel out of range. `params.spec.ts` continues to cover them.
+Clamping stays: `clampBoxParam` / `clampCylinderParam` and `BOX_LIMITS` / `CYLINDER_LIMITS` moved over unchanged. `document.spec.ts` covers them, plus the command API itself (`paramsFor`'s fresh-object guarantee, `setParam`/`addObject`/`removeObject`/`setTransform`).
 
 ## The mutation API is command-shaped from day one
 
@@ -84,7 +84,7 @@ This deletes `Scene.svelte`'s two request `$effect`s, its `onMesh` `solidId` swi
 
 ## Where it is created
 
-`src/routes/+page.svelte`, swapping `createParamsModel()` for `createDocumentModel()` and passing the instance to both `<Viewport>` (→ `Scene`, inside the Threlte `<Canvas>`) and the panel (plain DOM). This is the same sibling-tree injection the current params model uses, and the reason is unchanged — see [`state-and-errors.md`](./state-and-errors.md#where-the-shared-model-is-created).
+`src/routes/+page.svelte` calls `createDocumentModel()` and passes the instance to both `<Viewport>` (→ `Scene`, inside the Threlte `<Canvas>`) and the panel (plain DOM) — the same sibling-tree injection the old params model used, and the reason is unchanged — see [`state-and-errors.md`](./state-and-errors.md#where-the-shared-model-is-created).
 
 ## Related
 

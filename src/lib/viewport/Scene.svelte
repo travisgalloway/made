@@ -34,7 +34,8 @@
 	import { createKernelClient } from '$lib/kernel/createKernelClient';
 	import type { KernelClient } from '$lib/kernel/KernelClient';
 	import { toBufferGeometry } from '$lib/kernel/geometry';
-	import { BOX_SOLID_ID, CYLINDER_SOLID_ID, type ParamsModel } from '$lib/scene/params.svelte';
+	import type { BoxParams, CylinderParams } from '$lib/kernel/types';
+	import { BOX_SOLID_ID, CYLINDER_SOLID_ID, type DocumentModel } from '$lib/scene/document.svelte';
 	import { settings } from '$lib/settings/settings.svelte';
 	import { createAxesIndicator } from './axes';
 	import { frameBox } from './framing';
@@ -55,7 +56,7 @@
 		type SnapKind
 	} from '$lib/input/snapping';
 
-	let { paramsModel }: { paramsModel: ParamsModel } = $props();
+	let { documentModel }: { documentModel: DocumentModel } = $props();
 
 	// One-time global prototype patch (idempotent) — see picking.ts.
 	installBVHAcceleration();
@@ -339,19 +340,38 @@
 		};
 	});
 
+	// Narrows `documentModel.paramsFor()`'s union return by structural shape, rather than casting —
+	// both objects in the default document always resolve to their own kind here, but this stays
+	// correct even if #66's generalized Scene calls it against an id whose kind isn't known statically.
+	function narrowBoxParams(params: BoxParams | CylinderParams | undefined): BoxParams | undefined {
+		return params && 'width' in params ? params : undefined;
+	}
+
+	function narrowCylinderParams(
+		params: BoxParams | CylinderParams | undefined
+	): CylinderParams | undefined {
+		return params && 'radius' in params ? params : undefined;
+	}
+
 	// Sends the box solid's current params whenever they change, once the client exists. Runs once
 	// immediately when `kernelClient` first becomes defined (sending the initial params), and again
 	// on every subsequent slider edit — debounced/conflated inside KernelClient itself (issue #26).
+	// `documentModel.paramsFor()` always returns a fresh plain object, never the Svelte proxy
+	// (document.svelte.ts) — that's what lets it cross the postMessage boundary inside `request()`.
 	$effect(() => {
 		const client = kernelClient;
 		if (!client) return;
-		client.request({ type: 'box', solidId: BOX_SOLID_ID, params: paramsModel.box });
+		const params = narrowBoxParams(documentModel.paramsFor(BOX_SOLID_ID));
+		if (!params) return;
+		client.request({ type: 'box', solidId: BOX_SOLID_ID, params });
 	});
 
 	$effect(() => {
 		const client = kernelClient;
 		if (!client) return;
-		client.request({ type: 'cylinder', solidId: CYLINDER_SOLID_ID, params: paramsModel.cylinder });
+		const params = narrowCylinderParams(documentModel.paramsFor(CYLINDER_SOLID_ID));
+		if (!params) return;
+		client.request({ type: 'cylinder', solidId: CYLINDER_SOLID_ID, params });
 	});
 
 	// Frames the camera on the kernel scene exactly once, the first time all three of the box,
