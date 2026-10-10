@@ -1,10 +1,10 @@
 # Input Routing, Gestures & Precision Snapping
 
-The input subsystem in `made` enforces Invariant 8 (navigation and editing never share a gesture) and Invariant 9 (precision comes from snapping and typed values). It supports universal Apple input paradigms: trackpad gestures and mouse clicks on macOS, and multi-touch gestures with Apple Pencil precision editing on iPadOS.
+The input subsystem in `made` enforces Invariant 8 (navigation and editing never share a gesture) and Invariant 9 (precision comes from snapping and typed values). The modules model mouse, touch, and pen input. **Status:** the modules are implemented and unit tested, but the viewport does not feed them events. `CADMetalViewRepresentable` creates a `PointerRouter` and nothing sends it input, so the camera has no orbit, pan, or zoom (#87) and snapping never runs (#88). The iPadOS and Apple Pencil paths are planned (#84).
 
 ---
 
-## Universal Input Pipeline
+## Input Pipeline
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -15,18 +15,17 @@ The input subsystem in `made` enforces Invariant 8 (navigation and editing never
 ┌──────────────────────────▼─────────────────────────────┐
 │                     PointerRouter                      │
 │   Classifies event into PointerType:                   │
-│   • .mouse (macOS click / drag)                        │
+│   • .mouse (6 px click-vs-drag, decided here)          │
 │   • .touch (Multi-finger navigation)                   │
-│   • .pen   (Apple Pencil precision channel)            │
+│   • .pen   (always manipulate, decided here)           │
 └──────────────────────────┬─────────────────────────────┘
-                           │ Route to Arbiter
+                           │ Touch events only
 ┌──────────────────────────▼─────────────────────────────┐
 │                    GestureArbiter                      │
-│   • Tracks active pointers & movement threshold (3 pt) │
-│   • Locks mode on first move:                          │
+│   • Tracks active pointers (touch path only)           │
+│   • Locks mode on the first move event:                │
 │     - 1 pointer  → .manipulate (geometry edit)         │
 │     - 2+ pointers → .navigate   (camera orbit/pan)     │
-│     - Apple Pencil → Locked to .manipulate             │
 │   • Holds mode until ALL pointers release              │
 └──────────────────────────┬─────────────────────────────┘
                            │ Manipulate Mode Active
@@ -47,48 +46,50 @@ A common point of frustration in 3D applications is accidental camera rotation w
 
 > **Navigation and editing never share a gesture.** The gesture arbiter locks the mode on the first movement and holds it until release.
 
-Implemented in [`GestureArbiter.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Input/GestureArbiter.swift):
+Implemented in [`GestureArbiter.swift`](../../macos/Sources/MadeCore/Input/GestureArbiter.swift):
 
 ### The Mode Lock Rules
-1. **Movement Threshold**: Pointer motion below 3.0 display points is considered a potential tap. Mode is undecided (`.undecided`).
-2. **First Move Decision**: Once motion exceeds 3.0 points:
-   - If exactly 1 pointer is active: Mode locks to `.manipulate`. The user is translating, rotating, or resizing geometry.
-   - If 2 or more pointers are active: Mode locks to `.navigate`. The user is orbiting, panning, or zooming the camera.
-3. **Lock Retention**: Once locked, the mode **never switches** during that gesture, even if additional fingers touch the screen or some fingers lift.
-4. **Release Resolution**: Mode resets to `.idle` only after the last pointer lifts. If the gesture finished without exceeding the movement threshold, a tap is emitted with the peak pointer count (e.g., single tap selects, two-finger tap triggers context actions).
+1. **No Distance Threshold in the Arbiter**: `GestureArbiter` applies no movement threshold. Before the first move event, the decision is undecided (`GestureDecision.undecided`, with `mode == nil`). `GestureMode` has only `.navigate` and `.manipulate`.
+2. **First Move Decision**: The first `.move` event locks the mode using the peak concurrent pointer count:
+   - A peak of 1 pointer locks `.manipulate`.
+   - A peak of 2 or more pointers locks `.navigate`.
+3. **Lock Retention**: Once locked, the mode does not change during that gesture, even if pointers join or lift.
+4. **Release Resolution**: When the last pointer lifts, the arbiter locks (if it has not yet), returns the decision, and resets to undecided. A pure tap therefore resolves at release using the peak pointer count. Tap emission and context actions are not implemented (#42).
 
-### Apple Pencil Precision Channel
-On iPadOS, Apple Pencil events (`PointerType.pen`) bypass the multi-touch navigation arbiter entirely:
-- **Pencil Touches**: Always lock to `.manipulate` / geometry editing.
-- **Finger Touches**: Always lock to `.navigate` / camera movement.
-This enables fluid pair-handed modeling: the user's non-dominant hand orbits and positions the model with two fingers while the dominant hand sketches and manipulates features with the Apple Pencil.
+### Pointer Router Channels
+[`PointerRouter.swift`](../../macos/Sources/MadeCore/Input/PointerRouter.swift) chooses the channel by `PointerType`:
+- **Pen**: Always returns `.manipulate`, locked. It never reaches the arbiter.
+- **Touch**: Forwarded to the `GestureArbiter` rules above.
+- **Mouse**: Movement past `mouseClickThresholdPx` (6.0 px) from the press point classifies the gesture as `.navigate`. Otherwise it is `.manipulate`.
+
+The iPadOS runtime for these paths, including Apple Pencil hover, is planned (#84).
 
 ---
 
 ## Snapping Precedence (Invariant 9)
 
-Manual dragging on a touch surface or mouse is incapable of reliable sub-millimeter alignment. Invariant 9 mandates:
+Manual dragging on a touch surface or mouse cannot give reliable sub-millimeter alignment. Invariant 9 mandates:
 
 > **Precision comes from snapping and typed values, not steady fingers.**
 
-Implemented in [`Snapping.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Input/Snapping.swift):
+Implemented in [`Snapping.swift`](../../macos/Sources/MadeCore/Input/Snapping.swift):
 
 ### Precedence Hierarchy
-When a pointer moves near geometry, candidates are gathered and evaluated in strict priority order:
+`resolveSnap(candidates:tolerancePx:)` evaluates candidates in strict priority order. The caller supplies the candidates. Nothing generates vertex or edge candidates yet (#88):
 
 1. **Vertex Snapping (Priority: Vertex)**:
-   Snaps to vertices of existing solid features. Highest priority. Even if a grid line or edge is closer in Euclidean distance, a vertex within the snap radius ($r = 10\text{ mm}$) wins.
+   Snaps to vertices of existing solid features. Highest priority. Even if a grid candidate or edge is closer on screen, a vertex inside the tolerance wins.
 2. **Edge Snapping (Priority: Edge)**:
    Projects onto boundary edges and centerlines of features. Second priority. Wins over grid lines.
 3. **Grid Snapping (Priority: Grid)**:
-   Rounds $(X, Y)$ coordinates to the nearest active grid pitch (default $1.0\text{ mm}$ or $5.0\text{ mm}$). Lowest priority fallback when no geometry features are nearby. Preserves the precise $Z$ height.
+   `snapToGrid` rounds $(X, Y)$ to the nearest multiple of `defaultGridSpacing` ($10.0\text{ mm}$). It leaves $Z$ unchanged. No ground grid is drawn in the viewport (#102).
 
-Candidates beyond the tolerance radius are discarded immediately.
+Each candidate carries a screen distance in pixels. Candidates beyond `defaultSnapTolerancePx` ($20.0\text{ px}$, screen space) are discarded. Within one kind, the smallest screen distance wins.
 
 ---
 
 ## Related Documentation
 
-- [`invariants.md`](./invariants.md) — Invariants 8 and 9
-- [`document-model.md`](./document-model.md) — How manipulation commands mutate scene state
-- [`ui-controls.md`](./ui-controls.md) — Inspector numeric inputs
+- [`invariants.md`](./invariants.md): Invariants 8 and 9
+- [`document-model.md`](./document-model.md): How manipulation commands mutate scene state
+- [`ui-controls.md`](./ui-controls.md): Inspector numeric inputs

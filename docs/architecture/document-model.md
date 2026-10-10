@@ -1,6 +1,6 @@
 # Document Model & Scene Graph
 
-The document model in `made` is the single source of truth for all 3D scene objects, parametric feature trees, dimensional configurations, and spatial transformations. It is implemented as an `@Observable` Swift class in [`DocumentModel.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Scene/DocumentModel.swift) conforming to Invariant 3.
+The document model in `made` is the single source of truth for all 3D scene objects, parametric feature trees, dimensional configurations, and spatial transformations. It is implemented as an `@Observable` Swift class (`final class DocumentModel: @unchecked Sendable`, with no actor isolation, see #91) in [`DocumentModel.swift`](../../macos/Sources/MadeCore/Scene/DocumentModel.swift) conforming to Invariant 3.
 
 ---
 
@@ -9,17 +9,16 @@ The document model in `made` is the single source of truth for all 3D scene obje
 ```
 ┌────────────────────────────────────────────────────────┐
 │              DocumentModel (@Observable)               │
-│   • objects: [ObjectId: SceneObject]                   │
-│   • selection: Set<ObjectId>                           │
-│   • undoManager: UndoManager                           │
+│   • objects: [SceneObject] (ordered array)             │
+│   (no selection set, no UndoManager yet)               │
 └──────────────────────────┬─────────────────────────────┘
                            │ Dispatches Command Mutations
 ┌──────────────────────────▼─────────────────────────────┐
 │                 Command Pattern API                    │
-│   • addObject(...)                                     │
+│   • addObject(def:transform:)                          │
 │   • removeObject(id:)                                  │
-│   • setParam(id:name:value:)                           │
-│   • setTransform(id:position:)                         │
+│   • setParam(id:key:value:)                            │
+│   • setTransform(id:transform:)                        │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Reactive Bindings        │ Async Invalidation
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
@@ -35,20 +34,25 @@ The document model in `made` is the single source of truth for all 3D scene obje
 Every entity in the scene graph is represented by a `SceneObject`:
 
 ```swift
-public struct SceneObject: Identifiable, Sendable {
-    public let id: ObjectId
-    public var name: String
-    public var type: ObjectType          // .box, .cylinder, .booleanResult
-    public var params: [String: Float]   // width, depth, height, radius
-    public var position: SIMD3<Float>    // 3D world position
-    public var isVisible: Bool
+public struct SceneObject: Identifiable, Sendable, Equatable {
+    public let id: ObjectId              // typealias for SolidId
+    public var def: ObjectDef            // .box, .cylinder, .imported(name:)
+    public var transform: Transform      // position, rotation, scale
+}
+
+public enum ObjectDef: Sendable, Equatable {
+    case box(BoxParams)                  // width, depth, height
+    case cylinder(CylinderParams)        // radius, height
+    case imported(name: String)
 }
 ```
 
+Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model has no object name, visibility flag, or boolean-result type. Selection is a `@State var selectedId` in `ContentView`, not part of the model (#69).
+
 ### Supported Object Types
 1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).
-2. **CSG Composites**: Boolean evaluation results (`subtract`, `union`, `intersect`) referencing parent operations.
-3. **Imported Solids**: Direct B-Rep solids loaded from industry-standard STEP or IGES files.
+2. **Imported Placeholder**: `.imported(name:)` carries a name only. The `cad_boolean_operation` tool records its result as an `.imported` object under a different ID than the kernel result (#99, #100).
+3. **Planned**: CSG composites that reference parent operations (#35), and B-Rep solids loaded from STEP or IGES files (#38, #82).
 
 ---
 
@@ -57,32 +61,40 @@ public struct SceneObject: Identifiable, Sendable {
 All modifications to the scene must traverse the explicit command API rather than mutating property dictionaries directly:
 
 ```swift
-// Create an object
+// Create an object (IDs have the form <kind>-<seq>)
 let boxId = document.addObject(
-    name: "Bracket Base",
-    type: .box,
-    params: ["width": 40, "depth": 30, "height": 10],
-    position: SIMD3<Float>(0, 0, 0)
+    def: .box(BoxParams(width: 40, depth: 30, height: 10)),
+    transform: .identity
 )
 
 // Update dimension with automatic limits clamping
-document.setParam(id: boxId, name: "width", value: 45)
+document.setParam(id: boxId, key: "width", value: 45)
 
 // Update world transform
-document.setTransform(id: boxId, position: SIMD3<Float>(10, 0, 0))
+var t = Transform.identity
+t.position = SIMD3<Float>(10, 0, 0)
+document.setTransform(id: boxId, transform: t)
 
 // Delete object
 document.removeObject(id: boxId)
 ```
 
 ### Limits Clamping
-The document model clamps all parameter updates to valid engineering envelopes (e.g., minimum dimensions of $0.001\text{ mm}$, maximum of $10{,}000\text{ mm}$). This guarantees that degenerate zero- or negative-volume geometry requests never reach the geometry kernel.
+`DocumentLimits` in `DocumentModel.swift` clamps parameter updates made through `setParam` to fixed ranges (a NaN value becomes the minimum):
+
+| Parameter | Minimum (mm) | Maximum (mm) |
+| --------- | ------------ | ------------ |
+| Box width, depth, height | 5 | 90 |
+| Cylinder radius | 5 | 50 |
+| Cylinder height | 5 | 90 |
+
+`setParam` and the `cad_add_solid` tool apply these ranges. Other paths into the model, such as `addObject(def:)` called directly, do not clamp (#104). Unknown keys and `.imported` objects are ignored without an error.
 
 ---
 
 ## Native Document Persistence (`.made`)
 
-In Phase 4, the document model integrates with Apple's `FileDocument` protocol:
+Planned (#83): the document model integrates with Apple's `FileDocument` protocol. No persistence exists today:
 - **Uniform Type Identifier**: `com.made.cad.document` (extension: `.made`).
 - **Package Bundle Architecture**:
   - `document.json`: Serialized scene graph hierarchy, parameters, and transforms.
@@ -93,6 +105,6 @@ In Phase 4, the document model integrates with Apple's `FileDocument` protocol:
 
 ## Related Documentation
 
-- [`invariants.md`](./invariants.md) — Invariant 3 (imperative viewport state)
-- [`kernel.md`](./kernel.md) — How document mutations dispatch kernel requests
-- [`ui-controls.md`](./ui-controls.md) — SwiftUI inspector bindings
+- [`invariants.md`](./invariants.md): Invariant 3 (imperative viewport state)
+- [`kernel.md`](./kernel.md): How document mutations dispatch kernel requests
+- [`ui-controls.md`](./ui-controls.md): SwiftUI inspector bindings

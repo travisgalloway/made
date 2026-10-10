@@ -1,23 +1,23 @@
 # Testing Strategy & Verification
 
-The testing architecture in `made` is built on Swift Package Manager (`swift test`) using **XCTest** and Swift Concurrency testing primitives. Tests are organized into focused test suites in [`macos/Tests/MadeCoreTests`](file:///Users/travisgalloway/github/wade/macos/Tests/MadeCoreTests).
+The testing architecture in `made` is built on Swift Package Manager (`swift test`) using **XCTest** and Swift Concurrency testing primitives. The package has one test target, `MadeCoreTests`, with focused suites in [`macos/Tests/MadeCoreTests`](../../macos/Tests/MadeCoreTests).
 
 ---
 
 ## Test Suites Overview
 
-There are 8 core test suites in `MadeCoreTests`, executing in approximately 0.2 seconds:
+`MadeCoreTests` has 8 suites and 33 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and nothing in the test target creates a Metal device or a SwiftUI view. `KernelClientTests.testRapidRequestsConflateToLatestValue` fails today (#90).
 
 | Suite Name | Target Module | What It Verifies |
 | ---------- | ------------- | ---------------- |
 | **`CADDSLTests`** | `MadeCore/Scripting` | Cadova-style declarative DSL, operator overloads (`-`, `+`, `&`), and triangulation. |
 | **`EuclidEngineTests`** | `MadeCore/Kernel` | Pure-Swift CSG parametric primitives and watertight boolean evaluations. |
-| **`KernelClientTests`** | `MadeCore/Kernel` | Swift Actor concurrency, 60 ms debounce conflation, and honest cancellation. |
-| **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: 3.0 pt movement threshold, mode locking, and pointer type routing. |
-| **`SnappingTests`** | `MadeCore/Input` | Invariant 9: Vertex > Edge > Grid priority queue, tolerance limits, and coordinate rounding. |
-| **`DocumentModelTests`** | `MadeCore/Scene` | Invariant 3: `@Observable` N-object model, limits clamping, and command mutations. |
+| **`KernelClientTests`** | `MadeCore/Kernel` | Box and cylinder generation, invalid dimensions, and the 60 ms debounce conflation test (failing, #90). |
+| **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: lock on first move for one pointer, lock to navigate for two pointers, and a pure tap resolving at release. `PointerRouter` has no test. |
+| **`SnappingTests`** | `MadeCore/Input` | Invariant 9: Vertex > Edge > Grid precedence, the 20 px tolerance, and grid rounding to 10 mm with Z unchanged. |
+| **`DocumentModelTests`** | `MadeCore/Scene` | Default two-solid scene, add and remove, and `setParam` limits clamping. |
 | **`CADToolsTests`** | `MadeCore/Agent` | Tool registry execution (`cad_add_solid`, `cad_measure`, `cad_boolean_operation`). |
-| **`MCPServerTests`** | `MadeCore/Agent` | JSON-RPC 2.0 handshake, tool schema discovery, and error code mapping (`made-native-cad`). |
+| **`MCPServerTests`** | `MadeCore/Agent` | JSON-RPC 2.0 handshake, tool discovery, a tool call, and the unknown-method error. The tests call `MCPServer` in process. |
 
 ---
 
@@ -33,18 +33,29 @@ swift test
 Run a specific test suite or test case by name:
 
 ```sh
+cd macos
+
 # Run only CAD DSL tests
 swift test --filter CADDSLTests
 
 # Run a single test case
-swift test --filter testBooleanDifferenceProducesWatertightMesh
+swift test --filter KernelClientTests/testInvalidDimensionsFailWithErrorCode
+```
+
+Build and run the application:
+
+```sh
+cd macos
+swift build
+swift run MadeApp
+swift run MadeApp --mcp-stdio
 ```
 
 ---
 
 ## Stdio MCP Protocol Verification
 
-External AI agents interact with `made` headlessly via standard I/O pipes. You can verify this pipeline manually or in continuous integration scripts:
+External AI agents can drive `made` through standard I/O pipes. No automated test starts the `MadeApp` process, so the checks below are manual shell recipes. Run them from the repository root after `cd macos && swift build`:
 
 ### 1. Initialize Protocol Handshake
 ```sh
@@ -71,15 +82,14 @@ echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_get_sc
 
 ## Rendering Observability Contract
 
-To verify Invariant 2 (on-demand rendering), `RenderInstrumentation.shared` tracks all submitted frames:
-- At idle, `renderCount` **must remain completely flat**.
-- A test that simulates mouse moves without crossing the 3.0 pt movement threshold asserts that `renderCount` does not advance.
-- When an object parameter changes, `renderCount` must advance by **exactly one frame** once the kernel job settles.
+`RenderInstrumentation.shared` records submitted frames (`renderCount`, `drawCalls`, `lastReason`) and the viewport HUD displays them. No test reads these values yet, so Invariant 2 is not covered by automation. The intended checks, once a test can create a renderer, are:
+- At idle, `renderCount` stays flat.
+- When an object parameter changes, `renderCount` advances by one frame once the kernel job settles.
 
 ---
 
 ## Related Documentation
 
-- [`invariants.md`](../architecture/invariants.md) — How invariants are checked by tests
-- [`kernel.md`](../architecture/kernel.md) — Conflation and cancellation testing
-- [`agent-api.md`](../architecture/agent-api.md) — MCP protocol specification
+- [`invariants.md`](../architecture/invariants.md): How invariants are checked by tests
+- [`kernel.md`](../architecture/kernel.md): Conflation and cancellation testing
+- [`agent-api.md`](../architecture/agent-api.md): MCP protocol specification

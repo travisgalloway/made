@@ -53,6 +53,6 @@ Many web and game engines use Y-up coordinates, forcing translators to swap $Y$ 
 
 ## Related Documentation
 
-- [`invariants.md`](./invariants.md) — The tenth convention (unnumbered)
-- [`rendering.md`](./rendering.md) — Metal matrix transformations
-- [`kernel.md`](./kernel.md) — Parametric primitive generation
+- [`invariants.md`](./invariants.md): The tenth convention (unnumbered)
+- [`rendering.md`](./rendering.md): Metal matrix transformations
+- [`kernel.md`](./kernel.md): Parametric primitive generation

@@ -1,20 +1,22 @@
-# Phase 4 — CAD Depth
+# Phase 4: CAD Depth
 
-**Status**: 🔜 Active Development Target  
+**Status**: Not started. No Phase 4 issue is closed.  
 **Package Targets**: `MadeCore`, `MadeApp`
 
-Phase 4 expands `made` from a parametric primitive viewer with agentic capabilities into a full-featured Computer-Aided Design application. It builds directly upon the N-object [`DocumentModel`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Scene/DocumentModel.swift), the [`KernelClient`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Kernel/KernelClient.swift) actor, and the [`MetalRenderer`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Viewport/MetalRenderer.swift).
+Phase 4 expands `made` from a parametric primitive viewer with agentic capabilities into a full-featured Computer-Aided Design application. It builds on the N-object [`DocumentModel`](../../macos/Sources/MadeCore/Scene/DocumentModel.swift), the [`KernelClient`](../../macos/Sources/MadeCore/Kernel/KernelClient.swift) actor, and the [`MetalRenderer`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift).
 
 ---
 
 ## 1. Scene & Document Foundation
 
-The N-object model with a command-shaped mutation API was established in Phase 0–2. Phase 4 extends this with native desktop persistence:
+The document model holds an ordered array of objects with `addObject`, `removeObject`, `setParam`, and `setTransform`. The 4.N labels below are local to this page. GitHub issue titles use a different numbering, so the cited issue number is the key.
 
-- **4.1 Native `.made` Document Package**:
+- Open scene work: generalize the scene and inspector (#66, #67), selection (#69, #70), add and remove objects (#73), feature tree (#34).
+
+- **4.1 Native `.made` Document Package** (#83):
   - Conforms to Apple's `FileDocument` / `ReferenceFileDocument` protocols with exported UTType `com.made.cad.document`.
   - Serializes scene graphs, parametric feature histories, and embedded STEP assets.
-- **4.2 Undo/Redo Engine (Command Pattern)**:
+- **4.2 Undo/Redo Engine (Command Pattern)** (#39):
   - Integrates system `UndoManager` with `DocumentModel`'s command API (`addObject`, `removeObject`, `setParam`, `setTransform`).
   - Restoring a previous state issues a command that invalidates only the affected solid.
 
@@ -22,22 +24,22 @@ The N-object model with a command-shaped mutation API was established in Phase 0
 
 ## 2. Geometry Engine Expansion
 
-- **4.3 OCCTSwift B-Rep & STEP Exchange (Tier 2)**:
+- **4.3 OCCTSwift B-Rep & STEP Exchange (Tier 2)** (#82, #38):
   - Integrates `SecondMouseAU/OCCTSwift` via pre-built `OCCT.xcframework`.
   - Imports and exports ISO 10303 STEP (AP203/AP214) and IGES boundary representation files.
   - Adds true topological fillets, chamfers, and draft angles.
-- **4.4 Multi-Body CSG Boolean Operations**:
-  - Builds on Phase 2's `EuclidEngine.subtract/union/intersect` to allow complex tree-based boolean operations across arbitrary solids.
+- **4.4 Multi-Body CSG Boolean Operations** (#35):
+  - Builds on `EuclidEngine.subtract/union/intersect` to allow complex tree-based boolean operations across arbitrary solids.
 
 ---
 
 ## 3. 2D Sketching & Parametric Constraints
 
-- **4.5 2D Sketch Plane & Drawing Engine**:
+- **4.5 2D Sketch Plane & Drawing Engine** (#36):
   - Allows selecting any planar solid face or standard datum plane ($XY$, $XZ$, $YZ$) as an active sketch plane.
   - Interactive drawing of lines, arcs, circles, and Bézier curves.
   - Extrudes closed 2D profiles into 3D solids using pure-Swift path math in Euclid.
-- **4.6 2D Geometric Constraint Solver**:
+- **4.6 2D Geometric Constraint Solver** (#37):
   - Solves 2D geometric constraints: coincident, horizontal/vertical, parallel, perpendicular, tangent, concentric, and dimensional distance.
   - Predictive constraint inference during interactive sketch drawing.
 
@@ -45,12 +47,12 @@ The N-object model with a command-shaped mutation API was established in Phase 0
 
 ## 4. Interaction & Direct Manipulation
 
-- **4.7 3D Transform Gizmos in Metal**:
+- **4.7 3D Transform Gizmos in Metal** (#71, #72):
   - Visual translation axes, rotation rings, and scale handles rendered directly in the Metal 3 viewport.
   - **Two-Physics Rule**: Move/rotate updates the world transform directly without kernel re-tessellation. Resize previews a GPU scale matrix during drag, dispatching exactly one debounced re-tessellation upon release.
-- **4.8 Contextual Predictive Commands**:
+- **4.8 Contextual Predictive Commands** (#41, #42, #43, #44):
   - Selecting an edge surfaces fillet/chamfer options; selecting a face surfaces sketch or push-pull tools.
-- **4.9 Metal Selection Outlines**:
+- **4.9 Metal Selection Outlines** (#40, #45):
   - Stencil buffer edge highlighting indicating the active solid selection.
 
 ---

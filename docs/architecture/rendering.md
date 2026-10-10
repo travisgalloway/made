@@ -27,18 +27,18 @@ public enum InvalidateReason: String, Sendable {
 ```
 
 ### Render Instrumentation & Observability
-Every render call increments telemetry tracked in [`RenderInstrumentation`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Viewport/RenderLoop.swift#L11):
+Every render call increments telemetry tracked in [`RenderInstrumentation`](../../macos/Sources/MadeCore/Viewport/RenderLoop.swift#L11):
 - `renderCount`: Total frames submitted to the GPU.
 - `drawCalls`: Number of distinct mesh draw primitives issued in the last pass.
 - `lastReason`: The invalidation trigger responsible for the frame.
 
-This telemetry is exposed in the SwiftUI HUD in the viewport corner and is verified by automated tests to ensure `renderCount` remains flat at idle.
+This telemetry is exposed in the SwiftUI HUD in the viewport corner. No automated test reads `renderCount`, so the flat-at-idle behavior is not yet tested. Only the `model` reason is recorded today (#94).
 
 ---
 
 ## Metal 3 Graphics Pipeline
 
-The rendering pipeline is implemented in [`MetalRenderer.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Viewport/MetalRenderer.swift):
+The rendering pipeline is implemented in [`MetalRenderer.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift):
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -66,8 +66,8 @@ The rendering pipeline is implemented in [`MetalRenderer.swift`](file:///Users/t
                                └─────────────────────────┘
 ```
 
-### Unified Shared Memory (Zero-Copy)
-Apple Silicon integrates CPU and GPU memory on a single high-bandwidth bus. `made` allocates vertex and index buffers with `MTLResourceOptions.storageModeShared`:
+### Shared-Storage Buffers
+Apple Silicon integrates CPU and GPU memory on a single bus. `made` allocates vertex, normal, and index buffers with `MTLResourceOptions.storageModeShared`:
 
 ```swift
 let vertexBuffer = device.makeBuffer(
@@ -77,12 +77,14 @@ let vertexBuffer = device.makeBuffer(
 )
 ```
 
-No CPU-to-GPU data copies occur across PCIe buses. The geometry engine writes vertices directly into shared buffers that the Metal rasterizer consumes.
+`makeBuffer(bytes:length:options:)` copies the `MeshPayload` arrays into the buffer once per upload (`MetalRenderer.createMesh`). The buffers are then visible to the GPU without a second transfer. The pipeline is not zero-copy end to end.
 
 ### Shading & Lighting Model
-Shaders are written in Metal Shading Language (MSL) in [`MetalShaders.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Viewport/MetalShaders.swift):
-- **Vertex Shader**: Transforms vertices by `modelMatrix`, `viewMatrix`, and `projectionMatrix`, computing eye-space normals.
-- **Fragment Shader**: Evaluates Lambertian diffuse reflection combined with Blinn-Phong specular highlights against a directional key light and ambient fill.
+Shaders are written in Metal Shading Language (MSL) in [`MetalShaders.swift`](../../macos/Sources/MadeCore/Viewport/MetalShaders.swift):
+- **Vertex Shader**: Transforms vertices by `modelMatrix`, `viewMatrix`, and `projectionMatrix`, and transforms normals to world space with `normalMatrix`.
+- **Fragment Shader**: Evaluates Lambertian diffuse shading from two directional lights (key weight 0.7, fill weight 0.3) plus a 0.25 ambient term. It has no specular term. Blinn-Phong highlights are not implemented.
+
+The viewport draws no ground grid (#102) and no axes indicator (#103).
 
 ---
 
@@ -90,25 +92,27 @@ Shaders are written in Metal Shading Language (MSL) in [`MetalShaders.swift`](fi
 
 For autonomous AI agents and local copilot workflows, numerical CAD parameters are insufficient to verify aesthetics, clearance, and topology. Agents require visual feedback.
 
-`MetalRenderer` implements the [`SnapshotProvider`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Agent/CADTools.swift#L4) protocol:
+`MetalRenderer` implements the [`SnapshotProvider`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L4) protocol, which is declared in `Agent/CADTools.swift`, not in the renderer file:
 
 ```swift
-public protocol SnapshotProvider: Sendable {
+public protocol SnapshotProvider: AnyObject, Sendable {
     func captureSnapshotPngBase64() async -> String?
 }
 ```
+
+The GUI wires the renderer into the tool registry (`ContentView.swift`). The `--mcp-stdio` mode builds its registry without a provider, so `cad_capture_snapshot` returns an error there (#89).
 
 ### Execution Flow
 1. An agent calls the `cad_capture_snapshot` MCP tool.
 2. `MetalRenderer` creates an offscreen `MTLTexture` (standard 800×600 RGBA8).
 3. A non-blocking render pass draws the scene into the texture using the active camera orientation.
 4. When the command buffer completes asynchronously, texture bytes are extracted into a `CGImage` and compressed to a PNG data stream using Apple's `ImageIO` framework.
-5. The resulting base64 data URI is returned in the MCP JSON-RPC response, allowing multimodal LLMs (e.g., Claude 3.5 Sonnet, Gemini Pro Vision) to inspect the 3D model visually and iterate.
+5. The tool returns the raw base64 PNG (no `data:` prefix) as MCP `image` content with MIME type `image/png`, so a multimodal model can inspect the 3D model.
 
 ---
 
 ## Related Documentation
 
-- [`invariants.md`](./invariants.md) — Invariants 2, 3, and 5
-- [`orientation.md`](./orientation.md) — Right-handed Z-up standard in Metal NDC
-- [`agent-api.md`](./agent-api.md) — Multimodal visual verification toolchain
+- [`invariants.md`](./invariants.md): Invariants 2, 3, and 5
+- [`orientation.md`](./orientation.md): Right-handed Z-up standard in Metal NDC
+- [`agent-api.md`](./agent-api.md): Multimodal visual verification toolchain

@@ -1,12 +1,12 @@
-# made — Documentation
+# made: Documentation
 
-**`made`** (**m**acOS-native **A**ided **D**esign and **E**ngineering) is a native CAD application for Apple platforms (macOS 14+, iPadOS 17+) engineered with Swift 6, Metal 3, Euclid CSG, a Cadova-inspired declarative CAD DSL, and an embedded Model Context Protocol (MCP) server for autonomous AI workflows.
+**`made`** (**m**acOS-native **A**ided **D**esign and **E**ngineering) is a native CAD application for macOS 14+ engineered with Swift 6, Metal 3, Euclid CSG, a Cadova-inspired declarative CAD DSL, and an embedded Model Context Protocol (MCP) server for autonomous AI workflows.
 
 ---
 
 ## Start Here
 
-**Read [`architecture/invariants.md`](./architecture/invariants.md) first.** Nine non-negotiable rules govern this codebase, most are checked by tests and compiler rules, and source code comments cite them by number.
+**Read [`architecture/invariants.md`](./architecture/invariants.md) first.** Nine non-negotiable rules govern this codebase, the [enforcement matrix](./architecture/invariants.md#enforcement-matrix) states which ones tests cover today. Source code comments cite them by number.
 
 Then navigate based on your task:
 
@@ -22,6 +22,9 @@ Then navigate based on your task:
 | Writing tests or running verification | [testing](./guides/testing.md) |
 | About to open a PR | [conventions](./guides/conventions.md) |
 | Picking up the next engineering milestone | [roadmap](./roadmap/phases.md) → [Phase 4](./roadmap/phase-4-cad-depth.md) |
+| Checking what is built and what is planned | [feature matrix](./feature-matrix.md) |
+| Checking test coverage by type | [test plan](./test-plan.md) |
+| Reading audit findings | [reviews](./reviews/) and [parked findings](./parked-findings.md) |
 
 ---
 
@@ -29,12 +32,12 @@ Then navigate based on your task:
 
 | Concern | Implementation Choice |
 | ------- | --------------------- |
-| **Language** | Swift 6 (`-strict-concurrency=complete`) |
-| **UI Framework** | SwiftUI (Universal macOS 14+ & iPadOS 17+) |
+| **Language** | Swift 6 (`swift-tools-version: 6.0`, Swift 6 language mode) |
+| **UI Framework** | SwiftUI (macOS 14+; iPadOS is planned, #84) |
 | **3D Rendering** | Metal 3, MetalKit (`MTKView`), custom MSL shaders |
-| **Memory Architecture** | Apple Silicon Unified Memory (`.storageModeShared`) |
+| **Memory Architecture** | Metal buffers allocated with `.storageModeShared`; mesh arrays are copied in at upload |
 | **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) |
-| **Geometry Kernel (Tier 2)** | OpenCASCADE B-Rep & STEP/IGES (`OCCTSwift`) |
+| **Geometry Kernel (Tier 2)** | Planned, not in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) |
 | **Agent Interface** | Model Context Protocol (JSON-RPC 2.0 stdio transport) |
 | **CAD Scripting DSL** | Cadova-inspired declarative Swift (`@resultBuilder`) |
 | **Testing** | Swift Package Manager (`swift test`), XCTest |
@@ -54,22 +57,29 @@ macos/
       Scene/              # @Observable DocumentModel, scene commands
       Agent/              # MCP protocol, server, CAD tools registry
       Scripting/          # Cadova-inspired declarative Swift CAD DSL
-      Platform/           # Universal AppKit / UIKit platform abstraction shims
+      Platform/           # AppKit / UIKit platform abstraction shims
     MadeApp/              # Application executable target
       MadeApp.swift       # SwiftUI @main entrypoint & --mcp-stdio handler
       ContentView.swift   # Viewport, inspector controls, AI copilot sidebar
-      CADMetalViewRepresentable.swift # Universal MTKView representable
+      CADMetalViewRepresentable.swift # MTKView representable (AppKit; UIKit branch is not built)
   Tests/
-    MadeCoreTests/        # 8 unit test suites (DSL, CSG, Arbiter, Snapping, MCP)
+    MadeCoreTests/        # 8 unit test suites (DSL, CSG, Kernel, Arbiter, Snapping, Document, Tools, MCP)
 docs/
   architecture/           # Canonical architecture reference specifications
   roadmap/                # Phased delivery status and backlog migration audit
   guides/                 # Testing and engineering conventions
   archive/web-prototype/  # Archived documentation for original web prototype
+  feature-matrix.md       # Implementation status per capability
+  test-plan.md            # Test coverage by type
+  parked-findings.md      # Audit findings deferred from the current scope
+  reviews/                # Audit reports (2026-10-10)
+src/, e2e/, package.json  # Archived web prototype (pnpm toolchain), kept for reference only
 ```
 
 ---
 
 ## Historical Archive
+
+The repository root still holds `src/`, `e2e/`, and the `pnpm` toolchain from the web prototype. They are archived and kept for reference. The native application does not use them.
 
 The original web proof-of-concept (SvelteKit + brepjs/OpenCascade WASM + three.js WebGPU) documentation is preserved in [`docs/archive/web-prototype/`](./archive/web-prototype/README.md).

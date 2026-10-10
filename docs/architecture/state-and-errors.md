@@ -6,22 +6,25 @@ Error handling in `made` is designed to be **fault-tolerant and non-destructive*
 
 ## The Error Hierarchy
 
-All kernel-level failures are represented by `KernelError` in [`MadeCore/Kernel/Types.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Kernel/Types.swift):
+All kernel-level failures are represented by `KernelError` in [`MadeCore/Kernel/Types.swift`](../../macos/Sources/MadeCore/Kernel/Types.swift):
 
 ```swift
-public struct KernelError: Error, Sendable {
-    public enum Code: String, Sendable {
-        case invalidParams    // Dimensions <= 0 or non-numeric
-        case unknownSolid     // Solid ID missing from scene/cache
-        case geometryFailed   // CSG intersection failure or non-manifold topology
-        case cancelled        // Computation superseded by newer request
-        case internalError    // Unexpected system or tool error
-    }
-    
-    public let code: Code
+public enum KernelErrorCode: String, Sendable {
+    case kernelInitFailed = "kernel-init-failed"
+    case invalidParams = "invalid-params"      // Dimensions <= 0
+    case geometryFailed = "geometry-failed"    // Also returned by the importStep stub
+    case unknownSolid = "unknown-solid"        // Solid ID missing from the kernel cache
+    case cancelled = "cancelled"               // Superseded, disposed, or cancelled before execution
+    case workerCrashed = "worker-crashed"
+}
+
+public struct KernelError: Error, Equatable, Sendable {
+    public let code: KernelErrorCode
     public let message: String
 }
 ```
+
+`KernelErrorCode` is a top-level enum with six cases. No `internalError` case exists. The JSON-RPC `internalError` (-32603) is a separate payload in `MCPProtocol.swift`. `kernelInitFailed` and `workerCrashed` are defined but nothing in the code produces them today.
 
 ---
 
@@ -29,24 +32,27 @@ public struct KernelError: Error, Sendable {
 
 ### 1. Retention of Previous Valid Mesh
 If an engineer enters an extreme or invalid dimension (e.g., width = 0), `KernelClient` rejects the job with `.invalidParams`.
-- The viewport **does not** clear the mesh.
+- The viewport does not clear the mesh.
 - The previous valid 3D geometry remains on screen.
-- An inline warning indicator appears in the Inspector next to the offending parameter.
+- Planned (#109): the Inspector shows a message when a kernel recompute fails. `ContentView.swift` has no warning indicator today. The slider ranges in `DocumentLimits` keep most degenerate values out of the kernel.
 
 ### 2. Honest Cancellation Handling
 When a job is cancelled due to rapid slider scrubbing:
 - The return status is `.failure(jobId: ..., error: KernelError(code: .cancelled, ...))`.
-- The UI layer treats `.cancelled` as a normal lifecycle event, ignoring the failure silently because a newer job is already rendering.
+- A `.cancelled` result is a normal lifecycle event, because a newer job is already pending for the same solid.
+- The conflation test `KernelClientTests.testRapidRequestsConflateToLatestValue` fails today, and a conflation bug is open (#90).
 
 ### 3. Agent Tool Error Reporting
 When an AI agent invokes a tool that fails (e.g., referencing a nonexistent solid ID):
-- The MCP server catches the error and returns a formal JSON-RPC error payload (`-32602` for invalid arguments or `-32603` for geometry failure).
-- The error message provides diagnostic hints (e.g., *"Solid B 'bracket-hole' not found for CSG boolean"*), allowing the agent to self-correct its query and retry.
+- The tool returns an `MCPToolCallResult` with `isError: true` and a text message prefixed `Error:`. The JSON-RPC response itself is a success (`result`), not an `error` payload (`MCPServer.swift`, `MCPProtocol.swift`).
+- JSON-RPC `-32602` is returned only when `tools/call` has no `params.name`. `-32603` is returned only when encoding the result fails. `-32601` covers unknown methods and `-32700` covers unparseable input.
+- The message gives a diagnostic hint (for example, *"Solid 'x' not found in scene"*), so the agent can correct its call and retry.
+- Argument validation is partial: `cad_set_param` reports success for an unknown parameter name (#97), and transform and size arguments are not validated (#98).
 
 ---
 
 ## Related Documentation
 
-- [`kernel.md`](./kernel.md) — KernelClient error propagation
-- [`agent-api.md`](./agent-api.md) — JSON-RPC error mapping
-- [`ui-controls.md`](./ui-controls.md) — Inspector parameter feedback
+- [`kernel.md`](./kernel.md): KernelClient error propagation
+- [`agent-api.md`](./agent-api.md): JSON-RPC error mapping
+- [`ui-controls.md`](./ui-controls.md): Inspector parameter feedback

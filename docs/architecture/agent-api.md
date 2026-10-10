@@ -1,6 +1,6 @@
 # Agent API & Model Context Protocol (MCP)
 
-`made` integrates first-class autonomous AI agent capabilities into the core application. Agents can inspect the 3D scene, create and modify parametric geometry, execute boolean operations, script models using a declarative Swift DSL, and visually verify their work through a closed multimodal feedback loop.
+`made` integrates first-class autonomous AI agent capabilities into the core application. Agents can inspect the 3D scene, create and modify parametric geometry, execute boolean operations, script models using a declarative Swift DSL, and request a viewport snapshot. The snapshot works in the GUI only; the headless server cannot produce one (#89).
 
 ---
 
@@ -14,7 +14,8 @@
 ┌──────────────────────────▼─────────────────────────────┐
 │                       MCPServer                        │
 │   • Conforms to MCP Spec (2024-11-05)                  │
-│   • Request Routing: initialize, tools/list, tools/call│
+│   • Methods: initialize, tools/list, tools/call,       │
+│     notifications/initialized                          │
 └──────────────────────────┬─────────────────────────────┘
                            │ Tool Invocations
 ┌──────────────────────────▼─────────────────────────────┐
@@ -27,7 +28,7 @@
                │ Live Mutation            │ Snapshot Request
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
 │       DocumentModel        │ │      MetalRenderer      │
-│   (@Observable Scene Graph)│ │   (Offscreen PNG Pass)  │
+│   (@Observable Scene Graph)│ │ (Offscreen PNG, GUI only)│
 └────────────────────────────┘ └──────────┬──────────────┘
                                           │ Base64 Image
                                ┌──────────▼──────────────┐
@@ -40,16 +41,19 @@
 
 ## 1. Model Context Protocol (MCP) Integration
 
-`made` implements the Model Context Protocol natively in pure Swift ([`MCPProtocol.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Agent/MCPProtocol.swift) and [`MCPServer.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Agent/MCPServer.swift)).
+`made` implements the Model Context Protocol natively in pure Swift ([`MCPProtocol.swift`](../../macos/Sources/MadeCore/Agent/MCPProtocol.swift) and [`MCPServer.swift`](../../macos/Sources/MadeCore/Agent/MCPServer.swift)).
 
 ### Headless Stdio Transport
-The application executable can run headlessly as an MCP server:
+The application executable can run as an MCP server over standard input and output:
 
 ```sh
-MadeApp --mcp-stdio
+cd macos
+swift run MadeApp --mcp-stdio
 ```
 
-External LLM harnesses connect standard I/O pipes to this process to discover tools and command the CAD application without requiring browser wrappers or external servers.
+This mode is not fully headless. `MadeApp.init` starts the server task, and the SwiftUI window scene still launches. The server creates a fresh `DocumentModel` and `KernelClient` and builds its `CADToolRegistry` without a snapshot provider, so `cad_capture_snapshot` always returns an error (#89). The process exits when standard input closes.
+
+The server reads standard input in 64 KB chunks and splits each chunk on newlines. A message larger than one chunk is split and fails to parse (#101).
 
 ### Configuration for Claude Desktop / Cursor
 Add `made` to your `claude_desktop_config.json`:
@@ -69,24 +73,36 @@ Add `made` to your `claude_desktop_config.json`:
 
 ## 2. Core CAD Tools
 
-The [`CADToolRegistry`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Agent/CADTools.swift#L8) provides 8 strongly typed tools:
+The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L8) provides 8 tools. Argument names below match the input schemas in `CADTools.swift`:
 
 | Tool Name | Parameters | Description |
 | --------- | ---------- | ----------- |
 | `cad_get_scene` | None | Returns the full scene hierarchy, object IDs, parametric dimensions, and 3D positions in JSON format. |
 | `cad_add_solid` | `type` ("box" \| "cylinder"), dimensions (`width`, `depth`, `height`, `radius`), position (`posX`, `posY`, `posZ`) | Instantiates a new parametric solid in the document. |
-| `cad_set_param` | `id`, `name`, `value` | Updates a specific parameter on a solid, automatically clamped within safe engineering limits. |
-| `cad_set_transform` | `id`, `posX`, `posY`, `posZ` | Updates the 3D world position of a solid. |
+| `cad_set_param` | `id`, `param` ("width", "depth", "height", "radius"), `value` | Updates a parameter on a solid, clamped to the `DocumentLimits` ranges. An unknown `param` reports success and changes nothing (#97). |
+| `cad_set_transform` | `id`, `posX`, `posY`, `posZ` | Updates the world position of a solid. The schema description mentions scale, which is not implemented (#98). |
 | `cad_remove_solid` | `id` | Deletes a solid from the document. |
 | `cad_measure` | `id` | Returns calculated volume, bounding extents, and estimated surface area. |
-| `cad_boolean_operation` | `targetId`, `op` ("subtract" \| "union" \| "intersect"), `solidA`, `solidB` | Performs a CSG boolean operation between two solids and stores the result. |
-| `cad_capture_snapshot` | None | Renders an offscreen Metal 3 viewport frame and returns a base64 PNG data URI. |
+| `cad_boolean_operation` | `solidA` (target), `solidB` (cutter), `operation` ("subtract" \| "union" \| "intersect") | Runs a CSG boolean in the kernel. The kernel returns `unknown-solid` unless both solids were tessellated earlier. The result is recorded as an `.imported` object under an ID different from the kernel's `csg-` ID, so other tools cannot use the reported ID (#99, #100). |
+| `cad_capture_snapshot` | None | Renders an offscreen 800x600 Metal frame and returns it as MCP `image` content: raw base64 PNG with MIME type `image/png`, not a data URI. GUI only (#89). |
+
+### Error Behavior
+A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` and a text message beginning `Error:`. JSON-RPC error payloads are limited to the following cases:
+
+| Code | Condition |
+| ---- | --------- |
+| -32700 | Input that is not valid UTF-8 or not decodable as a request. This also covers structurally invalid requests, which should return -32600 (#95). |
+| -32601 | Unknown method. |
+| -32602 | `tools/call` without `params.name`. |
+| -32603 | Result encoding failure. |
+
+The `notifications/initialized` notification receives a response with a null result, where the protocol expects none (#96).
 
 ---
 
 ## 3. Multimodal Visual Verification Loop
 
-Numerical verification (measuring volume and bounding box) is necessary but insufficient for complex CAD parts. Visual artifacts such as inverted normals, unexpected chamfers, or incorrect clearances require optical inspection.
+Visual checks catch artifacts that measurements miss, such as inverted normals or incorrect clearances. The loop below works against the running GUI, where the registry holds the renderer as its snapshot provider. Over `--mcp-stdio` the snapshot step fails (#89).
 
 ### The Agent Verify Cycle
 ```mermaid
@@ -105,7 +121,7 @@ sequenceDiagram
     Agent->>MCP: tools/call ("cad_capture_snapshot", {})
     MCP->>GPU: Offscreen Render Pass
     GPU-->>MCP: Base64 PNG
-    MCP-->>Agent: {image: "data:image/png;base64,..."}
+    MCP-->>Agent: {content: [{type: "image", data: "<base64>", mimeType: "image/png"}]}
     Note over Agent: Agent visually verifies geometry and iterates
 ```
 
@@ -113,7 +129,7 @@ sequenceDiagram
 
 ## 4. Cadova-Inspired Declarative CAD DSL
 
-In addition to discrete MCP tool calls, agents can generate complete CAD models programmatically using the declarative Swift DSL in [`CADDSL.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Scripting/CADDSL.swift):
+In addition to discrete MCP tool calls, agents can generate complete CAD models programmatically using the declarative Swift DSL in [`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift):
 
 ```swift
 import MadeCore
@@ -129,12 +145,12 @@ let meshPayload = mountingBracket.toMeshPayload()
 ### DSL Features
 - **Operator Overloads**: `-` for CSG subtraction, `+` for CSG union, and `&` for intersection.
 - **Fluent Transforms**: `.translated(x:y:z:)` and parameter setters.
-- **Result Builders**: `@CADShapeBuilder` allows composite hierarchy definitions compatible with Swift 6 and Claude Code generation.
+- **Result Builders**: `@CADShapeBuilder` allows composite hierarchy definitions.
 
 ---
 
 ## Related Documentation
 
-- [`rendering.md`](./rendering.md) — Snapshot generation pipeline
-- [`kernel.md`](./kernel.md) — CSG boolean execution
-- [`document-model.md`](./document-model.md) — Scene mutation APIs
+- [`rendering.md`](./rendering.md): Snapshot generation pipeline
+- [`kernel.md`](./kernel.md): CSG boolean execution
+- [`document-model.md`](./document-model.md): Scene mutation APIs

@@ -4,28 +4,28 @@ This document records the migration of the issue backlog from the web prototype 
 
 ---
 
-## 1. Web/PWA Issues (Closed as Obsolete)
+## 1. Web/PWA Issues (Retired)
 
-The following 10 issues were created for the web-based PWA architecture (service workers, WASM streaming, browser workers, and IndexedDB). They do not apply to the native macOS/Apple platform and are formally retired:
+The following 10 issues were created for the web-based PWA architecture (service workers, WASM streaming, browser workers, and IndexedDB). They do not apply to the native macOS app and are retired. All 10 are closed on GitHub with state reason `COMPLETED`, not `NOT_PLANNED`, and the issues do not record the retirement rationale. Comments on them suggest `NOT_PLANNED` is the intended reason. The titles below are the GitHub titles; the rationale column is this document's own:
 
 | Issue # | Original Title | Retirement Rationale |
 | ------- | -------------- | -------------------- |
-| **#28** | Phase 3.1: PWA manifest via @vite-pwa/sveltekit | Obsolete. `made` is a native Swift/Metal application with an `Info.plist`, not a browser PWA. |
-| **#29** | Phase 3.2: Workbox caching for app shell | Obsolete. Native application binaries are installed locally via macOS/iOS app bundles. |
-| **#30** | Phase 3.3: Lazy-load kernel worker | Obsolete. Geometry kernel is a native Swift Actor (`KernelClient`) compiled directly into the binary. |
-| **#31** | Phase 3.4: WASM streaming instantiation | Obsolete. Replaced by native compiled ARM64 machine code. |
-| **#32** | Phase 3.5: Investigate a slim WASM build | Obsolete. No WASM payloads; Euclid CSG is pure Swift and OCCT is a native xcframework. |
-| **#33** | Phase 3.6: Install prompt via beforeinstallprompt | Obsolete. Native desktop app distribution. |
-| **#46** | Deferred: Threaded OCCT (SharedArrayBuffer) | Obsolete. Replaced by Swift 6 concurrency and Grand Central Dispatch; no browser COOP/COEP restrictions. |
-| **#49** | Phase 3.7: Code-split renderer from app shell | Obsolete. Replaced by modular Swift packages (`MadeCore` and `MadeApp`). |
-| **#50** | Deferred: Render-in-worker (OffscreenCanvas) | Obsolete. Replaced by native Metal 3 on-demand rendering on the main thread and offscreen snapshot command buffers. |
-| **#76** | Phase 3.8: IndexedDB persistence | Obsolete. Replaced by native `.made` file documents (`FileDocument`) on the local filesystem. |
+| **#28** | Phase 3.1: PWA manifest via @vite-pwa/sveltekit | Retired. `made` is a native Swift/Metal application with an `Info.plist`, not a browser PWA. |
+| **#29** | Phase 3.2: Workbox caching strategy | Retired. Native application binaries are installed locally as a macOS app bundle. |
+| **#30** | Phase 3.3: Lazy-load kernel worker after first paint | Retired. Geometry kernel is a native Swift Actor (`KernelClient`) compiled directly into the binary. |
+| **#31** | Phase 3.4: WASM streaming instantiation + Brotli | Retired. Replaced by native compiled ARM64 machine code. |
+| **#32** | Phase 3.5: Investigate a slim OCCT build | Retired. No WASM payloads; Euclid CSG is pure Swift. A native OCCT xcframework is planned (#82). |
+| **#33** | Phase 3.6: Install prompt via beforeinstallprompt | Retired. Native desktop app distribution. |
+| **#46** | Deferred: Threaded OCCT (SharedArrayBuffer + cross-origin isolation) | Retired. Replaced by Swift 6 concurrency and Grand Central Dispatch; no browser COOP/COEP restrictions. |
+| **#49** | Phase 3.7: Code-split renderer and kernel out of initial bundle | Retired. Replaced by modular Swift packages (`MadeCore` and `MadeApp`). |
+| **#50** | Deferred: Render-in-worker (OffscreenCanvas) | Retired. Replaced by native Metal 3 on-demand rendering and an offscreen snapshot pass. |
+| **#76** | Phase 3.8: IndexedDB persistence | Retired. Replaced by the planned native `.made` file format (#83). No persistence exists today. |
 
 ---
 
 ## 2. Phase 4 CAD Depth Issues (Modernized for Native)
 
-The following issues represent core CAD features that remain active and have been reframed for Swift 6, Metal 3, and SwiftUI:
+The following issues represent core CAD features that remain open and have been reframed for Swift 6, Metal 3, and SwiftUI. All are open on GitHub. None is delivered. The last column states what the code does today:
 
 | Issue # | Modernized Title | Native Implementation Target |
 | ------- | ---------------- | ---------------------------- |
@@ -41,19 +41,19 @@ The following issues represent core CAD features that remain active and have bee
 | **#43** | Widget-less constrained transforms | Gesture-driven axis constraints backed by `Snapping.swift`. |
 | **#44** | Dimension by selection | Dynamic numeric overlays on selected vertices, edges, and faces. |
 | **#45** | View snapping | Double-tap / gesture face alignment to square the Metal camera. |
-| **#66** | Multi-object scene generalization | Delivered in `DocumentModel` and `MetalRenderer`. |
-| **#67** | Parametric panel adaptation | Delivered in SwiftUI `ContentView` Inspector. |
-| **#69** | Selection model state | Delivered via `selectedId: ObjectId` in `ContentView`. |
-| **#70** | Selection-driven inspector | Delivered in `ContentView` Inspector tab. |
+| **#66** | Multi-object scene generalization | Open. `DocumentModel` holds an array of objects and `MetalRenderer` draws several meshes. Generalizing the scene (positions, per-object rotation and scale) is not done. |
+| **#67** | Parametric panel adaptation | Open. The `ContentView` Inspector has slider controls for the active solid. Numeric fields are not built. |
+| **#69** | Selection model state | Open. `ContentView` keeps a `@State selectedId`, set by a menu picker. The document has no selection state and the viewport has no picking. |
+| **#70** | Selection-driven inspector | Open. The Inspector follows the picker choice. Typed dimension and position fields are not built. |
 | **#71** | Gizmo write-back (move/rotate) | Metal 3 transform handles writing to `DocumentModel.setTransform`. |
 | **#72** | Gizmo resize with GPU preview | Scale matrix preview during drag, single debounced kernel tessellation on release. |
-| **#73** | Add / remove objects | Delivered via `document.addObject` and `document.removeObject`. |
+| **#73** | Add / remove objects | Open. `addObject` and `removeObject` exist and run only through agent tools. The GUI has no add or remove control, and the Geometry menu items have empty actions. |
 
 ---
 
 ## 3. New Native Epics
 
-The following new engineering epics have been created on GitHub:
+The following new engineering epics were created on GitHub. All are open:
 
 1. **#82: Epic: OCCTSwift C++ Framework Integration for STEP/IGES & Exact B-Rep**
    - Integrate pre-compiled `OCCT.xcframework` via Swift Package Manager.
@@ -76,7 +76,13 @@ The following new engineering epics have been created on GitHub:
 
 ---
 
-## 4. Active Milestone Structure on GitHub
+## 4. Audit Issues (#87 to #109)
+
+The 2026-10-10 audit opened issues #87 to #109 for gaps between the documents and the code. Examples: #87 camera navigation, #88 snapping, #89 headless snapshot, #90 conflation, #91 actor isolation, #102 ground grid, #103 axes indicator. The full list with titles is in `.claude/audit/20261010-114045/created.tsv`, and [`../feature-matrix.md`](../feature-matrix.md) maps each capability to its issue.
+
+---
+
+## 5. Active Milestone Structure on GitHub
 
 The active backlog is organized into 4 coherent sequential milestones:
 

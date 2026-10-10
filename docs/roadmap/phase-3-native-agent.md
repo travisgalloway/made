@@ -1,6 +1,6 @@
-# Phase 3 — Agentic Subsystem & MCP Stdio Server
+# Phase 3: Agentic Subsystem & MCP Stdio Server
 
-**Status**: ✅ Delivered & Verified  
+**Status**: In progress. Tools, protocol, and DSL are built. The headless snapshot is not (#89).  
 **Package Target**: `MadeCore/Agent`, `MadeCore/Scripting`, `MadeApp`
 
 Phase 3 establishes first-class autonomous AI agent integration in `made`. Instead of requiring external browser testing tools or custom web sockets, the native application exposes a standardized **Model Context Protocol (MCP)** interface over standard I/O and provides a declarative Swift DSL for programmatic CAD modeling.
@@ -10,18 +10,19 @@ Phase 3 establishes first-class autonomous AI agent integration in `made`. Inste
 ## Delivered Components
 
 ### 1. Pure-Swift MCP Implementation
-- **Files**: [`MCPProtocol.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Agent/MCPProtocol.swift), [`MCPServer.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Agent/MCPServer.swift)
+- **Files**: [`MCPProtocol.swift`](../../macos/Sources/MadeCore/Agent/MCPProtocol.swift), [`MCPServer.swift`](../../macos/Sources/MadeCore/Agent/MCPServer.swift)
 - **Standard**: Conforms to the 2024-11-05 Model Context Protocol specification.
 - **Protocol**: JSON-RPC 2.0 handling `initialize`, `tools/list`, and `tools/call`.
 - **Identity**: Identifies as `made-native-cad` v0.1.0.
 
 ### 2. Headless Stdio Transport
-- **Entrypoint**: [`MadeApp.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeApp/MadeApp.swift)
+- **Entrypoint**: [`MadeApp.swift`](../../macos/Sources/MadeApp/MadeApp.swift)
 - **Flag**: `--mcp-stdio`
-- When invoked with this flag, the application runs headlessly, listening for JSON-RPC messages on `FileHandle.standardInput` and responding on `FileHandle.standardOutput`.
+- With this flag, the application listens for JSON-RPC messages on `FileHandle.standardInput` and responds on `FileHandle.standardOutput`. The SwiftUI window scene still launches, so the mode is not fully headless.
+- The registry is built with no snapshot provider (`MadeApp.swift`).
 
 ### 3. Core CAD Tool Registry
-- **File**: [`CADTools.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Agent/CADTools.swift)
+- **File**: [`CADTools.swift`](../../macos/Sources/MadeCore/Agent/CADTools.swift)
 - Registers 8 strongly-typed tools:
   1. `cad_get_scene`
   2. `cad_add_solid`
@@ -32,20 +33,35 @@ Phase 3 establishes first-class autonomous AI agent integration in `made`. Inste
   7. `cad_boolean_operation`
   8. `cad_capture_snapshot`
 
-### 4. Multimodal Visual Feedback Loop
-- **File**: [`MetalRenderer.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Viewport/MetalRenderer.swift)
-- Implements `SnapshotProvider` protocol.
-- Generates offscreen Metal render passes, extracts GPU framebuffer bytes asynchronously, and encodes high-resolution PNG data as a base64 string for multimodal LLMs.
+### 4. Multimodal Visual Feedback Loop (GUI only)
+- **File**: [`MetalRenderer.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift)
+- Implements `SnapshotProvider` (declared in `CADTools.swift`).
+- Renders an 800x600 offscreen frame, reads the bytes back, and encodes a base64 PNG.
+- The GUI registers the renderer as the provider (`ContentView.swift`). Over `--mcp-stdio` there is no provider, and `cad_capture_snapshot` returns an error (#89).
 
 ### 5. Cadova-Inspired Declarative CAD DSL
-- **File**: [`CADDSL.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Scripting/CADDSL.swift)
+- **File**: [`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift)
 - Allows agents to author parametric shapes using Swift result builders and operators (`-`, `+`, `&`).
 
 ---
 
 ## Verification Summary
 
-Tested via `swift test` in `macos/`:
-- `MCPServerTests` (4 tests): Verified protocol handshake, tool enumeration, tool execution, and error handling.
-- `CADToolsTests` (5 tests): Verified scene inspection, parametric creation, limits clamping, volume calculation, and deletion.
-- Stdio pipeline test: Piped JSON-RPC payload through `MadeApp --mcp-stdio` verifying clean output.
+Tested via `cd macos && swift test`:
+- `MCPServerTests` (4 tests): initialize, tool listing, one tool call, and the unknown-method error.
+- `CADToolsTests`: scene inspection, creation, limits clamping, measurement, and deletion.
+
+Not covered by `swift test`:
+- The stdio pipeline. No test starts `MadeApp --mcp-stdio`. The shell recipes in [`testing.md`](../guides/testing.md) are manual.
+- `cad_capture_snapshot`, in either mode.
+
+## Open Issues
+
+| Issue | Topic |
+| ----- | ----- |
+| #89 | Snapshot over `--mcp-stdio` |
+| #91 | Agent mutations run off the main actor |
+| #95, #96 | Invalid-request code and notification responses |
+| #97, #98, #99 | Argument validation for `cad_set_param`, transform and size, and booleans |
+| #100 | Boolean result ID unusable by other tools |
+| #101 | Messages larger than one read chunk |
