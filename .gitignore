@@ -32,3 +32,5 @@ test-results
 .claude/work-active
 .claude/work-active.rewakes
 .claude/scheduled_tasks.lock
+.claude/audit/
+.claude/settings.local.json
