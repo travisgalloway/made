@@ -16,7 +16,7 @@ The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the c
 ┌──────────────────────────▼─────────────────────────────┐
 │                 KernelClient (Actor)                   │
 │   • 60 ms Debounce Queue                               │
-│   • Per-Solid Job Conflation (test failing, #90)       │
+│   • Per-Solid Job Conflation                           │
 │   • Stale-result drop by job ID                        │
 └──────────────┬──────────────────────────┬──────────────┘
                │                          │
@@ -98,7 +98,7 @@ public actor KernelClient {
 ```
 
 ### The 60 ms Conflation Window
-When an engineer or an agent scrubs a dimensional parameter, slider events fire at 60–120 Hz. Queuing every intermediate step causes compute backlogs. `KernelClient` introduces a 60 ms debounce window per `SolidId`. Intermediate values overwrite the pending slot; only the latest parameters are dispatched for tessellation. The test `testRapidRequestsConflateToLatestValue` fails today, and the conflation bug is tracked in #90.
+When an engineer or an agent scrubs a dimensional parameter, slider events fire at 60–120 Hz. Queuing every intermediate step causes compute backlogs. `KernelClient` introduces a 60 ms debounce window per `SolidId`. Intermediate values overwrite the pending slot; only the latest parameters are dispatched for tessellation. A superseded request resolves as `.cancelled`. The debounce task checks the job ID before it takes the slot, so a stale task never strands a newer request.
 
 ### Honest Cancellation Guarantee
 A request that arrives while an earlier request for the same solid is still waiting in the debounce window replaces it:

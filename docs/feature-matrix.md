@@ -13,7 +13,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - Data is done where the capability has an in-memory model or cache. No persistent store exists (see Persistence note below).
 - Contract is n/a on every row because the repository has no docs/contracts/ directory.
 - Status is Shipped only where code is reachable through its entry point. Rows with a stub, no caller, or a stated failure are In progress. Rows with no producer code are Planned.
-- KERN-9 is In progress because the test KernelClientTests.testRapidRequestsConflateToLatestValue fails (finding DSN-efe60d18).
+- KERN-9 is Shipped. The conflation race (finding DSN-efe60d18) was fixed under #90.
 - Issue holds the GitHub issue number that tracks the capability.
 
 Persistence note. No capability persists a document. The .made file format is planned under #83.
@@ -58,7 +58,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | KERN-6 | An agent can intersect two solid meshes | none | done | n/a | In progress | #35 | n/a |
 | KERN-7 | A developer can generate a box mesh with 24 vertices and flat normals by hand | n/a | done | n/a | In progress | none | n/a |
 | KERN-8 | A developer can generate a cylinder mesh with side wall and caps by hand | n/a | done | n/a | In progress | none | n/a |
-| KERN-9 | A user can request geometry and have requests debounced 60 ms and conflated to one pending job per solid | done | done | n/a | In progress | #90 | n/a |
+| KERN-9 | A user can request geometry and have requests debounced 60 ms and conflated to one pending job per solid | done | done | n/a | Shipped | #90 | n/a |
 | KERN-10 | A user gets non-positive box or cylinder dimensions rejected with `invalidParams` | n/a | done | n/a | Shipped | none | n/a |
 | KERN-11 | An agent can cancel a job by ID before it executes | n/a | done | n/a | In progress | none | n/a |
 | KERN-12 | A user gets a superseded in-flight result dropped (honest cancellation); the check at :162 compares an ID set synchronously at :97, so only the conflation path at :58 takes effect | n/a | done | n/a | In progress | none | n/a |

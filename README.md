@@ -18,7 +18,7 @@ cd macos
 swift build
 ```
 
-Run the unit test suites (33 tests covering DSL, CSG booleans, gesture arbiter, snapping, document model, and MCP protocol). `KernelClientTests.testRapidRequestsConflateToLatestValue` fails today (#90):
+Run the unit test suites (34 tests covering DSL, CSG booleans, kernel conflation, gesture arbiter, snapping, document model, and MCP protocol):
 ```sh
 cd macos
 swift test
@@ -56,7 +56,7 @@ Nine architectural rules govern this codebase:
 4. **Isolated kernel interface**: Viewport and UI communicate with `KernelClient` through an asynchronous wire contract.
 5. **Direct Metal 3 pipeline**: Low-overhead Apple Silicon rendering pipeline with offscreen snapshotting for visual verification.
 6. **Shared-storage buffers**: Vertex and index buffers use `.storageModeShared`. `MeshPayload` arrays are copied into them once per upload.
-7. **Thread-safe geometry execution**: Actor-isolated geometry generation with a 60 ms debounce. The conflation test currently fails (#90).
+7. **Thread-safe geometry execution**: Actor-isolated geometry generation with a 60 ms debounce. Superseded jobs resolve as cancelled, and the latest request always completes.
 8. **Navigation and editing never share a gesture**: Pointer gestures strictly isolate camera manipulation from object editing.
 9. **Precision snapping hierarchy**: Vertex > Edge > Grid. The snapping module is not yet called from the viewport (#88).
 
@@ -64,9 +64,4 @@ Nine architectural rules govern this codebase:
 
 ## Web Prototype (Archived Reference)
 
-The original web prototype (SvelteKit + brepjs/OpenCascade WASM + WebGPU) remains in `src/` and `e2e/`, with the `pnpm` toolchain, for reference only. It is not part of the native application:
-```sh
-pnpm install
-pnpm dev
-pnpm test
-```
+The original web prototype (SvelteKit + brepjs/OpenCascade WASM + WebGPU) was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation is in [`docs/archive/web-prototype/`](docs/archive/web-prototype/README.md).

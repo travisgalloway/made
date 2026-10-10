@@ -4,9 +4,9 @@ Date: 2026-10-10
 Scope: macos/ (Swift package, test target MadeCoreTests)
 Audit run: 20261010-114045
 
-The plan covers 122 capabilities. The MadeCoreTests target holds 8 XCTest files and 33 test functions. A run of `swift test` in macos/ executed 33 tests with 1 failure. The Swift Testing run found 0 tests.
+The plan covers 122 capabilities. The MadeCoreTests target holds 8 XCTest files and 34 test functions. A run of `swift test` in macos/ executes 34 tests with 0 failures. The Swift Testing run finds 0 tests.
 
-The failing test is `KernelClientTests.testRapidRequestsConflateToLatestValue` at KernelClientTests.swift:54, where `XCTAssertTrue(finalResult.isSuccess)` fails. The test issues three requests with `async let`, so the final await can return a superseded result. The audit also found a race in `KernelClient.executePending` that can leave a caller without a result (DSN-efe60d18). Both are tracked by #90.
+The audit found `KernelClientTests.testRapidRequestsConflateToLatestValue` flaky and a race in `KernelClient.executePending` (DSN-efe60d18). #90 fixed both. The test now enqueues requests in a fixed order, and `testStaleDebounceDoesNotStrandNewerRequest` covers the race.
 
 Table 1 gives the class decisions. Table 2 gives the per-capability coverage.
 
@@ -58,12 +58,12 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-10. Source: closure
 | KERN-6 | CADDSLTests.swift: testDeclarativeIntersectionOperator (via DSL only) | n/a (no integration target) | none (no UI test target) | box and cylinder overlap | EuclidEngine.intersect has no direct test; empty-intersection case not tested. |
 | KERN-7 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | KERN-8 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
-| KERN-9 | KernelClientTests.swift: testRapidRequestsConflateToLatestValue | n/a (no integration target) | none (no UI test target) | three rapid requests, conflated counter >= 1 | Test FAILS in the current run (line 54, isSuccess false); per-solid isolation (cylinder untouched by box slider) not tested. Tracked by #90. |
+| KERN-9 | KernelClientTests.swift: testRapidRequestsConflateToLatestValue | n/a (no integration target) | none (no UI test target) | three ordered requests: first two cancelled, third builds a 30-mm box, conflated == 2, dispatched == 1; KernelClientTests.swift: testStaleDebounceDoesNotStrandNewerRequest covers the stale-debounce race (#90) | Per-solid isolation (cylinder untouched by box slider) not tested. |
 | KERN-10 | KernelClientTests.swift: testInvalidDimensionsFailWithErrorCode | n/a (no integration target) | none (no UI test target) | negative box width -> invalidParams | Zero values, cylinder radius/height and NaN not tested. |
 | KERN-11 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | KERN-12 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | KERN-13 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
-| KERN-14 | KernelClientTests.swift: testRapidRequestsConflateToLatestValue (reads getStats().conflated only) | n/a (no integration target) | none (no UI test target) | conflated counter | dispatched, dropped and completed counters not asserted. |
+| KERN-14 | KernelClientTests.swift: testRapidRequestsConflateToLatestValue (asserts conflated and dispatched) | n/a (no integration target) | none (no UI test target) | conflated and dispatched counters | dropped and completed counters not asserted. |
 | KERN-15 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | KERN-16 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | KERN-17 | KernelClientTests.swift: testInvalidDimensionsFailWithErrorCode | n/a (no integration target) | none (no UI test target) | invalidParams code only | Other five error codes have no test. |

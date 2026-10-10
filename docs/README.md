@@ -73,13 +73,12 @@ docs/
   test-plan.md            # Test coverage by type
   parked-findings.md      # Audit findings deferred from the current scope
   reviews/                # Audit reports (2026-10-10)
-src/, e2e/, package.json  # Archived web prototype (pnpm toolchain), kept for reference only
 ```
 
 ---
 
 ## Historical Archive
 
-The repository root still holds `src/`, `e2e/`, and the `pnpm` toolchain from the web prototype. They are archived and kept for reference. The native application does not use them.
+The web prototype code was removed from the tree. It is in the git history at commit `fa75631`.
 
 The original web proof-of-concept (SvelteKit + brepjs/OpenCascade WASM + three.js WebGPU) documentation is preserved in [`docs/archive/web-prototype/`](./archive/web-prototype/README.md).

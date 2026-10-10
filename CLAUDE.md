@@ -13,11 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/reviews/` holds dated audit reports. `docs/parked-findings.md` holds findings with no ticket.
 - `docs/guides/` covers testing and conventions.
 
-## The archived web prototype
+## The removed web prototype
 
-`src/`, `e2e/`, `static/`, `package.json`, `pnpm-lock.yaml`, and the Vite, ESLint, and Playwright configs belong to the original SvelteKit prototype. Its documentation lives in `docs/archive/web-prototype/`. None of it is maintained. Do not extend it, and do not cite its files in new issues or docs.
+The original SvelteKit prototype was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation lives in `docs/archive/web-prototype/`. Do not restore it, and do not cite its files in new issues or docs.
 
-`.github/workflows/ci.yml` still runs the pnpm and Playwright jobs for the prototype. CI does not build or test the Swift package yet.
+CI (`.github/workflows/ci.yml`) runs `swift build --build-tests` and `swift test` on `macos-15` for every PR.
 
 ## Commands
 
@@ -32,7 +32,7 @@ Run every command from `macos/`. The package needs Swift 6 tools (`swift-tools-v
 | One test class | `swift test --filter KernelClientTests` |
 | One test | `swift test --filter KernelClientTests/testRapidRequestsConflateToLatestValue` |
 
-Tests use XCTest in `macos/Tests/MadeCoreTests`. There are eight test files, and no UI or integration test target. As of 2026-10-10, `KernelClientTests.testRapidRequestsConflateToLatestValue` fails (tracked in #90).
+Tests use XCTest in `macos/Tests/MadeCoreTests`. There are eight test files, and no UI or integration test target.
 
 ## Layout
 
@@ -72,7 +72,7 @@ Enforcement is weaker than the doc's matrix once claimed. Check `docs/architectu
 - `Types.swift` is the wire contract: `KernelRequest`, `KernelResult<T>`, `MeshPayload`, `KernelError`.
 - **Never throw across the boundary.** Every fallible call returns `KernelResult`. `KernelErrorCode` is a closed set: `kernelInitFailed`, `invalidParams`, `geometryFailed`, `unknownSolid`, `cancelled`, `workerCrashed`.
 - **`SolidId` vs `JobId`.** A `SolidId` is stable across a solid's lifetime. A `JobId` is never reused, and stale results are dropped by `JobId`.
-- `KernelClient` debounces requests 60 ms (`debounceDuration`) and conflates them per solid, with one pending slot each. `executePending` has a race that can leave a caller waiting forever (#90).
+- `KernelClient` debounces requests 60 ms (`debounceDuration`) and conflates them per solid, with one pending slot each. `executePending` checks the job ID before it takes the slot, so a stale debounce task never strands a newer request.
 - STEP import returns `geometryFailed` until the OpenCASCADE bridge lands. OCCTSwift is planned (#82), not a dependency. `Package.swift` depends only on Euclid.
 
 ## Rendering (`Viewport/`)

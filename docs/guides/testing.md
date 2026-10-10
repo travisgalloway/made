@@ -6,13 +6,13 @@ The testing architecture in `made` is built on Swift Package Manager (`swift tes
 
 ## Test Suites Overview
 
-`MadeCoreTests` has 8 suites and 33 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and nothing in the test target creates a Metal device or a SwiftUI view. `KernelClientTests.testRapidRequestsConflateToLatestValue` fails today (#90).
+`MadeCoreTests` has 8 suites and 34 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and nothing in the test target creates a Metal device or a SwiftUI view.
 
 | Suite Name | Target Module | What It Verifies |
 | ---------- | ------------- | ---------------- |
 | **`CADDSLTests`** | `MadeCore/Scripting` | Cadova-style declarative DSL, operator overloads (`-`, `+`, `&`), and triangulation. |
 | **`EuclidEngineTests`** | `MadeCore/Kernel` | Pure-Swift CSG parametric primitives and watertight boolean evaluations. |
-| **`KernelClientTests`** | `MadeCore/Kernel` | Box and cylinder generation, invalid dimensions, and the 60 ms debounce conflation test (failing, #90). |
+| **`KernelClientTests`** | `MadeCore/Kernel` | Box and cylinder generation, invalid dimensions, 60-ms debounce conflation, and the stale-debounce race (#90). |
 | **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: lock on first move for one pointer, lock to navigate for two pointers, and a pure tap resolving at release. `PointerRouter` has no test. |
 | **`SnappingTests`** | `MadeCore/Input` | Invariant 9: Vertex > Edge > Grid precedence, the 20 px tolerance, and grid rounding to 10 mm with Z unchanged. |
 | **`DocumentModelTests`** | `MadeCore/Scene` | Default two-solid scene, add and remove, and `setParam` limits clamping. |

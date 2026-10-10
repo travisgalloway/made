@@ -44,7 +44,7 @@ Table 1. Enforcement status per invariant, as of 2026-10-10.
 | 4 | Convention only | `KernelClientProtocol` and the wire types in `MadeCore/Kernel/Types.swift`. `MadeApp/ContentView.swift` constructs `KernelClient` and `MetalRenderer` directly. No lint rule or test enforces the boundary. |
 | 5 | Not tested | The renderer uses Metal through `MetalKit`. No test creates a Metal device or compiles the shaders. The offscreen snapshot works only in the GUI; the headless server has no provider (#89). |
 | 6 | Not tested | `MetalRenderer.createMesh` allocates three `.storageModeShared` buffers with `makeBuffer(bytes:length:options:)`. That call copies the `[Float]` and `[UInt32]` arrays once per upload. |
-| 7 | Partly tested | `KernelClientTests` cover the actor and the debounce. `testRapidRequestsConflateToLatestValue` fails (#90). Several types are `@unchecked Sendable` (#91). |
+| 7 | Partly tested | `KernelClientTests` cover the actor, the debounce, conflation, and the stale-debounce race. Several types are `@unchecked Sendable` (#91). |
 | 8 | Partly tested | `GestureArbiterTests` has three tests: single-pointer drag, two-pointer drag, and a pure tap. `PointerRouter` has no test. Nothing feeds pointer events to the router in the viewport (#87). |
 | 9 | Partly tested | `SnappingTests` has four tests for vertex over edge over grid precedence, tolerance, and grid rounding. The snapping module has no caller in `MadeApp` or the viewport (#88). |
 

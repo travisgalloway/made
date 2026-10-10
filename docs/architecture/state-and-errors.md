@@ -40,7 +40,7 @@ If an engineer enters an extreme or invalid dimension (e.g., width = 0), `Kernel
 When a job is cancelled due to rapid slider scrubbing:
 - The return status is `.failure(jobId: ..., error: KernelError(code: .cancelled, ...))`.
 - A `.cancelled` result is a normal lifecycle event, because a newer job is already pending for the same solid.
-- The conflation test `KernelClientTests.testRapidRequestsConflateToLatestValue` fails today, and a conflation bug is open (#90).
+- `KernelClientTests.testRapidRequestsConflateToLatestValue` checks that the first two of three rapid requests resolve as cancelled.
 
 ### 3. Agent Tool Error Reporting
 When an AI agent invokes a tool that fails (e.g., referencing a nonexistent solid ID):

@@ -15,8 +15,6 @@ swift run MadeApp
 swift run MadeApp --mcp-stdio
 ```
 
-The `pnpm` commands in the repository root belong to the archived web prototype (`src/`, `e2e/`). They do not build or test the native application.
-
 ---
 
 ---

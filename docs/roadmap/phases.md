@@ -16,7 +16,7 @@ Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). T
 | ----- | ----------- | ------ | --------- |
 | **0** | Native Foundation | Complete | None. |
 | **1** | Metal 3 Viewport | In progress | Orbit, pan, zoom (#87); snapping unwired (#88); ground grid (#102); axes indicator (#103); redraw reasons (#94). |
-| **2** | Native CSG Kernel | In progress | Conflation bug and failing test `KernelClientTests.testRapidRequestsConflateToLatestValue` (#90); kernel cache not freed on removal (#93). |
+| **2** | Native CSG Kernel | In progress | Kernel cache not freed on removal (#93). |
 | **3** | Agentic Subsystem | In progress | Headless snapshot (#89); protocol and argument validation (#95 to #101). |
 | **4** | CAD Depth | Not started | Issues #34 to #45, #66 to #73, #82 to #85. |
 
@@ -53,7 +53,6 @@ Built:
 - Off-thread actor execution in `KernelClient` with a 60 ms debounce.
 
 Open:
-- The conflation bug. `testRapidRequestsConflateToLatestValue` fails, so Invariant 7's conflation claim is unverified (#90).
 - Free the kernel cache when an object is removed (#93).
 - Apply a recompute result without overwriting a concurrent transform edit (#92).
 - Redraw when a solid's mesh changes (#94).
