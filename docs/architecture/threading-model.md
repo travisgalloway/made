@@ -1,53 +1,72 @@
-# Threading model
+# Threading Model & Concurrency
 
-This is the spine. Everything else hangs off getting it right.
+The threading model in `made` is designed around **Swift 6 Strict Concurrency** (`-strict-concurrency=complete`), enforcing Invariant 1 (kernel off main thread) and Invariant 7 (thread-safe execution). It guarantees that UI interactions remain smooth at 120 Hz while intensive geometry computations execute safely in the background.
 
-## Three separable execution contexts
+---
 
-| Context           | Owns                                                | Never does                             |
-| ----------------- | --------------------------------------------------- | -------------------------------------- |
-| **Main thread**   | SvelteKit UI, panels, input, render orchestration   | Heavy geometry math, continuous redraw |
-| **Kernel worker** | brepjs + OCCT-WASM, booleans, fillets, tessellation | Touch the DOM                          |
-| **Render**        | three.js WebGPU scene, GPU uploads, drawing         | Block on kernel work                   |
-
-Rendering currently runs on the main thread. Moving it to a render worker via `OffscreenCanvas` is a known lever, not a current design — see [`risks.md`](../risks.md).
-
-## Data flow is one direction
+## Architecture Overview
 
 ```
-UI intent  ──▶  KernelClient  ──▶  worker  ──▶  OCCT computes exact B-rep
-                                                 tessellates only what changed
-                                                          │
-   GPU  ◀── one invalidate() ◀── BufferGeometry ◀─────────┘
-                                   (transferred, zero-copy)
+┌────────────────────────────────────────────────────────┐
+│                      @MainActor                        │
+│   • SwiftUI View Hierarchy (Inspector, Copilot)        │
+│   • AppKit / UIKit Event RunLoop                       │
+│   • GestureArbiter & PointerRouter                     │
+│   • DocumentModel (@Observable)                        │
+│   • MetalKit MTKView Command Encoding                  │
+└──────────────────────────┬─────────────────────────────┘
+                           │ await client.request(job)
+┌──────────────────────────▼─────────────────────────────┐
+│                 KernelClient (Actor)                   │
+│   • Debounce Task Scheduling (60 ms)                   │
+│   • Stale Job Cancellation                             │
+│   • Background Geometry & CSG Booleans                 │
+│   • Polygon Triangulation                              │
+└──────────────────────────┬─────────────────────────────┘
+                           │ MeshPayload (Sendable)
+┌──────────────────────────▼─────────────────────────────┐
+│             Apple Silicon Unified Memory               │
+│   • MTLBuffer (.storageModeShared)                     │
+│   • Zero-copy shared access between CPU & GPU          │
+└────────────────────────────────────────────────────────┘
 ```
 
-A UI intent goes to the kernel worker. The worker computes the exact B-rep, tessellates **only what changed**, and transfers mesh buffers — positions, normals, indices as typed arrays — back using `Transferable` objects for a zero-copy handoff (invariant 6). The render side uploads those buffers to the GPU and requests **exactly one frame** (invariant 2).
+---
 
-Nothing flows the other way. The renderer never calls the kernel; the kernel never reads scene state.
+## Responsibilities by Domain
 
-## Why the boundary is enforced, not just intended
+### 1. Main Thread (`@MainActor`)
+The main thread owns all presentation and interaction state:
+- **SwiftUI Views**: Renders UI components, inspector controls, and chat dialogs.
+- **Input Routing**: Handles pointer move, drag, magnification, and Apple Pencil events. Mode decisions are locked synchronously before dispatching changes.
+- **Document Mutations**: `@Observable class DocumentModel` updates object parameters and tracks selection.
+- **Metal Command Encoding**: Encodes draw primitives into `MTLCommandBuffer` on demand when invalidated.
 
-Invariant 1 says no brepjs or OCCT call ever executes on the main thread. This is not a performance guideline — OCCT-WASM is a large, synchronous, single-threaded blob, and a single tessellation on the main thread would freeze the UI outright.
+### 2. Geometry Background Actor (`KernelClient`)
+All CAD math, boundary evaluations, and CSG booleans execute inside `KernelClient`:
+- **Isolation Guarantee**: Swift 6 actor isolation ensures that kernel state (cache of active solids, pending jobs, Euclid meshes) cannot be accessed concurrently from outside the actor.
+- **Async Interface**: The UI calls `await kernelClient.request(...)`, returning a Swift `Task` continuation that does not block the main thread.
+- **Honest Cancellation**: If a user drags a parameter slider rapidly, intermediate jobs are cancelled. If a job is already in flight, its completion is checked against the active job table, dropping stale results before they reach the main thread.
 
-So the boundary is a **lint rule**, not a convention. `eslint.config.js` permits the string `brepjs` in exactly one file (`kernel.worker.ts`) and forbids that file from importing `three`, `@threlte/*`, or any `$lib` module in return. See [`invariants.md`](./invariants.md#the-invariant-1-lint-rule-is-worth-understanding).
+### 3. Apple Silicon Unified Memory
+Unlike traditional PC architectures where geometry must be serialized over a PCIe bus, Apple Silicon shares physical memory between CPU and GPU.
+- `MeshPayload` creates an `MTLBuffer` using `MTLResourceStorageModeShared`.
+- The CPU computes vertex coordinates and normals directly in shared memory.
+- The GPU reads those exact memory addresses during vertex fetch, providing zero-copy performance without transferable array buffer serialization.
 
-## Comlink, not hand-written postMessage
+---
 
-The worker is wrapped with [Comlink](https://github.com/GoogleChromeLabs/comlink) so the main thread calls it like a normal async API. The wire contract lives in `src/lib/kernel/types.ts`, which is deliberately **zero-import** — that is what lets both it and `KernelClient` run in the Node-only Vitest project, and it is the type-level half of invariant 1.
+## Swift 6 Sendable Concurrency Contracts
 
-One rule that is easy to get wrong: **never throw across the boundary.** Comlink would structured-clone the `Error` and lose its type, turning a recoverable UI condition into an unhandled rejection. Every fallible kernel method returns a result union instead. See [`kernel.md`](./kernel.md).
+All data structures crossing actor boundaries must conform to `Sendable`:
+- **`KernelRequest` & `KernelResult`**: Pure enums carrying value types.
+- **`MeshPayload`**: Immutable struct containing `[Float]` and `[UInt32]`.
+- **`MetalMesh`**: Encapsulates `MTLBuffer` references marked `@unchecked Sendable` because Metal buffers are internally thread-safe for reading once command buffers are committed.
 
-## Single-threaded OCCT, deliberately
+---
 
-The multithreaded OCCT build is faster, but it needs `SharedArrayBuffer`, which requires cross-origin isolation (`COOP: same-origin`, `COEP: require-corp`). That is a real constraint on a static host and a deliberate, separate decision — so invariant 7 starts single-threaded.
+## Related Documentation
 
-This has a visible consequence, and the codebase is honest about it rather than papering over it: because OCCT is single-threaded and `mesh()` is synchronous, **a cancel message cannot be delivered while a job is running.** The cancellation guarantee is correspondingly modest — see [`kernel.md`](./kernel.md#cancellation-the-honest-guarantee).
-
-If meshing ever shows up as a measured bottleneck, the escape route is a service-worker shim that injects the COEP header. Not before.
-
-## Related
-
-- [`kernel.md`](./kernel.md) — the wire contract and `KernelClient` in detail
-- [`rendering.md`](./rendering.md) — what happens after the mesh lands
-- [`invariants.md`](./invariants.md) — 1, 6, 7
+- [`invariants.md`](./invariants.md) — Invariants 1, 6, and 7
+- [`kernel.md`](./kernel.md) — Debounce conflation and cancellation logic
+- [`rendering.md`](./rendering.md) — Metal buffer management

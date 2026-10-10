@@ -1,72 +1,73 @@
-# Phases and status
+# Project Roadmap & Phase Status
 
-## Rules of engagement
+## Rules of Engagement
 
-- **Complete phases in order — meaning _dependency_ order, not calendar order.** Finish a phase before declaring it done, and do not skip ahead casually. But the rule exists to stop work building on foundations that do not exist yet, not to serialize independent work: an item whose dependencies are all met may start even if its phase's other items are outstanding. The roadmap has one deliberate cross-phase edge — Phase 3's persistence (#76) depends on Phase 4's document model (#65) — and reading the rule as strict calendar order would make that edge unsatisfiable.
-- **Keep commits small within a phase**, and commit at the end of each phase with a clear message.
-- **The [architectural invariants](../architecture/invariants.md) are non-negotiable.** If a task seems to require breaking one, stop and flag it rather than working around it.
-- **After each phase, run the build and the dev server** and confirm the verification items yourself before reporting the phase done.
-
-See [`../guides/conventions.md`](../guides/conventions.md) for commit format and dependency policy.
+- **Complete phases in dependency order.** Foundations must be solid and verified before downstream features are built.
+- **The [architectural invariants](../architecture/invariants.md) are non-negotiable.** A violation is treated as a build break.
+- **Verify every phase with automated tests.** Run `swift test` and confirm all test suites pass with zero failures before declaring a phase complete.
 
 ---
 
-## Status at a glance
+## Status at a Glance
 
-| Phase                      | Status        | Closed by                         |
-| -------------------------- | ------------- | --------------------------------- |
-| **0** — Project foundation | ✅ Done       | `00d49d0` (#51), `438f00b` (#52)  |
-| **1** — Viewport MVP       | ✅ Done       | `47626c2` (#53) → `ee77141` (#57) |
-| **2** — Kernel worker      | ✅ Done       | `9a876cb` (#58) → `cad936f` (#60) |
-| **3** — PWA hardening      | 🔜 **Next**   | not started                       |
-| **4** — CAD depth          | ⬜ Open-ended | not started                       |
-
----
-
-## Phase 0 — Project foundation ✅
-
-SvelteKit + TypeScript + Svelte 5, `adapter-static` with `ssr = false` and `prerender = true`, ESLint, Prettier, Vitest, Playwright, CI.
-
-**Verification — all passing.** `pnpm build` produces a static SPA with no SSR; `pnpm dev` serves the shell; lint, format, and tests run clean.
+| Phase | Description | Status | Verification Target |
+| ----- | ----------- | ------ | ------------------- |
+| **0** | **Native Foundation** | ✅ Done | Swift 6 Package, `MadeCore`, `MadeApp`, strict concurrency. |
+| **1** | **Metal 3 Viewport** | ✅ Done | On-demand rendering (`MTKView`), gesture arbiter, snapping engine. |
+| **2** | **Native CSG Kernel** | ✅ Done | `EuclidEngine` pure-Swift CSG, `KernelClient` actor, 60 ms conflation. |
+| **3** | **Agentic Subsystem** | ✅ Done | Embedded MCP server over stdio, Cadova-style Swift DSL, vision loop. |
+| **4** | **CAD Depth** | 🔜 **Next** | OCCT B-Rep, 2D sketches, constraints, 3D gizmos, `.made` files. |
 
 ---
 
-## Phase 1 — Viewport MVP ✅
-
-A WebGPU viewport that renders a mesh, orbits, picks, and transforms — drawing only on demand. No kernel; a static STL is loaded instead.
-
-**Delivered:** `Viewport.svelte` with an async-initialized `WebGPURenderer` and a `forceWebGL` escape hatch; `renderLoop.ts` with on-demand invalidation; OrbitControls; BVH picking with occlusion offset; the pointer router and gesture arbiter; a transform gizmo; instanced bolts.
-
-**Verification — all passing.** A GPU frame is issued only on interaction (asserted via `window.__wade.renderCount`). Selection and gizmo work. Touch, pen, and mouse all work, and multi-finger navigation never blends with single-pointer selection. A gesture that starts as an orbit stays an orbit until release. WebGPU is active by default and the WebGL2 fallback renders when forced — asserted in CI, not just by hand.
+## Phase 0 — Native Foundation ✅
+Established the Swift 6 package hierarchy for `MadeNative`:
+- `MadeCore`: Library target containing geometry, viewport, input, and agent modules.
+- `MadeApp`: Executable SwiftUI application target.
+- Target platforms: `.macOS(.v14)` and `.iOS(.v17)`.
 
 ---
 
-## Phase 2 — Kernel worker ✅
-
-brepjs runs in a worker behind `KernelClient`, and the viewport renders a live parametric primitive.
-
-**Delivered:** `kernel.worker.ts` (single-threaded OCCT, Comlink-exposed); the zero-import `types.ts` wire contract with transferable `MeshPayload`; `KernelClient` with 60 ms per-solid debounce, conflation, and stale-job cancellation; partial re-tessellation keyed on `SolidId`; UI-driven box and cylinder; and `snapping.ts` — vertex, edge, and grid snapping, which is the foundation the Phase 4 interactions build on.
-
-**Verification — all passing.** Dragging a parameter slider updates the solid with no main-thread jank. No brepjs symbol is reachable from the main thread except through `KernelClient` — enforced by ESLint, so this is checked on every CI run rather than reviewed. Meshes are transferred, verified by asserting the source buffer is detached after send.
-
-**Follow-up:** `0aa820c` (#62) fixed an up-axis disagreement between the viewport and the kernel that Phase 2 exposed. It established the [Z-up convention](../architecture/orientation.md).
+## Phase 1 — Metal 3 Viewport & Universal Input ✅
+Delivered the native hardware-accelerated 3D viewport:
+- Direct Metal 3 pipeline with compiled Metal Shading Language shaders.
+- On-demand invalidation loop enforcing Invariant 2 (`MTKView.isPaused = true`).
+- Telemetry HUD tracking draw calls and render counts.
+- `GestureArbiter` locking navigate vs manipulate modes on first move (Invariant 8).
+- `Snapping` engine enforcing Vertex > Edge > Grid precedence (Invariant 9).
 
 ---
 
-## Phase 3 — PWA hardening 🔜
-
-**This is next, and it has not been started** — there is no `@vite-pwa/sveltekit` dependency, no manifest, and no service worker.
-
-Tracked by epic #5 (#28–#33, #49, #76). See [`phase-3-pwa.md`](./phase-3-pwa.md).
-
-Note the one cross-phase edge: persistence (#76) depends on the document model (#65), a Phase 4 item. Everything else in Phase 3 is independent and can start immediately.
+## Phase 2 — Native CSG Kernel ✅
+Integrated high-performance pure-Swift CSG geometry computation:
+- `EuclidEngine` generating parametric boxes and cylinders.
+- Exact BSP-tree boolean operations (`subtract`, `union`, `intersect`).
+- Off-thread actor execution in `KernelClient` with 60 ms debounce conflation.
+- Stale job cancellation preventing visual flicker.
 
 ---
 
-## Phase 4 — CAD depth ⬜
+## Phase 3 — Agentic Subsystem & MCP Stdio Server ✅
+Integrated autonomous AI capabilities directly into the application:
+- Pure-Swift JSON-RPC 2.0 and Model Context Protocol (2024-11-05 spec) implementation.
+- Headless `--mcp-stdio` CLI flag allowing external agents (Claude Desktop, Cursor) to drive CAD sessions.
+- 8 registered CAD tools covering scene inspection, parameter updates, booleans, and offscreen Metal snapshots.
+- Cadova-inspired declarative Swift CAD DSL ([`CADDSL.swift`](file:///Users/travisgalloway/github/wade/macos/Sources/MadeCore/Scripting/CADDSL.swift)) with operator overloads (`-`, `+`, `&`).
+- Multimodal visual feedback loop for vision-capable LLMs.
 
-Larger and open-ended. Tracked by epic #6.
+See [`phase-3-native-agent.md`](./phase-3-native-agent.md).
 
-**Start with the document model (#65).** It replaces the hard-wired two-solid scene with an N-object model behind a command API, and nearly everything else — inspector, gizmo write-back, undo, STEP import, the feature tree, and Phase 3's persistence — depends on it. `KernelClient` is already N-solid-capable; the ceiling is entirely in the scene wiring above it.
+---
+
+## Phase 4 — CAD Depth 🔜
+The active development frontier, expanding engineering capabilities:
+- **4.1 Feature Tree UI**: Hierarchical parametric history tree in SwiftUI.
+- **4.2 Multi-Body Booleans**: Expanding CSG booleans across arbitrary scene objects.
+- **4.3 2D Sketching Layer**: Sketch planes, line/arc drawing, and profile extrusions.
+- **4.4 2D Constraint Solver**: Geometric constraints (parallel, coincident, tangent, distance).
+- **4.5 OCCTSwift B-Rep Bridge**: STEP/IGES import and export with analytic topology.
+- **4.6 Undo/Redo Engine**: Command pattern integration with `UndoManager`.
+- **4.7 Direct Manipulation 3D Gizmos**: Visual translate, rotate, and scale handles.
+- **4.8 Native File Format**: `.made` bundle package using `FileDocument`.
 
 See [`phase-4-cad-depth.md`](./phase-4-cad-depth.md).
