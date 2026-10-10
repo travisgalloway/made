@@ -41,19 +41,51 @@ final class KernelClientTests: XCTestCase {
     }
     
     func testRapidRequestsConflateToLatestValue() async {
-        let client = KernelClient(debounceDuration: .milliseconds(20))
+        let client = KernelClient(debounceDuration: .milliseconds(50))
         let solidId = SolidId("conflation-box")
         
-        async let r1 = client.request(.makeBox(jobId: JobId("j1"), solidId: solidId, params: BoxParams(width: 10, depth: 10, height: 10)))
-        async let r2 = client.request(.makeBox(jobId: JobId("j2"), solidId: solidId, params: BoxParams(width: 20, depth: 20, height: 20)))
-        async let r3 = client.request(.makeBox(jobId: JobId("j3"), solidId: solidId, params: BoxParams(width: 30, depth: 30, height: 30)))
+        // Enqueue in a fixed order; `async let` gives no arrival-order guarantee.
+        let t1 = Task { await client.request(.makeBox(jobId: JobId("j1"), solidId: solidId, params: BoxParams(width: 10, depth: 10, height: 10))) }
+        await waitForPending(client, solidId, JobId("j1"))
+        let t2 = Task { await client.request(.makeBox(jobId: JobId("j2"), solidId: solidId, params: BoxParams(width: 20, depth: 20, height: 20))) }
+        await waitForPending(client, solidId, JobId("j2"))
+        let t3 = Task { await client.request(.makeBox(jobId: JobId("j3"), solidId: solidId, params: BoxParams(width: 30, depth: 30, height: 30))) }
+        await waitForPending(client, solidId, JobId("j3"))
         
-        let (_, _, finalResult) = await (r1, r2, r3)
+        let (r1, r2, r3) = await (t1.value, t2.value, t3.value)
         
-        // Final request should succeed with the latest dimensions
-        XCTAssertTrue(finalResult.isSuccess)
+        XCTAssertEqual(r1.error?.code, .cancelled)
+        XCTAssertEqual(r2.error?.code, .cancelled)
+        XCTAssertTrue(r3.isSuccess)
+        XCTAssertEqual(r3.jobId, JobId("j3"))
+        if let payload = r3.value {
+            XCTAssertEqual(extentX(payload), 30, accuracy: 1e-3)
+        } else {
+            XCTFail("Expected the latest request to produce a mesh")
+        }
+        
         let stats = await client.getStats()
-        XCTAssertGreaterThanOrEqual(stats.conflated, 1)
+        XCTAssertEqual(stats.conflated, 2)
+        XCTAssertEqual(stats.dispatched, 1)
+    }
+    
+    func testStaleDebounceDoesNotStrandNewerRequest() async {
+        // Regression for #90: a stale debounce firing must leave the newer pending job in place.
+        let client = KernelClient(debounceDuration: .milliseconds(50))
+        let solidId = SolidId("stale-box")
+        
+        let newer = Task { await client.request(.makeBox(jobId: JobId("new"), solidId: solidId, params: BoxParams(width: 12, depth: 12, height: 12))) }
+        await waitForPending(client, solidId, JobId("new"))
+        
+        await client.executePending(for: solidId, expectedJobId: JobId("stale"))
+        
+        let stillPending = await client.pendingJobId(for: solidId)
+        XCTAssertEqual(stillPending, JobId("new"))
+        guard stillPending != nil else { return } // Without the fix the newer task never resumes.
+        
+        let result = await newer.value
+        XCTAssertTrue(result.isSuccess)
+        XCTAssertEqual(result.jobId, JobId("new"))
     }
     
     func testInvalidDimensionsFailWithErrorCode() async {
@@ -66,5 +98,18 @@ final class KernelClientTests: XCTestCase {
         
         XCTAssertFalse(result.isSuccess)
         XCTAssertEqual(result.error?.code, .invalidParams)
+    }
+    
+    private func waitForPending(_ client: KernelClient, _ solidId: SolidId, _ jobId: JobId) async {
+        for _ in 0..<1_000 {
+            if await client.pendingJobId(for: solidId) == jobId { return }
+            await Task.yield()
+        }
+        XCTFail("Job \(jobId) never became pending")
+    }
+    
+    private func extentX(_ payload: MeshPayload) -> Float {
+        let xs = stride(from: 0, to: payload.positions.count, by: 3).map { payload.positions[$0] }
+        return (xs.max() ?? 0) - (xs.min() ?? 0)
     }
 }

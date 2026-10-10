@@ -78,11 +78,18 @@ public actor KernelClient: KernelClientProtocol {
         }
     }
     
-    private func executePending(for solidId: SolidId, expectedJobId: JobId) {
-        guard let pending = pendingJobs.removeValue(forKey: solidId),
-              pending.request.jobId == expectedJobId else {
+    /// Pending job for a solid, if any. Lets tests order requests deterministically.
+    func pendingJobId(for solidId: SolidId) -> JobId? {
+        pendingJobs[solidId]?.request.jobId
+    }
+    
+    func executePending(for solidId: SolidId, expectedJobId: JobId) {
+        // Check before removing: a stale debounce task must never take a newer job's slot (#90).
+        guard let pending = pendingJobs[solidId], pending.request.jobId == expectedJobId else {
             return
         }
+        pendingJobs.removeValue(forKey: solidId)
+        debounceTasks.removeValue(forKey: solidId)
         
         let req = pending.request
         let jobId = req.jobId
