@@ -11,6 +11,7 @@ public struct ContentView: View {
     @State private var drawCalls: Int = 0
     @State private var lastReason: String = "init"
     @State private var isKernelReady: Bool = false
+    @State private var coordinator: CADMetalViewRepresentable.Coordinator? = nil
     
     // Agent Subsystem
     @State private var selectedSidebarTab: Int = 0 // 0 = Inspector, 1 = Copilot
@@ -27,7 +28,11 @@ public struct ContentView: View {
                 switch viewportManager.state {
                 case .ready:
                     if let rend = viewportManager.renderer {
-                        CADMetalViewRepresentable(document: document, renderer: rend) {
+                        CADMetalViewRepresentable(
+                            document: document,
+                            renderer: rend,
+                            coordinator: $coordinator
+                        ) {
                             updateStats()
                         }
                         .frame(minWidth: 400, minHeight: 300)
@@ -112,6 +117,20 @@ public struct ContentView: View {
             .onChange(of: viewportManager.state) { _, newState in
                 if newState.isUnavailable && selectedSidebarTab == 1 {
                     selectedSidebarTab = 0
+                }
+            }
+            .onChange(of: document.objects) { oldObjects, newObjects in
+                let newIds = Set(newObjects.map(\.id))
+                for old in oldObjects {
+                    if !newIds.contains(old.id) {
+                        viewportManager.renderer?.meshes.removeValue(forKey: old.id)
+                        if let coord = coordinator {
+                            coord.invalidate(reason: .model)
+                        } else {
+                            RenderInstrumentation.shared.recordInvalidation(reason: .model)
+                            updateStats()
+                        }
+                    }
                 }
             }
         }
@@ -350,8 +369,12 @@ public struct ContentView: View {
                     
                     if let mesh = rend.createMesh(from: payload, transform: transform, color: color) {
                         rend.meshes[id] = mesh
-                        RenderInstrumentation.shared.recordInvalidation(reason: .model)
-                        updateStats()
+                        if let coord = self.coordinator {
+                            coord.invalidate(reason: .model)
+                        } else {
+                            RenderInstrumentation.shared.recordInvalidation(reason: .model)
+                            updateStats()
+                        }
                     }
                 }
             }

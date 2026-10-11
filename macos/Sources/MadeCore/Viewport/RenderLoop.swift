@@ -1,6 +1,6 @@
 import Foundation
 
-public enum InvalidateReason: String, Sendable {
+public enum InvalidateReason: String, Sendable, CaseIterable {
     case camera
     case resize
     case model
@@ -30,5 +30,31 @@ public final class RenderInstrumentation: @unchecked Sendable {
         renderCount = 0
         drawCalls = 0
         lastReason = nil
+    }
+}
+
+/// Protocol for targets that can be invalidated and redrawn (e.g., MTKView or test stub).
+@MainActor
+public protocol ViewportInvalidationTarget: AnyObject, Sendable {
+    var isMinimized: Bool { get }
+    func requestRedraw()
+}
+
+/// Coordinates viewport invalidations and enforces Invariant 2 (on-demand rendering).
+@MainActor
+public final class ViewportCoordinator: @unchecked Sendable {
+    public weak var target: (any ViewportInvalidationTarget)?
+    public var onInvalidate: (@MainActor () -> Void)?
+    
+    public init(target: (any ViewportInvalidationTarget)? = nil) {
+        self.target = target
+    }
+    
+    public func invalidate(reason: InvalidateReason) {
+        RenderInstrumentation.shared.recordInvalidation(reason: reason)
+        guard let target = target else { return }
+        guard !target.isMinimized else { return }
+        target.requestRedraw()
+        onInvalidate?()
     }
 }
