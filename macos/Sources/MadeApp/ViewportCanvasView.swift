@@ -50,21 +50,24 @@ public struct ViewportCanvasView: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Scene View Header Frame
-            HStack(spacing: 6) {
+            HStack(spacing: 0) {
                 // Left: Breadcrumbs
-                Image(systemName: "cube")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Text("Scene")
-                    .font(.system(size: 11, weight: .semibold))
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-                Text(selectedEntityName)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.primary)
+                HStack(spacing: 6) {
+                    Image(systemName: "cube")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Text("Scene")
+                        .font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    Text(selectedEntityName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                .padding(.leading, 10)
                 
-                Spacer()
+                Spacer(minLength: 0)
                 
                 // Right: View Toggle (Camera Perspective Presets)
                 Menu {
@@ -90,9 +93,10 @@ public struct ViewportCanvasView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .help("Camera View Perspective")
+                .padding(.trailing, 6)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
             .background(Color(NSColor.controlBackgroundColor))
             
             Divider()

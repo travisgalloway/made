@@ -19,10 +19,10 @@ struct MadeApp: App {
     }
     
     var body: some Scene {
-        WindowGroup("made — Native CAD Workspace") {
+        WindowGroup {
             ContentView()
         }
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
+        .windowToolbarStyle(.unified(showsTitle: false))
     }
 }

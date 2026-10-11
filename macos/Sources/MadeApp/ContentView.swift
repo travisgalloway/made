@@ -150,6 +150,7 @@ public struct ContentView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 500)
+        .navigationTitle("")
         .toolbar {
             workspaceToolbar
         }
@@ -171,36 +172,25 @@ public struct ContentView: View {
     
     @ToolbarContentBuilder
     private var workspaceToolbar: some ToolbarContent {
-        // Center Area: Name of the project/folder that's open (no app name)
+        // Center Area: Only the name of the project/folder
         ToolbarItem(placement: .principal) {
-            HStack(spacing: 6) {
-                Image(systemName: "folder")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Text("Untitled Project")
-                    .font(.system(size: 12, weight: .medium))
-            }
+            Text("Untitled Project")
+                .font(.system(size: 12, weight: .medium))
         }
         
-        // Trailing Area: MCP Control & Right-Aligned Window Pane Toggles
-        ToolbarItemGroup(placement: .automatic) {
-            // MCP Server Control & Popout Window Trigger
+        // Right Edge: MCP and Pane Toggles (Justified to the right edge)
+        ToolbarItemGroup(placement: .primaryAction) {
+            // MCP Server Control (AI diamond icon: ✧ sparkle, toggles green when running)
             Button {
                 showMCPPopout.toggle()
             } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "server.rack")
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 12))
                         .foregroundColor(isMCPServerRunning ? .green : .secondary)
-                    Text(isMCPServerRunning ? "MCP Active" : "MCP")
+                    Text("MCP")
                         .font(.system(size: 11, weight: .medium))
-                    Circle()
-                        .fill(isMCPServerRunning ? Color.green : Color.gray.opacity(0.5))
-                        .frame(width: 6, height: 6)
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(5)
             }
             .popover(isPresented: $showMCPPopout, arrowEdge: .bottom) {
                 MCPServerPopoutView(
@@ -209,12 +199,10 @@ public struct ContentView: View {
                     onToggleServer: toggleMCPServer
                 )
             }
-            .help("Model Context Protocol (MCP) Server & Connection Instructions")
+            .help("Model Context Protocol (MCP) Server")
             
-            Divider()
-            
-            // Window Pane Toggles (Right Aligned)
-            HStack(spacing: 2) {
+            // Window Pane Toggles Group
+            ControlGroup {
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         isNavigatorVisible.toggle()

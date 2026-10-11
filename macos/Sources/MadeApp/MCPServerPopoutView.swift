@@ -36,7 +36,7 @@ public struct MCPServerPopoutView: View {
         VStack(alignment: .leading, spacing: 14) {
             // Header: Status and Title
             HStack(spacing: 8) {
-                Image(systemName: "server.rack")
+                Image(systemName: "sparkle")
                     .font(.system(size: 16))
                     .foregroundColor(isRunning ? .green : .secondary)
                 
