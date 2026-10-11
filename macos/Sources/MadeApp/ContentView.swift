@@ -5,7 +5,7 @@ import MadeCore
 public struct ContentView: View {
     @State private var document = DocumentModel()
     @State private var selectedId: ObjectId = boxSolidId
-    @State private var renderer: MetalRenderer? = nil
+    @State private var viewportManager = ViewportStateManager()
     @State private var kernelClient = KernelClient()
     @State private var renderCount: Int = 0
     @State private var drawCalls: Int = 0
@@ -24,20 +24,48 @@ public struct ContentView: View {
         HSplitView {
             // 1. 3D Metal Viewport
             ZStack(alignment: .bottomLeading) {
-                if let rend = renderer {
-                    CADMetalViewRepresentable(document: document, renderer: rend) {
-                        updateStats()
+                switch viewportManager.state {
+                case .ready:
+                    if let rend = viewportManager.renderer {
+                        CADMetalViewRepresentable(document: document, renderer: rend) {
+                            updateStats()
+                        }
+                        .frame(minWidth: 400, minHeight: 300)
                     }
-                    .frame(minWidth: 400, minHeight: 300)
-                } else {
+                case .initializing:
                     Color.black
-                        .overlay(Text("Initializing Metal 3...").foregroundColor(.gray))
+                        .overlay(
+                            Text("Initializing Metal 3...")
+                                .foregroundColor(.gray)
+                        )
+                        .frame(minWidth: 400, minHeight: 300)
+                case .unavailable(let reason):
+                    Color.black
+                        .overlay(
+                            VStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(.secondary)
+                                Text("Metal unavailable")
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                Text(reason.description)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        )
+                        .frame(minWidth: 400, minHeight: 300)
                 }
                 
                 // Status HUD (Observability surface mirroring made runtime state)
                 HStack(spacing: 16) {
-                    Label("Metal 3", systemImage: "bolt.fill")
-                        .foregroundColor(.green)
+                    if viewportManager.state.isUnavailable {
+                        Label("Metal unavailable", systemImage: "bolt.slash.fill")
+                            .foregroundColor(.red)
+                    } else {
+                        Label("Metal 3", systemImage: "bolt.fill")
+                            .foregroundColor(viewportManager.state == .ready ? .green : .yellow)
+                    }
                     Divider().frame(height: 12)
                     Text("Render Count: \(renderCount)")
                         .monospacedDigit()
@@ -59,14 +87,16 @@ public struct ContentView: View {
             VStack(spacing: 0) {
                 Picker("Sidebar View", selection: $selectedSidebarTab) {
                     Text("Inspector").tag(0)
-                    Label("AI Copilot", systemImage: "sparkles").tag(1)
+                    Label("AI Copilot", systemImage: "sparkles")
+                        .tag(1)
+                        .disabled(viewportManager.state.isUnavailable)
                 }
                 .pickerStyle(.segmented)
                 .padding(12)
                 
                 Divider()
                 
-                if selectedSidebarTab == 0 {
+                if selectedSidebarTab == 0 || viewportManager.state.isUnavailable {
                     inspectorView
                 } else {
                     copilotView
@@ -74,6 +104,16 @@ public struct ContentView: View {
             }
             .frame(minWidth: 280, maxWidth: 360)
             .background(Color(NSColor.controlBackgroundColor))
+            .onChange(of: selectedSidebarTab) { _, newValue in
+                if viewportManager.state.isUnavailable && newValue == 1 {
+                    selectedSidebarTab = 0
+                }
+            }
+            .onChange(of: viewportManager.state) { _, newState in
+                if newState.isUnavailable && selectedSidebarTab == 1 {
+                    selectedSidebarTab = 0
+                }
+            }
         }
         .frame(minWidth: 720, minHeight: 480)
         .onAppear {
@@ -248,25 +288,34 @@ public struct ContentView: View {
     }
     
     private func setupMetal() {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            print("Metal is not supported on this device")
-            return
+        let state = viewportManager.setup()
+        if let rend = viewportManager.renderer {
+            rend.onDeviceLost = { [weak viewportManager] in
+                Task { @MainActor in
+                    viewportManager?.handleDeviceLost()
+                }
+            }
         }
         
-        let rend = MetalRenderer(device: device)
-        self.renderer = rend
-        
         // Initialize Agent Subsystem
-        let registry = CADToolRegistry(document: document, kernelClient: kernelClient, snapshotProvider: rend)
+        let registry = CADToolRegistry(
+            document: document,
+            kernelClient: kernelClient,
+            snapshotProvider: viewportManager.renderer
+        )
         self.toolRegistry = registry
         self.agentController = InAppAgentController(toolRegistry: registry)
         
-        // Initial solid generation
+        // Initial solid generation: kernel still runs even without a renderer
         for obj in document.objects {
             recomputeSolid(id: obj.id)
         }
         
         isKernelReady = true
+        
+        if state.isUnavailable && selectedSidebarTab == 1 {
+            selectedSidebarTab = 0
+        }
     }
     
     private func recomputeSolid(id: ObjectId) {
@@ -286,7 +335,7 @@ public struct ContentView: View {
             let result = await kernelClient.request(request)
             if case .success(_, let payload) = result {
                 await MainActor.run {
-                    guard let rend = self.renderer else { return }
+                    guard let rend = self.viewportManager.renderer else { return }
                     let color: SIMD4<Float> = (id == boxSolidId)
                         ? SIMD4<Float>(0.35, 0.65, 0.95, 1.0)
                         : SIMD4<Float>(0.95, 0.55, 0.35, 1.0)

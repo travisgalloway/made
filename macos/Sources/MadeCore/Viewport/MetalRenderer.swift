@@ -62,6 +62,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     public var cameraPosition: SIMD3<Float> = Orientation.defaultViewDirection * 150.0
     public var cameraTarget: SIMD3<Float> = SIMD3<Float>(0, 0, 10)
     public var meshes: [SolidId: MetalMesh] = [:]
+    public var onDeviceLost: (@Sendable () -> Void)? = nil
     
     public init?(device: MTLDevice) {
         self.device = device
@@ -200,6 +201,16 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         let drawCalls = renderScene(encoder: encoder, aspect: aspect)
         
         encoder.endEncoding()
+        
+        commandBuffer.addCompletedHandler { [weak self] buffer in
+            if buffer.status == .error,
+               let error = buffer.error as? NSError,
+               error.domain == MTLCommandBufferErrorDomain,
+               error.code == MTLCommandBufferError.deviceRemoved.rawValue {
+                self?.onDeviceLost?()
+            }
+        }
+        
         commandBuffer.present(drawable)
         commandBuffer.commit()
         

@@ -4,7 +4,7 @@ Date: 2026-10-10
 Scope: macos/ (Swift package, test target MadeCoreTests)
 Audit run: 20261010-114045
 
-The plan covers 122 capabilities. The MadeCoreTests target holds 8 XCTest files and 34 test functions. A run of `swift test` in macos/ executes 34 tests with 0 failures. The Swift Testing run finds 0 tests.
+The plan covers 122 capabilities. The MadeCoreTests target holds 9 XCTest files and 43 test functions. A run of `swift test` in macos/ executes 43 tests with 0 failures. The Swift Testing run finds 0 tests.
 
 The audit found `KernelClientTests.testRapidRequestsConflateToLatestValue` flaky and a race in `KernelClient.executePending` (DSN-efe60d18). #90 fixed both. The test now enqueues requests in a fixed order, and `testStaleDebounceDoesNotStrandNewerRequest` covers the race.
 
@@ -14,7 +14,7 @@ Table 1. Test class decisions, macos/ scope, 2026-10-10.
 
 | Class | Decision | Evidence |
 | --- | --- | --- |
-| Unit | Covered for MadeCore logic. Unobserved for MadeApp and Viewport. | No test imports MadeApp, MetalRenderer, Orientation, RenderLoop, PointerRouter, or InAppAgentController. |
+| Unit | Covered for MadeCore logic and ViewportState. Unobserved for MadeApp UI rendering. | ViewportStateTests covers ViewportState, MetalDeviceProvider seams, and device lost lifecycle. No test imports MadeApp, Orientation, RenderLoop, PointerRouter, or InAppAgentController. |
 | Integration | n/a | Package.swift declares one test target. MCPServerTests and CADToolsTests drive server, registry, and document in process. No stdio process test exists, although docs/guides/testing.md:47 describes a manual check. |
 | UI and E2E | none (no UI test target) | No XCUITest target and no UITests directory exists. The Playwright suite in e2e/ targets the archived SvelteKit app. All 23 UI and 17 VIEW capabilities have zero tests at every level. |
 
@@ -22,7 +22,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-10. Source: closure
 
 | ID | Unit | Integration | E2E | Edge cases covered | Gaps |
 | --- | --- | --- | --- | --- | --- |
-| VIEW-1 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
+| VIEW-1 | ViewportStateTests.swift: testInitialStateIsInitializing, testStateResolverLogic, testNoDevicePathProducesUnavailableNoDevice, testForceNoGPUSeam, testPipelineCreationFailedProducesUnavailable, testDeviceLostAfterLaunchTransition, testDeviceLostViaNotification, testKernelRunsWithoutRenderer, testViewportStateDescriptions | n/a (no integration target) | none (no UI test target) | no device path (seam); pipeline creation failure; device lost after launch; device lost via notification; kernel runs without renderer | MTKView window rendering unobserved by unit test (no UI test target); verified manually and via test seam. |
 | VIEW-2 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-3 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-4 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
