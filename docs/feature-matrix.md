@@ -14,6 +14,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - Contract is n/a on every row because the repository has no docs/contracts/ directory.
 - Status is Shipped only where code is reachable through its entry point. Rows with a stub, no caller, or a stated failure are In progress. Rows with no producer code are Planned.
 - KERN-9 is Shipped. The conflation race (finding DSN-efe60d18) was fixed under #90.
+- VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - Issue holds the GitHub issue number that tracks the capability.
 
 Persistence note. No capability persists a document. The .made file format is planned under #83.
