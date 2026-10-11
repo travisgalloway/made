@@ -72,10 +72,9 @@ final class ViewportStateTests: XCTestCase {
         XCTAssertFalse(MetalDeviceProvider.isForceNoGPUEnabled)
     }
     
-    func testPipelineCreationFailedProducesUnavailable() {
+    func testPipelineCreationFailedProducesUnavailable() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
-            // If running on a system without any GPU, skip device-dependent portion
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         let provider = CustomMetalDeviceProvider(device: device)
@@ -95,10 +94,10 @@ final class ViewportStateTests: XCTestCase {
         XCTAssertNil(manager.renderer)
     }
     
-    func testDeviceLostAfterLaunchTransition() {
+    func testDeviceLostAfterLaunchTransition() throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         let provider = CustomMetalDeviceProvider(device: device)
@@ -123,10 +122,10 @@ final class ViewportStateTests: XCTestCase {
         XCTAssertNil(manager.renderer)
     }
     
-    func testDeviceLostViaNotification() {
+    func testDeviceLostViaNotification() throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         let provider = CustomMetalDeviceProvider(device: device)

@@ -201,10 +201,10 @@ final class AxesGeneratorTests: XCTestCase {
         XCTAssertGreaterThan(closeProjected, projectedSizes[0], "Close zoom increases apparent size naturally")
     }
     
-    func testMetalRendererAxesIntegration() async {
+    func testMetalRendererAxesIntegration() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         // Offscreen snapshot contains axes indicator
@@ -223,10 +223,10 @@ final class AxesGeneratorTests: XCTestCase {
         XCTAssertNotNil(updatedSnapshot)
     }
     
-    func testOriginHiddenBehindSolidSnapshot() async {
+    func testOriginHiddenBehindSolidSnapshot() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         // Place a solid cube of size 120x120x120 centered at origin (0, 0, 0)
@@ -254,10 +254,10 @@ final class AxesGeneratorTests: XCTestCase {
         XCTAssertEqual([UInt8](data.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    func testSnapshotLookingAlongEachAxis() async {
+    func testSnapshotLookingAlongEachAxis() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         let axesToTest: [(String, SIMD3<Float>)] = [
@@ -280,10 +280,10 @@ final class AxesGeneratorTests: XCTestCase {
         }
     }
     
-    func testSnapshotViaCADToolsIncludesAxes() async {
+    func testSnapshotViaCADToolsIncludesAxes() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         let doc = DocumentModel()

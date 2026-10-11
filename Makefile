@@ -1,4 +1,4 @@
-.PHONY: all help build build-tests test run run-mcp clean ci-local
+.PHONY: all help build build-tests test run run-mcp clean ci-local hooks
 
 PKG_PATH := macos
 
@@ -13,6 +13,7 @@ help:
 	@echo "  make run-mcp        Run MadeApp with embedded MCP server on stdio"
 	@echo "  make clean          Clean SwiftPM build artifacts and caches"
 	@echo "  make ci-local       Run full build-tests and test suite locally"
+	@echo "  make hooks          Install the pre-commit and pre-push hooks that run the Metal test suites"
 
 build:
 	swift build --package-path $(PKG_PATH)
@@ -38,3 +39,6 @@ clean:
 	rm -rf $(PKG_PATH)/.build
 
 ci-local: build-tests test
+
+hooks:
+	git config core.hooksPath .githooks

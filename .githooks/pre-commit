@@ -1,0 +1,10 @@
+#!/bin/sh
+# Blocks a commit that touches macOS code while a Metal-backed test fails or skips.
+
+staged=$(git diff --cached --name-only) || {
+    echo "pre-commit: cannot read the staged file list" >&2
+    exit 1
+}
+printf '%s\n' "$staged" | grep -qE '^(macos/|Makefile$|\.githooks/)' || exit 0
+
+exec "$(git rev-parse --show-toplevel)/.githooks/run-metal-tests.sh" pre-commit "git commit --no-verify"

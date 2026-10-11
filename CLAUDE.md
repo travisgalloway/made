@@ -34,8 +34,13 @@ Run commands from the repository root using `make`, or directly from `macos/` wi
 | One test | `make test FILTER=KernelClientTests/testRapidRequestsConflateToLatestValue` | `swift test --filter KernelClientTests/testRapidRequestsConflateToLatestValue` |
 | Clean artifacts | `make clean` | `swift package clean && rm -rf .build` |
 | Full local CI | `make ci-local` | `swift build --build-tests && swift test --skip-build` |
+| Install the git hooks | `make hooks` | `git config core.hooksPath .githooks` (run from the repository root) |
 
-Tests use XCTest in `macos/Tests/MadeCoreTests`. There are thirteen test files, and no UI or integration test target.
+Tests use XCTest in `macos/Tests/MadeCoreTests`. There are 14 test files, and no UI or integration test target.
+
+The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTLCreateSystemDefaultDevice` when the change touches `macos/`. A failure or a skipped test blocks the commit or push, because CI runners may have no GPU. The pre-push hook also blocks when the pushed ref is not the clean checkout, because the tests run against the working tree. Bypass deliberately with `git commit --no-verify` or `git push --no-verify`.
+
+**Stage every change before you commit** (`git add -A`). The pre-commit hook builds and tests the files on disk, not the staged snapshot. A partial commit can therefore pass on an unstaged fix that the commit does not contain. If a partial commit is unavoidable, run `git stash --keep-index` first, and `git stash pop` after.
 
 ## Layout
 

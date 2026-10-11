@@ -100,10 +100,10 @@ final class GridGeneratorTests: XCTestCase {
         XCTAssertEqual(empty2.lineCount, 0)
     }
     
-    func testMetalRendererGridIntegration() async {
+    func testMetalRendererGridIntegration() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         // Snapshot with empty scene renders the ground grid on dark background
@@ -123,10 +123,10 @@ final class GridGeneratorTests: XCTestCase {
         XCTAssertNotNil(updatedSnapshot)
     }
     
-    func testCameraBelowPlaneSnapshot() async {
+    func testCameraBelowPlaneSnapshot() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         // Place camera beneath the ground plane looking up at the origin
@@ -142,10 +142,10 @@ final class GridGeneratorTests: XCTestCase {
         XCTAssertEqual([UInt8](data.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    func testSolidsRestingOnGroundPlaneSnapshot() async {
+    func testSolidsRestingOnGroundPlaneSnapshot() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         // Generate a box of width 40, depth 40, height 20
@@ -177,10 +177,10 @@ final class GridGeneratorTests: XCTestCase {
         XCTAssertEqual([UInt8](data.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    func testSnapshotViaCADTools() async {
+    func testSnapshotViaCADTools() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         let doc = DocumentModel()
@@ -204,10 +204,10 @@ final class GridGeneratorTests: XCTestCase {
         XCTAssertEqual([UInt8](data.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    func testDefaultSceneWithSolidsAndGridSnapshot() async {
+    func testDefaultSceneWithSolidsAndGridSnapshot() async throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = MetalRenderer(device: device) else {
-            return
+            throw XCTSkip("Metal unavailable")
         }
         
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
