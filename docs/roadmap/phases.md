@@ -6,19 +6,19 @@
 - **The [architectural invariants](../architecture/invariants.md) are non-negotiable.** A violation is treated as a build break.
 - **Verify every phase with automated tests.** Run `cd macos && swift test` and confirm all suites pass with zero failures before declaring a phase complete. A phase is not Done while its features are unwired.
 
-Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). The 2026-10-10 audit found gaps in Phases 1 to 3, so those phases are marked In progress below.
+Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). The 2026-10-10 audit found gaps in Phases 1 to 3, so those phases are marked In progress below. Each open gap is filed under the GitHub milestone named in the table. The web prototype milestones are closed and carry a "(web prototype)" suffix.
 
 ---
 
 ## Status at a Glance
 
-| Phase | Description | Status | Open gaps |
-| ----- | ----------- | ------ | --------- |
-| **0** | Native Foundation | Complete | None. |
-| **1** | Metal 3 Viewport | In progress | Orbit, pan, zoom (#87); snapping unwired (#88); ground grid (#102); axes indicator (#103); redraw reasons (#94). |
-| **2** | Native CSG Kernel | In progress | Kernel cache not freed on removal (#93). |
-| **3** | Agentic Subsystem | In progress | Headless snapshot (#89); protocol and argument validation (#95 to #101). |
-| **4** | CAD Depth | Not started | Issues #34 to #45, #66 to #73, #82 to #85. |
+| Phase | Description | Status | Milestone | Open gaps |
+| ----- | ----------- | ------ | --------- | --------- |
+| **0** | Native Foundation | Complete | None | None. |
+| **1** | Metal 3 Viewport | In progress | Phase 1: Metal 3 Viewport & Input | Orbit, pan, zoom (#87); snapping unwired (#88); ground grid (#102); axes indicator (#103); redraw reasons (#94); Metal unavailable message (#108). |
+| **2** | Native CSG Kernel | In progress | Phase 2: Native CSG Kernel | Kernel cache not freed on removal (#93); recompute overwrites a transform (#92); parameter clamping (#104); recompute failure message (#109). |
+| **3** | Agentic Subsystem | In progress | Phase 3: Agentic Subsystem & MCP | Headless snapshot (#89); actor isolation (#91); protocol and argument validation (#95 to #101); Copilot accessibility and progress (#105, #107). |
+| **4** | CAD Depth | Not started | Phase 4A to 4D | Issues #34 to #45, #66 to #73, #82 to #85. |
 
 ---
 

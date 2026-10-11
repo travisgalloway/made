@@ -6,7 +6,7 @@ This document records the migration of the issue backlog from the web prototype 
 
 ## 1. Web/PWA Issues (Retired)
 
-The following 10 issues were created for the web-based PWA architecture (service workers, WASM streaming, browser workers, and IndexedDB). They do not apply to the native macOS app and are retired. All 10 are closed on GitHub with state reason `COMPLETED`, not `NOT_PLANNED`, and the issues do not record the retirement rationale. Comments on them suggest `NOT_PLANNED` is the intended reason. The titles below are the GitHub titles; the rationale column is this document's own:
+The following 10 issues were created for the web-based PWA architecture (service workers, WASM streaming, browser workers, and IndexedDB). They do not apply to the native macOS app and are retired. All 10 are closed on GitHub with state reason `NOT_PLANNED` and carry the `web-prototype` label. Each has a comment pointing to this document. The titles below are the GitHub titles; the rationale column is this document's own:
 
 | Issue # | Original Title | Retirement Rationale |
 | ------- | -------------- | -------------------- |
@@ -84,30 +84,20 @@ The 2026-10-10 audit opened issues #87 to #109 for gaps between the documents an
 
 ## 5. Active Milestone Structure on GitHub
 
-The active backlog is organized into 4 coherent sequential milestones:
+The active backlog is organized into seven sequential milestones. The first three close the audit gaps in the built phases. Phase 4A to 4D add CAD depth.
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ Phase 4A: Native Scene & Interaction Foundation (Milestone 5)    │
-│ Direct-manipulation scene and inspector experience.              │
-│ Issues: #66, #67, #69, #70, #71, #72, #73, #40, #45              │
-└─────────────────────────────────┬────────────────────────────────┘
-                                  │
-┌─────────────────────────────────▼────────────────────────────────┐
-│ Phase 4B: B-Rep Engine, STEP Exchange & Document (Milestone 6)   │
-│ OpenCASCADE integration, STEP I/O, fillets, feature tree, .made. │
-│ Issues: #82, #38, #35, #34, #39, #83                             │
-└─────────────────────────────────┬────────────────────────────────┘
-                                  │
-┌─────────────────────────────────▼────────────────────────────────┐
-│ Phase 4C: 2D Sketching & Constraint Solver (Milestone 7)         │
-│ 2D sketch planes, constraint inference, profile extrusions.      │
-│ Issues: #36, #37, #44                                            │
-└─────────────────────────────────┬────────────────────────────────┘
-                                  │
-┌─────────────────────────────────▼────────────────────────────────┐
-│ Phase 4D: Pencil Precision, Contextual UI & Agent REPL (Milestone 8)
-│ Apple Pencil channel, contextual radial menu, Cadova Swift REPL. │
-│ Issues: #84, #85, #41, #42, #43                                  │
-└──────────────────────────────────────────────────────────────────┘
-```
+| Milestone | Scope | Issues |
+| --------- | ----- | ------ |
+| Phase 1: Metal 3 Viewport & Input (9) | Camera navigation, snapping, grid, axes, redraw reasons. | #87, #88, #94, #102, #103, #108 |
+| Phase 2: Native CSG Kernel (10) | Cache lifetime, recompute races, parameter clamping. | #92, #93, #104, #109 |
+| Phase 3: Agentic Subsystem & MCP (11) | Protocol validation, tool argument errors, headless snapshot, actor isolation. | #89, #91, #95 to #101, #105, #107 |
+| Phase 4A: Native Scene & Interaction Foundation (5) | Scene generalization, selection, inspector, gizmos. | #40, #45, #66, #67, #69 to #73, #106 |
+| Phase 4B: B-Rep Engine, STEP Exchange & Document Persistence (6) | OpenCASCADE, STEP I/O, fillets, feature tree, `.made` files. | #34, #35, #38, #39, #82, #83 |
+| Phase 4C: 2D Sketching & Constraint Solver (7) | Sketch planes, constraint inference, profile extrusions. | #36, #37, #44 |
+| Phase 4D: Pencil Precision, Contextual UI & Agent REPL (8) | Apple Pencil channel, radial menu, Cadova Swift REPL. | #41, #42, #43, #84, #85 |
+
+The milestone number is in parentheses. Milestones 1 to 4 belonged to the web prototype. They are closed and renamed with a "(web prototype)" suffix, and their issues carry the `web-prototype` label.
+
+## 6. Labels
+
+Area labels match the commit scopes in `CLAUDE.md`: `kernel`, `viewport`, `input`, `scene`, `agent`, `ui`, `infra`, and `docs`. The `cad` label marks Phase 4 features. The `pwa` label was renamed to `web-prototype`.
