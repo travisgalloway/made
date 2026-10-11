@@ -12,23 +12,23 @@ The native application and core modules live in `macos/`:
 
 ### Building & Running
 
+From the repository root using `make` (or from `macos/` using `swift`):
+
 Build the native application:
 ```sh
-cd macos
-swift build
+make build          # or: cd macos && swift build
 ```
 
-Run the unit test suites (34 tests covering DSL, CSG booleans, kernel conflation, gesture arbiter, snapping, document model, and MCP protocol):
+Run the unit test suites:
 ```sh
-cd macos
-swift test
+make test           # or: cd macos && swift test
+make test FILTER=DocumentModelTests
 ```
 
-Launch the application, or run the MCP server over standard I/O:
+Launch the application GUI, or run the MCP server over standard I/O:
 ```sh
-cd macos
-swift run MadeApp
-swift run MadeApp --mcp-stdio
+make run            # or: cd macos && swift run MadeApp
+make run-mcp        # or: cd macos && swift run MadeApp --mcp-stdio
 ```
 The `--mcp-stdio` mode still declares the SwiftUI window scene. Its tool registry has no snapshot provider, so `cad_capture_snapshot` returns an error (#89).
 

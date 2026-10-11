@@ -17,22 +17,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The original SvelteKit prototype was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation lives in `docs/archive/web-prototype/`. Do not restore it, and do not cite its files in new issues or docs.
 
-CI (`.github/workflows/ci.yml`) runs `swift build --build-tests` and `swift test` on `macos-15` for every PR.
+CI (`.github/workflows/ci.yml`) runs `swift build --build-tests` and `swift test` on `macos-15` for non-draft pull requests touching `macos/**`, workflow, or build files. Push runs on `main` and docs-only changes skip CI to save runner minutes. Manual runs can be triggered with `gh workflow run ci.yml`.
 
 ## Commands
 
-Run every command from `macos/`. The package needs Swift 6 tools (`swift-tools-version: 6.0`) and targets macOS 14.
+Run commands from the repository root using `make`, or directly from `macos/` with `swift`. The package needs Swift 6 tools (`swift-tools-version: 6.0`) and targets macOS 14.
 
-| Task | Command |
-| --- | --- |
-| Build | `swift build` |
-| Run the app | `swift run MadeApp` |
-| Run with the MCP server on stdio | `swift run MadeApp --mcp-stdio` |
-| All tests | `swift test` |
-| One test class | `swift test --filter KernelClientTests` |
-| One test | `swift test --filter KernelClientTests/testRapidRequestsConflateToLatestValue` |
+| Task | Root Make Command | Direct Swift Command (in `macos/`) |
+| --- | --- | --- |
+| Build | `make build` | `swift build` |
+| Build tests | `make build-tests` | `swift build --build-tests` |
+| Run the app | `make run` | `swift run MadeApp` |
+| Run with MCP on stdio | `make run-mcp` | `swift run MadeApp --mcp-stdio` |
+| All tests | `make test` | `swift test` |
+| One test class | `make test FILTER=KernelClientTests` | `swift test --filter KernelClientTests` |
+| One test | `make test FILTER=KernelClientTests/testRapidRequestsConflateToLatestValue` | `swift test --filter KernelClientTests/testRapidRequestsConflateToLatestValue` |
+| Clean artifacts | `make clean` | `swift package clean && rm -rf .build` |
+| Full local CI | `make ci-local` | `swift build --build-tests && swift test --skip-build` |
 
-Tests use XCTest in `macos/Tests/MadeCoreTests`. There are eight test files, and no UI or integration test target.
+Tests use XCTest in `macos/Tests/MadeCoreTests`. There are thirteen test files, and no UI or integration test target.
 
 ## Layout
 

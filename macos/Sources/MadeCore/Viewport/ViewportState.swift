@@ -1,5 +1,5 @@
 import Foundation
-import Metal
+@preconcurrency import Metal
 import Observation
 import os
 
@@ -101,20 +101,33 @@ public struct DefaultMetalDeviceProvider: MetalDeviceProviding {
     }
 }
 
+private final class DeviceBox: @unchecked Sendable {
+    let device: (any MTLDevice)?
+    init(device: (any MTLDevice)?) {
+        self.device = device
+    }
+}
+
 /// Custom device provider for injecting mock or fixed MTLDevice instances.
 public struct CustomMetalDeviceProvider: MetalDeviceProviding {
-    private let deviceClosure: @Sendable () -> (any MTLDevice)?
+    private let deviceBox: DeviceBox?
+    private let deviceClosure: (@Sendable () -> (any MTLDevice)?)?
     
     public init(device: (any MTLDevice)?) {
-        self.deviceClosure = { device }
+        self.deviceBox = DeviceBox(device: device)
+        self.deviceClosure = nil
     }
     
     public init(deviceClosure: @escaping @Sendable () -> (any MTLDevice)?) {
+        self.deviceBox = nil
         self.deviceClosure = deviceClosure
     }
     
     public func makeDevice() -> (any MTLDevice)? {
-        deviceClosure()
+        if let box = deviceBox {
+            return box.device
+        }
+        return deviceClosure?()
     }
 }
 

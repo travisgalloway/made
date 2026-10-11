@@ -63,11 +63,13 @@ final class ViewportCoordinatorTests: XCTestCase {
         let stub = StubInvalidationTarget()
         let coordinator = ViewportCoordinator(target: stub)
         
-        // Simulating a failed kernel request:
-        // ContentView only calls coordinator.invalidate when kernel result is .success
-        let kernelSuccess = false
-        if kernelSuccess {
+        // Simulating handling of a failed kernel result:
+        let result: KernelResult<SolidId> = .failure(jobId: JobId("job-1"), error: KernelError(code: .geometryFailed, message: "CSG failed"))
+        switch result {
+        case .success:
             coordinator.invalidate(reason: .model)
+        case .failure:
+            break
         }
         
         XCTAssertEqual(stub.redrawCount, 0, "Failed kernel result must not trigger a redraw")
