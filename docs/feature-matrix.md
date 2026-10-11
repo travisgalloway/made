@@ -27,7 +27,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | VIEW-2 | A user can see the same MTKView on iPadOS through a UIViewRepresentable with multi-touch enabled | none | n/a | n/a | In progress | #84 | n/a |
 | VIEW-3 | A user gets on-demand rendering only (`isPaused = true`, `enableSetNeedsDisplay = true`), so the GPU stays idle until a redraw is requested | done | n/a | n/a | Shipped | none | n/a |
 | VIEW-4 | A user sees the viewport redraw when SwiftUI state changes (`updateNSView` calls `setNeedsDisplay`) | done | n/a | n/a | Shipped | none | n/a |
-| VIEW-5 | A user can trigger a tagged invalidate-and-redraw through `Coordinator.invalidate(reason:)` | none | n/a | n/a | In progress | #94 | n/a |
+| VIEW-5 | A user can trigger a tagged invalidate-and-redraw through `Coordinator.invalidate(reason:)` | done | n/a | n/a | Shipped | #94 | n/a |
 | VIEW-6 | A user can read live Metal status, render count, draw calls and last invalidate reason in the viewport HUD | done | n/a | n/a | In progress | none | n/a |
 | VIEW-7 | A user sees kernel meshes uploaded to `.storageModeShared` Metal buffers | done | n/a | done | Shipped | none | n/a |
 | VIEW-8 | A user sees each frame drawn into the MTKView drawable and counted by the instrumentation | done | n/a | n/a | Shipped | none | n/a |
@@ -38,7 +38,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | VIEW-13 | A user sees a right-handed Z-up view matrix with +Z as world up | done | n/a | n/a | Shipped | none | n/a |
 | VIEW-14 | A user sees a perspective projection with Metal 0..1 depth range | done | n/a | n/a | Shipped | none | n/a |
 | VIEW-15 | A developer can read `renderCount`, `drawCalls` and `lastReason` from `RenderInstrumentation.shared` | done | n/a | n/a | Shipped | none | n/a |
-| VIEW-16 | A user gets redraws classified as camera, resize, model or interaction; only `model` is ever recorded (A/ContentView.swift:304) | none | n/a | n/a | In progress | #94 | n/a |
+| VIEW-16 | A user gets redraws classified as camera, resize, model or interaction | done | n/a | n/a | Shipped | #94 | n/a |
 | VIEW-17 | A user sees Blinn-Phong specular highlights on solids | none | n/a | n/a | Planned | none | n/a |
 | INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift | none | done | n/a | In progress | #87 | n/a |
 | INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | none | done | n/a | In progress | #87 | n/a |

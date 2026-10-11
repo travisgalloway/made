@@ -63,6 +63,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     public var cameraTarget: SIMD3<Float> = SIMD3<Float>(0, 0, 10)
     public var meshes: [SolidId: MetalMesh] = [:]
     public var onDeviceLost: (@Sendable () -> Void)? = nil
+    public var onFrameRendered: (@Sendable () -> Void)? = nil
     
     public init?(device: MTLDevice) {
         self.device = device
@@ -215,6 +216,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         commandBuffer.commit()
         
         RenderInstrumentation.shared.recordRender(drawCalls: drawCalls)
+        onFrameRendered?()
     }
     
     public func captureSnapshotPngBase64() async -> String? {

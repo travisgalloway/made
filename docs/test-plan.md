@@ -26,7 +26,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-10. Source: closure
 | VIEW-2 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-3 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-4 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
-| VIEW-5 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
+| VIEW-5 | ViewportCoordinatorTests.swift: testMeshSwapTriggersRedrawThroughCoordinator, testRenderCountStaysFlatAtIdle, testFailedKernelResultDoesNotRedraw, testWindowMinimizedSuppressesRedrawDuringUpdate, testRemovingSolidRedrawsOnce, testTwoMeshesSettleInSameFrame | n/a (no integration target) | none (no UI test target) | window minimized; failed kernel result; idle flat count; two meshes in same frame; solid removal | MTKView window rendering unobserved by unit test (no UI test target); verified manually and via stub test seam. |
 | VIEW-6 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-7 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-8 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
@@ -37,7 +37,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-10. Source: closure
 | VIEW-13 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-14 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-15 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
-| VIEW-16 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
+| VIEW-16 | ViewportCoordinatorTests.swift: testInvalidateReasonClassification | n/a (no integration target) | none (no UI test target) | camera, resize, model, interaction classification | Automated unit test coverage; UI event hooks for camera/interaction wired in separate issues (#87). |
 | VIEW-17 | none | n/a (no integration target) | none (no UI test target) | none | Capability not implemented; no test expected until built. Add a failing-spec ticket only with the feature. |
 | INPUT-1 | GestureArbiterTests.swift: testSinglePointerDragLocksManipulateOnMove, testTwoPointersLockNavigateOnMove | n/a (no integration target) | none (no UI test target) | lock on first move; reset after release | No test of a mode that stays locked when a second pointer joins mid-gesture or when a locked navigate drops to one pointer. |
 | INPUT-2 | GestureArbiterTests.swift: testPureTapDecidesAtReleaseUsingPeakCount | n/a (no integration target) | none (no UI test target) | peak count 2 tap | Single-pointer tap (peak 1) not tested. |
