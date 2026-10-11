@@ -28,6 +28,14 @@ public struct RenderUniforms {
     }
 }
 
+public struct GridUniforms {
+    public var viewProjectionMatrix: simd_float4x4
+    
+    public init(viewProjectionMatrix: simd_float4x4 = matrix_identity_float4x4) {
+        self.viewProjectionMatrix = viewProjectionMatrix
+    }
+}
+
 public struct MetalMesh: @unchecked Sendable {
     public let positionBuffer: MTLBuffer
     public let normalBuffer: MTLBuffer
@@ -58,6 +66,13 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     public let commandQueue: MTLCommandQueue
     private let pipelineState: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
+    
+    // Grid rendering pipeline and resources
+    private let gridPipelineState: MTLRenderPipelineState
+    private let gridDepthState: MTLDepthStencilState
+    private var gridPositionBuffer: MTLBuffer?
+    private var gridColorBuffer: MTLBuffer?
+    private var gridVertexCount: Int = 0
     
     public var cameraPosition: SIMD3<Float> = Orientation.defaultViewDirection * 150.0
     public var cameraTarget: SIMD3<Float> = SIMD3<Float>(0, 0, 10)
@@ -104,7 +119,65 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         guard let depth = device.makeDepthStencilState(descriptor: depthDesc) else { return nil }
         self.depthState = depth
         
+        // Grid pipeline state
+        guard let gridVertexFunc = library.makeFunction(name: "gridVertexShader"),
+              let gridFragmentFunc = library.makeFunction(name: "gridFragmentShader") else {
+            print("Failed to locate grid shader entry points")
+            return nil
+        }
+        
+        let gridPipelineDesc = MTLRenderPipelineDescriptor()
+        gridPipelineDesc.vertexFunction = gridVertexFunc
+        gridPipelineDesc.fragmentFunction = gridFragmentFunc
+        gridPipelineDesc.colorAttachments[0].pixelFormat = .bgra8Unorm_srgb
+        gridPipelineDesc.depthAttachmentPixelFormat = .depth32Float
+        
+        do {
+            self.gridPipelineState = try device.makeRenderPipelineState(descriptor: gridPipelineDesc)
+        } catch {
+            print("Failed to create grid pipeline state: \(error)")
+            return nil
+        }
+        
+        let gridDepthDesc = MTLDepthStencilDescriptor()
+        gridDepthDesc.depthCompareFunction = .less
+        gridDepthDesc.isDepthWriteEnabled = true
+        guard let gridDepth = device.makeDepthStencilState(descriptor: gridDepthDesc) else { return nil }
+        self.gridDepthState = gridDepth
+        
         super.init()
+        
+        setupGrid()
+    }
+    
+    private func setupGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
+        let grid = GridGenerator.generateGrid(size: size, spacing: spacing)
+        self.gridVertexCount = grid.vertexCount
+        
+        guard !grid.positions.isEmpty else {
+            self.gridPositionBuffer = nil
+            self.gridColorBuffer = nil
+            return
+        }
+        
+        let posByteLength = grid.positions.count * MemoryLayout<Float>.stride
+        self.gridPositionBuffer = device.makeBuffer(
+            bytes: grid.positions,
+            length: posByteLength,
+            options: .storageModeShared
+        )
+        
+        let colByteLength = grid.colors.count * MemoryLayout<Float>.stride
+        self.gridColorBuffer = device.makeBuffer(
+            bytes: grid.colors,
+            length: colByteLength,
+            options: .storageModeShared
+        )
+    }
+    
+    /// Updates the ground grid dimensions or spacing.
+    public func updateGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
+        setupGrid(size: size, spacing: spacing)
     }
     
     /// Converts a MeshPayload into a MetalMesh with zero-copy shared memory allocation on Apple Silicon.
@@ -187,6 +260,22 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
             )
             drawCalls += 1
         }
+        
+        // Draw ground grid on Z = 0
+        if let gridPos = gridPositionBuffer, let gridCol = gridColorBuffer, gridVertexCount > 0 {
+            encoder.setRenderPipelineState(gridPipelineState)
+            encoder.setDepthStencilState(gridDepthState)
+            encoder.setCullMode(.none)
+            
+            var gridUniforms = GridUniforms(viewProjectionMatrix: projMatrix * viewMatrix)
+            encoder.setVertexBuffer(gridPos, offset: 0, index: 0)
+            encoder.setVertexBuffer(gridCol, offset: 0, index: 1)
+            encoder.setVertexBytes(&gridUniforms, length: MemoryLayout<GridUniforms>.stride, index: 2)
+            
+            encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: gridVertexCount)
+            drawCalls += 1
+        }
+        
         return drawCalls
     }
     
@@ -222,7 +311,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     public func captureSnapshotPngBase64() async -> String? {
         let width = 800
         let height = 600
-        let texDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
+        let texDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb, width: width, height: height, mipmapped: false)
         texDesc.usage = [.renderTarget, .shaderRead]
         guard let colorTex = device.makeTexture(descriptor: texDesc) else { return nil }
         
@@ -245,12 +334,12 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         
         renderScene(encoder: encoder, aspect: Float(width) / Float(height))
         encoder.endEncoding()
-        cmdBuffer.commit()
         
         await withCheckedContinuation { continuation in
             cmdBuffer.addCompletedHandler { _ in
                 continuation.resume()
             }
+            cmdBuffer.commit()
         }
         
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
@@ -264,7 +353,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
                   bitsPerPixel: 32,
                   bytesPerRow: width * 4,
                   space: CGColorSpaceCreateDeviceRGB(),
-                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
                   provider: provider,
                   decode: nil,
                   shouldInterpolate: false,

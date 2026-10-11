@@ -54,5 +54,30 @@ public enum MetalShaders {
         
         return float4(finalRgb, in.color.a);
     }
+
+    struct GridUniforms {
+        float4x4 viewProjectionMatrix;
+    };
+
+    struct GridVertexOut {
+        float4 position [[position]];
+        float4 color;
+    };
+
+    vertex GridVertexOut gridVertexShader(
+        uint vertexID [[vertex_id]],
+        constant float3 *positions [[buffer(0)]],
+        constant float4 *colors [[buffer(1)]],
+        constant GridUniforms &uniforms [[buffer(2)]]
+    ) {
+        GridVertexOut out;
+        out.position = uniforms.viewProjectionMatrix * float4(positions[vertexID], 1.0);
+        out.color = colors[vertexID];
+        return out;
+    }
+
+    fragment float4 gridFragmentShader(GridVertexOut in [[stage_in]]) {
+        return in.color;
+    }
     """
 }

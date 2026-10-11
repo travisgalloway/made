@@ -84,7 +84,7 @@ Shaders are written in Metal Shading Language (MSL) in [`MetalShaders.swift`](..
 - **Vertex Shader**: Transforms vertices by `modelMatrix`, `viewMatrix`, and `projectionMatrix`, and transforms normals to world space with `normalMatrix`.
 - **Fragment Shader**: Evaluates Lambertian diffuse shading from two directional lights (key weight 0.7, fill weight 0.3) plus a 0.25 ambient term. It has no specular term. Blinn-Phong highlights are not implemented.
 
-The viewport draws no ground grid (#102) and no axes indicator (#103).
+The viewport draws a ground grid on Z = 0 (#102) with 10 mm pitch matching snapToGrid, but no axes indicator (#103).
 
 ---
 

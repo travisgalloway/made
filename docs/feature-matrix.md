@@ -40,6 +40,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | VIEW-15 | A developer can read `renderCount`, `drawCalls` and `lastReason` from `RenderInstrumentation.shared` | done | n/a | n/a | Shipped | none | n/a |
 | VIEW-16 | A user gets redraws classified as camera, resize, model or interaction | done | n/a | n/a | Shipped | #94 | n/a |
 | VIEW-17 | A user sees Blinn-Phong specular highlights on solids | none | n/a | n/a | Planned | none | n/a |
+| VIEW-18 | A user sees a ground grid on Z = 0 | done | done | n/a | Shipped | #102 | n/a |
 | INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift | none | done | n/a | In progress | #87 | n/a |
 | INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | none | done | n/a | In progress | #87 | n/a |
 | INPUT-3 | A user can use Apple Pencil input that always routes to manipulate and never to navigate | none | done | n/a | In progress | #87 | n/a |
@@ -148,5 +149,4 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 
 Findings that map to no capability row.
 
-- #102 (ground grid on Z = 0) has no row. The nearest row is INPUT-6, which lists it.
 - #103 (labelled XYZ axes indicator) has no row, because no capability describes it.
