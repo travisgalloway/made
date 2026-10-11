@@ -14,29 +14,23 @@ public struct ContentView: View {
     @State private var coordinator: CADMetalViewRepresentable.Coordinator? = nil
     @State private var activeSnapKind: SnapKind? = nil
     
-    // Workspace Pane Visibility State (Xcode-style layout toggles)
+    // Workspace Pane Visibility State (layout toggles)
     @State private var isNavigatorVisible: Bool = true
-    @State private var isConsoleVisible: Bool = true
+    @State private var isConsoleVisible: Bool = false
     @State private var isInspectorVisible: Bool = true
     
-    // Viewport & Transform Gizmo State
-    @State private var gizmoMode: GizmoMode = .select
-    @State private var projectionMode: CameraProjection = .perspective
+    // Camera Viewport Perspective State
     @State private var currentPerspective: ViewportPerspective = .perspective
     
-    // Simulation Execution State
-    @State private var isSimulating: Bool = false
-    
-    // Debug & Console State
+    // Debug & Execution Console Logs
     @State private var consoleLogs: [ConsoleLogEntry] = [
-        ConsoleLogEntry(level: .info, subsystem: "App", message: "made macOS workspace initialized"),
-        ConsoleLogEntry(level: .kernel, subsystem: "Kernel", message: "Euclid CSG engine ready (60ms debounce)"),
-        ConsoleLogEntry(level: .agent, subsystem: "Agent", message: "MCP JSON-RPC server ready with 8 tools")
+        ConsoleLogEntry(level: .info, subsystem: "App", message: "made macOS workspace initialized")
     ]
     
-    // Agent Subsystem
+    // MCP Subsystem
     @State private var toolRegistry: CADToolRegistry? = nil
-    @State private var agentController: InAppAgentController? = nil
+    @State private var mcpServer: MCPServer? = nil
+    @State private var isMCPServerRunning: Bool = false
     
     public init() {}
     
@@ -91,44 +85,35 @@ public struct ContentView: View {
                     renderer: viewportManager.renderer,
                     viewportState: viewportManager.state,
                     selectedId: $selectedId,
-                    gizmoMode: $gizmoMode,
-                    projectionMode: $projectionMode,
-                    currentPerspective: $currentPerspective,
                     coordinator: $coordinator,
                     activeSnapKind: activeSnapKind,
+                    currentPerspective: currentPerspective,
+                    renderCount: renderCount,
+                    drawCalls: drawCalls,
+                    lastReason: lastReason,
                     onInvalidate: {
                         updateStats()
                     },
                     onSnapChanged: { result in
                         self.activeSnapKind = result?.kind
                         if let r = result {
-                            log(.snap, subsystem: "Snapping", message: "Snapped to \(r.kind.rawValue) at target point")
+                            log(.snap, subsystem: "Snapping", message: "Snapped to \(r.kind.rawValue)")
                         }
                     },
                     onPerspectiveChanged: { persp in
+                        currentPerspective = persp
                         guard let rend = viewportManager.renderer else { return }
                         rend.camera = Camera.preset(persp)
-                        log(.info, subsystem: "Camera", message: "Changed perspective to \(persp.rawValue)")
-                        invalidateViewport(reason: .camera)
-                    },
-                    onProjectionChanged: { proj in
-                        guard let rend = viewportManager.renderer else { return }
-                        rend.projectionMode = proj
-                        log(.info, subsystem: "Camera", message: "Switched projection to \(proj.rawValue)")
+                        log(.info, subsystem: "Camera", message: "Switched to \(persp.rawValue) perspective")
                         invalidateViewport(reason: .camera)
                     }
                 )
                 .frame(minWidth: 400, minHeight: 300)
                 
-                // Bottom Collapsible Console & Telemetry Drawer
+                // Bottom Collapsible Console Drawer
                 if isConsoleVisible {
                     ConsoleDrawerView(
                         logs: consoleLogs,
-                        renderCount: renderCount,
-                        drawCalls: drawCalls,
-                        lastReason: lastReason,
-                        activeSnapKind: activeSnapKind,
-                        viewportState: viewportManager.state,
                         onClearLogs: {
                             consoleLogs.removeAll()
                         },
@@ -146,8 +131,6 @@ public struct ContentView: View {
                 InspectorPanelView(
                     document: document,
                     selectedId: $selectedId,
-                    agentController: agentController,
-                    isMetalUnavailable: viewportManager.state.isUnavailable,
                     onTransformChanged: { id, newTransform in
                         document.setTransform(id: id, transform: newTransform)
                         if var mesh = viewportManager.renderer?.meshes[id] {
@@ -155,30 +138,19 @@ public struct ContentView: View {
                             mesh.candidateMesh.transform = newTransform
                             viewportManager.renderer?.meshes[id] = mesh
                         }
-                        log(.info, subsystem: "Transform", message: "Updated \(id.rawValue) position to \(newTransform.position)")
                         invalidateViewport(reason: .model)
                     },
                     onParamChanged: { id, key, value in
                         document.setParam(id: id, key: key, value: value)
-                        log(.kernel, subsystem: "CSG", message: "Param changed for \(id.rawValue): \(key) = \(String(format: "%.1f", value))")
+                        log(.kernel, subsystem: "CSG", message: "Updated \(id.rawValue) \(key) to \(String(format: "%.1f", value))")
                         recomputeSolid(id: id)
-                    },
-                    onMaterialChanged: { id, newMat in
-                        document.setMaterial(id: id, material: newMat)
-                        log(.info, subsystem: "Material", message: "Updated material for \(id.rawValue)")
-                    },
-                    onSimulationChanged: { id, newSim in
-                        document.setSimulation(id: id, simulation: newSim)
-                        log(.info, subsystem: "Physics", message: "Updated physics for \(id.rawValue): mass = \(newSim.mass)kg")
-                    },
-                    onCopilotSubmit: { prompt in
-                        log(.agent, subsystem: "Copilot", message: "Prompt: \(prompt)")
-                        submitCopilotPrompt(prompt)
                     }
                 )
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 800, minHeight: 500)
+        .background(ToolbarAlignmentHelper())
+        .navigationTitle("")
         .toolbar {
             workspaceToolbar
         }
@@ -196,70 +168,34 @@ public struct ContentView: View {
         }
     }
     
-    // MARK: - Unified Window Toolbar (Xcode-style)
+    // MARK: - Workspace Toolbar
     
     @ToolbarContentBuilder
     private var workspaceToolbar: some ToolbarContent {
-        // Leading: Primary Execution Controls (Run/Pause Simulation)
-        ToolbarItemGroup(placement: .navigation) {
-            Button {
-                isSimulating.toggle()
-                log(.info, subsystem: "Simulation", message: isSimulating ? "Simulation started" : "Simulation paused")
-            } label: {
-                Label(isSimulating ? "Pause" : "Run", systemImage: isSimulating ? "pause.fill" : "play.fill")
-                    .foregroundColor(isSimulating ? .orange : .accentColor)
-            }
-            .help(isSimulating ? "Pause Simulation" : "Run Simulation")
-            
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(isSimulating ? Color.orange : Color.green)
-                    .frame(width: 7, height: 7)
-                Text(isSimulating ? "Simulating" : "Ready")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(4)
-        }
-        
-        // Center: Document Title & Perspective Quick Selector
+        // Center Area: Only the name of the project/folder
         ToolbarItem(placement: .principal) {
-            HStack(spacing: 8) {
-                Image(systemName: "cube.transparent.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.accentColor)
-                Text("made — Untitled Scene.made")
-                    .font(.system(size: 12, weight: .semibold))
-            }
+            Text("Untitled Project")
+                .font(.system(size: 12, weight: .medium))
         }
         
-        // Trailing: Viewport Perspective & Pane Layout Toggles
-        ToolbarItemGroup(placement: .automatic) {
-            // Viewport Perspective Picker Menu
-            Menu {
-                ForEach(ViewportPerspective.allCases) { persp in
-                    Button(persp.rawValue) {
-                        currentPerspective = persp
-                        guard let rend = viewportManager.renderer else { return }
-                        rend.camera = Camera.preset(persp)
-                        log(.info, subsystem: "Camera", message: "Switched to \(persp.rawValue) perspective")
-                        invalidateViewport(reason: .camera)
-                    }
-                }
+        // Right Edge: MCP and Pane Toggles (Justified to the right edge)
+        ToolbarItem(placement: .primaryAction) {
+            // MCP Server Control (AI diamond icon: ✧ sparkle, toggles green when running)
+            Button {
+                toggleMCPWindow()
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "cube")
-                    Text(currentPerspective.rawValue)
+                    Image(systemName: "sparkle")
+                        .font(.system(size: 12))
+                        .foregroundColor(isMCPServerRunning ? .green : .secondary)
+                    Text("MCP")
+                        .font(.system(size: 11, weight: .medium))
                 }
             }
-            .help("Viewport Perspective Presets")
-            
-            Divider()
-            
-            // Toggle Left Navigator
+            .help("Model Context Protocol (MCP) Server")
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isNavigatorVisible.toggle()
@@ -268,9 +204,10 @@ public struct ContentView: View {
                 Image(systemName: "sidebar.left")
                     .foregroundColor(isNavigatorVisible ? .accentColor : .secondary)
             }
-            .help("Toggle Navigator Sidebar (Cmd+0)")
-            
-            // Toggle Bottom Console / Telemetry Drawer
+            .help("Toggle Navigator Sidebar")
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isConsoleVisible.toggle()
@@ -279,9 +216,10 @@ public struct ContentView: View {
                 Image(systemName: "rectangle.bottomhalf.inset.filled")
                     .foregroundColor(isConsoleVisible ? .accentColor : .secondary)
             }
-            .help("Toggle Debug Console & Telemetry (Cmd+Shift+Y)")
-            
-            // Toggle Right Inspector
+            .help("Toggle Debug Console")
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isInspectorVisible.toggle()
@@ -290,19 +228,37 @@ public struct ContentView: View {
                 Image(systemName: "sidebar.right")
                     .foregroundColor(isInspectorVisible ? .accentColor : .secondary)
             }
-            .help("Toggle Inspector Panel (Opt+Cmd+0)")
+            .help("Toggle Inspector Panel")
         }
     }
     
-    // MARK: - Actions & Engine Helpers
+    // MARK: - Actions & Helpers
     
-    private func submitCopilotPrompt(_ text: String) {
-        Task {
-            await agentController?.sendPrompt(text)
-            await MainActor.run {
-                for obj in document.objects {
-                    recomputeSolid(id: obj.id)
-                }
+    private func toggleMCPWindow() {
+        MCPWindowController.shared.toggle(
+            isRunning: isMCPServerRunning,
+            port: mcpServer?.port ?? 9820,
+            onToggleServer: { [self] in
+                toggleMCPServer()
+            }
+        )
+    }
+    
+    private func toggleMCPServer() {
+        guard let server = mcpServer else { return }
+        if isMCPServerRunning {
+            server.stop()
+            isMCPServerRunning = false
+            MCPWindowController.shared.update(isRunning: false)
+            log(.info, subsystem: "MCP", message: "Stopped MCP server")
+        } else {
+            do {
+                try server.start(port: 9820)
+                isMCPServerRunning = true
+                MCPWindowController.shared.update(isRunning: true)
+                log(.info, subsystem: "MCP", message: "Started MCP server on port 9820")
+            } catch {
+                log(.error, subsystem: "MCP", message: "Failed to start MCP server: \(error.localizedDescription)")
             }
         }
     }
@@ -331,14 +287,20 @@ public struct ContentView: View {
             snapshotProvider: viewportManager.renderer
         )
         self.toolRegistry = registry
-        self.agentController = InAppAgentController(toolRegistry: registry)
+        let server = MCPServer(toolRegistry: registry)
+        server.onStateChange = { @Sendable running in
+            Task { @MainActor in
+                self.isMCPServerRunning = running
+            }
+        }
+        self.mcpServer = server
         
         for obj in document.objects {
             recomputeSolid(id: obj.id)
         }
         
         isKernelReady = true
-        log(.info, subsystem: "Metal", message: "Metal 3 pipeline initialized successfully")
+        log(.info, subsystem: "Metal", message: "Metal 3 pipeline initialized")
     }
     
     private func recomputeSolid(id: ObjectId) {
@@ -396,3 +358,46 @@ public struct ContentView: View {
         self.lastReason = RenderInstrumentation.shared.lastReason?.rawValue ?? "idle"
     }
 }
+
+// MARK: - AppKit Toolbar Alignment Helper
+
+/// Ensures AppKit inserts an NSToolbarFlexibleSpaceItem between the centered title
+/// and the trailing controls when running within a unified window style.
+@MainActor
+private final class ToolbarFixerView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        fixToolbar()
+    }
+    
+    func fixToolbar() {
+        DispatchQueue.main.async { [weak self] in
+            self?.applyFlexibleSpace()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.applyFlexibleSpace()
+        }
+    }
+    
+    private func applyFlexibleSpace() {
+        guard let window = self.window, let tb = window.toolbar else { return }
+        if let centeredId = tb.centeredItemIdentifier,
+           let centerIdx = tb.items.firstIndex(where: { $0.itemIdentifier == centeredId }) {
+            let nextIdx = centerIdx + 1
+            if nextIdx < tb.items.count && tb.items[nextIdx].itemIdentifier != .flexibleSpace {
+                tb.insertItem(withItemIdentifier: .flexibleSpace, at: nextIdx)
+            }
+        }
+    }
+}
+
+private struct ToolbarAlignmentHelper: NSViewRepresentable {
+    func makeNSView(context: Context) -> ToolbarFixerView {
+        ToolbarFixerView()
+    }
+    
+    func updateNSView(_ nsView: ToolbarFixerView, context: Context) {
+        nsView.fixToolbar()
+    }
+}
+

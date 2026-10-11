@@ -59,16 +59,8 @@ final class DocumentModelTests: XCTestCase {
         doc.setLocked(id: boxSolidId, isLocked: true)
         XCTAssertTrue(doc.objects[0].isLocked)
         
-        doc.setLayer(id: boxSolidId, layer: "Construction")
-        XCTAssertEqual(doc.objects[0].layer, "Construction")
-        
-        let mat = MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1), roughness: 0.8, opacity: 0.9)
+        let mat = MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1))
         doc.setMaterial(id: boxSolidId, material: mat)
-        XCTAssertEqual(doc.objects[0].material.roughness, 0.8)
-        
-        let sim = SimulationParameters(bodyType: .staticBody, mass: 5.0, friction: 0.2, restitution: 0.9)
-        doc.setSimulation(id: boxSolidId, simulation: sim)
-        XCTAssertEqual(doc.objects[0].simulation.bodyType, .staticBody)
-        XCTAssertEqual(doc.objects[0].simulation.mass, 5.0)
+        XCTAssertEqual(doc.objects[0].material.color, SIMD4<Float>(1, 0, 0, 1))
     }
 }

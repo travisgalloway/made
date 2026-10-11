@@ -93,4 +93,19 @@ final class MCPServerTests: XCTestCase {
         
         XCTAssertTrue(resp.contains("-32601"))
     }
+    
+    func testStartAndStopTCPServer() throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+        
+        XCTAssertFalse(server.isRunning)
+        try server.start(port: 19820)
+        XCTAssertTrue(server.isRunning)
+        XCTAssertEqual(server.port, 19820)
+        
+        server.stop()
+        XCTAssertFalse(server.isRunning)
+    }
 }

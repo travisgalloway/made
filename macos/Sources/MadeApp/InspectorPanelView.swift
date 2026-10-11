@@ -4,83 +4,45 @@ import MadeCore
 public struct InspectorPanelView: View {
     @Bindable var document: DocumentModel
     @Binding var selectedId: ObjectId
-    var agentController: InAppAgentController?
-    var isMetalUnavailable: Bool
     var onTransformChanged: (ObjectId, Transform) -> Void
     var onParamChanged: (ObjectId, String, Float) -> Void
-    var onMaterialChanged: (ObjectId, MaterialAttributes) -> Void
-    var onSimulationChanged: (ObjectId, SimulationParameters) -> Void
-    var onCopilotSubmit: (String) -> Void
-    
-    @State private var activeTab: InspectorTab = .properties
-    @State private var copilotInputText: String = ""
     
     public init(
         document: DocumentModel,
         selectedId: Binding<ObjectId>,
-        agentController: InAppAgentController?,
-        isMetalUnavailable: Bool,
         onTransformChanged: @escaping (ObjectId, Transform) -> Void,
-        onParamChanged: @escaping (ObjectId, String, Float) -> Void,
-        onMaterialChanged: @escaping (ObjectId, MaterialAttributes) -> Void,
-        onSimulationChanged: @escaping (ObjectId, SimulationParameters) -> Void,
-        onCopilotSubmit: @escaping (String) -> Void
+        onParamChanged: @escaping (ObjectId, String, Float) -> Void
     ) {
         self.document = document
         self._selectedId = selectedId
-        self.agentController = agentController
-        self.isMetalUnavailable = isMetalUnavailable
         self.onTransformChanged = onTransformChanged
         self.onParamChanged = onParamChanged
-        self.onMaterialChanged = onMaterialChanged
-        self.onSimulationChanged = onSimulationChanged
-        self.onCopilotSubmit = onCopilotSubmit
     }
     
     public var body: some View {
         VStack(spacing: 0) {
-            // Inspector Header Tabs
-            HStack(spacing: 4) {
-                ForEach(InspectorTab.allCases) { tab in
-                    Button {
-                        activeTab = tab
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: tab.iconName)
-                            Text(tab.rawValue)
-                        }
-                        .font(.system(size: 11, weight: activeTab == tab ? .semibold : .regular))
-                        .foregroundColor(activeTab == tab ? .accentColor : .secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(activeTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
-                        .cornerRadius(5)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(tab == .copilot && isMetalUnavailable)
-                }
+            // Header
+            HStack(spacing: 6) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text("Inspector")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
             }
-            .padding(8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Color(NSColor.controlBackgroundColor))
             
             Divider()
             
-            // Tab Content
-            if activeTab == .properties || (activeTab == .copilot && isMetalUnavailable) {
-                ScrollView {
-                    propertiesContent
-                        .padding(12)
-                }
-            } else if activeTab == .simulation {
-                ScrollView {
-                    simulationContent
-                        .padding(12)
-                }
-            } else {
-                copilotContent
+            // Properties Content
+            ScrollView {
+                propertiesContent
+                    .padding(12)
             }
         }
-        .frame(minWidth: 260, maxWidth: 340)
+        .frame(minWidth: 240, maxWidth: 320)
         .background(Color(NSColor.controlBackgroundColor))
     }
     
@@ -122,14 +84,6 @@ public struct InspectorPanelView: View {
                             .padding(.vertical, 2)
                             .background(Color.secondary.opacity(0.15))
                             .cornerRadius(4)
-                    }
-                    
-                    HStack {
-                        Text("Layer").foregroundColor(.secondary).font(.caption)
-                        Spacer()
-                        Text(selected.layer)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
                 }
                 
@@ -215,47 +169,6 @@ public struct InspectorPanelView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                
-                Divider()
-                
-                // Section 4: Material Attributes
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionHeader("MATERIAL ATTRIBUTES")
-                    
-                    HStack {
-                        Text("Roughness").font(.caption).foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.2f", selected.material.roughness)).font(.caption).monospacedDigit()
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { selected.material.roughness },
-                            set: {
-                                var m = selected.material
-                                m.roughness = $0
-                                onMaterialChanged(selected.id, m)
-                            }
-                        ),
-                        in: 0...1
-                    )
-                    
-                    HStack {
-                        Text("Opacity").font(.caption).foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.0f%%", selected.material.opacity * 100)).font(.caption).monospacedDigit()
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { selected.material.opacity },
-                            set: {
-                                var m = selected.material
-                                m.opacity = $0
-                                onMaterialChanged(selected.id, m)
-                            }
-                        ),
-                        in: 0.1...1
-                    )
-                }
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "cursorarrow.slash")
@@ -264,7 +177,7 @@ public struct InspectorPanelView: View {
                     Text("No Object Selected")
                         .font(.headline)
                         .foregroundColor(.secondary)
-                    Text("Select a solid in the Navigator or Viewport to inspect properties.")
+                    Text("Select a solid in the Navigator to inspect properties.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -272,175 +185,6 @@ public struct InspectorPanelView: View {
                 .frame(maxWidth: .infinity, minHeight: 200)
             }
         }
-    }
-    
-    // MARK: - Simulation Inspector
-    
-    private var simulationContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if let selected = document.objects.first(where: { $0.id == selectedId }) {
-                sectionHeader("PHYSICS SIMULATION")
-                
-                // Body Type Picker
-                HStack {
-                    Text("Body Type").font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Picker("", selection: Binding(
-                        get: { selected.simulation.bodyType },
-                        set: {
-                            var s = selected.simulation
-                            s.bodyType = $0
-                            onSimulationChanged(selected.id, s)
-                        }
-                    )) {
-                        ForEach(SimulationBodyType.allCases) { type in
-                            Text(type.rawValue).tag(type)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 120)
-                }
-                
-                // Mass
-                HStack {
-                    Text("Mass (kg)").font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Text(String(format: "%.2f kg", selected.simulation.mass)).font(.caption).monospacedDigit()
-                }
-                Slider(
-                    value: Binding(
-                        get: { selected.simulation.mass },
-                        set: {
-                            var s = selected.simulation
-                            s.mass = $0
-                            onSimulationChanged(selected.id, s)
-                        }
-                    ),
-                    in: 0.1...50
-                )
-                
-                // Friction
-                HStack {
-                    Text("Friction").font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Text(String(format: "%.2f", selected.simulation.friction)).font(.caption).monospacedDigit()
-                }
-                Slider(
-                    value: Binding(
-                        get: { selected.simulation.friction },
-                        set: {
-                            var s = selected.simulation
-                            s.friction = $0
-                            onSimulationChanged(selected.id, s)
-                        }
-                    ),
-                    in: 0...1
-                )
-                
-                // Restitution (Bounciness)
-                HStack {
-                    Text("Restitution").font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Text(String(format: "%.2f", selected.simulation.restitution)).font(.caption).monospacedDigit()
-                }
-                Slider(
-                    value: Binding(
-                        get: { selected.simulation.restitution },
-                        set: {
-                            var s = selected.simulation
-                            s.restitution = $0
-                            onSimulationChanged(selected.id, s)
-                        }
-                    ),
-                    in: 0...1
-                )
-                
-                Divider()
-                
-                sectionHeader("SIMULATION PIPELINE")
-                VStack(alignment: .leading, spacing: 6) {
-                    pipelineRow(label: "Solver State", value: "Ready")
-                    pipelineRow(label: "Update Frequency", value: "60 Hz (16.6 ms)")
-                    pipelineRow(label: "Ground Plane Collision", value: "Active")
-                }
-            } else {
-                Text("Select an object to configure physics.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-    
-    // MARK: - Copilot Content
-    
-    private var copilotContent: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if let agent = agentController {
-                            ForEach(agent.messages) { msg in
-                                HStack {
-                                    if msg.sender == "user" {
-                                        Spacer()
-                                        Text(msg.text)
-                                            .padding(10)
-                                            .background(Color.accentColor.opacity(0.85))
-                                            .foregroundColor(.white)
-                                            .cornerRadius(12)
-                                    } else {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            if let tool = msg.toolExecuted {
-                                                Label(tool, systemImage: "wrench.and.screwdriver")
-                                                    .font(.caption2)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            Text(msg.text)
-                                                .padding(10)
-                                                .background(Color(NSColor.windowBackgroundColor))
-                                                .cornerRadius(12)
-                                        }
-                                        Spacer()
-                                    }
-                                }
-                                .id(msg.id)
-                            }
-                        }
-                    }
-                    .padding(12)
-                }
-                .onChange(of: agentController?.messages.count) {
-                    if let last = agentController?.messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
-                }
-            }
-            
-            Divider()
-            
-            // Input bar
-            HStack(spacing: 8) {
-                TextField("Describe CAD change...", text: $copilotInputText)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        submitCopilot()
-                    }
-                
-                Button(action: submitCopilot) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(copilotInputText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(12)
-        }
-    }
-    
-    private func submitCopilot() {
-        let text = copilotInputText
-        copilotInputText = ""
-        onCopilotSubmit(text)
     }
     
     // MARK: - View Helpers
@@ -484,14 +228,6 @@ public struct InspectorPanelView: View {
                 ),
                 in: range.min...range.max
             )
-        }
-    }
-    
-    private func pipelineRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label).font(.caption).foregroundColor(.secondary)
-            Spacer()
-            Text(value).font(.caption).foregroundColor(.primary)
         }
     }
 }
