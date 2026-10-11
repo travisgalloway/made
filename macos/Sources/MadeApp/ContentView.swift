@@ -27,9 +27,11 @@ public struct ContentView: View {
         ConsoleLogEntry(level: .info, subsystem: "App", message: "made macOS workspace initialized")
     ]
     
-    // Agent Subsystem
+    // MCP Subsystem
     @State private var toolRegistry: CADToolRegistry? = nil
-    @State private var agentController: InAppAgentController? = nil
+    @State private var mcpServer: MCPServer? = nil
+    @State private var isMCPServerRunning: Bool = false
+    @State private var showMCPPopout: Bool = false
     
     public init() {}
     
@@ -86,6 +88,7 @@ public struct ContentView: View {
                     selectedId: $selectedId,
                     coordinator: $coordinator,
                     activeSnapKind: activeSnapKind,
+                    currentPerspective: currentPerspective,
                     renderCount: renderCount,
                     drawCalls: drawCalls,
                     lastReason: lastReason,
@@ -97,6 +100,13 @@ public struct ContentView: View {
                         if let r = result {
                             log(.snap, subsystem: "Snapping", message: "Snapped to \(r.kind.rawValue)")
                         }
+                    },
+                    onPerspectiveChanged: { persp in
+                        currentPerspective = persp
+                        guard let rend = viewportManager.renderer else { return }
+                        rend.camera = Camera.preset(persp)
+                        log(.info, subsystem: "Camera", message: "Switched to \(persp.rawValue) perspective")
+                        invalidateViewport(reason: .camera)
                     }
                 )
                 .frame(minWidth: 400, minHeight: 300)
@@ -122,8 +132,6 @@ public struct ContentView: View {
                 InspectorPanelView(
                     document: document,
                     selectedId: $selectedId,
-                    agentController: agentController,
-                    isMetalUnavailable: viewportManager.state.isUnavailable,
                     onTransformChanged: { id, newTransform in
                         document.setTransform(id: id, transform: newTransform)
                         if var mesh = viewportManager.renderer?.meshes[id] {
@@ -137,10 +145,6 @@ public struct ContentView: View {
                         document.setParam(id: id, key: key, value: value)
                         log(.kernel, subsystem: "CSG", message: "Updated \(id.rawValue) \(key) to \(String(format: "%.1f", value))")
                         recomputeSolid(id: id)
-                    },
-                    onCopilotSubmit: { prompt in
-                        log(.agent, subsystem: "Copilot", message: prompt)
-                        submitCopilotPrompt(prompt)
                     }
                 )
             }
@@ -167,84 +171,98 @@ public struct ContentView: View {
     
     @ToolbarContentBuilder
     private var workspaceToolbar: some ToolbarContent {
-        // Document Title
+        // Center Area: Name of the project/folder that's open (no app name)
         ToolbarItem(placement: .principal) {
-            HStack(spacing: 8) {
-                Image(systemName: "cube.transparent.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.accentColor)
-                Text("made — Untitled Scene.made")
-                    .font(.system(size: 12, weight: .semibold))
+            HStack(spacing: 6) {
+                Image(systemName: "folder")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text("Untitled Project")
+                    .font(.system(size: 12, weight: .medium))
             }
         }
         
-        // Trailing: Camera Perspective & Pane Layout Toggles
+        // Trailing Area: MCP Control & Right-Aligned Window Pane Toggles
         ToolbarItemGroup(placement: .automatic) {
-            // Viewport Perspective Preset Menu
-            Menu {
-                ForEach(ViewportPerspective.allCases) { persp in
-                    Button(persp.rawValue) {
-                        currentPerspective = persp
-                        guard let rend = viewportManager.renderer else { return }
-                        rend.camera = Camera.preset(persp)
-                        log(.info, subsystem: "Camera", message: "Switched to \(persp.rawValue) perspective")
-                        invalidateViewport(reason: .camera)
-                    }
-                }
+            // MCP Server Control & Popout Window Trigger
+            Button {
+                showMCPPopout.toggle()
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "camera.viewfinder")
-                    Text(currentPerspective.rawValue)
+                HStack(spacing: 5) {
+                    Image(systemName: "server.rack")
+                        .foregroundColor(isMCPServerRunning ? .green : .secondary)
+                    Text(isMCPServerRunning ? "MCP Active" : "MCP")
+                        .font(.system(size: 11, weight: .medium))
+                    Circle()
+                        .fill(isMCPServerRunning ? Color.green : Color.gray.opacity(0.5))
+                        .frame(width: 6, height: 6)
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(5)
             }
-            .help("Camera Perspective Presets")
+            .popover(isPresented: $showMCPPopout, arrowEdge: .bottom) {
+                MCPServerPopoutView(
+                    isRunning: isMCPServerRunning,
+                    port: mcpServer?.port ?? 9820,
+                    onToggleServer: toggleMCPServer
+                )
+            }
+            .help("Model Context Protocol (MCP) Server & Connection Instructions")
             
             Divider()
             
-            // Toggle Left Navigator
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isNavigatorVisible.toggle()
+            // Window Pane Toggles (Right Aligned)
+            HStack(spacing: 2) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isNavigatorVisible.toggle()
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .foregroundColor(isNavigatorVisible ? .accentColor : .secondary)
                 }
-            } label: {
-                Image(systemName: "sidebar.left")
-                    .foregroundColor(isNavigatorVisible ? .accentColor : .secondary)
-            }
-            .help("Toggle Navigator Sidebar")
-            
-            // Toggle Bottom Console Drawer
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isConsoleVisible.toggle()
+                .help("Toggle Navigator Sidebar")
+                
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isConsoleVisible.toggle()
+                    }
+                } label: {
+                    Image(systemName: "rectangle.bottomhalf.inset.filled")
+                        .foregroundColor(isConsoleVisible ? .accentColor : .secondary)
                 }
-            } label: {
-                Image(systemName: "rectangle.bottomhalf.inset.filled")
-                    .foregroundColor(isConsoleVisible ? .accentColor : .secondary)
-            }
-            .help("Toggle Debug Console")
-            
-            // Toggle Right Inspector
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isInspectorVisible.toggle()
+                .help("Toggle Debug Console")
+                
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isInspectorVisible.toggle()
+                    }
+                } label: {
+                    Image(systemName: "sidebar.right")
+                        .foregroundColor(isInspectorVisible ? .accentColor : .secondary)
                 }
-            } label: {
-                Image(systemName: "sidebar.right")
-                    .foregroundColor(isInspectorVisible ? .accentColor : .secondary)
+                .help("Toggle Inspector Panel")
             }
-            .help("Toggle Inspector Panel")
         }
     }
     
     // MARK: - Actions & Helpers
     
-    private func submitCopilotPrompt(_ text: String) {
-        Task {
-            await agentController?.sendPrompt(text)
-            await MainActor.run {
-                for obj in document.objects {
-                    recomputeSolid(id: obj.id)
-                }
+    private func toggleMCPServer() {
+        guard let server = mcpServer else { return }
+        if isMCPServerRunning {
+            server.stop()
+            isMCPServerRunning = false
+            log(.info, subsystem: "MCP", message: "Stopped MCP server")
+        } else {
+            do {
+                try server.start(port: 9820)
+                isMCPServerRunning = true
+                log(.info, subsystem: "MCP", message: "Started MCP server on port 9820")
+            } catch {
+                log(.error, subsystem: "MCP", message: "Failed to start MCP server: \(error.localizedDescription)")
             }
         }
     }
@@ -273,7 +291,13 @@ public struct ContentView: View {
             snapshotProvider: viewportManager.renderer
         )
         self.toolRegistry = registry
-        self.agentController = InAppAgentController(toolRegistry: registry)
+        let server = MCPServer(toolRegistry: registry)
+        server.onStateChange = { @Sendable running in
+            Task { @MainActor in
+                self.isMCPServerRunning = running
+            }
+        }
+        self.mcpServer = server
         
         for obj in document.objects {
             recomputeSolid(id: obj.id)

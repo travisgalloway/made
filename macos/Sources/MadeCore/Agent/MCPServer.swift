@@ -1,12 +1,88 @@
 import Foundation
+import Network
 
 public final class MCPServer: @unchecked Sendable {
     public let toolRegistry: CADToolRegistry
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     
+    // In-app TCP server state
+    private var listener: NWListener?
+    private let queue = DispatchQueue(label: "com.made.mcp.server", qos: .userInitiated)
+    public private(set) var isRunning: Bool = false
+    public private(set) var port: UInt16 = 9820
+    public var onStateChange: (@Sendable (Bool) -> Void)? = nil
+    
     public init(toolRegistry: CADToolRegistry) {
         self.toolRegistry = toolRegistry
+    }
+    
+    /// Starts the in-app MCP TCP listener on the specified local port (default: 9820).
+    public func start(port: UInt16 = 9820) throws {
+        stop()
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
+        let listener = try NWListener(using: .tcp, on: nwPort)
+        self.port = port
+        self.listener = listener
+        
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handleConnection(connection)
+        }
+        
+        listener.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                self?.isRunning = true
+                self?.onStateChange?(true)
+            case .failed, .cancelled:
+                self?.isRunning = false
+                self?.onStateChange?(false)
+            default:
+                break
+            }
+        }
+        
+        listener.start(queue: queue)
+        self.isRunning = true
+        self.onStateChange?(true)
+    }
+    
+    /// Stops the in-app MCP TCP listener and terminates active connections.
+    public func stop() {
+        listener?.cancel()
+        listener = nil
+        isRunning = false
+        onStateChange?(false)
+    }
+    
+    private func handleConnection(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        receiveMessages(on: connection)
+    }
+    
+    private func receiveMessages(on connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
+            guard let self = self, let data = content, !data.isEmpty else {
+                if isComplete { connection.cancel() }
+                return
+            }
+            if let string = String(data: data, encoding: .utf8) {
+                let lines = string.split(whereSeparator: \.isNewline)
+                Task {
+                    for line in lines {
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { continue }
+                        if let response = await self.processMessage(trimmed) {
+                            let outData = (response + "\n").data(using: .utf8)!
+                            connection.send(content: outData, completion: .contentProcessed({ _ in }))
+                        }
+                    }
+                }
+            }
+            if !isComplete && error == nil {
+                self.receiveMessages(on: connection)
+            }
+        }
     }
     
     /// Processes a single raw JSON-RPC 2.0 string and returns the response JSON string.

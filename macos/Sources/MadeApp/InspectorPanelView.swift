@@ -4,68 +4,42 @@ import MadeCore
 public struct InspectorPanelView: View {
     @Bindable var document: DocumentModel
     @Binding var selectedId: ObjectId
-    var agentController: InAppAgentController?
-    var isMetalUnavailable: Bool
     var onTransformChanged: (ObjectId, Transform) -> Void
     var onParamChanged: (ObjectId, String, Float) -> Void
-    var onCopilotSubmit: (String) -> Void
-    
-    @State private var activeTab: InspectorTab = .properties
-    @State private var copilotInputText: String = ""
     
     public init(
         document: DocumentModel,
         selectedId: Binding<ObjectId>,
-        agentController: InAppAgentController?,
-        isMetalUnavailable: Bool,
         onTransformChanged: @escaping (ObjectId, Transform) -> Void,
-        onParamChanged: @escaping (ObjectId, String, Float) -> Void,
-        onCopilotSubmit: @escaping (String) -> Void
+        onParamChanged: @escaping (ObjectId, String, Float) -> Void
     ) {
         self.document = document
         self._selectedId = selectedId
-        self.agentController = agentController
-        self.isMetalUnavailable = isMetalUnavailable
         self.onTransformChanged = onTransformChanged
         self.onParamChanged = onParamChanged
-        self.onCopilotSubmit = onCopilotSubmit
     }
     
     public var body: some View {
         VStack(spacing: 0) {
-            // Inspector Header Tabs (Inspector vs AI Copilot)
-            HStack(spacing: 4) {
-                ForEach(InspectorTab.allCases) { tab in
-                    Button {
-                        activeTab = tab
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: tab.iconName)
-                            Text(tab.rawValue)
-                        }
-                        .font(.system(size: 11, weight: activeTab == tab ? .semibold : .regular))
-                        .foregroundColor(activeTab == tab ? .accentColor : .secondary)
-                        .frame(maxWidth: .infinity, minHeight: 26)
-                        .background(activeTab == tab ? Color.accentColor.opacity(0.12) : Color.clear)
-                        .cornerRadius(5)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(tab == .copilot && isMetalUnavailable)
-                }
+            // Header
+            HStack(spacing: 6) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text("Inspector")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
             }
-            .padding(8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Color(NSColor.controlBackgroundColor))
             
             Divider()
             
-            // Tab Content
-            if activeTab == .properties || (activeTab == .copilot && isMetalUnavailable) {
-                ScrollView {
-                    propertiesContent
-                        .padding(12)
-                }
-            } else {
-                copilotContent
+            // Properties Content
+            ScrollView {
+                propertiesContent
+                    .padding(12)
             }
         }
         .frame(minWidth: 240, maxWidth: 320)
@@ -211,78 +185,6 @@ public struct InspectorPanelView: View {
                 .frame(maxWidth: .infinity, minHeight: 200)
             }
         }
-    }
-    
-    // MARK: - Copilot Content
-    
-    private var copilotContent: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if let agent = agentController {
-                            ForEach(agent.messages) { msg in
-                                HStack {
-                                    if msg.sender == "user" {
-                                        Spacer()
-                                        Text(msg.text)
-                                            .padding(10)
-                                            .background(Color.accentColor.opacity(0.85))
-                                            .foregroundColor(.white)
-                                            .cornerRadius(12)
-                                    } else {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            if let tool = msg.toolExecuted {
-                                                Label(tool, systemImage: "wrench.and.screwdriver")
-                                                    .font(.caption2)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            Text(msg.text)
-                                                .padding(10)
-                                                .background(Color(NSColor.windowBackgroundColor))
-                                                .cornerRadius(12)
-                                        }
-                                        Spacer()
-                                    }
-                                }
-                                .id(msg.id)
-                            }
-                        }
-                    }
-                    .padding(12)
-                }
-                .onChange(of: agentController?.messages.count) {
-                    if let last = agentController?.messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
-                }
-            }
-            
-            Divider()
-            
-            // Input bar
-            HStack(spacing: 8) {
-                TextField("Describe CAD change...", text: $copilotInputText)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        submitCopilot()
-                    }
-                
-                Button(action: submitCopilot) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(copilotInputText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(12)
-        }
-    }
-    
-    private func submitCopilot() {
-        let text = copilotInputText
-        copilotInputText = ""
-        onCopilotSubmit(text)
     }
     
     // MARK: - View Helpers

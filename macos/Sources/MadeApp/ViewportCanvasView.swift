@@ -9,11 +9,13 @@ public struct ViewportCanvasView: View {
     @Binding var selectedId: ObjectId
     @Binding var coordinator: CADMetalViewRepresentable.Coordinator?
     var activeSnapKind: SnapKind?
+    var currentPerspective: ViewportPerspective
     var renderCount: Int
     var drawCalls: Int
     var lastReason: String
     var onInvalidate: () -> Void
     var onSnapChanged: (SnapResult?) -> Void
+    var onPerspectiveChanged: (ViewportPerspective) -> Void
     
     public init(
         document: DocumentModel,
@@ -22,11 +24,13 @@ public struct ViewportCanvasView: View {
         selectedId: Binding<ObjectId>,
         coordinator: Binding<CADMetalViewRepresentable.Coordinator?>,
         activeSnapKind: SnapKind?,
+        currentPerspective: ViewportPerspective,
         renderCount: Int,
         drawCalls: Int,
         lastReason: String,
         onInvalidate: @escaping () -> Void,
-        onSnapChanged: @escaping (SnapResult?) -> Void
+        onSnapChanged: @escaping (SnapResult?) -> Void,
+        onPerspectiveChanged: @escaping (ViewportPerspective) -> Void
     ) {
         self.document = document
         self.renderer = renderer
@@ -34,28 +38,25 @@ public struct ViewportCanvasView: View {
         self._selectedId = selectedId
         self._coordinator = coordinator
         self.activeSnapKind = activeSnapKind
+        self.currentPerspective = currentPerspective
         self.renderCount = renderCount
         self.drawCalls = drawCalls
         self.lastReason = lastReason
         self.onInvalidate = onInvalidate
         self.onSnapChanged = onSnapChanged
+        self.onPerspectiveChanged = onPerspectiveChanged
     }
     
     public var body: some View {
         VStack(spacing: 0) {
-            // Editor Jump Bar
+            // Scene View Header Frame
             HStack(spacing: 6) {
+                // Left: Breadcrumbs
                 Image(systemName: "cube")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
-                Text("made")
-                    .font(.system(size: 11, weight: .semibold))
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
                 Text("Scene")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 11, weight: .semibold))
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9))
                     .foregroundColor(.secondary)
@@ -64,9 +65,34 @@ public struct ViewportCanvasView: View {
                     .foregroundColor(.primary)
                 
                 Spacer()
+                
+                // Right: View Toggle (Camera Perspective Presets)
+                Menu {
+                    ForEach(ViewportPerspective.allCases) { persp in
+                        Button(persp.rawValue) {
+                            onPerspectiveChanged(persp)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 11))
+                        Text(currentPerspective.rawValue)
+                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(NSColor.textBackgroundColor).opacity(0.6))
+                    .cornerRadius(4)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Camera View Perspective")
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .background(Color(NSColor.controlBackgroundColor))
             
             Divider()

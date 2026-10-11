@@ -34,17 +34,3 @@ public struct ConsoleLogEntry: Identifiable, Sendable {
         self.message = message
     }
 }
-
-public enum InspectorTab: String, CaseIterable, Identifiable {
-    case properties = "Inspector"
-    case copilot = "AI Copilot"
-    
-    public var id: String { rawValue }
-    
-    public var iconName: String {
-        switch self {
-        case .properties: return "slider.horizontal.3"
-        case .copilot: return "sparkles"
-        }
-    }
-}
