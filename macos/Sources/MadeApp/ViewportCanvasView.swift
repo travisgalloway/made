@@ -92,8 +92,9 @@ public struct ViewportCanvasView: View {
                     .cornerRadius(4)
                 }
                 .menuStyle(.borderlessButton)
+                .fixedSize()
                 .help("Camera View Perspective")
-                .padding(.trailing, 6)
+                .padding(.trailing, 8)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)

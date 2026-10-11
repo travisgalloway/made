@@ -179,7 +179,7 @@ public struct ContentView: View {
         }
         
         // Right Edge: MCP and Pane Toggles (Justified to the right edge)
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItem(placement: .primaryAction) {
             // MCP Server Control (AI diamond icon: ✧ sparkle, toggles green when running)
             Button {
                 showMCPPopout.toggle()
@@ -200,39 +200,42 @@ public struct ContentView: View {
                 )
             }
             .help("Model Context Protocol (MCP) Server")
-            
-            // Window Pane Toggles Group
-            ControlGroup {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isNavigatorVisible.toggle()
-                    }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .foregroundColor(isNavigatorVisible ? .accentColor : .secondary)
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isNavigatorVisible.toggle()
                 }
-                .help("Toggle Navigator Sidebar")
-                
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isConsoleVisible.toggle()
-                    }
-                } label: {
-                    Image(systemName: "rectangle.bottomhalf.inset.filled")
-                        .foregroundColor(isConsoleVisible ? .accentColor : .secondary)
-                }
-                .help("Toggle Debug Console")
-                
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isInspectorVisible.toggle()
-                    }
-                } label: {
-                    Image(systemName: "sidebar.right")
-                        .foregroundColor(isInspectorVisible ? .accentColor : .secondary)
-                }
-                .help("Toggle Inspector Panel")
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .foregroundColor(isNavigatorVisible ? .accentColor : .secondary)
             }
+            .help("Toggle Navigator Sidebar")
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isConsoleVisible.toggle()
+                }
+            } label: {
+                Image(systemName: "rectangle.bottomhalf.inset.filled")
+                    .foregroundColor(isConsoleVisible ? .accentColor : .secondary)
+            }
+            .help("Toggle Debug Console")
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isInspectorVisible.toggle()
+                }
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .foregroundColor(isInspectorVisible ? .accentColor : .secondary)
+            }
+            .help("Toggle Inspector Panel")
         }
     }
     
