@@ -153,3 +153,75 @@ public struct MCPServerPopoutView: View {
         .background(Color(NSColor.controlBackgroundColor))
     }
 }
+
+// MARK: - MCP Popout Window Controller
+
+@MainActor
+public final class MCPWindowController: NSObject, NSWindowDelegate {
+    public static let shared = MCPWindowController()
+    
+    private var window: NSPanel?
+    private var isRunning: Bool = false
+    private var port: UInt16 = 9820
+    private var onToggleServer: (() -> Void)?
+    
+    public func toggle(isRunning: Bool, port: UInt16, onToggleServer: @escaping () -> Void) {
+        if let win = window, win.isVisible {
+            win.orderOut(nil)
+        } else {
+            show(isRunning: isRunning, port: port, onToggleServer: onToggleServer)
+        }
+    }
+    
+    public func show(isRunning: Bool, port: UInt16, onToggleServer: @escaping () -> Void) {
+        self.isRunning = isRunning
+        self.port = port
+        self.onToggleServer = onToggleServer
+        
+        let panel: NSPanel
+        if let existing = window {
+            panel = existing
+        } else {
+            panel = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 440, height: 480),
+                styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            panel.title = "Model Context Protocol (MCP)"
+            panel.isFloatingPanel = true
+            panel.level = .floating
+            panel.center()
+            panel.isReleasedWhenClosed = false
+            panel.delegate = self
+            self.window = panel
+        }
+        
+        updateContent()
+        panel.makeKeyAndOrderFront(nil)
+    }
+    
+    public func update(isRunning: Bool) {
+        self.isRunning = isRunning
+        if window?.isVisible == true {
+            updateContent()
+        }
+    }
+    
+    private func updateContent() {
+        guard let panel = window else { return }
+        let view = MCPServerPopoutView(
+            isRunning: isRunning,
+            port: port,
+            onToggleServer: { [weak self] in
+                self?.onToggleServer?()
+            }
+        )
+        panel.contentView = NSHostingView(rootView: view)
+    }
+    
+    public func windowWillClose(_ notification: Notification) {
+        // Window closed by user
+    }
+}
+

@@ -31,7 +31,6 @@ public struct ContentView: View {
     @State private var toolRegistry: CADToolRegistry? = nil
     @State private var mcpServer: MCPServer? = nil
     @State private var isMCPServerRunning: Bool = false
-    @State private var showMCPPopout: Bool = false
     
     public init() {}
     
@@ -150,6 +149,7 @@ public struct ContentView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 500)
+        .background(ToolbarAlignmentHelper())
         .navigationTitle("")
         .toolbar {
             workspaceToolbar
@@ -182,7 +182,7 @@ public struct ContentView: View {
         ToolbarItem(placement: .primaryAction) {
             // MCP Server Control (AI diamond icon: ✧ sparkle, toggles green when running)
             Button {
-                showMCPPopout.toggle()
+                toggleMCPWindow()
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkle")
@@ -191,13 +191,6 @@ public struct ContentView: View {
                     Text("MCP")
                         .font(.system(size: 11, weight: .medium))
                 }
-            }
-            .popover(isPresented: $showMCPPopout, arrowEdge: .bottom) {
-                MCPServerPopoutView(
-                    isRunning: isMCPServerRunning,
-                    port: mcpServer?.port ?? 9820,
-                    onToggleServer: toggleMCPServer
-                )
             }
             .help("Model Context Protocol (MCP) Server")
         }
@@ -241,16 +234,28 @@ public struct ContentView: View {
     
     // MARK: - Actions & Helpers
     
+    private func toggleMCPWindow() {
+        MCPWindowController.shared.toggle(
+            isRunning: isMCPServerRunning,
+            port: mcpServer?.port ?? 9820,
+            onToggleServer: { [self] in
+                toggleMCPServer()
+            }
+        )
+    }
+    
     private func toggleMCPServer() {
         guard let server = mcpServer else { return }
         if isMCPServerRunning {
             server.stop()
             isMCPServerRunning = false
+            MCPWindowController.shared.update(isRunning: false)
             log(.info, subsystem: "MCP", message: "Stopped MCP server")
         } else {
             do {
                 try server.start(port: 9820)
                 isMCPServerRunning = true
+                MCPWindowController.shared.update(isRunning: true)
                 log(.info, subsystem: "MCP", message: "Started MCP server on port 9820")
             } catch {
                 log(.error, subsystem: "MCP", message: "Failed to start MCP server: \(error.localizedDescription)")
@@ -353,3 +358,46 @@ public struct ContentView: View {
         self.lastReason = RenderInstrumentation.shared.lastReason?.rawValue ?? "idle"
     }
 }
+
+// MARK: - AppKit Toolbar Alignment Helper
+
+/// Ensures AppKit inserts an NSToolbarFlexibleSpaceItem between the centered title
+/// and the trailing controls when running within a unified window style.
+@MainActor
+private final class ToolbarFixerView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        fixToolbar()
+    }
+    
+    func fixToolbar() {
+        DispatchQueue.main.async { [weak self] in
+            self?.applyFlexibleSpace()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.applyFlexibleSpace()
+        }
+    }
+    
+    private func applyFlexibleSpace() {
+        guard let window = self.window, let tb = window.toolbar else { return }
+        if let centeredId = tb.centeredItemIdentifier,
+           let centerIdx = tb.items.firstIndex(where: { $0.itemIdentifier == centeredId }) {
+            let nextIdx = centerIdx + 1
+            if nextIdx < tb.items.count && tb.items[nextIdx].itemIdentifier != .flexibleSpace {
+                tb.insertItem(withItemIdentifier: .flexibleSpace, at: nextIdx)
+            }
+        }
+    }
+}
+
+private struct ToolbarAlignmentHelper: NSViewRepresentable {
+    func makeNSView(context: Context) -> ToolbarFixerView {
+        ToolbarFixerView()
+    }
+    
+    func updateNSView(_ nsView: ToolbarFixerView, context: Context) {
+        nsView.fixToolbar()
+    }
+}
+
