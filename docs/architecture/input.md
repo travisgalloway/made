@@ -82,7 +82,7 @@ Implemented in [`Snapping.swift`](../../macos/Sources/MadeCore/Input/Snapping.sw
 2. **Edge Snapping (Priority: Edge)**:
    Projects onto boundary edges and centerlines of features. Second priority. Wins over grid lines.
 3. **Grid Snapping (Priority: Grid)**:
-   `snapToGrid` rounds $(X, Y)$ to the nearest multiple of `defaultGridSpacing` ($10.0\text{ mm}$). It leaves $Z$ unchanged. No ground grid is drawn in the viewport (#102).
+   `snapToGrid` rounds $(X, Y)$ to the nearest multiple of `defaultGridSpacing` ($10.0\text{ mm}$). It leaves $Z$ unchanged. A ground grid is drawn on Z = 0 in the viewport (#102).
 
 Each candidate carries a screen distance in pixels. Candidates beyond `defaultSnapTolerancePx` ($20.0\text{ px}$, screen space) are discarded. Within one kind, the smallest screen distance wins.
 
