@@ -1,5 +1,9 @@
 #!/bin/sh
 # Blocks a commit that touches macOS code while a Metal-backed test fails or skips.
+# Tests the staged snapshot: unstaged edits are set aside as a patch and restored afterwards.
+
+repo_root=$(git rev-parse --show-toplevel) || exit 1
+cd "$repo_root" || exit 1
 
 staged=$(git diff --cached --name-only) || {
     echo "pre-commit: cannot read the staged file list" >&2
@@ -7,4 +11,51 @@ staged=$(git diff --cached --name-only) || {
 }
 printf '%s\n' "$staged" | grep -qE '^(macos/|Makefile$|\.githooks/)' || exit 0
 
-exec "$(git rev-parse --show-toplevel)/.githooks/run-metal-tests.sh" pre-commit "git commit --no-verify"
+# SwiftPM compiles every file in a target directory, so an untracked source would join the build.
+untracked=$(git ls-files --others --exclude-standard -- macos) || {
+    echo "pre-commit: cannot list untracked files" >&2
+    exit 1
+}
+if [ -n "$untracked" ]; then
+    printf '%s\n' "$untracked" >&2
+    echo "pre-commit: untracked files under macos/ would change the build, so the commit cannot be verified." >&2
+    echo "Stage or remove them, or bypass deliberately with: git commit --no-verify" >&2
+    exit 1
+fi
+
+patch=$(mktemp -t made-precommit-unstaged) || exit 1
+git diff --binary --no-ext-diff >"$patch" || {
+    echo "pre-commit: cannot save unstaged changes, so nothing was changed" >&2
+    rm -f "$patch"
+    exit 1
+}
+
+restore() {
+    if [ -s "$patch" ]; then
+        if git apply --whitespace=nowarn "$patch"; then
+            rm -f "$patch"
+        else
+            echo "pre-commit: could not restore unstaged changes. They are saved in $patch" >&2
+            echo "Restore them with: git apply $patch" >&2
+            return 1
+        fi
+    else
+        rm -f "$patch"
+    fi
+}
+
+if [ -s "$patch" ]; then
+    trap 'restore; exit 130' INT TERM
+    git checkout -- . || {
+        echo "pre-commit: cannot set aside unstaged changes" >&2
+        restore
+        exit 1
+    }
+fi
+
+"$repo_root/.githooks/run-metal-tests.sh" pre-commit "git commit --no-verify"
+status=$?
+
+trap - INT TERM
+restore || exit 1
+exit "$status"

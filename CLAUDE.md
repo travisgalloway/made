@@ -40,7 +40,7 @@ Tests use XCTest in `macos/Tests/MadeCoreTests`. There are 14 test files, and no
 
 The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTLCreateSystemDefaultDevice` when the change touches `macos/`. A failure or a skipped test blocks the commit or push, because CI runners may have no GPU. The pre-push hook also blocks when the pushed ref is not the clean checkout, because the tests run against the working tree. Bypass deliberately with `git commit --no-verify` or `git push --no-verify`.
 
-**Stage every change before you commit** (`git add -A`). The pre-commit hook builds and tests the files on disk, not the staged snapshot. A partial commit can therefore pass on an unstaged fix that the commit does not contain. If a partial commit is unavoidable, run `git stash --keep-index` first, and `git stash pop` after.
+**Stage every change before you commit** (`git add -A`). The pre-commit hook tests the staged snapshot. It saves unstaged edits as a patch, runs the tests, and reapplies the patch. If reapplying fails, the hook prints the patch path and the `git apply` command to restore it. Untracked files under `macos/` block the commit, because SwiftPM would compile them into the build.
 
 ## Layout
 
