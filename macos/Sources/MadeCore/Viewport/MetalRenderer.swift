@@ -454,6 +454,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     private func renderScene(encoder: MTLRenderCommandEncoder, aspect: Float) -> Int {
         encoder.setRenderPipelineState(pipelineState)
         encoder.setDepthStencilState(depthState)
+        // Euclid emits counter-clockwise triangles; Metal assumes clockwise unless told otherwise.
+        encoder.setFrontFacing(.counterClockwise)
         encoder.setCullMode(.back)
         
         let viewMatrix = Orientation.makeLookAt(eye: cameraPosition, target: cameraTarget, up: Orientation.worldUp)

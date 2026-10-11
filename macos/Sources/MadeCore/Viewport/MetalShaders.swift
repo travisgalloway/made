@@ -5,6 +5,7 @@ public enum MetalShaders {
     #include <metal_stdlib>
     using namespace metal;
 
+    // Vertex buffers are packed at 12 bytes per vertex; float3 would read at a 16-byte stride.
     struct Uniforms {
         float4x4 modelMatrix;
         float4x4 viewMatrix;
@@ -22,13 +23,13 @@ public enum MetalShaders {
 
     vertex VertexOut cadVertexShader(
         uint vertexID [[vertex_id]],
-        constant float3 *positions [[buffer(0)]],
-        constant float3 *normals [[buffer(1)]],
+        constant packed_float3 *positions [[buffer(0)]],
+        constant packed_float3 *normals [[buffer(1)]],
         constant Uniforms &uniforms [[buffer(2)]]
     ) {
         VertexOut out;
-        float3 pos = positions[vertexID];
-        float3 norm = normals[vertexID];
+        float3 pos = float3(positions[vertexID]);
+        float3 norm = float3(normals[vertexID]);
         
         float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
         out.position = uniforms.projectionMatrix * uniforms.viewMatrix * worldPos;
@@ -66,12 +67,12 @@ public enum MetalShaders {
 
     vertex GridVertexOut gridVertexShader(
         uint vertexID [[vertex_id]],
-        constant float3 *positions [[buffer(0)]],
+        constant packed_float3 *positions [[buffer(0)]],
         constant float4 *colors [[buffer(1)]],
         constant GridUniforms &uniforms [[buffer(2)]]
     ) {
         GridVertexOut out;
-        out.position = uniforms.viewProjectionMatrix * float4(positions[vertexID], 1.0);
+        out.position = uniforms.viewProjectionMatrix * float4(float3(positions[vertexID]), 1.0);
         out.color = colors[vertexID];
         return out;
     }
@@ -95,14 +96,14 @@ public enum MetalShaders {
 
     vertex BillboardVertexOut billboardVertexShader(
         uint vertexID [[vertex_id]],
-        constant float3 *centers [[buffer(0)]],
+        constant packed_float3 *centers [[buffer(0)]],
         constant float2 *offsets [[buffer(1)]],
         constant float2 *texCoords [[buffer(2)]],
         constant float4 *colors [[buffer(3)]],
         constant BillboardUniforms &uniforms [[buffer(4)]]
     ) {
         BillboardVertexOut out;
-        float4 viewCenter = uniforms.viewMatrix * float4(centers[vertexID], 1.0);
+        float4 viewCenter = uniforms.viewMatrix * float4(float3(centers[vertexID]), 1.0);
         
         // Scale label with distance so it stays readable when camera zooms
         float distance = -viewCenter.z;

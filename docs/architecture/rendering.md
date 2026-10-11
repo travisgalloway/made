@@ -79,6 +79,8 @@ let vertexBuffer = device.makeBuffer(
 
 `makeBuffer(bytes:length:options:)` copies the `MeshPayload` arrays into the buffer once per upload (`MetalRenderer.createMesh`). The buffers are then visible to the GPU without a second transfer. The pipeline is not zero-copy end to end.
 
+Every position and normal buffer is tightly packed at 12 bytes per vertex. The vertex shaders therefore read them as `packed_float3`, because MSL `float3` has a 16-byte stride. Euclid emits counter-clockwise triangles, so the solid pass sets `setFrontFacing(.counterClockwise)` before it enables back-face culling. `MetalRendererGeometryTests` renders a box offscreen and checks both rules against its pixels.
+
 ### Shading & Lighting Model
 Shaders are written in Metal Shading Language (MSL) in [`MetalShaders.swift`](../../macos/Sources/MadeCore/Viewport/MetalShaders.swift):
 - **Vertex Shader**: Transforms vertices by `modelMatrix`, `viewMatrix`, and `projectionMatrix`, and transforms normals to world space with `normalMatrix`.
