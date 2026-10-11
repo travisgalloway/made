@@ -4,7 +4,7 @@ Date: 2026-10-10
 Scope: macos/ (Swift package, test target MadeCoreTests)
 Audit run: 20261010-114045
 
-The plan covers 123 capabilities. The MadeCoreTests target holds 10 XCTest files. A run of `swift test` in macos/ executes all tests with 0 failures. The Swift Testing run finds 0 tests.
+The plan covers 123 capabilities. The MadeCoreTests target holds 11 XCTest files. A run of `swift test` in macos/ executes all tests with 0 failures. The Swift Testing run finds 0 tests.
 
 The audit found `KernelClientTests.testRapidRequestsConflateToLatestValue` flaky and a race in `KernelClient.executePending` (DSN-efe60d18). #90 fixed both. The test now enqueues requests in a fixed order, and `testStaleDebounceDoesNotStrandNewerRequest` covers the race.
 
@@ -14,7 +14,7 @@ Table 1. Test class decisions, macos/ scope, 2026-10-10.
 
 | Class | Decision | Evidence |
 | --- | --- | --- |
-| Unit | Covered for MadeCore logic and ViewportState. Unobserved for MadeApp UI rendering. | ViewportStateTests covers ViewportState, MetalDeviceProvider seams, and device lost lifecycle. No test imports MadeApp, Orientation, RenderLoop, PointerRouter, or InAppAgentController. |
+| Unit | Covered for MadeCore logic and ViewportState. Unobserved for MadeApp UI rendering. | ViewportStateTests covers ViewportState, MetalDeviceProvider seams, and device lost lifecycle. CameraTests covers Camera, PointerRouter, and Orientation. ViewportCoordinatorTests covers ViewportCoordinator and RenderInstrumentation. No test imports MadeApp or InAppAgentController. |
 | Integration | n/a | Package.swift declares one test target. MCPServerTests and CADToolsTests drive server, registry, and document in process. No stdio process test exists, although docs/guides/testing.md:47 describes a manual check. |
 | UI and E2E | none (no UI test target) | No XCUITest target and no UITests directory exists. The Playwright suite in e2e/ targets the archived SvelteKit app. All 23 UI and 17 VIEW capabilities have zero tests at every level. |
 
@@ -31,24 +31,24 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-10. Source: closure
 | VIEW-7 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-8 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-9 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
-| VIEW-10 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
+| VIEW-10 | CameraTests.swift: testInitialCameraState | n/a (no integration target) | none (no UI test target) | default 3/4 view at launch (eye along (1,-1,0.6) at 150 mm, target (0,0,10)) | None. |
 | VIEW-11 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-12 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-13 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-14 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | VIEW-15 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
-| VIEW-16 | ViewportCoordinatorTests.swift: testInvalidateReasonClassification | n/a (no integration target) | none (no UI test target) | camera, resize, model, interaction classification | Automated unit test coverage; UI event hooks for camera/interaction wired in separate issues (#87). |
+| VIEW-16 | ViewportCoordinatorTests.swift: testInvalidateReasonClassification, testCameraInvalidationAdvancesRedrawCountByExactlyOne | n/a (no integration target) | none (no UI test target) | camera, resize, model, interaction classification; camera invalidation redraw count | UI event hooks for camera wired in MadeApp (#87); interaction wired in separate issues. |
 | VIEW-17 | none | n/a (no integration target) | none (no UI test target) | none | Capability not implemented; no test expected until built. Add a failing-spec ticket only with the feature. |
 | VIEW-18 | GridGeneratorTests.swift: testDefaultGridProperties, testAllVerticesLieOnGroundPlaneZZero, testGridLinesAreParallelToAxesAndStepBySpacing, testCenterAxesAreMajor, testSnappedPointsLieOnGridLines, testMetalRendererGridIntegration, testCameraBelowPlaneSnapshot, testSolidsRestingOnGroundPlaneSnapshot, testSnapshotViaCADTools, testDefaultSceneWithSolidsAndGridSnapshot | n/a (no integration target) | none (no UI test target) | ground grid on Z = 0, 10 mm pitch, offscreen snapshot | Pure generator math, MetalRenderer integration, snapshot provider, camera below plane, and solids depth test covered. |
 | VIEW-19 | AxesGeneratorTests.swift: testDefaultAxesProperties, testZAxisMatchesOrientationWorldUp, testAxisColorsAreDistinct, testLabelPositionsArePastLineTips, testInvalidDimensionsReturnEmpty, testCameraLookingAlongAxesDoesNotProduceNaN, testCameraLookingAlongZAxisViewMatrix, testLabelsStayReadableWhenCameraZooms, testMetalRendererAxesIntegration, testOriginHiddenBehindSolidSnapshot, testSnapshotLookingAlongEachAxis, testSnapshotViaCADToolsIncludesAxes | n/a (no integration target) | none (no UI test target) | labelled XYZ triad at origin, Z-up worldUp, camera look-along axes, zoom readability, solid occlusion | Pure generator math, MetalRenderer integration, snapshot provider, camera looking along axes, and solid occlusion depth test covered. |
-| INPUT-1 | GestureArbiterTests.swift: testSinglePointerDragLocksManipulateOnMove, testTwoPointersLockNavigateOnMove | n/a (no integration target) | none (no UI test target) | lock on first move; reset after release | No test of a mode that stays locked when a second pointer joins mid-gesture or when a locked navigate drops to one pointer. |
-| INPUT-2 | GestureArbiterTests.swift: testPureTapDecidesAtReleaseUsingPeakCount | n/a (no integration target) | none (no UI test target) | peak count 2 tap | Single-pointer tap (peak 1) not tested. |
+| INPUT-1 | GestureArbiterTests.swift: testSinglePointerDragLocksManipulateOnMove, testTwoPointersLockNavigateOnMove, testSecondPointerJoiningLockedGestureDoesNotChangeMode, testPointersDroppingInLockedNavigateDoesNotChangeMode, testCancelledGestureResetsArbiter | n/a (no integration target) | none (no UI test target) | lock on first move; reset after release; second pointer joins mid-gesture; locked navigate drops to one pointer; mid-gesture cancel | Multi-pointer touch handling on iPadOS unobserved (planned #84). |
+| INPUT-2 | GestureArbiterTests.swift: testPureTapDecidesAtReleaseUsingPeakCount, testSinglePointerPureTapDecidesManipulateAtRelease | n/a (no integration target) | none (no UI test target) | peak count 2 tap; single-pointer tap | None. |
 | INPUT-3 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
 | INPUT-4 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
-| INPUT-5 | none | n/a (no integration target) | none (no UI test target) | none | No test references this capability. |
+| INPUT-5 | CameraTests.swift: testPointerRouterClickVsDragThreshold | n/a (no integration target) | none (no UI test target) | 6 px drag-vs-click threshold; locked on drag | None. |
 | INPUT-6 | SnappingTests.swift: testGridSnapRoundsXYAndPreservesZ | n/a (no integration target) | none (no UI test target) | XY round, Z kept | Negative coordinates and half-pitch ties not tested. |
 | INPUT-7 | SnappingTests.swift: testPriorityVertexBeatsCloserEdgeAndGrid, testEdgeBeatsCloserGrid, testCandidateBeyondToleranceIsIgnored | n/a (no integration target) | none (no UI test target) | priority order; tolerance cutoff | Empty candidate list, equal-priority tie and exact-tolerance boundary not tested. |
-| INPUT-8 | none | n/a (no integration target) | none (no UI test target) | none | Capability not implemented; no test expected until built. Add a failing-spec ticket only with the feature. |
+| INPUT-8 | CameraTests.swift: testInitialCameraState, testOrbitChangesAzimuthAndElevation, testOrbitZeroMovementLeavesCameraUnchanged, testOrbitPitchStopsBeforePoleSoViewNeverFlips, testPanMovesPositionAndTargetEqually, testPanZeroMovementLeavesCameraUnchanged, testZoomChangesDistance, testZoomStopsAtMinAndMaxDistance, testZoomZeroOrOneLeavesCameraUnchanged, testViewKeepsPlusZWorldUpWithNoRollAfterGestureSequence, testCancelledGestureLeavesValidCamera, testPointerRouterScrollAndMagnifyEvents; ViewportCoordinatorTests.swift: testCameraInvalidationAdvancesRedrawCountByExactlyOne | n/a (no integration target) | none (no UI test target) | orbit, pan, zoom, pitch clamping, min/max zoom clamping, zero movement invariant, +Z worldUp no-roll invariant, gesture cancel, scroll and magnify events | MTKView window rendering unobserved by unit test (no UI test target); verified manually in running MadeApp. |
 | INPUT-9 | none | n/a (no integration target) | none (no UI test target) | none | Capability not implemented; no test expected until built. Add a failing-spec ticket only with the feature. |
 | INPUT-10 | none | n/a (no integration target) | none (no UI test target) | none | Capability not implemented; no test expected until built. Add a failing-spec ticket only with the feature. |
 | INPUT-11 | none | n/a (no integration target) | none (no UI test target) | none | Capability not implemented; no test expected until built. Add a failing-spec ticket only with the feature. |

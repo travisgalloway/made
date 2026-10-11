@@ -111,8 +111,15 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     private var axesLength: Float = AxesGenerator.defaultLength
     private var axesLabelSize: Float = AxesGenerator.defaultLabelSize
     
-    public var cameraPosition: SIMD3<Float> = Orientation.defaultViewDirection * 150.0
-    public var cameraTarget: SIMD3<Float> = SIMD3<Float>(0, 0, 10)
+    public var camera: Camera = Camera()
+    public var cameraPosition: SIMD3<Float> {
+        get { camera.position }
+        set { camera.position = newValue }
+    }
+    public var cameraTarget: SIMD3<Float> {
+        get { camera.target }
+        set { camera.target = newValue }
+    }
     public var meshes: [SolidId: MetalMesh] = [:]
     public var onDeviceLost: (@Sendable () -> Void)? = nil
     public var onFrameRendered: (@Sendable () -> Void)? = nil
