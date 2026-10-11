@@ -79,5 +79,51 @@ public enum MetalShaders {
     fragment float4 gridFragmentShader(GridVertexOut in [[stage_in]]) {
         return in.color;
     }
+
+    struct BillboardUniforms {
+        float4x4 viewMatrix;
+        float4x4 projectionMatrix;
+        float labelSize;
+        float3 _padding;
+    };
+
+    struct BillboardVertexOut {
+        float4 position [[position]];
+        float2 texCoord;
+        float4 color;
+    };
+
+    vertex BillboardVertexOut billboardVertexShader(
+        uint vertexID [[vertex_id]],
+        constant float3 *centers [[buffer(0)]],
+        constant float2 *offsets [[buffer(1)]],
+        constant float2 *texCoords [[buffer(2)]],
+        constant float4 *colors [[buffer(3)]],
+        constant BillboardUniforms &uniforms [[buffer(4)]]
+    ) {
+        BillboardVertexOut out;
+        float4 viewCenter = uniforms.viewMatrix * float4(centers[vertexID], 1.0);
+        
+        // Scale label with distance so it stays readable when camera zooms
+        float distance = -viewCenter.z;
+        float scale = max(1.0, distance / 150.0);
+        
+        float4 viewPos = viewCenter;
+        viewPos.xy += offsets[vertexID] * uniforms.labelSize * scale;
+        
+        out.position = uniforms.projectionMatrix * viewPos;
+        out.texCoord = texCoords[vertexID];
+        out.color = colors[vertexID];
+        return out;
+    }
+
+    fragment float4 billboardFragmentShader(
+        BillboardVertexOut in [[stage_in]],
+        texture2d<float> labelTexture [[texture(0)]],
+        sampler labelSampler [[sampler(0)]]
+    ) {
+        float4 texColor = labelTexture.sample(labelSampler, in.texCoord);
+        return float4(in.color.rgb, in.color.a * texColor.a);
+    }
     """
 }

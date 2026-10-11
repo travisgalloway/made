@@ -4,7 +4,7 @@ Date: 2026-10-10
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261010-114045
 
-Table 1 lists 122 capabilities with their implementation status. The matrix shows 62 Shipped, 40 In progress, and 20 Planned rows. No row is Deprecated.
+Table 1 lists 123 capabilities with their implementation status. The matrix shows 63 Shipped, 40 In progress, and 20 Planned rows. No row is Deprecated.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -41,6 +41,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | VIEW-16 | A user gets redraws classified as camera, resize, model or interaction | done | n/a | n/a | Shipped | #94 | n/a |
 | VIEW-17 | A user sees Blinn-Phong specular highlights on solids | none | n/a | n/a | Planned | none | n/a |
 | VIEW-18 | A user sees a ground grid on Z = 0 | done | done | n/a | Shipped | #102 | n/a |
+| VIEW-19 | A user sees a labelled XYZ axes indicator at the origin | done | done | n/a | Shipped | #103 | n/a |
 | INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift | none | done | n/a | In progress | #87 | n/a |
 | INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | none | done | n/a | In progress | #87 | n/a |
 | INPUT-3 | A user can use Apple Pencil input that always routes to manipulate and never to navigate | none | done | n/a | In progress | #87 | n/a |
@@ -147,6 +148,4 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | DSL-11 | A developer can use `@CADShapeBuilder` to group shapes; only a single-shape `buildBlock` exists, so multi-statement hierarchies do not compile | n/a | done | n/a | In progress | none | n/a |
 | DSL-12 | An agent can author a DSL model and see it in the viewport or the document | n/a | none | n/a | Planned | #85 | n/a |
 
-Findings that map to no capability row.
-
-- #103 (labelled XYZ axes indicator) has no row, because no capability describes it.
+Findings that map to no capability row: None.

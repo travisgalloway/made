@@ -36,6 +36,24 @@ public struct GridUniforms {
     }
 }
 
+public struct BillboardUniforms {
+    public var viewMatrix: simd_float4x4
+    public var projectionMatrix: simd_float4x4
+    public var labelSize: Float
+    private var _padding: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
+    
+    public init(
+        viewMatrix: simd_float4x4 = matrix_identity_float4x4,
+        projectionMatrix: simd_float4x4 = matrix_identity_float4x4,
+        labelSize: Float = AxesGenerator.defaultLabelSize
+    ) {
+        self.viewMatrix = viewMatrix
+        self.projectionMatrix = projectionMatrix
+        self.labelSize = labelSize
+        self._padding = SIMD3<Float>(0, 0, 0)
+    }
+}
+
 public struct MetalMesh: @unchecked Sendable {
     public let positionBuffer: MTLBuffer
     public let normalBuffer: MTLBuffer
@@ -73,6 +91,25 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     private var gridPositionBuffer: MTLBuffer?
     private var gridColorBuffer: MTLBuffer?
     private var gridVertexCount: Int = 0
+    
+    // Axes line rendering resources
+    private let axesDepthState: MTLDepthStencilState
+    private var axesPositionBuffer: MTLBuffer?
+    private var axesColorBuffer: MTLBuffer?
+    private var axesVertexCount: Int = 0
+    
+    // Axes billboard label rendering resources
+    private let billboardPipelineState: MTLRenderPipelineState
+    private let billboardDepthState: MTLDepthStencilState
+    private let billboardSampler: MTLSamplerState
+    private var billboardTexture: MTLTexture?
+    private var labelCenterBuffer: MTLBuffer?
+    private var labelOffsetBuffer: MTLBuffer?
+    private var labelTexCoordBuffer: MTLBuffer?
+    private var labelColorBuffer: MTLBuffer?
+    private var labelVertexCount: Int = 0
+    private var axesLength: Float = AxesGenerator.defaultLength
+    private var axesLabelSize: Float = AxesGenerator.defaultLabelSize
     
     public var cameraPosition: SIMD3<Float> = Orientation.defaultViewDirection * 150.0
     public var cameraTarget: SIMD3<Float> = SIMD3<Float>(0, 0, 10)
@@ -145,9 +182,59 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         guard let gridDepth = device.makeDepthStencilState(descriptor: gridDepthDesc) else { return nil }
         self.gridDepthState = gridDepth
         
+        // Axes depth stencil state: .lessEqual so axes pass depth test when coplanar with Z=0 ground grid
+        let axesDepthDesc = MTLDepthStencilDescriptor()
+        axesDepthDesc.depthCompareFunction = .lessEqual
+        axesDepthDesc.isDepthWriteEnabled = true
+        guard let axesDepth = device.makeDepthStencilState(descriptor: axesDepthDesc) else { return nil }
+        self.axesDepthState = axesDepth
+        
+        // Billboard pipeline state
+        guard let billboardVertexFunc = library.makeFunction(name: "billboardVertexShader"),
+              let billboardFragmentFunc = library.makeFunction(name: "billboardFragmentShader") else {
+            print("Failed to locate billboard shader entry points")
+            return nil
+        }
+        
+        let billboardPipelineDesc = MTLRenderPipelineDescriptor()
+        billboardPipelineDesc.vertexFunction = billboardVertexFunc
+        billboardPipelineDesc.fragmentFunction = billboardFragmentFunc
+        billboardPipelineDesc.colorAttachments[0].pixelFormat = .bgra8Unorm_srgb
+        billboardPipelineDesc.colorAttachments[0].isBlendingEnabled = true
+        billboardPipelineDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        billboardPipelineDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        billboardPipelineDesc.colorAttachments[0].rgbBlendOperation = .add
+        billboardPipelineDesc.colorAttachments[0].sourceAlphaBlendFactor = .one
+        billboardPipelineDesc.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        billboardPipelineDesc.colorAttachments[0].alphaBlendOperation = .add
+        billboardPipelineDesc.depthAttachmentPixelFormat = .depth32Float
+        
+        do {
+            self.billboardPipelineState = try device.makeRenderPipelineState(descriptor: billboardPipelineDesc)
+        } catch {
+            print("Failed to create billboard pipeline state: \(error)")
+            return nil
+        }
+        
+        let billboardDepthDesc = MTLDepthStencilDescriptor()
+        billboardDepthDesc.depthCompareFunction = .lessEqual
+        billboardDepthDesc.isDepthWriteEnabled = false
+        guard let billboardDepth = device.makeDepthStencilState(descriptor: billboardDepthDesc) else { return nil }
+        self.billboardDepthState = billboardDepth
+        
+        let samplerDesc = MTLSamplerDescriptor()
+        samplerDesc.minFilter = .linear
+        samplerDesc.magFilter = .linear
+        samplerDesc.sAddressMode = .clampToEdge
+        samplerDesc.tAddressMode = .clampToEdge
+        guard let sampler = device.makeSamplerState(descriptor: samplerDesc) else { return nil }
+        self.billboardSampler = sampler
+        self.billboardTexture = AxesGenerator.createAxesLabelAtlas(device: device)
+        
         super.init()
         
         setupGrid()
+        setupAxes()
     }
     
     private func setupGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
@@ -178,6 +265,61 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     /// Updates the ground grid dimensions or spacing.
     public func updateGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
         setupGrid(size: size, spacing: spacing)
+    }
+    
+    private func setupAxes(length: Float = AxesGenerator.defaultLength, labelSize: Float = AxesGenerator.defaultLabelSize) {
+        self.axesLength = length
+        self.axesLabelSize = labelSize
+        let axes = AxesGenerator.generateAxes(length: length, labelSize: labelSize)
+        self.axesVertexCount = axes.lineVertexCount
+        self.labelVertexCount = axes.labelVertexCount
+        
+        guard !axes.linePositions.isEmpty else {
+            self.axesPositionBuffer = nil
+            self.axesColorBuffer = nil
+            self.labelCenterBuffer = nil
+            self.labelOffsetBuffer = nil
+            self.labelTexCoordBuffer = nil
+            self.labelColorBuffer = nil
+            return
+        }
+        
+        self.axesPositionBuffer = device.makeBuffer(
+            bytes: axes.linePositions,
+            length: axes.linePositions.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        self.axesColorBuffer = device.makeBuffer(
+            bytes: axes.lineColors,
+            length: axes.lineColors.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        
+        self.labelCenterBuffer = device.makeBuffer(
+            bytes: axes.labelCenters,
+            length: axes.labelCenters.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        self.labelOffsetBuffer = device.makeBuffer(
+            bytes: axes.labelOffsets,
+            length: axes.labelOffsets.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        self.labelTexCoordBuffer = device.makeBuffer(
+            bytes: axes.labelTexCoords,
+            length: axes.labelTexCoords.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        self.labelColorBuffer = device.makeBuffer(
+            bytes: axes.labelColors,
+            length: axes.labelColors.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+    }
+    
+    /// Updates the axes indicator dimensions.
+    public func updateAxes(length: Float = AxesGenerator.defaultLength, labelSize: Float = AxesGenerator.defaultLabelSize) {
+        setupAxes(length: length, labelSize: labelSize)
     }
     
     /// Converts a MeshPayload into a MetalMesh with zero-copy shared memory allocation on Apple Silicon.
@@ -273,6 +415,49 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
             encoder.setVertexBytes(&gridUniforms, length: MemoryLayout<GridUniforms>.stride, index: 2)
             
             encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: gridVertexCount)
+            drawCalls += 1
+        }
+        
+        // Draw axes indicator lines at origin
+        if let axesPos = axesPositionBuffer, let axesCol = axesColorBuffer, axesVertexCount > 0 {
+            encoder.setRenderPipelineState(gridPipelineState)
+            encoder.setDepthStencilState(axesDepthState)
+            encoder.setCullMode(.none)
+            
+            var gridUniforms = GridUniforms(viewProjectionMatrix: projMatrix * viewMatrix)
+            encoder.setVertexBuffer(axesPos, offset: 0, index: 0)
+            encoder.setVertexBuffer(axesCol, offset: 0, index: 1)
+            encoder.setVertexBytes(&gridUniforms, length: MemoryLayout<GridUniforms>.stride, index: 2)
+            
+            encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: axesVertexCount)
+            drawCalls += 1
+        }
+        
+        // Draw axes billboard labels
+        if let labelPos = labelCenterBuffer,
+           let labelOff = labelOffsetBuffer,
+           let labelUV = labelTexCoordBuffer,
+           let labelCol = labelColorBuffer,
+           let labelTex = billboardTexture,
+           labelVertexCount > 0 {
+            encoder.setRenderPipelineState(billboardPipelineState)
+            encoder.setDepthStencilState(billboardDepthState)
+            encoder.setCullMode(.none)
+            
+            var uniforms = BillboardUniforms(
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix,
+                labelSize: axesLabelSize
+            )
+            encoder.setVertexBuffer(labelPos, offset: 0, index: 0)
+            encoder.setVertexBuffer(labelOff, offset: 0, index: 1)
+            encoder.setVertexBuffer(labelUV, offset: 0, index: 2)
+            encoder.setVertexBuffer(labelCol, offset: 0, index: 3)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<BillboardUniforms>.stride, index: 4)
+            encoder.setFragmentTexture(labelTex, index: 0)
+            encoder.setFragmentSamplerState(billboardSampler, index: 0)
+            
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: labelVertexCount)
             drawCalls += 1
         }
         
