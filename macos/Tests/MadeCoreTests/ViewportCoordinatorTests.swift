@@ -130,6 +130,16 @@ final class ViewportCoordinatorTests: XCTestCase {
         }
     }
     
+    func testCameraInvalidationAdvancesRedrawCountByExactlyOne() {
+        let stub = StubInvalidationTarget()
+        let coordinator = ViewportCoordinator(target: stub)
+        
+        XCTAssertEqual(stub.redrawCount, 0)
+        coordinator.invalidate(reason: .camera)
+        XCTAssertEqual(stub.redrawCount, 1)
+        XCTAssertEqual(RenderInstrumentation.shared.lastReason, .camera)
+    }
+    
     func testRenderInstrumentationTelemetry() {
         XCTAssertEqual(RenderInstrumentation.shared.renderCount, 0)
         XCTAssertEqual(RenderInstrumentation.shared.drawCalls, 0)

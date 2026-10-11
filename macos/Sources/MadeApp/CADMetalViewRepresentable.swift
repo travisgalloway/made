@@ -15,6 +15,66 @@ extension MTKView: ViewportInvalidationTarget {
     }
 }
 
+enum MouseButton: Int {
+    case left = 0
+    case right = 1
+    case other = 2
+    
+    var pointerId: Int {
+        rawValue
+    }
+}
+
+final class CADMTKView: MTKView {
+    weak var coordinator: CADMetalViewRepresentable.Coordinator?
+    
+    override var acceptsFirstResponder: Bool { true }
+    
+    override func mouseDown(with event: NSEvent) {
+        coordinator?.handleMouseDown(with: event, button: .left)
+    }
+    
+    override func mouseDragged(with event: NSEvent) {
+        coordinator?.handleMouseDragged(with: event, button: .left)
+    }
+    
+    override func mouseUp(with event: NSEvent) {
+        coordinator?.handleMouseUp(with: event, button: .left)
+    }
+    
+    override func rightMouseDown(with event: NSEvent) {
+        coordinator?.handleMouseDown(with: event, button: .right)
+    }
+    
+    override func rightMouseDragged(with event: NSEvent) {
+        coordinator?.handleMouseDragged(with: event, button: .right)
+    }
+    
+    override func rightMouseUp(with event: NSEvent) {
+        coordinator?.handleMouseUp(with: event, button: .right)
+    }
+    
+    override func otherMouseDown(with event: NSEvent) {
+        coordinator?.handleMouseDown(with: event, button: .other)
+    }
+    
+    override func otherMouseDragged(with event: NSEvent) {
+        coordinator?.handleMouseDragged(with: event, button: .other)
+    }
+    
+    override func otherMouseUp(with event: NSEvent) {
+        coordinator?.handleMouseUp(with: event, button: .other)
+    }
+    
+    override func scrollWheel(with event: NSEvent) {
+        coordinator?.handleScrollWheel(with: event)
+    }
+    
+    override func magnify(with event: NSEvent) {
+        coordinator?.handleMagnify(with: event)
+    }
+}
+
 public struct CADMetalViewRepresentable: NSViewRepresentable {
     @Bindable var document: DocumentModel
     var renderer: MetalRenderer
@@ -40,7 +100,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     }
     
     public func makeNSView(context: Context) -> MTKView {
-        let view = MTKView()
+        let view = CADMTKView()
+        view.coordinator = context.coordinator
         view.device = renderer.device
         view.delegate = renderer
         
@@ -80,7 +141,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
         }
         public let viewportCoordinator = ViewportCoordinator()
-        private let pointerRouter = PointerRouter()
+        public let pointerRouter = PointerRouter()
+        
+        private var lastMousePoint: CGPoint = .zero
+        private var activeMouseButton: MouseButton? = nil
+        private var isShiftDown: Bool = false
         
         init(_ parent: CADMetalViewRepresentable) {
             self.parent = parent
@@ -96,6 +161,111 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         func handleFrameRendered() {
             parent.onInvalidate?()
+        }
+        
+        func handleMouseDown(with event: NSEvent, button: MouseButton) {
+            guard let view = mtkView else { return }
+            let loc = view.convert(event.locationInWindow, from: nil)
+            lastMousePoint = loc
+            activeMouseButton = button
+            isShiftDown = event.modifierFlags.contains(.shift)
+            let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
+            _ = pointerRouter.handle(.down(pointerType: .mouse, pointer: pointer))
+        }
+        
+        func handleMouseDragged(with event: NSEvent, button: MouseButton) {
+            guard let view = mtkView else { return }
+            let loc = view.convert(event.locationInWindow, from: nil)
+            let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
+            let decision = pointerRouter.handle(.move(pointerType: .mouse, pointer: pointer))
+            
+            let deltaX = Float(loc.x - lastMousePoint.x)
+            let deltaY = Float(loc.y - lastMousePoint.y)
+            lastMousePoint = loc
+            
+            // If movement is zero, leave camera unchanged
+            guard deltaX != 0 || deltaY != 0 else { return }
+            
+            if decision.mode == .navigate {
+                let shift = event.modifierFlags.contains(.shift) || isShiftDown
+                if button == .right || button == .other || shift {
+                    // Pan
+                    parent.renderer.camera = Camera.pan(
+                        camera: parent.renderer.camera,
+                        deltaX: deltaX,
+                        deltaY: deltaY,
+                        viewportSize: view.bounds.size
+                    )
+                } else {
+                    // Orbit
+                    let sensitivity: Float = 0.008
+                    parent.renderer.camera = Camera.orbit(
+                        camera: parent.renderer.camera,
+                        deltaAzimuth: -deltaX * sensitivity,
+                        deltaElevation: deltaY * sensitivity
+                    )
+                }
+                invalidate(reason: .camera)
+            }
+        }
+        
+        func handleMouseUp(with event: NSEvent, button: MouseButton) {
+            _ = pointerRouter.handle(.up(pointerType: .mouse, pointerId: button.pointerId))
+            activeMouseButton = nil
+        }
+        
+        func handleCancel(button: MouseButton) {
+            _ = pointerRouter.handle(.cancel(pointerType: .mouse, pointerId: button.pointerId))
+            activeMouseButton = nil
+        }
+        
+        func handleScrollWheel(with event: NSEvent) {
+            guard let view = mtkView else { return }
+            if event.hasPreciseScrollingDeltas {
+                let dx = Float(event.scrollingDeltaX)
+                let dy = Float(event.scrollingDeltaY)
+                guard dx != 0 || dy != 0 else { return }
+                
+                let decision = pointerRouter.handle(.scroll(deltaX: dx, deltaY: dy))
+                guard decision.mode == .navigate else { return }
+                
+                if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command) {
+                    let factor = 1.0 + dy * 0.01
+                    parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
+                } else {
+                    // 2-finger trackpad pan
+                    parent.renderer.camera = Camera.pan(
+                        camera: parent.renderer.camera,
+                        deltaX: dx,
+                        deltaY: dy,
+                        viewportSize: view.bounds.size
+                    )
+                }
+                invalidate(reason: .camera)
+            } else {
+                // Mouse wheel zoom
+                let dy = Float(event.deltaY)
+                guard dy != 0 else { return }
+                
+                let decision = pointerRouter.handle(.scroll(deltaX: 0, deltaY: dy))
+                guard decision.mode == .navigate else { return }
+                
+                let factor = 1.0 + dy * 0.05
+                parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
+                invalidate(reason: .camera)
+            }
+        }
+        
+        func handleMagnify(with event: NSEvent) {
+            let mag = Float(event.magnification)
+            guard mag != 0 else { return }
+            
+            let factor = 1.0 + mag
+            let decision = pointerRouter.handle(.magnify(factor: factor))
+            guard decision.mode == .navigate else { return }
+            
+            parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
+            invalidate(reason: .camera)
         }
     }
 }

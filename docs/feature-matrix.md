@@ -4,7 +4,7 @@ Date: 2026-10-10
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261010-114045
 
-Table 1 lists 123 capabilities with their implementation status. The matrix shows 63 Shipped, 40 In progress, and 20 Planned rows. No row is Deprecated.
+Table 1 lists 123 capabilities with their implementation status. The matrix shows 67 Shipped, 37 In progress, and 19 Planned rows. No row is Deprecated.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -15,6 +15,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - Status is Shipped only where code is reachable through its entry point. Rows with a stub, no caller, or a stated failure are In progress. Rows with no producer code are Planned.
 - KERN-9 is Shipped. The conflation race (finding DSN-efe60d18) was fixed under #90.
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
+- INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
 - Issue holds the GitHub issue number that tracks the capability.
 
 Persistence note. No capability persists a document. The .made file format is planned under #83.
@@ -42,14 +43,14 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | VIEW-17 | A user sees Blinn-Phong specular highlights on solids | none | n/a | n/a | Planned | none | n/a |
 | VIEW-18 | A user sees a ground grid on Z = 0 | done | done | n/a | Shipped | #102 | n/a |
 | VIEW-19 | A user sees a labelled XYZ axes indicator at the origin | done | done | n/a | Shipped | #103 | n/a |
-| INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift | none | done | n/a | In progress | #87 | n/a |
-| INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | none | done | n/a | In progress | #87 | n/a |
+| INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift | done | done | n/a | Shipped | #87 | n/a |
+| INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | done | done | n/a | Shipped | #87 | n/a |
 | INPUT-3 | A user can use Apple Pencil input that always routes to manipulate and never to navigate | none | done | n/a | In progress | #87 | n/a |
 | INPUT-4 | A user can use touch input routed through the multi-pointer arbiter | none | done | n/a | In progress | #87 | n/a |
-| INPUT-5 | A user can click or drag with the mouse; movement past 6 px classifies the gesture as navigate, otherwise manipulate (doc states a 3 pt threshold) | none | done | n/a | In progress | #87 | n/a |
+| INPUT-5 | A user can click or drag with the mouse; movement past 6 px classifies the gesture as navigate, otherwise manipulate (doc states a 3 pt threshold) | done | done | n/a | Shipped | #87 | n/a |
 | INPUT-6 | A user can snap a point to a 10 mm XY grid with Z unchanged (doc states a 1 mm or 5 mm pitch) | none | done | n/a | In progress | #88, #102 | n/a |
 | INPUT-7 | A user can resolve snap candidates by strict priority vertex over edge over grid inside a 20 px tolerance (doc states a 10 mm radius) | none | done | n/a | In progress | #88 | n/a |
-| INPUT-8 | A user can orbit, pan and zoom the camera with trackpad, mouse or multi-touch | none | none | n/a | Planned | #87 | n/a |
+| INPUT-8 | A user can orbit, pan and zoom the camera with trackpad, mouse or multi-touch | done | done | n/a | Shipped | #87 | n/a |
 | INPUT-9 | A user can click or tap a solid in the viewport to select it (picking) | none | none | n/a | Planned | #69 | n/a |
 | INPUT-10 | A user can snap to vertices and edges of existing solids while manipulating | none | none | n/a | Planned | #88 | n/a |
 | INPUT-11 | A user can two-finger tap to trigger context actions | none | none | n/a | Planned | #42 | n/a |
