@@ -14,15 +14,21 @@ public enum Orientation {
     /// Constructs a right-handed view matrix where +Z is up, looking at `target` from `eye`.
     public static func makeLookAt(eye: SIMD3<Float>, target: SIMD3<Float>, up: SIMD3<Float> = worldUp) -> simd_float4x4 {
         let f = simd_normalize(target - eye)
-        let s = simd_normalize(simd_cross(f, up))
-        let u = simd_cross(s, f)
+        var s = simd_cross(f, up)
+        if simd_length_squared(s) < 1e-6 {
+            // When looking along the up vector, use an alternative up vector to avoid singularity
+            let altUp = abs(up.z) > 0.9 ? SIMD3<Float>(0, 1, 0) : SIMD3<Float>(0, 0, 1)
+            s = simd_cross(f, altUp)
+        }
+        let sNorm = simd_normalize(s)
+        let u = simd_cross(sNorm, f)
         
         var m = matrix_identity_float4x4
-        m.columns.0 = SIMD4<Float>(s.x, u.x, -f.x, 0)
-        m.columns.1 = SIMD4<Float>(s.y, u.y, -f.y, 0)
-        m.columns.2 = SIMD4<Float>(s.z, u.z, -f.z, 0)
+        m.columns.0 = SIMD4<Float>(sNorm.x, u.x, -f.x, 0)
+        m.columns.1 = SIMD4<Float>(sNorm.y, u.y, -f.y, 0)
+        m.columns.2 = SIMD4<Float>(sNorm.z, u.z, -f.z, 0)
         m.columns.3 = SIMD4<Float>(
-            -simd_dot(s, eye),
+            -simd_dot(sNorm, eye),
             -simd_dot(u, eye),
             simd_dot(f, eye),
             1
