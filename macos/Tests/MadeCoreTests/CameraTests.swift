@@ -225,4 +225,32 @@ final class CameraTests: XCTestCase {
         XCTAssertEqual(move.mode, .manipulate)
         XCTAssertTrue(move.locked)
     }
+    
+    // MARK: - Presets and Orthographic Tests
+    
+    func testCameraPresets() {
+        for perspective in ViewportPerspective.allCases {
+            let camera = Camera.preset(perspective)
+            XCTAssertEqual(camera.target, Camera.defaultTarget)
+            let dist = simd_length(camera.position - camera.target)
+            XCTAssertEqual(dist, 150.0, accuracy: 1e-2)
+        }
+        
+        let top = Camera.preset(.top)
+        XCTAssertGreaterThan(top.position.z, top.target.z)
+        
+        let front = Camera.preset(.front)
+        XCTAssertLessThan(front.position.y, front.target.y)
+        
+        let right = Camera.preset(.right)
+        XCTAssertGreaterThan(right.position.x, right.target.x)
+    }
+    
+    func testMakeOrthographicProjection() {
+        let ortho = Orientation.makeOrthographic(left: -100, right: 100, bottom: -50, top: 50, nearZ: 0.1, farZ: 1000.0)
+        // Check diagonal elements
+        XCTAssertEqual(ortho.columns.0.x, 2.0 / 200.0, accuracy: 1e-5)
+        XCTAssertEqual(ortho.columns.1.y, 2.0 / 100.0, accuracy: 1e-5)
+        XCTAssertEqual(ortho.columns.3.w, 1.0, accuracy: 1e-5)
+    }
 }

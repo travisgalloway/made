@@ -33,15 +33,16 @@ Established the Swift 6 package hierarchy for `MadeNative`:
 ## Phase 1: Metal 3 Viewport & Input (In progress)
 Built:
 - Direct Metal 3 pipeline with compiled Metal Shading Language shaders.
-- On-demand invalidation loop (`MTKView.isPaused = true`, `enableSetNeedsDisplay = true`). No test covers it yet.
-- Telemetry HUD showing render count and draw calls. Only the `model` redraw reason is recorded (#94).
-- `GestureArbiter` and `PointerRouter` modules, unit tested. The arbiter locks navigate or manipulate on the first move (Invariant 8). Nothing sends them events.
-- `Snapping` module with Vertex > Edge > Grid precedence (Invariant 9), unit tested. Nothing calls it.
+- On-demand invalidation loop (`MTKView.isPaused = true`, `enableSetNeedsDisplay = true`).
+- Telemetry HUD showing render count and draw calls (#94).
+- `GestureArbiter` and `PointerRouter` modules, unit tested (Invariant 8).
+- `Snapping` module with Vertex > Edge > Grid precedence (Invariant 9), unit tested.
+- Orbit, pan, and zoom with mouse and trackpad (#87).
+- Snapping wired to viewport drag pointer (#88).
+- Ground grid on Z = 0 (#102) and labelled XYZ axes indicator (#103).
+- Xcode-style unified multi-pane desktop workspace (#118 to #123): unified window toolbar, hierarchical navigator sidebar, 3D viewport jump bar, multi-tab inspector panel, and collapsible debug console drawer.
 
 Open:
-- Orbit, pan, and zoom with mouse and trackpad (#87).
-- Wire snapping into the viewport (#88).
-- Ground grid on Z = 0 (#102) and labelled axes indicator (#103).
 - Per-object rotation and scale in the renderer (#71).
 
 ---
