@@ -1,50 +1,79 @@
-# Conventions
+# Engineering Conventions
 
-## Code
+This document outlines the coding standards, concurrency conventions, and commit policies for `made`.
 
-- **Prefer many small, single-purpose files over few large ones.** Keep every component small.
-- **The invariants are cited by number in comments.** When you write code that upholds one, say which — `(invariant 2)`, `per architecture invariant 8`. That is what makes the [invariant list](../architecture/invariants.md) a living contract rather than a document nobody opens. It also means **the numbers can never be reassigned**; see that doc.
-- **Comments explain _why_, especially why an alternative was rejected.** This codebase leans on that heavily — `vite.config.ts`, `playwright.config.ts`, and `eslint.config.js` all carry comments explaining what breaks if you "clean them up". Read them before editing them.
+## Commands
 
-## Dependencies
+Run every command from the `macos/` directory:
 
-- **pnpm for installs** (`pnpm@10.14.0`). Never npm or yarn to install dependencies. (The one exception is `playwright.config.ts`'s `webServer`, which shells out to `npm run build && npm run preview` — a self-contained test harness detail, not a project install path.)
-- **Node >= 24 is a hard requirement.** `brepjs@18` declares it and `.npmrc` sets `engine-strict=true`, so the wrong Node version fails `pnpm install` outright. `.nvmrc` pins it.
-- **Before installing any dependency, check its current version and API** rather than trusting a version pinned in these docs. Versions here are guidance, not gospel.
-
-## Commits
-
-```
-<type>(<scope>): <description> (#issue) (#PR)
+```sh
+cd macos
+swift build
+swift test
+swift test --filter <TestClass>
+swift run MadeApp
+swift run MadeApp --mcp-stdio
 ```
 
-The trailing `(#N)` is the **PR**; earlier `(#N)` references are the **issues**. Commits inside a PR carry only issue numbers — the PR number does not exist yet — and the squash-merge subject appends it.
+---
 
-Real examples:
+---
+
+## 1. Swift 6 Concurrency & Type Safety
+
+`macos/Package.swift` sets `swift-tools-version: 6.0`, which selects the Swift 6 language mode and its concurrency checking.
+
+### Sendable Conformance
+- Every struct, enum, or class that crosses an actor or task boundary **must** conform to `Sendable`.
+- Avoid mutable reference types in asynchronous signatures. Prefer immutable value types (`struct`).
+- Where SDK types lack formal Sendable annotations (e.g., `MTLBuffer` pointers in MetalKit), annotate wrapping structs as `@unchecked Sendable` only after verifying thread-safety invariants by review.
+
+### MainActor vs Background Actors
+- Target: presentation views, gesture handling, and `@Observable DocumentModel` belong on `@MainActor`. Today only the two `Coordinator` classes carry `@MainActor`; `DocumentModel`, `GestureArbiter`, and `PointerRouter` are `@unchecked Sendable` (#91).
+- Math-heavy and tessellation tasks execute in the `KernelClient` actor.
+- Use `await withCheckedContinuation` for adapting legacy asynchronous delegate APIs, and never use blocking waits (`cmdBuffer.waitUntilCompleted()`) inside asynchronous Swift contexts.
+
+---
+
+## 2. Dependency Discipline
+
+- **`MadeCore` is lean by design.**
+  - `nicklockwood/Euclid` (0.9.6) is the single core dependency for pure-Swift CSG geometry.
+  - No bloated third-party packages for geometry or networking.
+  - Standard Apple frameworks are preferred: `MetalKit`, `simd`, `ImageIO`, `UniformTypeIdentifiers`.
+- **C++ Framework Boundaries**:
+  - Planned (#82): the OpenCASCADE integration (`OCCTSwift`) will sit behind a dedicated framework module. It must not leak raw OpenCASCADE symbols into the SwiftUI presentation layer. `Package.swift` does not declare it yet.
+
+---
+
+## 3. The 9 Architectural Invariants
+
+- **The numbers are permanent.** Comments and unit tests cite invariants by number (1 to 9). Never renumber existing invariants.
+- If a proposed feature appears to require violating an invariant, stop and document the trade-off rather than introducing workarounds.
+
+---
+
+## 4. Conventional Commits
+
+Commits must follow the Conventional Commits specification:
 
 ```
-feat(input): vertex/edge/grid snapping foundation (#27) (#60)
-feat(kernel): Phase 2 kernel core — OCCT worker, transferable meshes, KernelClient (#22, #23, #24) (#58)
-fix: Viewport up-axis disagrees with the kernel: Height renders horizontally (#62)
-chore: Add CI (GitHub Actions) (#52)
+<type>(<scope>): <short description> (#<issue>)
+
+[optional body explaining design rationale]
 ```
 
-- **Types in use:** `feat`, `fix`, `docs`, `test`, `chore`, `ci`.
-- **Scopes in use:** `kernel`, `viewport`, `input`, `infra`. Scope is optional.
-- **Bodies are explanatory prose, not bullet dumps.** The house style: state what changed, **name the invariant the change upholds**, explain why the alternatives were rejected, and describe how it was verified. "Reintroduced the bug and watched the test fail" is a normal thing to write here.
+### Allowed Types
+- `feat`: A new user-facing or agent-facing capability.
+- `fix`: A bug fix or regression remediation.
+- `refactor`: Code changes that neither fix a bug nor add a feature.
+- `docs`: Documentation updates in `docs/` or README files.
+- `test`: Adding or correcting tests.
+- `perf`: Performance optimization.
 
-Keep commits small within a phase, and commit at the end of each phase. See [`../roadmap/phases.md`](../roadmap/phases.md).
+---
 
-## Formatting
+## Related Documentation
 
-Prettier and ESLint, both run by `pnpm lint` in CI. Tabs, single quotes, no trailing commas, 100-column print width.
-
-`docs/` **is** Prettier-checked — these files are authored, not imported verbatim, so they are held to the same standard as the rest of the repo.
-
-## Load-bearing config you should not "simplify"
-
-Three settings in `vite.config.ts` exist for occt-wasm and each is commented in place. Removing any one breaks the WASM load:
-
-- `worker: { format: 'es' }` — Vite's classic/IIFE worker output cannot `import` the WASM asset URL at all.
-- `optimizeDeps: { exclude: ['occt-wasm'] }` — esbuild's dep pre-bundling rewrites the emscripten glue in ways that break it.
-- `build: { target: 'esnext' }` — the WASM features and top-level await it relies on need a modern target.
+- [`invariants.md`](../architecture/invariants.md): The nine non-negotiable rules
+- [`testing.md`](./testing.md): Unit test structure

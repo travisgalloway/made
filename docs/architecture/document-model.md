@@ -1,95 +1,110 @@
-# The document model
+# Document Model & Scene Graph
 
-`src/lib/scene/document.svelte.ts` — the client-side model of what the user has built. It is the **"document model" row** of the three-kinds-of-state table in [`state-and-errors.md`](./state-and-errors.md), made real.
+The document model in `made` is the single source of truth for all 3D scene objects, parametric feature trees, dimensional configurations, and spatial transformations. It is implemented as an `@Observable` Swift class (`final class DocumentModel: @unchecked Sendable`, with no actor isolation, see #91) in [`DocumentModel.swift`](../../macos/Sources/MadeCore/Scene/DocumentModel.swift) conforming to Invariant 3.
 
-> **Status: core built (#65), consumption still designed.** `src/lib/scene/document.svelte.ts` and its command API (`addObject` / `removeObject` / `setParam` / `setTransform`) exist and are unit-tested. `Scene.svelte` still only reads the two default objects the model happens to ship with — the `SolidNode` + keyed `{#each}` generalization (#66) and the selection-driven panel (#67) that make the rest of this document true remain designed, not built. See [`../roadmap/phases.md`](../roadmap/phases.md); everything in [`ui-controls.md`](./ui-controls.md) and [`agent-api.md`](./agent-api.md) depends on the built core.
+---
 
-## Why it has to exist first
+## Scene Architecture
 
-Before #65, the scene was hard-wired to exactly two solids. `src/lib/scene/params.svelte.ts` held five scalar `$state` fields, `Scene.svelte` had two literal `<T.Mesh>` branches with two per-solid `$effect`s and a two-way `onMesh` switch, and the gizmo threw its transform away. There was no collection, no per-object transform, and no way to add or remove an object.
+```
+┌────────────────────────────────────────────────────────┐
+│              DocumentModel (@Observable)               │
+│   • objects: [SceneObject] (ordered array)             │
+│   (no selection set, no UndoManager yet)               │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Dispatches Command Mutations
+┌──────────────────────────▼─────────────────────────────┐
+│                 Command Pattern API                    │
+│   • addObject(def:transform:)                          │
+│   • removeObject(id:)                                  │
+│   • setParam(id:key:value:)                            │
+│   • setTransform(id:transform:)                        │
+└──────────────┬──────────────────────────┬──────────────┘
+               │ Reactive Bindings        │ Async Invalidation
+┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
+│     SwiftUI Inspector      │ │      KernelClient       │
+│   (Dimensions, Transforms) │ │  (Tessellates Geometries│
+└────────────────────────────┘ └─────────────────────────┘
+```
 
-Both new workstreams — direct manipulation and agent integration — need to represent _N_ objects with position and dimensions. Neither can start until a model exists. `KernelClient` is already N-solid-capable (all its state is keyed by `SolidId`); the limit was entirely above it, in the scene wiring. This model removes that limit — though, per the status note above, `Scene.svelte` itself hasn't been generalized to _consume_ more than two objects yet (#66).
+---
 
-## Shape
+## Object Data Model
 
-Everything here is **plain and structured-clone-safe** — no `three` types, and no _runtime_ kernel dependency (no `KernelClient`, comlink, or brepjs import). Type-only imports of the wire-contract types from the zero-import `$lib/kernel/types` — `SolidId`, `BoxParams`, `CylinderParams` — are fine and expected; that module exists precisely to be shared this way (invariants 3, 4):
+Every entity in the scene graph is represented by a `SceneObject`:
 
-```ts
-type ObjectId = SolidId; // generalize the existing alias; still a string
-
-interface Transform {
-	position: [number, number, number];
-	rotation: [number, number, number, number]; // quaternion
-	scale: [number, number, number];
+```swift
+public struct SceneObject: Identifiable, Sendable, Equatable {
+    public let id: ObjectId              // typealias for SolidId
+    public var def: ObjectDef            // .box, .cylinder, .imported(name:)
+    public var transform: Transform      // position, rotation, scale
 }
 
-type ObjectDef =
-	| { kind: 'box'; params: BoxParams }
-	| { kind: 'cylinder'; params: CylinderParams }
-	| { kind: 'imported'; name: string }; // Phase 4; the solid lives in the worker
-// reserved: { kind: 'brep-script'; source: string } — see agent-api.md
-
-interface SceneObject {
-	id: ObjectId;
-	def: ObjectDef;
-	transform: Transform;
+public enum ObjectDef: Sendable, Equatable {
+    case box(BoxParams)                  // width, depth, height
+    case cylinder(CylinderParams)        // radius, height
+    case imported(name: String)
 }
 ```
 
-`def` is a **discriminated union** on purpose: adding a solid kind (imported, brep-script) forces every consumer's switch to be reconsidered, exactly as the kernel's closed unions do.
+Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model has no object name, visibility flag, or boolean-result type. Selection is a `@State var selectedId` in `ContentView`, not part of the model (#69).
 
-## Reactivity, and the one carried-over lesson
+### Supported Object Types
+1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).
+2. **Imported Placeholder**: `.imported(name:)` carries a name only. The `cad_boolean_operation` tool records its result as an `.imported` object under a different ID than the kernel result (#99, #100).
+3. **Planned**: CSG composites that reference parent operations (#35), and B-Rep solids loaded from STEP or IGES files (#38, #82).
 
-Holds `let objects = $state<SceneObject[]>([...])`. Svelte 5 deep-proxies the entries, so reading `obj.def.params.width` inside a per-object `$effect` subscribes at field granularity — the same fine-grained-dependency goal the old `params.svelte.ts` reached with one `$state` primitive per field, now without hand-rolling them.
+---
 
-**The lesson that survived the move:** the getter that hands params to the kernel returns a **fresh plain object**, never the Svelte proxy. A proxy does not survive `structuredClone` / `postMessage` — it would throw at the worker boundary. `paramsFor(id)` spreads: `{ ...obj.def.params }`. This is the same rule `state-and-errors.md` recorded for the old params model; it is why that rule was written down.
+## Command Mutation API
 
-Clamping stays: `clampBoxParam` / `clampCylinderParam` and `BOX_LIMITS` / `CYLINDER_LIMITS` moved over unchanged. `document.spec.ts` covers them, plus the command API itself (`paramsFor`'s fresh-object guarantee, `setParam`/`addObject`/`removeObject`/`setTransform`).
+All modifications to the scene must traverse the explicit command API rather than mutating property dictionaries directly:
 
-## The mutation API is command-shaped from day one
+```swift
+// Create an object (IDs have the form <kind>-<seq>)
+let boxId = document.addObject(
+    def: .box(BoxParams(width: 40, depth: 30, height: 10)),
+    transform: .identity
+)
 
-All mutations route through a small closed set:
+// Update dimension with automatic limits clamping
+document.setParam(id: boxId, key: "width", value: 45)
 
-```ts
-addObject(def, transform?): ObjectId;
-removeObject(id): void;
-setParam(id, key, value): void; // clamps, like today
-setTransform(id, transform): void; // gizmo + inspector write here
+// Update world transform
+var t = Transform.identity
+t.position = SIMD3<Float>(10, 0, 0)
+document.setTransform(id: boxId, transform: t)
+
+// Delete object
+document.removeObject(id: boxId)
 ```
 
-This is deliberate. Phase 4 calls for **undo/redo on the document model, not on geometry** ([`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md)). If every mutation is expressible as one serializable command — and these four are — then undo/redo is an _additive_ `createHistory(doc)` wrapper that records inverse commands, not a refactor of the model.
+### Limits Clamping
+`DocumentLimits` in `DocumentModel.swift` clamps parameter updates made through `setParam` to fixed ranges (a NaN value becomes the minimum):
 
-**Do not build the history stack in the foundation.** The foundation's only obligation is that no mutation bypasses these four calls. History comes later (issue #39).
+| Parameter | Minimum (mm) | Maximum (mm) |
+| --------- | ------------ | ------------ |
+| Box width, depth, height | 5 | 90 |
+| Cylinder radius | 5 | 50 |
+| Cylinder height | 5 | 90 |
 
-## How the scene consumes it
+`setParam` and the `cad_add_solid` tool apply these ranges. Other paths into the model, such as `addObject(def:)` called directly, do not clamp (#104). Unknown keys and `.imported` objects are ignored without an error.
 
-`Scene.svelte` stops hard-coding solids and iterates:
+---
 
-```svelte
-{#each documentModel.objects as obj (obj.id)}
-	<SolidNode {obj} client={kernelClient} onGeometry={registerPickable} />
-{/each}
-```
+## Native Document Persistence (`.made`)
 
-`src/lib/viewport/SolidNode.svelte` is one instance per object — the clean answer to "two hard-coded branches become a collection," and it fits the house rule of many small files. Each `SolidNode`:
+Planned (#83): the document model integrates with Apple's `FileDocument` protocol. No persistence exists today:
+- **Uniform Type Identifier**: `com.made.cad.document` (extension: `.made`).
+- **Package Bundle Architecture**:
+  - `document.json`: Serialized scene graph hierarchy, parameters, and transforms.
+  - `history.json`: Parametric feature tree and undo/redo operations.
+  - `assets/`: Embedded STEP/IGES binary data for imported components.
 
-- owns its own `$state.raw<BufferGeometry>` and `<T.Mesh>`, transform-bound from `obj.transform`, with `mesh.userData.objectId = obj.id` (the hook selection needs — see [`ui-controls.md`](./ui-controls.md));
-- owns **one** request `$effect` scoped to its object, so a change to object A never re-requests object B (KernelClient already keys debounce/conflation on `obj.id`);
-- subscribes `onMesh` filtered to its `solidId`, swaps geometry, rebuilds the BVH, disposes the outgoing geometry + BVH, and issues **exactly one** `invalidateFor(invalidate, 'model')` per settled mesh (invariant 2);
-- on unmount, disposes its geometry/BVH and calls the worker's `dispose(obj.id)` — finally exercising `KernelWorkerApi.dispose`, which is unused today.
+---
 
-This deletes `Scene.svelte`'s two request `$effect`s, its `onMesh` `solidId` switch, and its two `$state.raw` geometry pairs. `pickableObjects` / `snapMeshes` become a `$state.raw` collection populated by `SolidNode`. The `window.__wade.boxExtents` probe retargets to "the first box object" so `orientation.e2e.ts` keeps its up-axis check.
+## Related Documentation
 
-**Why per-object components over one collection `$effect`:** a single effect iterating all objects would re-run whenever _any_ object changed and would have to diff to find which solid to re-request — reintroducing exactly the cross-solid coupling this design removes. One `SolidNode` per object keeps each object's request/​mesh/​dispose lifecycle self-contained and lets Svelte's keyed `{#each}` handle add/remove.
-
-## Where it is created
-
-`src/routes/+page.svelte` calls `createDocumentModel()` and passes the instance to both `<Viewport>` (→ `Scene`, inside the Threlte `<Canvas>`) and the panel (plain DOM) — the same sibling-tree injection the old params model used, and the reason is unchanged — see [`state-and-errors.md`](./state-and-errors.md#where-the-shared-model-is-created).
-
-## Related
-
-- [`state-and-errors.md`](./state-and-errors.md) — the three-kinds-of-state rule this makes concrete
-- [`ui-controls.md`](./ui-controls.md) — the inspector and gizmo that drive the command API
-- [`agent-api.md`](./agent-api.md) — imported and (reserved) brep-script objects
-- [`kernel.md`](./kernel.md) — the per-`SolidId` machinery reused unchanged
-- [`invariants.md`](./invariants.md) — 3, 4
+- [`invariants.md`](./invariants.md): Invariant 3 (imperative viewport state)
+- [`kernel.md`](./kernel.md): How document mutations dispatch kernel requests
+- [`ui-controls.md`](./ui-controls.md): SwiftUI inspector bindings

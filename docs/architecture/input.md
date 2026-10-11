@@ -1,95 +1,95 @@
-# Input and precision
+# Input Routing, Gestures & Precision Snapping
 
-`src/lib/input/` — invariants 8 and 9.
+The input subsystem in `made` enforces Invariant 8 (navigation and editing never share a gesture) and Invariant 9 (precision comes from snapping and typed values). The modules model mouse, touch, and pen input. **Status:** the modules are implemented and unit tested, but the viewport does not feed them events. `CADMetalViewRepresentable` creates a `PointerRouter` and nothing sends it input, so the camera has no orbit, pan, or zoom (#87) and snapping never runs (#88). The iPadOS and Apple Pencil paths are planned (#84).
 
-## The problem
+---
 
-Traditional desktop CAD assumes a precise pointer, hover, a scroll wheel, and modifier keys. This app is **desktop-first but must not emulate a mouse on touch**, which is exactly what makes ported CAD feel wrong.
-
-The model separates who does what **by input channel**, and makes precision _forgiving_ rather than _demanded_.
-
-## Principles
-
-- **Separate navigation from editing.** Multi-finger touch drives the camera — orbit, pan, zoom. Single-pointer input selects and manipulates. A pen, when present, is the precise create-and-edit channel. The same gesture never carries two meanings.
-- **Lock the mode on first move.** The arbiter reads the opening motion, chooses navigate or manipulate, and holds it until release, so orbit, pan, and select never blend mid-drag.
-- **Snapping and inference are a core system, not polish.** Precision comes from snapping to vertices, edges, and guides, so a coarse fingertip still lands exactly.
-- **No dependence on tiny handles.** A large, touch-sized gizmo is fine; precise-handle dragging is not.
-- **The tool follows the selection.** Selecting an edge offers a fillet; selecting a face offers push-pull. This removes the toolbar hunting that is painful on touch. _(Phase 4.)_
-- **Beat occlusion.** Offset the active point above the fingertip, and prefer contextual menus at the point of action over distant toolbars.
-- **Exact values by selection, then entry.** Set intent with a tap, set the number with a field — rather than demanding a precise drag.
-
-Desktop-first means mouse and trackpad stay primary. But every viewport interaction is built on Pointer Events, so pen and touch are first-class from day one rather than retrofitted later.
-
-## The pipeline
+## Input Pipeline
 
 ```
-pointer event
-     │
-     ▼
-pointerRouter ──▶ which channel?      (pen / mouse / touch)
-     │
-     ▼
-gestureArbiter ─▶ navigate or manipulate?   (locked at first move)
-     │
-     ▼
-picking ───────▶ what is under the ray?     (BVH raycast)
-     │
-     ▼
-snapping ──────▶ where exactly?             (vertex > edge > grid)
+┌────────────────────────────────────────────────────────┐
+│              Raw Hardware Pointer Events               │
+│   (macOS Trackpad/Mouse  •  iPadOS Multi-Touch/Pencil) │
+└──────────────────────────┬─────────────────────────────┘
+                           │ PointerEvent (type, position)
+┌──────────────────────────▼─────────────────────────────┐
+│                     PointerRouter                      │
+│   Classifies event into PointerType:                   │
+│   • .mouse (6 px click-vs-drag, decided here)          │
+│   • .touch (Multi-finger navigation)                   │
+│   • .pen   (always manipulate, decided here)           │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Touch events only
+┌──────────────────────────▼─────────────────────────────┐
+│                    GestureArbiter                      │
+│   • Tracks active pointers (touch path only)           │
+│   • Locks mode on the first move event:                │
+│     - 1 pointer  → .manipulate (geometry edit)         │
+│     - 2+ pointers → .navigate   (camera orbit/pan)     │
+│   • Holds mode until ALL pointers release              │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Manipulate Mode Active
+┌──────────────────────────▼─────────────────────────────┐
+│                    Snapping Engine                     │
+│   Evaluates candidates in strict priority order:       │
+│   1. Vertex Snap (Highest priority)                    │
+│   2. Edge Snap   (Medium priority)                     │
+│   3. Grid Snap   (Lowest priority fallback)            │
+└────────────────────────────────────────────────────────┘
 ```
 
-### `pointerRouter.ts` — which channel
+---
 
-Branches on `pointerType`. Each type gets its own never-overlapping channel (invariant 8):
+## Gesture Arbitration (Invariant 8)
 
-- **Pen** → always `{ mode: 'manipulate', locked: true }` from first contact. **Never navigates.**
-- **Mouse** → OrbitControls already handles orbit natively, so the router's only job is click-vs-drag: within `MOUSE_CLICK_THRESHOLD_PX` (6 px) it is a selection click, beyond it is navigation.
-- **Touch** → forwarded wholesale to the arbiter.
+A common point of frustration in 3D applications is accidental camera rotation while attempting to select or drag a geometry feature. Invariant 8 establishes a strict separation:
 
-### `gestureArbiter.ts` — navigate or manipulate
+> **Navigation and editing never share a gesture.** The gesture arbiter locks the mode on the first movement and holds it until release.
 
-A pure state machine. The rule: **more than one concurrent pointer at any point during the gesture ⇒ navigate; a lone pointer ⇒ manipulate.**
+Implemented in [`GestureArbiter.swift`](../../macos/Sources/MadeCore/Input/GestureArbiter.swift):
 
-Two subtleties that are easy to get wrong and are both deliberate:
+### The Mode Lock Rules
+1. **No Distance Threshold in the Arbiter**: `GestureArbiter` applies no movement threshold. Before the first move event, the decision is undecided (`GestureDecision.undecided`, with `mode == nil`). `GestureMode` has only `.navigate` and `.manipulate`.
+2. **First Move Decision**: The first `.move` event locks the mode using the peak concurrent pointer count:
+   - A peak of 1 pointer locks `.manipulate`.
+   - A peak of 2 or more pointers locks `.navigate`.
+3. **Lock Retention**: Once locked, the mode does not change during that gesture, even if pointers join or lift.
+4. **Release Resolution**: When the last pointer lifts, the arbiter locks (if it has not yet), returns the decision, and resets to undecided. A pure tap therefore resolves at release using the peak pointer count. Tap emission and context actions are not implemented (#42).
 
-- It does **not** decide on the first `down`. Two fingers landing milliseconds apart must still resolve to navigate, so the decision waits for the **opening motion** — the first `move`.
-- A pure tap never moves. So for taps, the decision is made at the final `up`/`cancel` using the **peak** concurrent pointer count, not the count still remaining.
+### Pointer Router Channels
+[`PointerRouter.swift`](../../macos/Sources/MadeCore/Input/PointerRouter.swift) chooses the channel by `PointerType`:
+- **Pen**: Always returns `.manipulate`, locked. It never reaches the arbiter.
+- **Touch**: Forwarded to the `GestureArbiter` rules above.
+- **Mouse**: Movement past `mouseClickThresholdPx` (6.0 px) from the press point classifies the gesture as `.navigate`. Otherwise it is `.manipulate`.
 
-Once locked, the mode never flips for the rest of the gesture. It resets only when all pointers release.
+The iPadOS runtime for these paths, including Apple Pencil hover, is planned (#84).
 
-### `picking.ts` — what is under the ray
+---
 
-CPU-side raycasting through **three-mesh-bvh**, independent of the renderer — it behaves identically on WebGPU and on the WebGL2 fallback.
+## Snapping Precedence (Invariant 9)
 
-- `installBVHAcceleration()` — a one-time, idempotent global prototype patch. Same "call once at script scope" discipline as `installZUpWorld()`.
-- `buildBoundsTree(geometry)` — **every pickable or snappable geometry needs a BVH before it is pickable.** `Scene.svelte` calls it on the STL load and on every kernel mesh payload, disposing the outgoing geometry and its BVH so a slider drag does not leak one `BufferGeometry` per tick.
-- `OCCLUSION_OFFSET_PX = 40` — touch and pen pick rays are lifted 40 px above the contact point, so a fingertip or stylus never occludes its own target. **Mouse gets no offset.** This is "beat occlusion" made concrete.
+Manual dragging on a touch surface or mouse cannot give reliable sub-millimeter alignment. Invariant 9 mandates:
 
-### `snapping.ts` — where exactly
+> **Precision comes from snapping and typed values, not steady fingers.**
 
-Invariant 9, made usable.
+Implemented in [`Snapping.swift`](../../macos/Sources/MadeCore/Input/Snapping.swift):
 
-- `DEFAULT_SNAP_TOLERANCE_PX = 20` — deliberately touch-sized, not mouse-precision.
-- `DEFAULT_GRID_SPACING = 10`.
-- **Priority is strictly vertex > edge > grid.** A numerically closer lower-priority candidate never beats a higher-priority one that is still inside tolerance. That strictness is what stops the snap indicator jittering between kinds as the pointer moves.
-- `nearestVertex` / `nearestEdgePoint` reuse the **existing BVH** and consider only the three vertices and three edges of the _hit triangle_. This is O(1) per pointer move, and it matches the user's intuition — snap to what is under the cursor, not to some vertex on the far side of the model that happens to fall within pixel tolerance.
-- BVHs live in local space, so callers convert with `worldRayToLocal(ray, object)`.
+### Precedence Hierarchy
+`resolveSnap(candidates:tolerancePx:)` evaluates candidates in strict priority order. The caller supplies the candidates. Nothing generates vertex or edge candidates yet (#88):
 
-## Why the two core modules are pure
+1. **Vertex Snapping (Priority: Vertex)**:
+   Snaps to vertices of existing solid features. Highest priority. Even if a grid candidate or edge is closer on screen, a vertex inside the tolerance wins.
+2. **Edge Snapping (Priority: Edge)**:
+   Projects onto boundary edges and centerlines of features. Second priority. Wins over grid lines.
+3. **Grid Snapping (Priority: Grid)**:
+   `snapToGrid` rounds $(X, Y)$ to the nearest multiple of `defaultGridSpacing` ($10.0\text{ mm}$). It leaves $Z$ unchanged. No ground grid is drawn in the viewport (#102).
 
-`pointerRouter` and `gestureArbiter` take **plain pointer-shaped structs, not real `PointerEvent`s**. Together with `snapping` and `picking`, that makes them unit-testable in the Node-only Vitest project with no DOM shim.
+Each candidate carries a screen distance in pixels. Candidates beyond `defaultSnapTolerancePx` ($20.0\text{ px}$, screen space) are discarded. Within one kind, the smallest screen distance wins.
 
-All DOM and three.js scene-graph knowledge is quarantined in `Scene.svelte`, which is covered by Playwright instead. See [`../guides/testing.md`](../guides/testing.md).
+---
 
-## Wiring notes
+## Related Documentation
 
-- Pointer listeners are registered on Threlte's `dom` element with **`{ capture: true }`**. This is load-bearing: OrbitControls treats pen exactly like mouse, which would let a pen drag orbit the camera. The capture-phase listener calls `stopPropagation()` for `pointerType === 'pen'` so OrbitControls never sees pen events at all.
-- `<OrbitControls touches={{ ONE: null, TWO: TOUCH.DOLLY_PAN }} />` disables single-finger orbit — one finger must select or manipulate.
-- `touch-action: none` on the canvas, so the app owns every gesture.
-
-## Related
-
-- [`orientation.md`](./orientation.md) — snapping's ground plane comes from `GROUND_NORMAL`
-- [`ui-controls.md`](./ui-controls.md) — the gizmo and inspector that sit on top of this pipeline
-- [`../roadmap/phase-4-cad-depth.md`](../roadmap/phase-4-cad-depth.md) — radial menus, widget-less transforms, constraint inference
-- [`invariants.md`](./invariants.md) — 8 and 9
+- [`invariants.md`](./invariants.md): Invariants 8 and 9
+- [`document-model.md`](./document-model.md): How manipulation commands mutate scene state
+- [`ui-controls.md`](./ui-controls.md): Inspector numeric inputs

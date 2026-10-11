@@ -1,85 +1,95 @@
-# Testing
+# Testing Strategy & Verification
 
-Two layers, with a sharp line between them: **anything pure is unit-tested in Node; anything touching the DOM or the GPU is tested end-to-end in a real browser.** There is no middle tier, and that is deliberate.
+The testing architecture in `made` is built on Swift Package Manager (`swift test`) using **XCTest** and Swift Concurrency testing primitives. The package has one test target, `MadeCoreTests`, with focused suites in [`macos/Tests/MadeCoreTests`](../../macos/Tests/MadeCoreTests).
 
-## Unit tests — Vitest
+---
 
-Colocated `*.spec.ts` next to the source.
+## Test Suites Overview
 
-**There is exactly one Vitest project, and it runs in `environment: 'node'`. There is no jsdom.**
+`MadeCoreTests` has 8 suites and 34 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and nothing in the test target creates a Metal device or a SwiftUI view.
 
-That constraint drives a lot of the codebase's shape. It is _why_ `gestureArbiter`, `pointerRouter`, `snapping`, `picking`, `framing`, `instancing`, `geometry`, and `KernelClient` are written as pure functions and classes over plain data — they have to be testable with no DOM shim. All the DOM and Threlte glue is quarantined in `Scene.svelte` and `Viewport.svelte`, which Playwright covers instead.
+| Suite Name | Target Module | What It Verifies |
+| ---------- | ------------- | ---------------- |
+| **`CADDSLTests`** | `MadeCore/Scripting` | Cadova-style declarative DSL, operator overloads (`-`, `+`, `&`), and triangulation. |
+| **`EuclidEngineTests`** | `MadeCore/Kernel` | Pure-Swift CSG parametric primitives and watertight boolean evaluations. |
+| **`KernelClientTests`** | `MadeCore/Kernel` | Box and cylinder generation, invalid dimensions, 60-ms debounce conflation, and the stale-debounce race (#90). |
+| **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: lock on first move for one pointer, lock to navigate for two pointers, and a pure tap resolving at release. `PointerRouter` has no test. |
+| **`SnappingTests`** | `MadeCore/Input` | Invariant 9: Vertex > Edge > Grid precedence, the 20 px tolerance, and grid rounding to 10 mm with Z unchanged. |
+| **`DocumentModelTests`** | `MadeCore/Scene` | Default two-solid scene, add and remove, and `setParam` limits clamping. |
+| **`CADToolsTests`** | `MadeCore/Agent` | Tool registry execution (`cad_add_solid`, `cad_measure`, `cad_boolean_operation`). |
+| **`MCPServerTests`** | `MadeCore/Agent` | JSON-RPC 2.0 handshake, tool discovery, a tool call, and the unknown-method error. The tests call `MCPServer` in process. |
 
-Two knock-on effects worth knowing:
+---
 
-- `kernel/types.ts` has **zero imports**, and `KernelClient.ts` imports only `./types` — no `comlink`, no `three`. That is what lets them run here at all.
-- `KernelClient` takes an injectable `Scheduler`, so its tests drive a hand-written `ManualClock` and `RecordingKernel`. **No `vi.mock`, no `vi.useFakeTimers()`** — the house style is hand-written stubs.
+## Running Automated Tests
 
-### `expect.requireAssertions` is on globally
-
-An `it()` block containing no `expect()` **fails**. A test that asserts nothing is a bug, not a passing test.
-
-### Running them
-
-```sh
-pnpm test:unit --run                                  # all (omit --run for watch mode)
-pnpm test:unit --run src/lib/input/snapping.spec.ts   # one file
-pnpm test:unit --run -t 'locks to manipulate'          # by name substring
-```
-
-## End-to-end — Playwright
-
-`e2e/*.e2e.ts`. The `webServer` config runs `npm run build && npm run preview` on port 4173, so **e2e always runs against a real production build** — and against a secure context, which WebGPU requires.
-
-### Five projects, and why they are separate
-
-| Project       | Spec                 | Why it exists                                                                                                                                                              |
-| ------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chromium`    | `viewport.e2e.ts`    | **No WebGPU flag** — so `navigator.gpu` is absent and the renderer takes its WebGL2 fallback. This is what keeps the fallback genuinely exercised rather than theoretical. |
-| `webgpu`      | `webgpu.e2e.ts`      | `--enable-unsafe-webgpu --enable-gpu`. Chrome ships a SwiftShader WebGPU backend, so a headless CI runner with no GPU still gets a real adapter — no GPU runner needed.    |
-| `kernel`      | `kernel.e2e.ts`      | Kernel-driven. `timeout: 150_000` — it waits on the ~22 MB occt-wasm module compiling on first load.                                                                       |
-| `snapping`    | `snapping.e2e.ts`    | Kernel-driven, same long timeout.                                                                                                                                          |
-| `orientation` | `orientation.e2e.ts` | Kernel-driven. The Z-up regression suite.                                                                                                                                  |
-
-The split is not cosmetic. The first two run against **`?kernel=off`** so they never wait on the WASM compile; separating them is what lets the fast suites keep a tight timeout while the kernel suites get a generous one. Neither inherits the other's.
-
-Splitting `snapping` and `orientation` out rather than folding them into `kernel` means a `testMatch` change to one cannot accidentally pick up the other's spec file.
-
-### Running them
+Run the complete test suite:
 
 ```sh
-pnpm test:e2e                                                    # all five
-pnpm exec playwright test --project=kernel                       # one project
-pnpm exec playwright test e2e/snapping.e2e.ts                    # one file
-pnpm exec playwright test --project=webgpu -g 'WebGPU is the active backend' # by title
+cd macos
+swift test
 ```
 
-Omitting `--project` runs all five, including the slow kernel-driven ones.
+Run a specific test suite or test case by name:
 
-## The `window.__wade` contract
+```sh
+cd macos
 
-**E2E asserts against `window.__wade`. It does not scrape the DOM.**
+# Run only CAD DSL tests
+swift test --filter CADDSLTests
 
-The object is declared in `src/lib/viewport/renderLoop.ts` and every field is documented with the issue that introduced it: `renderCount`, `backend`, `drawCalls`, `allIndexed`, `selected`, `hovered`, `gizmoVisible`, `boltCount`, `kernelReady`, `kernelMeshCount`, `kernelError`, `snapKind`, `snapPoint`, `boxExtents`, `axesPresent`, `projectToNdc`.
+# Run a single test case
+swift test --filter KernelClientTests/testInvalidDimensionsFailWithErrorCode
+```
 
-**Adding a new e2e assertion means adding a `__wade` field**, not reaching into the canvas or the DOM.
+Build and run the application:
 
-## Two patterns you will need
+```sh
+cd macos
+swift build
+swift run MadeApp
+swift run MadeApp --mcp-stdio
+```
 
-**Boot settle.** Every suite has a `waitForRenderCountToSettle()` helper — poll until `renderCount` is unchanged across three consecutive 150 ms polls — before asserting idle flatness. Kernel suites additionally gate on `window.__wade.kernelReady`.
+---
 
-**Idle flatness.** This is how invariant 2 is actually enforced. Once the scene settles, a repeated no-op interaction must **not** advance `renderCount`. If you add anything that invalidates on every `pointermove`, these tests will catch it.
+## Stdio MCP Protocol Verification
 
-## The exact draw-call assertion
+External AI agents can drive `made` through standard I/O pipes. No automated test starts the `MadeApp` process, so the checks below are manual shell recipes. Run them from the repository root after `cd macos && swift build`:
 
-`viewport.e2e.ts` asserts an **exact** `EXPECTED_DRAW_CALLS` against the `?kernel=off` scene — not a loose bound.
+### 1. Initialize Protocol Handshake
+```sh
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./macos/.build/debug/MadeApp --mcp-stdio
+```
+**Expected Output**:
+```json
+{"id":1,"jsonrpc":"2.0","result":{"protocolVersion":"2024-11-05","serverInfo":{"version":"0.1.0","name":"made-native-cad"},"capabilities":{"tools":{}}}}
+```
 
-**Consequence: adding any mesh to the fallback scene breaks that test.** This is precisely why the grid, the axes triad, and the snap marker are mounted **only in the kernel scene**, and why `window.__wade.axesPresent` exists to pin that asymmetry down.
+### 2. Tool Enumeration
+```sh
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | ./macos/.build/debug/MadeApp --mcp-stdio
+```
+**Expected Output**: JSON list of all 8 CAD tools with their JSON Schema parameters.
 
-If you need to add something to the fallback scene, you are changing the expected count deliberately — update the constant and say why in the commit.
+### 3. Tool Execution
+```sh
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}' | ./macos/.build/debug/MadeApp --mcp-stdio
+```
+**Expected Output**: Live scene graph JSON with object properties and transforms.
 
-## Regenerating the sample part
+---
 
-Not part of the build. `node scripts/make-sample-part.ts` regenerates `static/models/sample-part.stl` — an asymmetric L-bracket, asymmetric on purpose so that "centered and framed" and picking are meaningful from any orbit. **Commit the regenerated STL** when you change it.
+## Rendering Observability Contract
 
-STL rather than glTF is deliberate: brepjs's `importSTL()` can ingest the same file later.
+`RenderInstrumentation.shared` records submitted frames (`renderCount`, `drawCalls`, `lastReason`) and the viewport HUD displays them. No test reads these values yet, so Invariant 2 is not covered by automation. The intended checks, once a test can create a renderer, are:
+- At idle, `renderCount` stays flat.
+- When an object parameter changes, `renderCount` advances by one frame once the kernel job settles.
+
+---
+
+## Related Documentation
+
+- [`invariants.md`](../architecture/invariants.md): How invariants are checked by tests
+- [`kernel.md`](../architecture/kernel.md): Conflation and cancellation testing
+- [`agent-api.md`](../architecture/agent-api.md): MCP protocol specification

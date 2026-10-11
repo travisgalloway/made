@@ -1,46 +1,60 @@
-# Risks and deferred decisions
+# Risk Analysis & Mitigations
 
-Things we know are shaky, and the decisions we deliberately did not make yet.
+This document identifies technical risks, deferred decisions, and architectural trade-offs in `made`.
 
-## Deferred decisions
+---
 
-### Threaded OCCT
+## 1. OpenCASCADE C++ Framework Size & Complexity
 
-The multithreaded OCCT build is faster, but it requires `SharedArrayBuffer`, which requires cross-origin isolation (`COOP: same-origin`, `COEP: require-corp`). Invariant 7 starts single-threaded to avoid that constraint entirely.
+### Risk
+Integrating full OpenCASCADE (`OCCT.xcframework`) adds approximately 60–100 MB of compiled C++ binaries, increases build times, and introduces C++/Swift bridging headers that can complicate CI pipelines.
 
-**Revisit only if meshing shows up as a _measured_ bottleneck.** It is a deliberate, separate task — never an incidental change, because it touches hosting headers and the whole security context. On a static host, a service-worker shim can inject the COEP header.
+### Mitigation
+The design uses a **multi-tier geometry engine strategy**. Only Tier 1 exists in the code today:
+- **Tier 1 (Implemented)**: Pure-Swift [`EuclidEngine`](../macos/Sources/MadeCore/Kernel/EuclidEngine.swift) has zero C++ dependencies. `Package.swift` declares Euclid as the only dependency. It handles box and cylinder primitives and CSG booleans.
+- **Tier 2 (Planned, #82)**: OpenCASCADE would sit in a separate SPM target (`OCCTSwift`) backed by a pre-built xcframework, so builds do not compile OCCT from source. No such target or dependency exists yet. `importStep` returns `geometryFailed` with the message "STEP import pending OpenCASCADE bridge".
 
-The visible cost of staying single-threaded today: cancellation cannot preempt a running job, because `mesh()` is synchronous and blocks the worker's event loop. The codebase is explicit about this rather than pretending otherwise — see [the honest cancellation guarantee](./architecture/kernel.md#cancellation-the-honest-guarantee).
+---
 
-### Rendering in a worker
+## 2. App Store Sandboxing vs. Headless MCP Stdio Server
 
-`OffscreenCanvas` would free the main thread from drawing entirely, and is supported on desktop Chromium. It is a **phase-two lever, not a current design** — verify behavior on non-Chromium fallback targets before committing.
+### Risk
+macOS App Sandbox rules restrict arbitrary standard I/O pipe inheritance and child process execution, which could hinder distribution of the MCP server via the Mac App Store.
 
-## Open risks
+### Mitigation
+- Provide a dual-distribution posture:
+  - **Developer / CLI Build**: Distributed as an open binary or Homebrew package where `--mcp-stdio` connects directly to local AI agents (Claude Desktop, Cursor).
+  - **App Store Build**: Sandboxed GUI application utilizing Apple's native XPC services or a local loopback WebSocket endpoint for agent communication.
 
-### brepjs is young and single-maintainer
+---
 
-**This is exactly why invariant 4 exists.** All UI and render code talks to `KernelClient`, never to brepjs directly, so replicad or raw OCCT could be swapped in without touching the UI.
+## 3. CSG Floating-Point Coplanar Intersections
 
-Practical guidance: **keep the surface you use small.** Every brepjs API the worker calls is a thing that has to be re-implemented if the kernel is ever swapped.
+### Risk
+BSP-tree constructive solid geometry (CSG) algorithms can experience degenerate polygons or non-manifold meshes when evaluating perfectly coplanar overlapping faces.
 
-### WebGPU is still maturing
+### Mitigation
+None of the following is implemented. The code applies no rounding tolerance and no cutter extension. It relies on the Euclid booleans as they are.
+- Planned: round parameter inputs to an engineering tolerance (proposed $10^{-5}\text{ mm}$).
+- Planned: extend cutters by a small epsilon (proposed $0.001\text{ mm}$) where a difference meets a coplanar boundary.
+- Planned (#82): Tier 2 OpenCASCADE B-Rep as the exact fallback for complex industrial tooling.
 
-The renderer is still labelled experimental, and some scenes are genuinely faster on WebGL2. Two mitigations, both already in place:
+---
 
-- The `forceWebGL` escape hatch stays wired to a runtime setting, so backends can be compared on real hardware.
-- **The WebGL2 fallback is exercised in CI, not merely available.** Playwright's `chromium` project runs without the WebGPU flag on purpose. A fallback nobody tests is a fallback that does not work.
+## 4. Apple Pencil Latency on High-Density Meshes
 
-**Benchmark honestly.** If WebGPU is losing on a real scene, that is worth knowing.
+### Risk
+Direct manipulation with the Apple Pencil demands sub-16 ms latency. Recalculating complex CSG meshes on every stylus drag event would drop frames and cause noticeable lag.
 
-### Touch precision has a ceiling
+### Mitigation
+The Apple Pencil channel is planned (#84), and the gizmo interactions are planned (#71, #72). The viewport does not receive pointer input today.
+- **Two-Physics Rule (planned)**: Stylus translation drags modify only the object's rigid transform matrix ($4\times 4$) on the GPU. The geometry kernel is not called during move or rotate gestures.
+- Stylus dimension resize drags preview a GPU scale transform, then dispatch one debounced re-tessellation to the background actor on stylus lift.
 
-Fingertips occlude their own target and lack precision. This is a known, permanent limit of touch CAD, not a bug to be fixed.
+---
 
-Mitigate with snapping, inference, offset picking (`OCCLUSION_OFFSET_PX`), and typed values — and **do not promise mouse-level precision from bare touch.** See [`architecture/input.md`](./architecture/input.md).
+## Related Documentation
 
-### The WASM payload
-
-~22 MB of occt-wasm, uncompressed. Nothing about the current build hides this — the app waits on it today.
-
-[Phase 3](./roadmap/phase-3-pwa.md) is the mitigation: lazy-load the kernel behind an interactive shell, cache the binary once, and investigate a slim OCCT build. Until then, first load is slow, and the `kernel` Playwright project needs a 150-second timeout to accommodate it.
+- [`kernel.md`](./architecture/kernel.md): Multi-tier geometry engine
+- [`agent-api.md`](./architecture/agent-api.md): MCP server transport
+- [`input.md`](./architecture/input.md): Apple Pencil interaction model

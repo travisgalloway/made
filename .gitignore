@@ -1,28 +1,19 @@
-node_modules
+# SwiftPM
+.build/
+macos/.build/
+.swiftpm/
 
-# Output
-.output
-.vercel
-.netlify
-.wrangler
-/.svelte-kit
-/build
+# Xcode
+xcuserdata/
+DerivedData/
 
 # OS
 .DS_Store
-Thumbs.db
 
 # Env
 .env
 .env.*
 !.env.example
-!.env.test
-
-# Vite
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
-# Playwright
-test-results
 
 # Claude Code
 .claude/plans/
@@ -30,3 +21,5 @@ test-results
 .claude/work-active
 .claude/work-active.rewakes
 .claude/scheduled_tasks.lock
+.claude/audit/
+.claude/settings.local.json

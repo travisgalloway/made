@@ -1,72 +1,118 @@
-# Rendering
+# Viewport Rendering Architecture
 
-`src/lib/viewport/` — three.js WebGPU via Threlte, drawing only when something changed.
+The rendering engine in `made` is built on Apple's **Metal 3** framework and **MetalKit** (`MTKView`), optimized for Apple Silicon unified memory architecture. It enforces Invariant 2 (on-demand rendering), Invariant 3 (imperative viewport state), and Invariant 5 (direct Metal 3 pipeline).
 
-## On-demand rendering is not optional
+---
 
-A CAD scene is static until the user acts. **There is no `requestAnimationFrame` loop anywhere in this codebase**, and `renderLoop.ts` opens by saying so: no `setAnimationLoop`, no `renderMode="always"`.
+## On-Demand Invalidation Loop
 
-Threlte's `renderMode="manual"` plus `invalidate()` is the mechanism. The only sanctioned way to trigger a draw is:
+CAD applications operate on precision models rather than game-loop animations. Idling at 60–120 FPS drains battery and consumes thermal budget unnecessarily.
 
-```ts
-invalidateFor(invalidate, reason);
-export type InvalidateReason = 'camera' | 'resize' | 'model' | 'interaction';
+`made` renders strictly on demand:
+
+```swift
+view.isPaused = true
+view.enableSetNeedsDisplay = true
 ```
 
-Those four are the complete set of legal reasons to draw, and naming one at every call site is what keeps the set honest. A change that reintroduces a continuous render loop **fails review** — and, in practice, fails CI: `e2e/viewport.e2e.ts` and `e2e/snapping.e2e.ts` assert `window.__wade.renderCount` stays flat once the scene settles.
+A frame is submitted to the GPU only when an explicit invalidation signal is raised:
 
-### The idle-quiescence trap
+```swift
+public enum InvalidateReason: String, Sendable {
+    case camera       // Camera orbit, pan, or zoom
+    case resize       // Viewport window resizing
+    case model        // Parametric dimension or transform change
+    case interaction  // Active gesture or direct manipulation drag
+}
+```
 
-Hover and snap resolve on _every_ `pointermove`. If their view models invalidated unconditionally, moving the mouse across the canvas would produce a continuous stream of frames — a render loop by another name, and invariant 2 would be dead without a single `rAF` in sight.
+### Render Instrumentation & Observability
+Every render call increments telemetry tracked in [`RenderInstrumentation`](../../macos/Sources/MadeCore/Viewport/RenderLoop.swift#L11):
+- `renderCount`: Total frames submitted to the GPU.
+- `drawCalls`: Number of distinct mesh draw primitives issued in the last pass.
+- `lastReason`: The invalidation trigger responsible for the frame.
 
-So `SceneModel` and `SnapModel` **no-op when the value has not actually changed**. `SnapModel` compares structurally (`kind` equal _and_ `point.equals(point)`). That equality guard is load-bearing, not an optimization.
+This telemetry is exposed in the SwiftUI HUD in the viewport corner. No automated test reads `renderCount`, so the flat-at-idle behavior is not yet tested. Only the `model` reason is recorded today (#94).
 
-## One renderer, two backends
+---
 
-`Viewport.svelte` is the only file that constructs a renderer, and it always constructs a `WebGPURenderer` from `three/webgpu`.
+## Metal 3 Graphics Pipeline
 
-**The WebGL2 path is not a second renderer class.** `WebGPURenderer` silently falls back to a WebGL2 backend when `navigator.gpu` is absent, or when `forceWebGL` is set. So "which backend am I on" is a runtime property of one object, not a branch in our code.
+The rendering pipeline is implemented in [`MetalRenderer.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift):
 
-- **Initialization is async** (invariant 5). `renderMode` starts as `'manual'` so no frame is issued before `renderer.init()` resolves, then flips to `'on-demand'`.
-- The backend is not knowable until init resolves. `publishBackend(renderer)` then sniffs `renderer.backend.isWebGPUBackend` and publishes `window.__wade.backend` as `'webgpu' | 'webgl2'`.
-- `settings.forceWebGL` comes from `?forceWebGL=1` (query param wins) or `localStorage`. The `<Canvas>` is wrapped in `{#key settings.forceWebGL}` so toggling it rebuilds the renderer.
+```
+┌────────────────────────────────────────────────────────┐
+│                   DocumentModel                        │
+│         (N Solids: Box, Cylinder, CSG Mesh)            │
+└──────────────────────────┬─────────────────────────────┘
+                           │ MeshPayload updates
+┌──────────────────────────▼─────────────────────────────┐
+│                 MetalRenderer                          │
+│   • MTLDevice (Apple Silicon Default)                  │
+│   • MTLCommandQueue                                    │
+│   • MTLRenderPipelineState (MSL Shaders)               │
+│   • MTLDepthStencilState (Depth testing enabled)       │
+└──────────────┬──────────────────────────┬──────────────┘
+               │                          │
+       Screen Render Pass        Offscreen Snapshot Pass
+┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
+│       MTKView Drawable     │ │   Offscreen MTLTexture  │
+│      (Interactive 3D)      │ │   (800x600 Snapshot)    │
+└────────────────────────────┘ └──────────┬──────────────┘
+                                          │ Async readback
+                               ┌──────────▼──────────────┐
+                               │ ImageIO Base64 PNG      │
+                               │ (Multimodal Agent Loop) │
+                               └─────────────────────────┘
+```
 
-### Shaders are TSL. This is a hard constraint.
+### Shared-Storage Buffers
+Apple Silicon integrates CPU and GPU memory on a single bus. `made` allocates vertex, normal, and index buffers with `MTLResourceOptions.storageModeShared`:
 
-`WebGPURenderer` does **not** support `ShaderMaterial`, `RawShaderMaterial`, `onBeforeCompile`, or the legacy `EffectComposer`. Any custom shading must be authored in TSL node materials (`MeshStandardNodeMaterial`, `MeshBasicNodeMaterial`, `SpriteNodeMaterial`), which compile to the WebGL2 fallback as well.
+```swift
+let vertexBuffer = device.makeBuffer(
+    bytes: payload.positions,
+    length: payload.positions.count * MemoryLayout<Float>.size,
+    options: .storageModeShared
+)
+```
 
-If you need selection outlines or SSAO later, use the WebGPU-native RenderPipeline node stack, and keep it minimal.
+`makeBuffer(bytes:length:options:)` copies the `MeshPayload` arrays into the buffer once per upload (`MetalRenderer.createMesh`). The buffers are then visible to the GPU without a second transfer. The pipeline is not zero-copy end to end.
 
-## Keeping draw calls down
+### Shading & Lighting Model
+Shaders are written in Metal Shading Language (MSL) in [`MetalShaders.swift`](../../macos/Sources/MadeCore/Viewport/MetalShaders.swift):
+- **Vertex Shader**: Transforms vertices by `modelMatrix`, `viewMatrix`, and `projectionMatrix`, and transforms normals to world space with `normalMatrix`.
+- **Fragment Shader**: Evaluates Lambertian diffuse shading from two directional lights (key weight 0.7, fill weight 0.3) plus a 0.25 ambient term. It has no specular term. Blinn-Phong highlights are not implemented.
 
-- **Instance repeated hardware.** `instancing.ts` renders the bolts as a single `InstancedMesh` — one draw call regardless of count.
-- **Index everything.** All viewport geometry is indexed `BufferGeometry`; `allGeometriesIndexed()` guards it and kernel geometry is indexed by construction.
-- **Re-tessellate only changed solids**, never the whole assembly. This is a kernel-side property — see [`kernel.md`](./kernel.md).
-- **Cap pixel ratio** at `Math.min(devicePixelRatio, 2)`.
+The viewport draws no ground grid (#102) and no axes indicator (#103).
 
-## `window.__wade` — the observability contract
+---
 
-Declared in `renderLoop.ts`. It is the app's _entire_ end-to-end test surface: `renderCount`, `backend`, `drawCalls`, `allIndexed`, `selected`, `hovered`, `gizmoVisible`, `boltCount`, `kernelReady`, `kernelMeshCount`, `kernelError`, `snapKind`, `snapPoint`, `boxExtents`, `axesPresent`, `projectToNdc`.
+## Multimodal Visual Verification Loop
 
-**A new viewport feature publishes a hook here. E2E never scrapes the DOM.** Each field is documented with the issue that introduced it.
+For autonomous AI agents and local copilot workflows, numerical CAD parameters are insufficient to verify aesthetics, clearance, and topology. Agents require visual feedback.
 
-Two entries exist for a reason worth remembering: `boxExtents` and `projectToNdc` were added after the Z-up bug (#61/#62), because that regression lived in the _camera's_ idea of up — the geometry was always correct, so no world-space measurement could see it. Only a projection into screen space could. See [`orientation.md`](./orientation.md).
+`MetalRenderer` implements the [`SnapshotProvider`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L4) protocol, which is declared in `Agent/CADTools.swift`, not in the renderer file:
 
-`instrumentRenderer()` monkey-patches `renderer.render` to count draws, and sets `renderer.info.autoReset = false` with a manual reset — because three's own per-frame reset only runs inside its animation-loop scheduler, which this app never uses.
+```swift
+public protocol SnapshotProvider: AnyObject, Sendable {
+    func captureSnapshotPngBase64() async -> String?
+}
+```
 
-## Graceful degradation is real, not theoretical
+The GUI wires the renderer into the tool registry (`ContentView.swift`). The `--mcp-stdio` mode builds its registry without a provider, so `cad_capture_snapshot` returns an error there (#89).
 
-Two query params switch the app into a degraded mode, and both are **real fallback paths that also happen to be useful in tests** — not test-only hooks:
+### Execution Flow
+1. An agent calls the `cad_capture_snapshot` MCP tool.
+2. `MetalRenderer` creates an offscreen `MTLTexture` (standard 800×600 RGBA8).
+3. A non-blocking render pass draws the scene into the texture using the active camera orientation.
+4. When the command buffer completes asynchronously, texture bytes are extracted into a `CGImage` and compressed to a PNG data stream using Apple's `ImageIO` framework.
+5. The tool returns the raw base64 PNG (no `data:` prefix) as MCP `image` content with MIME type `image/png`, so a multimodal model can inspect the 3D model.
 
-- **`?kernel=off`** — skips the worker entirely and renders the Phase 1 STL scene. This is the same branch a fatal `kernel-init-failed` takes, so a kernel that fails to boot degrades to a working viewport instead of a blank canvas.
-- **`?forceWebGL=1`** — forces the WebGL2 backend.
+---
 
-Query params beat `localStorage`, specifically so Playwright need not seed storage.
+## Related Documentation
 
-**One consequence to know before adding anything to the scene:** `e2e/viewport.e2e.ts` asserts an _exact_ draw-call count against the `?kernel=off` scene. The grid, the axes triad, and the snap marker are therefore mounted **only in the kernel scene**. Adding a mesh to the fallback scene breaks that test. See [`../guides/testing.md`](../guides/testing.md).
-
-## Related
-
-- [`orientation.md`](./orientation.md) — the Z-up world the renderer draws into
-- [`input.md`](./input.md) — picking and snapping feed the `'interaction'` invalidate reason
-- [`invariants.md`](./invariants.md) — 2 and 5
+- [`invariants.md`](./invariants.md): Invariants 2, 3, and 5
+- [`orientation.md`](./orientation.md): Right-handed Z-up standard in Metal NDC
+- [`agent-api.md`](./agent-api.md): Multimodal visual verification toolchain

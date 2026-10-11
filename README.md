@@ -1,28 +1,67 @@
-# wade
+# made
 
-A CAD PWA built with SvelteKit, brepjs/OpenCascade, and three.js WebGPU.
+**made** (macOS-native Computer Aided Design and Engineering) is a native CAD application for macOS 14+ engineered with Swift 6, Metal 3, Euclid CSG, a Cadova-inspired declarative CAD DSL, and an embedded Model Context Protocol (MCP) server for AI copilot workflows.
 
-## Developing
+Originally prototyped as `wade` (a web-based CAD PWA), the project has moved to a native Apple architecture. It keeps the nine architectural invariants. Several features are not yet wired into the application. [`docs/feature-matrix.md`](docs/feature-matrix.md) lists the status of each capability, and [`docs/roadmap/phases.md`](docs/roadmap/phases.md) lists the open issues.
 
-Install dependencies and start the dev server:
+## Native Application (`macos/`)
 
+The native application and core modules live in `macos/`:
+- **MadeCore**: Geometry engine (Euclid CSG), document state model, gesture arbiter, snapping engine, Metal 3 renderer, Cadova-style declarative DSL, and MCP server.
+- **MadeApp**: macOS SwiftUI application and command-line MCP stdio server. The package declares only `.macOS(.v14)`. An iPadOS target is planned (#84).
+
+### Building & Running
+
+Build the native application:
 ```sh
-pnpm install
-pnpm dev
+cd macos
+swift build
 ```
 
-## Building
-
+Run the unit test suites (34 tests covering DSL, CSG booleans, kernel conflation, gesture arbiter, snapping, document model, and MCP protocol):
 ```sh
-pnpm build
+cd macos
+swift test
 ```
 
-Produces a static, client-only SPA (no SSR) via `@sveltejs/adapter-static`. Preview it with `pnpm preview`.
+Launch the application, or run the MCP server over standard I/O:
+```sh
+cd macos
+swift run MadeApp
+swift run MadeApp --mcp-stdio
+```
+The `--mcp-stdio` mode still declares the SwiftUI window scene. Its tool registry has no snapshot provider, so `cad_capture_snapshot` returns an error (#89).
 
-## Documentation
+### Declarative CAD Scripting (Cadova-Style Swift DSL)
 
-**[docs/](docs/README.md)** — start with the [architectural invariants](docs/architecture/invariants.md). Nine rules govern this codebase, most are enforced by CI, and the source cites them by number.
+```swift
+import MadeCore
 
-- [Architecture](docs/README.md#architecture--how-it-works-today) — threading model, kernel, rendering, orientation, input, state.
-- [Roadmap](docs/roadmap/phases.md) — Phases 0–2 are done; Phase 3 (PWA hardening) is next.
-- [Testing](docs/guides/testing.md) and [conventions](docs/guides/conventions.md).
+// Declarative CSG modeling with native operators:
+let mountingPlate = Box(width: 50, depth: 50, height: 10)
+    - Cylinder(radius: 6, height: 20)
+    + Box(width: 10, depth: 10, height: 5).translated(x: 20)
+
+let payload = mountingPlate.toMeshPayload()
+```
+
+---
+
+## Architectural Invariants
+
+Nine architectural rules govern this codebase:
+1. **The kernel runs off the main thread**: All geometry and CSG booleans execute in the `KernelClient` actor.
+2. **Rendering is on-demand**: No continuous animation loops. Renders only invalidate on camera movement, model mutations, or active gestures.
+3. **Imperative viewport rendering**: Scene geometry buffers are retained in GPU buffers allocated with shared storage.
+4. **Isolated kernel interface**: Viewport and UI communicate with `KernelClient` through an asynchronous wire contract.
+5. **Direct Metal 3 pipeline**: Low-overhead Apple Silicon rendering pipeline with offscreen snapshotting for visual verification.
+6. **Shared-storage buffers**: Vertex and index buffers use `.storageModeShared`. `MeshPayload` arrays are copied into them once per upload.
+7. **Thread-safe geometry execution**: Actor-isolated geometry generation with a 60 ms debounce. Superseded jobs resolve as cancelled, and the latest request always completes.
+8. **Navigation and editing never share a gesture**: Pointer gestures strictly isolate camera manipulation from object editing.
+9. **Precision snapping hierarchy**: Vertex > Edge > Grid. The snapping module is not yet called from the viewport (#88).
+
+---
+
+## Web Prototype (Archived Reference)
+
+The original web prototype (SvelteKit + brepjs/OpenCascade WASM + WebGPU) was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation is in [`docs/archive/web-prototype/`](docs/archive/web-prototype/README.md).

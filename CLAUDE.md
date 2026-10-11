@@ -2,137 +2,112 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`wade` is a CAD PWA: SvelteKit (Svelte 5 runes) + brepjs/OpenCascade for the geometry kernel + three.js WebGPU for rendering. It builds to a static, client-only SPA.
+`made` (macOS-native Aided Design and Engineering) is a native CAD application. It is a Swift 6 package in `macos/`, with SwiftUI for the interface, Metal 3 for rendering, and `nicklockwood/Euclid` for pure-Swift CSG (constructive solid geometry). An embedded MCP (Model Context Protocol) server lets external agents drive a CAD session over stdio. The GitHub repository is still named `wade`.
 
-`docs/` holds the full architecture reference — start at `docs/README.md`. The sections below are the short version; the docs are the long one. Most relevant:
+`docs/` holds the architecture reference. Start at `docs/README.md`. The most relevant files:
 
-- `docs/architecture/invariants.md` — the nine rules, canonical. Read this before any substantial change.
-- `docs/architecture/` — kernel, rendering, orientation, input, state, threading model.
-- `docs/roadmap/phases.md` — what is built and what is next.
-- `docs/guides/` — testing and conventions.
+- `docs/architecture/invariants.md` holds the nine rules. Read it before any substantial change.
+- `docs/architecture/` covers the kernel, rendering, orientation, input, document model, agent API, and threading model.
+- `docs/roadmap/phases.md` records what is built and what is next.
+- `docs/feature-matrix.md` and `docs/test-plan.md` track every capability by ID, with its status, issue, and tests.
+- `docs/reviews/` holds dated audit reports. `docs/parked-findings.md` holds findings with no ticket.
+- `docs/guides/` covers testing and conventions.
+
+## The removed web prototype
+
+The original SvelteKit prototype was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation lives in `docs/archive/web-prototype/`. Do not restore it, and do not cite its files in new issues or docs.
+
+CI (`.github/workflows/ci.yml`) runs `swift build --build-tests` and `swift test` on `macos-15` for every PR.
 
 ## Commands
 
-pnpm only (`pnpm@10.14.0`). Node >= 24 is a hard requirement — `brepjs@18` declares it and `.npmrc` sets `engine-strict=true`, so a wrong Node version fails `pnpm install` outright.
+Run every command from `macos/`. The package needs Swift 6 tools (`swift-tools-version: 6.0`) and targets macOS 14.
 
-| Task            | Command                                         |
-| --------------- | ----------------------------------------------- |
-| Dev server      | `pnpm dev`                                      |
-| Build / preview | `pnpm build` / `pnpm preview`                   |
-| Typecheck       | `pnpm check` (svelte-check)                     |
-| Lint            | `pnpm lint` (`prettier --check .` + `eslint .`) |
-| Format          | `pnpm format`                                   |
-| Unit tests      | `pnpm test:unit --run` (omit `--run` for watch) |
-| E2E tests       | `pnpm test:e2e`                                 |
-| Everything      | `pnpm test`                                     |
+| Task | Command |
+| --- | --- |
+| Build | `swift build` |
+| Run the app | `swift run MadeApp` |
+| Run with the MCP server on stdio | `swift run MadeApp --mcp-stdio` |
+| All tests | `swift test` |
+| One test class | `swift test --filter KernelClientTests` |
+| One test | `swift test --filter KernelClientTests/testRapidRequestsConflateToLatestValue` |
 
-Run a single unit test by file or by name:
+Tests use XCTest in `macos/Tests/MadeCoreTests`. There are eight test files, and no UI or integration test target.
 
-```sh
-pnpm test:unit --run src/lib/input/snapping.spec.ts
-pnpm test:unit --run -t 'locks to manipulate on the first move'
+## Layout
+
 ```
-
-Run a single e2e project or test. Omitting `--project` runs all five, including the slow kernel-driven suites:
-
-```sh
-pnpm exec playwright test --project=kernel
-pnpm exec playwright test e2e/snapping.e2e.ts
-pnpm exec playwright test --project=webgpu -g 'WebGPU is the active backend'
+macos/
+  Package.swift            MadeCore (library), MadeApp (executable), MadeCoreTests
+  Sources/MadeCore/
+    Kernel/                Types.swift (wire contract), KernelClient actor, EuclidEngine, Geometry
+    Viewport/              MetalRenderer, MetalShaders, Orientation, RenderLoop (instrumentation)
+    Input/                 PointerRouter, GestureArbiter, Snapping
+    Scene/                 DocumentModel (@Observable)
+    Agent/                 MCPProtocol, MCPServer, CADTools (tool registry), InAppAgentController
+    Scripting/             CADDSL (result-builder CAD DSL)
+    Platform/              AppKit and UIKit shims
+  Sources/MadeApp/         MadeApp (@main, menus, --mcp-stdio), ContentView, CADMetalViewRepresentable
+  Tests/MadeCoreTests/     XCTest suites
 ```
-
-CI (`.github/workflows/ci.yml`, Node 24, every PR) runs `check → lint → test:unit → build` in one job and Playwright in another.
 
 ## Architectural invariants
 
-These are the design contract. `docs/architecture/invariants.md` is the canonical list (it is also GitHub issue #1) and calls them non-negotiable — "treat a violation as a build break". Source comments cite them by number, so **the numbers can never be reassigned**. If a task seems to require breaking one, stop and flag it rather than working around it.
+`docs/architecture/invariants.md` is the canonical list. Source comments cite invariants by number, so **the numbers can never be reassigned**. If a task seems to require breaking one, stop and flag it.
 
-1. **The kernel runs only in a Web Worker.** No brepjs or OCCT call ever executes on the main thread.
-2. **Rendering is on-demand.** No continuous animation loop. Draw only when the camera moves, a solid changes, or a transient interaction is active.
-3. **The canvas is imperative, not reactive.** Reactive state drives UI panels only; geometry and per-frame state never live in `$state`.
-4. **The kernel sits behind our own interface.** UI and render code talk to `KernelClient`, never to brepjs.
-5. **WebGPU initializes async, with a WebGL2 escape hatch.** Await renderer init before the first frame.
-6. **Meshes cross the worker boundary as transferable typed arrays.** Never structurally cloned.
-7. **Start single-threaded on OCCT.** No `SharedArrayBuffer`, no COOP/COEP.
+1. **The kernel runs off the main thread.** Geometry and CSG run inside the `KernelClient` actor.
+2. **Rendering is on-demand.** `MTKView.isPaused = true` and `enableSetNeedsDisplay = true`. Draw only on a camera move, a solid change, or an active interaction.
+3. **The viewport is imperative, not reactive.** SwiftUI state drives panels only. Meshes and per-frame state never live in `@State`.
+4. **The kernel sits behind our own interface.** UI and viewport code use `KernelRequest` and `KernelResult` from `Kernel/Types.swift`, never Euclid directly.
+5. **Direct Metal 3 pipeline.** Rendering uses compiled MSL pipelines through MetalKit.
+6. **Meshes cross boundaries as shared buffers** in unified memory (`.storageModeShared`).
+7. **Thread-safe geometry execution.** Swift 6 strict concurrency, 60-ms debounce, and cancellation of superseded jobs.
 8. **Navigation and editing never share a gesture.** The arbiter locks the mode on first movement and holds it until release.
 9. **Precision comes from snapping and typed values, not steady fingers.**
 
-Most are enforced mechanically, not by convention:
+Enforcement is weaker than the doc's matrix once claimed. Check `docs/architecture/invariants.md` for the current state before you rely on a test to catch a violation. Known gaps: nine types are `@unchecked Sendable` (invariant 7, #91), and the snapping and pointer-routing code has no caller in the app (invariants 8 and 9, #87, #88).
 
-| #   | Enforced by                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `eslint.config.js` bans `brepjs`/`occt-wasm` across `src/**` with one exception: `kernel.worker.ts`. It uses the **base** `no-restricted-imports` rule, not the TS one, so `import type` is caught too — the invariant is checkable as "no file but `kernel.worker.ts` _imports_ brepjs/occt-wasm". It checks imports, not file text; the name appears in comments elsewhere. The converse rule bans `three`/`@threlte`/`$app`/`$lib` inside the worker. |
-| 2   | `viewport/renderLoop.ts` — no `requestAnimationFrame` anywhere; e2e asserts the render count is flat at idle.                                                                                                                                                                                                                                                                                                                                            |
-| 3   | `eslint.config.js` bans `three`/`three/*`/`@threlte/*` across `src/lib/ui/**` — same base `no-restricted-imports` rule as invariant 1, so `import type` is caught too.                                                                                                                                                                                                                                                                                   |
-| 4   | `KernelClient.ts` imports only `./types` — no comlink, no three, no brepjs.                                                                                                                                                                                                                                                                                                                                                                              |
-| 5   | Playwright's `chromium` project runs **without** the WebGPU flag, so the WebGL2 fallback stays exercised rather than theoretical.                                                                                                                                                                                                                                                                                                                        |
-| 6   | `types.ts` pins `Float32Array<ArrayBuffer>` (not `ArrayBufferLike`) so `.buffer` is statically `Transferable`; `types.spec.ts` asserts source buffers detach.                                                                                                                                                                                                                                                                                            |
+## The kernel boundary (`Kernel/`)
 
-## The kernel boundary (`src/lib/kernel/`)
+- `Types.swift` is the wire contract: `KernelRequest`, `KernelResult<T>`, `MeshPayload`, `KernelError`.
+- **Never throw across the boundary.** Every fallible call returns `KernelResult`. `KernelErrorCode` is a closed set: `kernelInitFailed`, `invalidParams`, `geometryFailed`, `unknownSolid`, `cancelled`, `workerCrashed`.
+- **`SolidId` vs `JobId`.** A `SolidId` is stable across a solid's lifetime. A `JobId` is never reused, and stale results are dropped by `JobId`.
+- `KernelClient` debounces requests 60 ms (`debounceDuration`) and conflates them per solid, with one pending slot each. `executePending` checks the job ID before it takes the slot, so a stale debounce task never strands a newer request.
+- STEP import returns `geometryFailed` until the OpenCASCADE bridge lands. OCCTSwift is planned (#82), not a dependency. `Package.swift` depends only on Euclid.
 
-Main thread ↔ worker over **Comlink** on a module Worker. The wire contract is `types.ts`, which is deliberately **zero-import** — that is what lets it and `KernelClient` run in the Node-only Vitest project, and it is the type-level half of invariant 1.
+## Rendering (`Viewport/`)
 
-- **Never throw across the boundary.** Every fallible method returns `KernelResult<T>` / `KernelOutcome`. Comlink would structured-clone a thrown `Error` and lose the code, turning a recoverable UI condition into an unhandled rejection. The `KernelErrorCode` set is closed, so adding a failure mode forces every call site to reconsider.
-- **`SolidId` vs `JobId`.** `SolidId` is stable across a solid's lifetime and is what makes partial re-tessellation expressible. `JobId` is never reused, one per dispatch, and is what makes stale-drop possible.
-- **`KernelClient` is pure and DI'd** — it takes a `connect()` and a `Scheduler`. `new Worker` and `Comlink.wrap` live _only_ in `createKernelClient.ts`. `connect()` is lazy, so constructing a client does not boot the ~22 MB wasm.
-- **Requests are debounced 60 ms and conflated per solid** — one pending slot each, so dragging the box slider never re-tessellates the cylinder.
-- **The cancellation guarantee is deliberately modest.** OCCT-WASM is single-threaded and `mesh()` is synchronous, so a `cancel()` physically cannot be delivered mid-job. Neither side pretends otherwise. What _is_ guaranteed: at most one stale computation runs to completion per solid. The worker yields to the macrotask queue and re-checks cancellation before touching OCCT; the client drops results by `jobId`.
-
-`geometry.ts` (`toBufferGeometry`) is a separate module from `KernelClient` precisely so the client stays three-free and Node-testable.
-
-## Rendering (`src/lib/viewport/`)
-
-**There is no rAF loop.** `renderLoop.ts` is not a loop — no `requestAnimationFrame`, no `setAnimationLoop`, no `renderMode="always"`. `invalidateFor(invalidate, reason)` is the only sanctioned way to trigger a draw, and `InvalidateReason` (`'camera' | 'resize' | 'model' | 'interaction'`) names the four legal triggers at every call site. View-model setters no-op when the value is unchanged — hover and snap fire on every `pointermove`, and an unconditional invalidate would resurrect a continuous loop.
-
-`Viewport.svelte` is the only file that constructs a renderer. It always builds a `WebGPURenderer` from `three/webgpu`; the WebGL2 path is not a separate class — that renderer _silently falls back_ when `navigator.gpu` is absent or `forceWebGL` is set. Consequently **`WebGPURenderer` supports no `ShaderMaterial`, `RawShaderMaterial`, or `onBeforeCompile`.** Custom shading must be TSL node materials.
-
-`window.__wade` (declared in `renderLoop.ts`) is the app's entire e2e observability surface — `renderCount`, `backend`, `drawCalls`, `kernelReady`, `snapKind`, `boxExtents`, and so on. **A new viewport feature publishes a hook there; e2e never scrapes the DOM.**
+- `MetalRenderer` owns the pipeline and the per-solid `meshes` dictionary. `CADMetalViewRepresentable` hosts the `MTKView`.
+- `RenderInstrumentation.shared` records `renderCount`, `drawCalls`, and the last `InvalidateReason`. Tests and the HUD (heads-up display) read it. Publish new viewport telemetry there.
+- There is no ground grid, axes indicator, or camera navigation yet (#102, #103, #87). The camera is fixed at the default view.
 
 ## Coordinate convention: right-handed Z-up
 
-`viewport/orientation.ts` is the single source of truth. X = width (right), Y = depth (away), Z = height (up).
+`Viewport/Orientation.swift` is the single source of truth: X is width, Y is depth, and Z is height. Read `Orientation.worldUp`, `groundNormal`, and `defaultViewDirection` instead of writing vectors inline. Euclid geometry mounts with zero rotation, so world space is kernel space.
 
-This is not three.js's Y-up default, and that is the point: OCCT/brepjs is Z-up, so **world space _is_ kernel space**. A kernel mesh mounts with zero rotation and a snap point can be handed to the kernel as-is — no conversion layer at the seam. Read `WORLD_UP` / `GROUND_NORMAL` / `DEFAULT_VIEW_DIRECTION` rather than writing vectors inline.
+## Input (`Input/`)
 
-`installZUpWorld()` must be called at module/script scope, **not** in an `$effect`: `Object3D.DEFAULT_UP` is copied into each object's own `up` at construction, so running it after the camera exists leaves a Y-up camera in a Z-up world.
+- `PointerRouter` chooses the channel. A pen always manipulates. A mouse decides click or drag at `mouseClickThresholdPx` (6 px).
+- `GestureArbiter` locks navigate or manipulate on the first move.
+- `Snapping` resolves vertex, then edge, then grid, by strict priority.
 
-Several three.js primitives are authored Y-up and fight this. Each is corrected once, at the boundary, and the fixes are audited in `orientation.ts`: `GridHelper` is rotated onto XY, `CylinderGeometry` is rotated on the geometry (so instance transforms stay plain translations), `HemisphereLight` is rotated, and the Y-up sample STL is rotated at load.
+All three are pure and unit-tested, but nothing in `MadeApp` calls them yet.
 
-## Input pipeline (`src/lib/input/`)
+## Document model and agent API
 
-Four stages, strictly separated (invariants 8 and 9):
-
-- **`pointerRouter.ts` — which channel.** Pen always manipulates, never navigates. Mouse decides click-vs-drag at a 6 px threshold. Touch is forwarded to the arbiter.
-- **`gestureArbiter.ts` — navigate or manipulate.** More than one concurrent pointer ⇒ navigate; a lone pointer ⇒ manipulate. It deliberately does _not_ decide on first `down` (two fingers landing milliseconds apart must still be navigate); it locks on the first move and never flips until all pointers release.
-- **`picking.ts` — what's under the ray.** three-mesh-bvh, CPU-side and renderer-agnostic. Every pickable geometry needs `buildBoundsTree()` first. Touch and pen pick rays are lifted 40 px above the contact point so a fingertip never occludes its own target.
-- **`snapping.ts` — where exactly.** Priority is strictly vertex > edge > grid: a numerically closer lower-priority candidate never beats a higher-priority one still inside tolerance, which is what stops the indicator jittering between kinds.
-
-Both pure modules take plain pointer-ish structs, not real `PointerEvent`s, so they unit-test in the Node-only Vitest project. Only `Scene.svelte` touches the DOM or the three.js scene graph.
-
-## Svelte 5 / SvelteKit specifics
-
-- **Runes are forced on** for every non-`node_modules` file (`vite.config.ts`). Scene stores follow one shape: `.svelte.ts` file, factory function, closure-local runes, an object of getters. `settings.svelte.ts` is the exception — a module-level singleton.
-- **Static SPA.** `src/routes/+layout.ts` is `ssr = false` + `prerender = true`, with `adapter-static`. There is **no `svelte.config.js`** — the adapter is configured inline in `vite.config.ts`.
-- The prerender pass still executes the module graph, so `new Worker`, `document`, and canvas textures must stay inside an `$effect`, never at module scope.
-
-## Gotchas
-
-- **Do not "clean up" the three occt-wasm settings in `vite.config.ts`.** `worker: { format: 'es' }`, `optimizeDeps: { exclude: ['occt-wasm'] }`, and `build: { target: 'esnext' }` are each load-bearing and commented; removing any one breaks the wasm load.
-- **Unit tests run in a single Node-env Vitest project — there is no jsdom.** Anything unit-tested must be pure and DOM-free. DOM and Threlte glue is quarantined in `Scene.svelte`/`Viewport.svelte` and covered by Playwright instead. Tests use hand-written stubs (a `ManualClock`, a `RecordingKernel`), not `vi.mock`/fake timers.
-- **`expect.requireAssertions` is on globally** — an `it()` with no `expect()` fails.
-- **`e2e/viewport.e2e.ts` asserts an _exact_ draw-call count.** Adding any mesh to the `?kernel=off` fallback scene breaks it. That is why the grid, axes triad, and snap marker are mounted only in the kernel scene.
-- **`?kernel=off` and `?forceWebGL=1` are real graceful-degradation paths**, not just test hooks — a fatal kernel-init error live-falls-back to the STL scene. Query params beat localStorage, so Playwright needn't seed storage.
-
-## Current phase
-
-Phases 0 (foundation), 1 (viewport MVP), and 2 (kernel worker) are done. **Phase 3 — PWA hardening — is next and not started**: no `@vite-pwa/sveltekit`, no manifest, no service worker.
-
-Complete phases in **dependency** order (see `docs/roadmap/phases.md`): finish a phase before declaring it done, but an item whose dependencies are met may start even if its phase's other items are outstanding. There is one deliberate cross-phase edge — Phase 3's persistence (#76) depends on Phase 4's document model (#65).
-
-If you are picking up Phase 4, **start with #65**: it replaces the hard-wired two-solid scene with an N-object document model behind a command API, and nearly everything else in Phases 3–4 depends on it.
+- `Scene/DocumentModel.swift` is the `@Observable` scene: objects, parameters with clamp ranges, transforms, and `addObject`/`removeObject`/`setParam`/`setTransform`.
+- `Agent/CADTools.swift` registers eight MCP tools: `cad_get_scene`, `cad_add_solid`, `cad_set_param`, `cad_set_transform`, `cad_remove_solid`, `cad_measure`, `cad_boolean_operation`, `cad_capture_snapshot`. `MCPServer` speaks JSON-RPC 2.0 with protocol version `2024-11-05`.
+- Tool failures return an `isError` tool result, not a JSON-RPC error object.
+- `--mcp-stdio` builds its own `DocumentModel` and still opens the window. The agent edits a document the window does not show, and snapshots are unavailable in that mode (#89).
 
 ## Conventions
 
-- **Commits:** `<type>(<scope>): <description> (#issue) (#PR)`, e.g. `feat(input): vertex/edge/grid snapping foundation (#27) (#60)`. Scopes in use: `kernel`, `viewport`, `input`, `infra`. Bodies are explanatory prose, not bullet dumps — they name the invariant the change upholds, say why alternatives were rejected, and describe how the change was verified.
+- **Commits:** `<type>(<scope>): <description> (#issue) (#PR)`. Scopes match the `MadeCore` directories (`kernel`, `viewport`, `input`, `scene`, `agent`), plus `ui`, `infra`, and `docs`. Bodies are explanatory prose. They name the invariant the change upholds, say why alternatives were rejected, and describe how the change was verified.
 - **Prefer many small, single-purpose files** over few large ones.
-- **Check a dependency's current version and API before installing it** rather than trusting a version pinned in the docs — those are guidance, not gospel. See `docs/guides/conventions.md`.
+- **Swift 6 concurrency:** UI types and `DocumentModel` belong on `@MainActor`. Use `@unchecked Sendable` only with a stated, reviewed reason.
+- **Issue titles from audits** start with a stable ID (`DSN-`, `API-`, `REQ-`, `UX-`, or a capability ID such as `INPUT-3`). Keep the ID when you edit a title, because reruns match on it.
+- **Check a dependency's current version and API before adding it.** Versions in the docs are guidance.
+
+## Current phase
+
+Phase 0 is complete. Phases 1 to 3 are in progress, and `docs/roadmap/phases.md` lists each open gap with its issue. Close those gaps before you declare a phase done. Phase 4 (CAD depth) is split into milestones 4A to 4D. Phase 4A (native scene and interaction foundation: #66, #67, #69 to #73) comes first, because selection, gizmos, and the inspector depend on it.

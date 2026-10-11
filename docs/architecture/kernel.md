@@ -1,105 +1,117 @@
-# The kernel layer
+# Geometry Kernel Architecture
 
-`src/lib/kernel/` — brepjs on OpenCascade (OCCT-WASM), quarantined in a worker behind an interface of our own (invariants 1 and 4).
+The geometry kernel in `made` handles 3D solid construction, boolean operations, parameter evaluation, and polygon tessellation. All kernel operations execute asynchronously off the main UI thread within a dedicated Swift Actor.
 
-## Module map
+---
 
-| File                    | Role                                                                         |
-| ----------------------- | ---------------------------------------------------------------------------- |
-| `types.ts`              | The wire contract. **Zero imports**, by design.                              |
-| `KernelClient.ts`       | Main-thread interface. Pure, dependency-injected — imports only `./types`.   |
-| `createKernelClient.ts` | The _only_ place `new Worker` and `Comlink.wrap` are allowed to appear.      |
-| `kernel.worker.ts`      | The _only_ file permitted to name `brepjs` or `occt-wasm`.                   |
-| `geometry.ts`           | `toBufferGeometry(payload)` — the three.js seam, kept out of `KernelClient`. |
+## Multi-Tier Geometry Engine
 
-The split between `KernelClient.ts` and `createKernelClient.ts` is what makes the client testable: `KernelClient` takes a `connect()` function and a `Scheduler`, so unit tests drive it with a hand-written `ManualClock` and `RecordingKernel` and never boot a worker. `createKernelClient()` is the thin production wiring.
+The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the code. Tier 2 is planned (#82) and marked PLANNED in the diagram below:
 
-The split between `KernelClient.ts` and `geometry.ts` is the same idea applied once more — it keeps `KernelClient` free of `three`, so it runs in the Node-only Vitest project.
-
-## The wire contract
-
-Three request kinds, discriminated on `type`, all carrying a `jobId` and a `solidId`:
-
-```ts
-export type KernelRequest = MakeBoxRequest | MakeCylinderRequest | TessellateRequest;
+```
+┌────────────────────────────────────────────────────────┐
+│               SwiftUI & In-App Agent                   │
+└──────────────────────────┬─────────────────────────────┘
+                           │ KernelRequest (wire contract)
+┌──────────────────────────▼─────────────────────────────┐
+│                 KernelClient (Actor)                   │
+│   • 60 ms Debounce Queue                               │
+│   • Per-Solid Job Conflation                           │
+│   • Stale-result drop by job ID                        │
+└──────────────┬──────────────────────────┬──────────────┘
+               │                          │
+   Tier 1: Fast CSG Engine     Tier 2: Exact B-Rep Engine
+┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
+│        EuclidEngine        │ │   OCCTSwift (PLANNED)   │
+│   (Pure Swift CSG 0.9.6)   │ │  not in Package.swift   │
+│ • Zero C++ dependencies    │ │ • Exact B-Rep topology  │
+│ • Box / cylinder           │ │ • STEP / IGES I/O       │
+│ • CSG booleans             │ │ • Fillets & chamfers    │
+└──────────────┬─────────────┘ └──────────┬──────────────┘
+               │                          │
+               └───────────┬──────────────┘
+                           │ MeshPayload (Positions, Normals, Indices)
+┌──────────────────────────▼─────────────────────────────┐
+│             Metal 3 Viewport (GPU Shared)              │
+└────────────────────────────────────────────────────────┘
 ```
 
-STEP import (Phase 4) adds a fourth, `ImportStepRequest`, carrying the STEP bytes as an `ArrayBuffer`; the worker calls brepjs `importSTEP` and stores the result in the same `Map<SolidId, ValidSolid>` so it re-meshes like any other solid. Because the union is closed, adding the member forces every `switch` to be reconsidered — by design. See [`agent-api.md`](./agent-api.md#the-wade-side-step-import-path).
+### Tier 1: Pure-Swift CSG (EuclidEngine)
+- **Implementation**: [`EuclidEngine.swift`](../../macos/Sources/MadeCore/Kernel/EuclidEngine.swift), powered by `nicklockwood/Euclid` (0.9.6).
+- **Capabilities**: Zero C++ compilation dependencies, memory-safe execution, parametric box/cylinder generators, BSP-tree CSG booleans (`subtract`, `union`, `intersect`), and conversion into indexed vertex arrays (`MeshPayload`).
+- **Use Case**: Real-time parameter scrubbing in the Inspector, interactive modeling, and unit testing without heavy framework dependencies.
 
-### Never throw across the boundary
+### Tier 2: Exact Boundary Representation (OCCTSwift), Planned (#82)
+Not built. `macos/Package.swift` declares only the Euclid dependency, and `KernelClient` answers `importStep` with `geometryFailed` ("STEP import pending OpenCASCADE bridge"). STEP import and export is tracked in #38.
+- **Planned architecture**: Integration via `SecondMouseAU/OCCTSwift` using a pre-built universal `OCCT.xcframework`.
+- **Planned capabilities**: True analytic curves and surfaces (NURBS, B-splines), topological data structures (`TopoDS_Shape`, `TopoDS_Face`, `TopoDS_Edge`), advanced manufacturing operations (fillet, chamfer, draft), and industrial format exchange (STEP, IGES).
+- **Planned use case**: High-precision engineering exchange, production part export, and complex B-Rep fillets.
 
-Comlink structured-clones a thrown `Error` and loses its type — a recoverable UI condition becomes an unhandled rejection. So every fallible method returns a result union:
+### Tier 3: Declarative CAD DSL (Cadova-Style Scripting)
+- **Implementation**: [`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift).
+- **Capabilities**: Declarative Swift result builders and operator overloads (`-`, `+`, `&`) allowing AI agents and engineers to express geometric models programmatically.
 
-```ts
-export type KernelResult<T> =
-	{ ok: true; jobId: JobId; value: T } | { ok: false; jobId: JobId; error: KernelError };
-```
+---
 
-`KernelErrorCode` is a **closed** union — `'kernel-init-failed' | 'invalid-params' | 'geometry-failed' | 'unknown-solid' | 'cancelled' | 'worker-crashed'` — not `string`. Adding a failure mode therefore forces every call site to reconsider, which is the whole point.
+## Wire Contract
 
-Only `'kernel-init-failed'` is fatal: it flips the scene to the STL fallback (see [`rendering.md`](./rendering.md#graceful-degradation-is-real-not-theoretical)). `'cancelled'` is never surfaced to the user — a cancelled job is a normal outcome, not a failure.
+All communication with the kernel traverses the typed wire contract defined in [`MadeCore/Kernel/Types.swift`](../../macos/Sources/MadeCore/Kernel/Types.swift):
 
-### `SolidId` vs `JobId`
+```swift
+public enum KernelRequest: Sendable {
+    case makeBox(jobId: JobId, solidId: SolidId, params: BoxParams)
+    case makeCylinder(jobId: JobId, solidId: SolidId, params: CylinderParams)
+    case booleanOperation(jobId: JobId, solidId: SolidId, op: BooleanOp, solidA: SolidId, solidB: SolidId)
+    case tessellate(jobId: JobId, solidId: SolidId)
+    case importStep(jobId: JobId, solidId: SolidId, data: Data)
+}
 
-Two identifiers, two different jobs, and confusing them breaks things:
-
-- **`SolidId`** is stable across a solid's entire lifetime (`'box-1'`, `'cylinder-1'`). It is what makes **partial re-tessellation** expressible — the worker keeps a `Map<SolidId, ValidSolid>`, so `tessellate` can re-mesh one solid without rebuilding the others. Debounce and conflation are keyed on it, which is why dragging the box slider never re-tessellates the cylinder.
-- **`JobId`** is never reused — one per dispatch. It is what makes **stale-drop** possible: a result whose `jobId` no longer matches the in-flight job for its solid is discarded on arrival.
-
-### Meshes are transferred, not cloned
-
-```ts
-export interface MeshPayload {
-	positions: Float32Array<ArrayBuffer>;
-	normals: Float32Array<ArrayBuffer>;
-	indices: Uint32Array<ArrayBuffer>;
-	triangleCount: number;
+public struct MeshPayload: Sendable {
+    public let positions: [Float]    // 3 floats per vertex (X, Y, Z)
+    public let normals: [Float]      // 3 floats per vertex (Nx, Ny, Nz)
+    public let indices: [UInt32]     // 3 indices per triangle
+    public let triangleCount: Int    // indices.count / 3, set by init(positions:normals:indices:)
 }
 ```
 
-Pinning the type parameter to `ArrayBuffer` rather than the default `ArrayBufferLike` is what makes `.buffer` _statically_ `Transferable`. That is the type-level statement of invariant 6 — and, indirectly, of invariant 7, since `SharedArrayBuffer` could never satisfy it. `types.spec.ts` asserts the source buffers actually detach after send.
+`MeshPayload` carries no `solidId`. The `KernelResult` pairs it with a `JobId`, and the caller knows the `SolidId` it requested. The wire contract imports only Foundation, not rendering or UI frameworks.
 
-`meshTransferables()` de-dupes via a `Set`: if a future brepjs ever returned several views over one buffer, listing that buffer twice would make `postMessage` throw `DataCloneError`.
+---
 
-## Debounce and conflation
+## Actor Isolation & Debounce Conflation
 
-Requests are debounced **60 ms** and conflated **per solid** — there is exactly one pending slot per `SolidId`, so a fast slider drag collapses to the latest value rather than queueing every intermediate one. Superseded inputs are counted (`stats.dropped`) rather than silently discarded.
+The kernel is managed by `KernelClient`, an isolated Swift Actor enforcing Invariant 1 and Invariant 7:
 
-`KernelClient` never calls `invalidate()` itself. Triggering a frame is the caller's decision, made once per settled update in `Scene.svelte` — so "one invalidate per completed update" is enforced at the seam rather than buried in the client.
+```swift
+public actor KernelClient {
+    private let debounceDuration: Duration
+    private var debounceTasks: [SolidId: Task<Void, Never>] = [:]
+    private var pendingJobs: [SolidId: (request: KernelRequest, continuation: CheckedContinuation<KernelResult<MeshPayload>, Never>)] = [:]
+    private var activeJobForSolid: [SolidId: JobId] = [:]
+    private var cancelledJobs: Set<JobId> = []
+    
+    public func request(_ req: KernelRequest) async -> KernelResult<MeshPayload> {
+        // 60 ms debounce window conflating intermediate slider drags
+        ...
+    }
+}
+```
 
-## Cancellation: the honest guarantee
+### The 60 ms Conflation Window
+When an engineer or an agent scrubs a dimensional parameter, slider events fire at 60–120 Hz. Queuing every intermediate step causes compute backlogs. `KernelClient` introduces a 60 ms debounce window per `SolidId`. Intermediate values overwrite the pending slot; only the latest parameters are dispatched for tessellation. A superseded request resolves as `.cancelled`. The debounce task checks the job ID before it takes the slot, so a stale task never strands a newer request.
 
-This is the subtlest thing in the layer, and both sides of the boundary document it identically rather than pretending otherwise.
+### Honest Cancellation Guarantee
+A request that arrives while an earlier request for the same solid is still waiting in the debounce window replaces it:
+1. The earlier pending job resumes with `.failure(cancelled)` ("Conflated by newer request") and the `conflated` and `dropped` counters increase.
+2. `cancel(jobId:)` adds the job to `cancelledJobs`. `executePending` checks that set before it calls the engine.
+3. After the engine returns, `KernelClient` compares `activeJobForSolid[solidId]` with the job ID (line 162). The engine call is synchronous inside the actor, so this check seldom differs; the conflation path is the effective guard (see the feature matrix, KERN-12).
+4. `dispose(solidId:)` removes the solid's cached payload and pending job but not its Euclid mesh (#93).
 
-**OCCT-WASM is single-threaded and `mesh()` is synchronous.** A `cancel()` message therefore _physically cannot_ be delivered while a job is inside it — the worker's event loop is blocked. No amount of API design changes that.
+---
 
-So the guarantee is not "cancel stops the work." It is:
+## Related Documentation
 
-> **At most one stale computation can ever run to completion per solid.**
-
-Two mechanisms together produce it:
-
-- **Worker side** — every operation awaits a macrotask yield and re-checks a `cancelledJobs` set _before_ touching OCCT. A cancel that arrives while the worker is idle preempts the job entirely.
-- **Client side** — a job flagged as cancelled never becomes a mesh, even if it returns `ok: true`. Results are dropped by `jobId`.
-
-A cancel arriving mid-`mesh()` is a no-op; that one job runs to completion and its result is thrown away. That is the cost of invariant 7, and it is bounded.
-
-## Kernel init
-
-`ensureReady()` memoizes initialization manually rather than calling brepjs's own `init()`. It loads the WASM through Vite's content-hashed `?url` import and registers the adapter itself.
-
-Calling brepjs's `init()` would re-derive the WASM URL and **race** this one. The `?url` import is also what makes the asset cacheable by the future service worker ([Phase 3](../roadmap/phase-3-pwa.md)).
-
-Because `connect()` is lazy, **constructing a `KernelClient` does not boot the ~22 MB WASM** — only the first `request()` or `warmup()` does.
-
-## Gotchas
-
-- `new Worker` must not run at module scope. SvelteKit's prerender pass executes the module graph in Node, where `Worker` does not exist. `createKernelClient()` is called inside an `$effect`.
-- `kernel.worker.ts` never names `self`. `Comlink.expose()` defaults its endpoint to `globalThis`, and the tsconfig has no `webworker` lib (adding it produces duplicate-identifier errors and breaks `pnpm check`).
-- Geometry from the kernel is **indexed by construction** — `toBufferGeometry` always calls `setIndex`, which is what lets the viewport assert `allGeometriesIndexed()`.
-
-## Related
-
-- [`threading-model.md`](./threading-model.md) — why the boundary exists
-- [`state-and-errors.md`](./state-and-errors.md) — how kernel errors surface in the UI
-- [`invariants.md`](./invariants.md) — 1, 4, 6, 7
+- [`invariants.md`](./invariants.md): Invariants 1, 4, 6, and 7
+- [`threading-model.md`](./threading-model.md): Swift 6 actor scheduling
+- [`rendering.md`](./rendering.md): How `MeshPayload` translates into Metal buffers
+- [`agent-api.md`](./agent-api.md): Declarative scripting with `CADDSL`
