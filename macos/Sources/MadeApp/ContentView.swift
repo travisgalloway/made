@@ -12,6 +12,7 @@ public struct ContentView: View {
     @State private var lastReason: String = "init"
     @State private var isKernelReady: Bool = false
     @State private var coordinator: CADMetalViewRepresentable.Coordinator? = nil
+    @State private var activeSnapKind: SnapKind? = nil
     
     // Agent Subsystem
     @State private var selectedSidebarTab: Int = 0 // 0 = Inspector, 1 = Copilot
@@ -31,10 +32,14 @@ public struct ContentView: View {
                         CADMetalViewRepresentable(
                             document: document,
                             renderer: rend,
-                            coordinator: $coordinator
-                        ) {
-                            updateStats()
-                        }
+                            coordinator: $coordinator,
+                            onInvalidate: {
+                                updateStats()
+                            },
+                            onSnapChanged: { result in
+                                self.activeSnapKind = result?.kind
+                            }
+                        )
                         .frame(minWidth: 400, minHeight: 300)
                     }
                 case .initializing:
@@ -80,6 +85,16 @@ public struct ContentView: View {
                     Divider().frame(height: 12)
                     Text("Invalidate: \(lastReason)")
                         .foregroundColor(.secondary)
+                    Divider().frame(height: 12)
+                    if let kind = activeSnapKind {
+                        Text("Snap: \(kind.rawValue)")
+                            .foregroundColor(snapColor(for: kind))
+                            .monospacedDigit()
+                    } else {
+                        Text("Snap: none")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
                 }
                 .font(.caption)
                 .padding(.horizontal, 12)
@@ -367,7 +382,7 @@ public struct ContentView: View {
                     var transform = obj.transform
                     transform.position = offset
                     
-                    if let mesh = rend.createMesh(from: payload, transform: transform, color: color) {
+                    if let mesh = rend.createMesh(from: payload, solidId: id, transform: transform, color: color) {
                         rend.meshes[id] = mesh
                         if let coord = self.coordinator {
                             coord.invalidate(reason: .model)
@@ -378,6 +393,14 @@ public struct ContentView: View {
                     }
                 }
             }
+        }
+    }
+    
+    private func snapColor(for kind: SnapKind) -> Color {
+        switch kind {
+        case .vertex: return .orange
+        case .edge: return .cyan
+        case .grid: return .green
         }
     }
     

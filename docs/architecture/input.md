@@ -1,6 +1,6 @@
 # Input Routing, Gestures & Precision Snapping
 
-The input subsystem in `made` enforces Invariant 8 (navigation and editing never share a gesture) and Invariant 9 (precision comes from snapping and typed values). The modules model mouse, touch, and pen input. **Status:** the modules are implemented and unit tested, but the viewport does not feed them events. `CADMetalViewRepresentable` creates a `PointerRouter` and nothing sends it input, so the camera has no orbit, pan, or zoom (#87) and snapping never runs (#88). The iPadOS and Apple Pencil paths are planned (#84).
+The input subsystem in `made` enforces Invariant 8 (navigation and editing never share a gesture) and Invariant 9 (precision comes from snapping and typed values). The modules model mouse, touch, and pen input. **Status:** Mouse drag navigation (orbit, pan, and zoom) in the macOS viewport is implemented (#87). Viewport snapping to vertices, edges, and the Z = 0 ground grid during drag operations is implemented (#88). The iPadOS and Apple Pencil paths are planned (#84).
 
 ---
 
@@ -75,7 +75,7 @@ Manual dragging on a touch surface or mouse cannot give reliable sub-millimeter 
 Implemented in [`Snapping.swift`](../../macos/Sources/MadeCore/Input/Snapping.swift):
 
 ### Precedence Hierarchy
-`resolveSnap(candidates:tolerancePx:)` evaluates candidates in strict priority order. The caller supplies the candidates. Nothing generates vertex or edge candidates yet (#88):
+`resolveSnap(candidates:tolerancePx:)` evaluates candidates in strict priority order. `SnapCandidateGenerator` extracts vertex and edge candidates from tessellated scene meshes and ground grid candidates on $Z = 0$ (#88):
 
 1. **Vertex Snapping (Priority: Vertex)**:
    Snaps to vertices of existing solid features. Highest priority. Even if a grid candidate or edge is closer on screen, a vertex inside the tolerance wins.
