@@ -132,6 +132,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         set { camera.target = newValue }
     }
     public var meshes: [SolidId: MetalMesh] = [:]
+    public var projectionMode: CameraProjection = .perspective
+    public var hiddenSolidIds: Set<SolidId> = []
     public var onDeviceLost: (@Sendable () -> Void)? = nil
     public var onFrameRendered: (@Sendable () -> Void)? = nil
     
@@ -436,7 +438,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     
     /// Returns the scene's current candidate meshes for snapping.
     public func candidateMeshes() -> [CandidateMesh] {
-        return meshes.map { (id, mesh) in
+        return meshes.compactMap { (id, mesh) in
+            guard !hiddenSolidIds.contains(id) else { return nil }
             var c = mesh.candidateMesh
             c.transform = mesh.transform
             return c
@@ -454,10 +457,19 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         encoder.setCullMode(.back)
         
         let viewMatrix = Orientation.makeLookAt(eye: cameraPosition, target: cameraTarget, up: Orientation.worldUp)
-        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+        let projMatrix: simd_float4x4
+        if projectionMode == .orthographic {
+            let dist = max(10.0, simd_length(cameraPosition - cameraTarget))
+            let halfH = dist * 0.4
+            let halfW = halfH * aspect
+            projMatrix = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
+        } else {
+            projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+        }
         
         var drawCalls = 0
-        for (_, mesh) in meshes {
+        for (id, mesh) in meshes {
+            guard !hiddenSolidIds.contains(id) else { continue }
             var modelMatrix = matrix_identity_float4x4
             modelMatrix.columns.3 = SIMD4<Float>(mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z, 1.0)
             

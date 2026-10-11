@@ -174,4 +174,42 @@ public struct Camera: Sendable, Equatable {
     public func zoomed(deltaDistance: Float) -> Camera {
         Camera.zoom(camera: self, deltaDistance: deltaDistance)
     }
+    
+    /// Returns a camera positioned at a standard engineering perspective preset.
+    public static func preset(
+        _ perspective: ViewportPerspective,
+        target: SIMD3<Float> = defaultTarget,
+        distance: Float = 150.0
+    ) -> Camera {
+        switch perspective {
+        case .perspective:
+            return Camera(position: target + Orientation.defaultViewDirection * distance, target: target)
+        case .top:
+            return Camera(position: target + SIMD3<Float>(0, 0.001, distance), target: target)
+        case .front:
+            return Camera(position: target + SIMD3<Float>(0, -distance, 0), target: target)
+        case .right:
+            return Camera(position: target + SIMD3<Float>(distance, 0, 0), target: target)
+        case .isometric:
+            let isoDir = simd_normalize(SIMD3<Float>(1, -1, 1))
+            return Camera(position: target + isoDir * distance, target: target)
+        }
+    }
+}
+
+public enum ViewportPerspective: String, CaseIterable, Identifiable, Sendable {
+    case perspective = "Perspective"
+    case top = "Top"
+    case front = "Front"
+    case right = "Right"
+    case isometric = "Isometric"
+    
+    public var id: String { rawValue }
+}
+
+public enum CameraProjection: String, CaseIterable, Identifiable, Sendable {
+    case perspective = "Perspective"
+    case orthographic = "Orthographic"
+    
+    public var id: String { rawValue }
 }

@@ -49,4 +49,23 @@ public enum Orientation {
         m.columns.3 = SIMD4<Float>(0, 0, zs * nearZ, 0)
         return m
     }
+    
+    /// Constructs a right-handed orthographic projection matrix for Metal (NDC depth in [0, 1]).
+    public static func makeOrthographic(left: Float, right: Float, bottom: Float, top: Float, nearZ: Float, farZ: Float) -> simd_float4x4 {
+        let xs = 2.0 / (right - left)
+        let ys = 2.0 / (top - bottom)
+        let zs = 1.0 / (nearZ - farZ)
+        
+        var m = matrix_identity_float4x4
+        m.columns.0 = SIMD4<Float>(xs, 0, 0, 0)
+        m.columns.1 = SIMD4<Float>(0, ys, 0, 0)
+        m.columns.2 = SIMD4<Float>(0, 0, zs, 0)
+        m.columns.3 = SIMD4<Float>(
+            -(right + left) / (right - left),
+            -(top + bottom) / (top - bottom),
+            zs * nearZ,
+            1.0
+        )
+        return m
+    }
 }

@@ -17,6 +17,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
+- WORKSPACE-1 is Shipped. Native macOS Xcode-style unified multi-pane workspace layout (#118) refactored the window toolbar, hierarchical navigator, 3D viewport jump bar, multi-tab inspector, and collapsible debug console drawer.
 - Issue holds the GitHub issue number that tracks the capability.
 
 Persistence note. No capability persists a document. The .made file format is planned under #83.
