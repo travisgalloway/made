@@ -1,8 +1,9 @@
-import XCTest
+import Testing
+import Foundation
 @testable import MadeCore
 
-final class MCPServerTests: XCTestCase {
-    func testInitializeReturnsServerCapabilities() async {
+@Suite struct MCPServerTests {
+    @Test func testInitializeReturnsServerCapabilities() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
@@ -13,14 +14,14 @@ final class MCPServerTests: XCTestCase {
         """
         
         let responseJson = await server.processMessage(requestJson)
-        XCTAssertNotNil(responseJson)
+        #expect(responseJson != nil)
         guard let resp = responseJson else { return }
         
-        XCTAssertTrue(resp.contains("made-native-cad"))
-        XCTAssertTrue(resp.contains("protocolVersion"))
+        #expect(resp.contains("made-native-cad"))
+        #expect(resp.contains("protocolVersion"))
     }
     
-    func testToolsListReturnsAllCADTools() async {
+    @Test func testToolsListReturnsAllCADTools() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
@@ -31,17 +32,17 @@ final class MCPServerTests: XCTestCase {
         """
         
         let responseJson = await server.processMessage(requestJson)
-        XCTAssertNotNil(responseJson)
+        #expect(responseJson != nil)
         guard let resp = responseJson else { return }
         
-        XCTAssertTrue(resp.contains("cad_get_scene"))
-        XCTAssertTrue(resp.contains("cad_add_solid"))
-        XCTAssertTrue(resp.contains("cad_set_param"))
-        XCTAssertTrue(resp.contains("cad_measure"))
-        XCTAssertTrue(resp.contains("cad_capture_snapshot"))
+        #expect(resp.contains("cad_get_scene"))
+        #expect(resp.contains("cad_add_solid"))
+        #expect(resp.contains("cad_set_param"))
+        #expect(resp.contains("cad_measure"))
+        #expect(resp.contains("cad_capture_snapshot"))
     }
     
-    func testToolsCallExecutesTool() async {
+    @Test func testToolsCallExecutesTool() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
@@ -64,20 +65,20 @@ final class MCPServerTests: XCTestCase {
         """
         
         let responseJson = await server.processMessage(requestJson)
-        XCTAssertNotNil(responseJson)
+        #expect(responseJson != nil)
         guard let resp = responseJson else { return }
         
-        XCTAssertTrue(resp.contains("Updated parameter"))
+        #expect(resp.contains("Updated parameter"))
         
         // Assert the document was mutated
         if case .box(let p) = doc.paramsFor(id: boxSolidId) {
-            XCTAssertEqual(p.height, 75.0)
+            #expect(p.height == 75.0)
         } else {
-            XCTFail("Expected box params to update")
+            Issue.record("Expected box params to update")
         }
     }
     
-    func testUnknownMethodReturnsError() async {
+    @Test func testUnknownMethodReturnsError() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
@@ -88,24 +89,24 @@ final class MCPServerTests: XCTestCase {
         """
         
         let responseJson = await server.processMessage(requestJson)
-        XCTAssertNotNil(responseJson)
+        #expect(responseJson != nil)
         guard let resp = responseJson else { return }
         
-        XCTAssertTrue(resp.contains("-32601"))
+        #expect(resp.contains("-32601"))
     }
     
-    func testStartAndStopTCPServer() throws {
+    @Test func testStartAndStopTCPServer() throws {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
         let server = MCPServer(toolRegistry: registry)
         
-        XCTAssertFalse(server.isRunning)
+        #expect(!server.isRunning)
         try server.start(port: 19820)
-        XCTAssertTrue(server.isRunning)
-        XCTAssertEqual(server.port, 19820)
+        #expect(server.isRunning)
+        #expect(server.port == 19820)
         
         server.stop()
-        XCTAssertFalse(server.isRunning)
+        #expect(!server.isRunning)
     }
 }

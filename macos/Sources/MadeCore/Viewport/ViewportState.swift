@@ -27,9 +27,9 @@ public enum ViewportState: Equatable, Sendable {
     public var statusText: String {
         switch self {
         case .initializing:
-            return "Initializing Metal 3..."
+            return "Initializing Metal 4..."
         case .ready:
-            return "Metal 3"
+            return "Metal 4"
         case .unavailable:
             return "Metal unavailable"
         }

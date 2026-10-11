@@ -45,6 +45,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | VIEW-17 | A user sees Blinn-Phong specular highlights on solids | none | n/a | n/a | Planned | none | n/a |
 | VIEW-18 | A user sees a ground grid on Z = 0 | done | done | n/a | Shipped | #102 | n/a |
 | VIEW-19 | A user sees a labelled XYZ axes indicator at the origin | done | done | n/a | Shipped | #103 | n/a |
+| VIEW-20 | A user can zoom in, zoom out, zoom to fit the visible solids, and reset the view from the toolbar or with =, -, F and H | done | done | n/a | Shipped | none | n/a |
 | INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift | done | done | n/a | Shipped | #87 | n/a |
 | INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | done | done | n/a | Shipped | #87 | n/a |
 | INPUT-3 | A user can use Apple Pencil input that always routes to manipulate and never to navigate | none | done | n/a | In progress | #87 | n/a |
@@ -56,6 +57,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | INPUT-9 | A user can click or tap a solid in the viewport to select it (picking) | none | none | n/a | Planned | #69 | n/a |
 | INPUT-10 | A user can snap to vertices and edges of existing solids while manipulating | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-11 | A user can two-finger tap to trigger context actions | none | none | n/a | Planned | #42 | n/a |
+| INPUT-12 | A user can pick a Select, Orbit, Pan or Zoom tool from the toolbar or with V, O, P and Z, and a plain left-drag follows the tool while modifier navigation keeps working | done | done | n/a | Shipped | none | n/a |
 | KERN-1 | A user or agent can convert a Euclid mesh into an indexed triangle `MeshPayload` in Z-up coordinates | n/a | done | done | Shipped | none | n/a |
 | KERN-2 | A user can generate a parametric box mesh (X width, Y depth, Z height) | done | done | n/a | Shipped | none | n/a |
 | KERN-3 | A user can generate a parametric cylinder mesh along +Z (32 slices) | done | done | n/a | Shipped | none | n/a |

@@ -1,198 +1,108 @@
 import SwiftUI
-import MetalKit
 import MadeCore
 
-public struct ViewportCanvasView: View {
-    @Bindable var document: DocumentModel
-    var renderer: MetalRenderer?
-    var viewportState: ViewportState
-    @Binding var selectedId: ObjectId
-    @Binding var coordinator: CADMetalViewRepresentable.Coordinator?
-    var activeSnapKind: SnapKind?
-    var currentPerspective: ViewportPerspective
-    var renderCount: Int
-    var drawCalls: Int
-    var lastReason: String
-    var onInvalidate: () -> Void
-    var onSnapChanged: (SnapResult?) -> Void
-    var onPerspectiveChanged: (ViewportPerspective) -> Void
-    
-    public init(
-        document: DocumentModel,
-        renderer: MetalRenderer?,
-        viewportState: ViewportState,
-        selectedId: Binding<ObjectId>,
-        coordinator: Binding<CADMetalViewRepresentable.Coordinator?>,
-        activeSnapKind: SnapKind?,
-        currentPerspective: ViewportPerspective,
-        renderCount: Int,
-        drawCalls: Int,
-        lastReason: String,
-        onInvalidate: @escaping () -> Void,
-        onSnapChanged: @escaping (SnapResult?) -> Void,
-        onPerspectiveChanged: @escaping (ViewportPerspective) -> Void
-    ) {
-        self.document = document
-        self.renderer = renderer
-        self.viewportState = viewportState
-        self._selectedId = selectedId
-        self._coordinator = coordinator
-        self.activeSnapKind = activeSnapKind
-        self.currentPerspective = currentPerspective
-        self.renderCount = renderCount
-        self.drawCalls = drawCalls
-        self.lastReason = lastReason
-        self.onInvalidate = onInvalidate
-        self.onSnapChanged = onSnapChanged
-        self.onPerspectiveChanged = onPerspectiveChanged
-    }
-    
-    public var body: some View {
+struct ViewportCanvasView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+
+    var body: some View {
         VStack(spacing: 0) {
-            // Scene View Header Frame
-            HStack(spacing: 0) {
-                // Left: Breadcrumbs
-                HStack(spacing: 6) {
-                    Image(systemName: "cube")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    Text("Scene")
-                        .font(.system(size: 11, weight: .semibold))
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    Text(selectedEntityName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.primary)
-                }
-                .padding(.leading, 10)
-                
-                Spacer(minLength: 0)
-                
-                // Right: View Toggle (Camera Perspective Presets)
-                Menu {
-                    ForEach(ViewportPerspective.allCases) { persp in
-                        Button(persp.rawValue) {
-                            onPerspectiveChanged(persp)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 11))
-                        Text(currentPerspective.rawValue)
-                            .font(.system(size: 11, weight: .medium))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color(NSColor.textBackgroundColor).opacity(0.6))
-                    .cornerRadius(4)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Camera View Perspective")
-                .padding(.trailing, 8)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-            .background(Color(NSColor.controlBackgroundColor))
-            
+            header
             Divider()
-            
-            // 3D Canvas Area
             ZStack(alignment: .bottomLeading) {
-                switch viewportState {
-                case .ready:
-                    if let rend = renderer {
-                        CADMetalViewRepresentable(
-                            document: document,
-                            renderer: rend,
-                            coordinator: $coordinator,
-                            onInvalidate: onInvalidate,
-                            onSnapChanged: onSnapChanged
-                        )
-                        .frame(minWidth: 350, minHeight: 250)
-                    }
-                case .initializing:
-                    Color.black
-                        .overlay(
-                            VStack(spacing: 8) {
-                                ProgressView()
-                                Text("Initializing Metal 3...")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                            }
-                        )
-                case .unavailable(let reason):
-                    Color.black
-                        .overlay(
-                            VStack(spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 32))
-                                    .foregroundColor(.secondary)
-                                Text("Metal unavailable")
-                                    .font(.headline)
-                                Text(reason.description)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        )
-                }
-                
-                // Observability Status HUD
-                HStack(spacing: 14) {
-                    if viewportState.isUnavailable {
-                        Label("Metal unavailable", systemImage: "bolt.slash.fill")
-                            .foregroundColor(.red)
-                    } else {
-                        Label("Metal 3", systemImage: "bolt.fill")
-                            .foregroundColor(viewportState == .ready ? .green : .yellow)
-                    }
-                    
-                    Divider().frame(height: 12)
-                    
-                    Text("Render: \(renderCount)")
-                        .monospacedDigit()
-                    
-                    Divider().frame(height: 12)
-                    
-                    Text("Draw Calls: \(drawCalls)")
-                        .monospacedDigit()
-                    
-                    Divider().frame(height: 12)
-                    
-                    Text("Invalidate: \(lastReason)")
-                        .foregroundColor(.secondary)
-                    
-                    Divider().frame(height: 12)
-                    
-                    if let snap = activeSnapKind {
-                        Text("Snap: \(snap.rawValue)")
-                            .foregroundColor(snapColor(for: snap))
-                            .monospacedDigit()
-                    } else {
-                        Text("Snap: none")
-                            .foregroundColor(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-                .font(.system(size: 11))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                .padding(10)
+                canvas
+                statusHUD
             }
         }
     }
-    
-    private var selectedEntityName: String {
-        document.objects.first(where: { $0.id == selectedId })?.name ?? "No Selection"
+
+    private var header: some View {
+        HStack {
+            HStack(spacing: 4) {
+                Label("Scene", systemImage: "cube")
+                    .fontWeight(.semibold)
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                Text(workspace.selectedObject?.name ?? "No Selection")
+            }
+            .font(.caption)
+            Spacer()
+            Picker("Camera View", systemImage: "camera.viewfinder", selection: Binding(
+                get: { workspace.perspective },
+                set: { workspace.applyPerspective($0) }
+            )) {
+                ForEach(ViewportPerspective.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .controlSize(.small)
+            .fixedSize()
+            .help("Camera View Perspective")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(.bar)
     }
-    
-    private func snapColor(for kind: SnapKind) -> Color {
+
+    @ViewBuilder
+    private var canvas: some View {
+        @Bindable var workspace = workspace
+
+        switch workspace.viewportManager.state {
+        case .ready:
+            if let renderer = workspace.viewportManager.renderer {
+                CADMetalViewRepresentable(
+                    document: workspace.document,
+                    renderer: renderer,
+                    tool: workspace.tool,
+                    coordinator: $workspace.coordinator,
+                    onInvalidate: { workspace.updateStats() },
+                    onSnapChanged: { workspace.handleSnapChanged($0) },
+                    onToolShortcut: { workspace.tool = $0 },
+                    onResetView: { workspace.resetView() }
+                )
+            }
+        case .initializing:
+            ProgressView("Initializing Metal 4…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .unavailable(let reason):
+            ContentUnavailableView("Metal Unavailable", systemImage: "exclamationmark.triangle", description: Text(reason.description))
+        }
+    }
+
+    private var statusHUD: some View {
+        let stats = workspace.renderStats
+        let state = workspace.viewportManager.state
+        return HStack(spacing: 12) {
+            if state.isUnavailable {
+                Label("Metal unavailable", systemImage: "bolt.slash.fill").foregroundStyle(.red)
+            } else {
+                Label("Metal 4", systemImage: "bolt.fill").foregroundStyle(state == .ready ? .green : .yellow)
+            }
+            Divider().frame(height: 12)
+            Text("Render: \(stats.renderCount)")
+            Divider().frame(height: 12)
+            Text("Draw Calls: \(stats.drawCalls)")
+            Divider().frame(height: 12)
+            Text("Invalidate: \(stats.lastReason)").foregroundStyle(.secondary)
+            Divider().frame(height: 12)
+            Text("Tool: \(workspace.tool.title)")
+            Divider().frame(height: 12)
+            if let snap = workspace.activeSnapKind {
+                Text("Snap: \(snap.rawValue)").foregroundStyle(color(for: snap))
+            } else {
+                Text("Snap: none").foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
+        .monospacedDigit()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .glassEffect(in: .capsule)
+        .padding(10)
+    }
+
+    private func color(for kind: SnapKind) -> Color {
         switch kind {
         case .vertex: return .orange
         case .edge: return .cyan

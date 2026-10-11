@@ -1,6 +1,6 @@
 # Viewport Rendering Architecture
 
-The rendering engine in `made` is built on Apple's **Metal 3** framework and **MetalKit** (`MTKView`), optimized for Apple Silicon unified memory architecture. It enforces Invariant 2 (on-demand rendering), Invariant 3 (imperative viewport state), and Invariant 5 (direct Metal 3 pipeline).
+The rendering engine in `made` is built on Apple's **Metal 4** API and **MetalKit** (`MTKView`), for Apple silicon unified memory. It enforces Invariant 2 (on-demand rendering), Invariant 3 (imperative viewport state), and Invariant 5 (direct Metal 4 pipeline).
 
 ---
 
@@ -36,7 +36,7 @@ This telemetry is exposed in the SwiftUI HUD in the viewport corner. No automate
 
 ---
 
-## Metal 3 Graphics Pipeline
+## Metal 4 Graphics Pipeline
 
 The rendering pipeline is implemented in [`MetalRenderer.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift):
 
@@ -49,8 +49,9 @@ The rendering pipeline is implemented in [`MetalRenderer.swift`](../../macos/Sou
 ┌──────────────────────────▼─────────────────────────────┐
 │                 MetalRenderer                          │
 │   • MTLDevice (Apple Silicon Default)                  │
-│   • MTLCommandQueue                                    │
-│   • MTLRenderPipelineState (MSL Shaders)               │
+│   • MTL4CommandQueue + 3 MTL4CommandAllocators         │
+│   • MTL4ArgumentTable, MTLResidencySet, UniformArena   │
+│   • MTL4Compiler pipelines from default.metallib       │
 │   • MTLDepthStencilState (Depth testing enabled)       │
 └──────────────┬──────────────────────────┬──────────────┘
                │                          │
@@ -65,6 +66,13 @@ The rendering pipeline is implemented in [`MetalRenderer.swift`](../../macos/Sou
                                │ (Multimodal Agent Loop) │
                                └─────────────────────────┘
 ```
+
+### Metal 4 Frame Structure
+- Three frames are in flight. Each frame owns an `MTL4CommandAllocator` and a `UniformArena`, and an `MTLSharedEvent` keeps the CPU from reusing a slot the GPU still reads.
+- Metal 4 has no `setVertexBytes`. Uniforms are copied into the frame's `UniformArena`, and their GPU addresses go into an `MTL4ArgumentTable`, as do the vertex buffers, the label texture, and the sampler.
+- Every buffer and texture the renderer binds is in one `MTLResidencySet` on the queue, and the residency set is rebuilt when `meshes` changes. The `CAMetalLayer` residency set covers the drawables.
+- Pipelines are built by an `MTL4Compiler` from the bundle's `default.metallib`, which SwiftPM compiles from `Viewport/Shaders.metal`.
+- `OSSignposter` marks each frame (`Renderer` category) and each kernel job (`Kernel` category) for Instruments.
 
 ### Shared-Storage Buffers
 Apple Silicon integrates CPU and GPU memory on a single bus. `made` allocates vertex, normal, and index buffers with `MTLResourceOptions.storageModeShared`:

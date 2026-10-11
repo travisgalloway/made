@@ -20,27 +20,30 @@ echo "$hook: running Metal suites ($suites)"
 swift test --package-path macos --filter "^MadeCoreTests\.($suites)/" >"$log" 2>&1
 status=$?
 
+# Swift Testing colours its output and prefixes lines with SF Symbols, so match on plain text only.
+plain=$(sed 's/\x1b\[[0-9;]*m//g' "$log")
+
 if [ "$status" -ne 0 ]; then
-    grep -E 'error:|failed \(' "$log" >&2
+    printf '%s\n' "$plain" | grep -E 'recorded an issue|error:' >&2
     echo "$hook: Metal suites failed (exit $status). Full log: $log" >&2
     echo "$bypass" >&2
     exit 1
 fi
 
-skipped=$(grep -c ' skipped (' "$log")
+skipped=$(printf '%s\n' "$plain" | grep -cE 'Test .* skipped')
 if [ "$skipped" -gt 0 ]; then
-    grep ' skipped (' "$log" >&2
+    printf '%s\n' "$plain" | grep -E 'Test .* skipped' >&2
     echo "$hook: $skipped Metal tests skipped, so the suites did not run. Full log: $log" >&2
     echo "$bypass" >&2
     exit 1
 fi
 
-executed=$(grep -E 'Executed [0-9]+ tests?' "$log" | tail -1)
+executed=$(printf '%s\n' "$plain" | grep -oE 'Test run with [0-9]+ tests? .*' | tail -1)
 if [ -z "$executed" ]; then
     echo "$hook: the test log has no result line, so the outcome is unknown. Full log: $log" >&2
     echo "$bypass" >&2
     exit 1
 fi
 
-echo "$hook:$executed" | sed 's/[[:space:]]\{2,\}/ /g'
+echo "$hook: $executed"
 rm -f "$log"

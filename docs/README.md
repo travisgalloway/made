@@ -1,6 +1,6 @@
 # made: Documentation
 
-**`made`** (**m**acOS-native **A**ided **D**esign and **E**ngineering) is a native CAD application for macOS 14+ engineered with Swift 6, Metal 3, Euclid CSG, a Cadova-inspired declarative CAD DSL, and an embedded Model Context Protocol (MCP) server for autonomous AI workflows.
+**`made`** (**m**acOS-native **A**ided **D**esign and **E**ngineering) is a native CAD application for macOS 26+ engineered with Swift 6, Metal 4, Euclid CSG, a Cadova-inspired declarative CAD DSL, and an embedded Model Context Protocol (MCP) server for autonomous AI workflows.
 
 ---
 
@@ -33,8 +33,8 @@ Then navigate based on your task:
 | Concern | Implementation Choice |
 | ------- | --------------------- |
 | **Language** | Swift 6 (`swift-tools-version: 6.0`, Swift 6 language mode) |
-| **UI Framework** | SwiftUI (macOS 14+; iPadOS is planned, #84) |
-| **3D Rendering** | Metal 3, MetalKit (`MTKView`), custom MSL shaders |
+| **UI Framework** | SwiftUI (macOS 26+; iPadOS is planned, #84) |
+| **3D Rendering** | Metal 4, MetalKit (`MTKView`), MSL shaders compiled at build time |
 | **Memory Architecture** | Metal buffers allocated with `.storageModeShared`; mesh arrays are copied in at upload |
 | **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) |
 | **Geometry Kernel (Tier 2)** | Planned, not in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) |
@@ -52,7 +52,7 @@ macos/
   Sources/
     MadeCore/             # Core engineering library
       Kernel/             # Geometry generators, CSG engine, KernelClient actor
-      Viewport/           # Metal 3 renderer, shaders, render loop instrumentation
+      Viewport/           # Metal 4 renderer, shaders, render loop instrumentation
       Input/              # Pointer router, gesture arbiter, priority snapping
       Scene/              # @Observable DocumentModel, scene commands
       Agent/              # MCP protocol, server, CAD tools registry

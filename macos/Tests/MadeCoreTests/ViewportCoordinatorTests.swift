@@ -1,9 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 import Metal
 @testable import MadeCore
 
 @MainActor
-final class ViewportCoordinatorTests: XCTestCase {
+@Suite(.serialized) final class ViewportCoordinatorTests {
     
     final class StubInvalidationTarget: ViewportInvalidationTarget, @unchecked Sendable {
         var isMinimized: Bool = false
@@ -19,17 +20,15 @@ final class ViewportCoordinatorTests: XCTestCase {
         }
     }
     
-    override func setUp() {
-        super.setUp()
+    init() {
         RenderInstrumentation.shared.reset()
     }
     
-    override func tearDown() {
+    deinit {
         RenderInstrumentation.shared.reset()
-        super.tearDown()
     }
     
-    func testMeshSwapTriggersRedrawThroughCoordinator() {
+    @Test func testMeshSwapTriggersRedrawThroughCoordinator() {
         let stub = StubInvalidationTarget()
         let coordinator = ViewportCoordinator(target: stub)
         
@@ -38,28 +37,28 @@ final class ViewportCoordinatorTests: XCTestCase {
             invalidateCallbackCount += 1
         }
         
-        XCTAssertEqual(stub.redrawCount, 0)
-        XCTAssertNil(RenderInstrumentation.shared.lastReason)
+        #expect(stub.redrawCount == 0)
+        #expect(RenderInstrumentation.shared.lastReason == nil)
         
         // When a solid's mesh settles and coordinator invalidates with .model
         coordinator.invalidate(reason: .model)
         
-        XCTAssertEqual(stub.redrawCount, 1, "A mesh swap should trigger requestRedraw on the target")
-        XCTAssertEqual(invalidateCallbackCount, 1)
-        XCTAssertEqual(RenderInstrumentation.shared.lastReason, .model)
+        #expect(stub.redrawCount == 1, "A mesh swap should trigger requestRedraw on the target")
+        #expect(invalidateCallbackCount == 1)
+        #expect(RenderInstrumentation.shared.lastReason == .model)
     }
     
-    func testRenderCountStaysFlatAtIdle() {
+    @Test func testRenderCountStaysFlatAtIdle() {
         let stub = StubInvalidationTarget()
         _ = ViewportCoordinator(target: stub)
         
         // Idle state: no invalidation called
-        XCTAssertEqual(stub.redrawCount, 0, "Render count must stay flat at idle")
-        XCTAssertEqual(RenderInstrumentation.shared.renderCount, 0)
-        XCTAssertNil(RenderInstrumentation.shared.lastReason)
+        #expect(stub.redrawCount == 0, "Render count must stay flat at idle")
+        #expect(RenderInstrumentation.shared.renderCount == 0)
+        #expect(RenderInstrumentation.shared.lastReason == nil)
     }
     
-    func testFailedKernelResultDoesNotRedraw() {
+    @Test func testFailedKernelResultDoesNotRedraw() {
         let stub = StubInvalidationTarget()
         let coordinator = ViewportCoordinator(target: stub)
         
@@ -72,11 +71,11 @@ final class ViewportCoordinatorTests: XCTestCase {
             break
         }
         
-        XCTAssertEqual(stub.redrawCount, 0, "Failed kernel result must not trigger a redraw")
-        XCTAssertNil(RenderInstrumentation.shared.lastReason)
+        #expect(stub.redrawCount == 0, "Failed kernel result must not trigger a redraw")
+        #expect(RenderInstrumentation.shared.lastReason == nil)
     }
     
-    func testWindowMinimizedSuppressesRedrawDuringUpdate() {
+    @Test func testWindowMinimizedSuppressesRedrawDuringUpdate() {
         let stub = StubInvalidationTarget()
         stub.isMinimized = true
         let coordinator = ViewportCoordinator(target: stub)
@@ -89,37 +88,37 @@ final class ViewportCoordinatorTests: XCTestCase {
         // When update arrives while window is minimized
         coordinator.invalidate(reason: .model)
         
-        XCTAssertEqual(stub.redrawCount, 0, "Redraw request must be suppressed when target is minimized")
-        XCTAssertEqual(invalidateCallbackCount, 0, "onInvalidate callback should not fire if target is minimized")
-        XCTAssertEqual(RenderInstrumentation.shared.lastReason, .model, "Invalidation reason is still recorded for telemetry")
+        #expect(stub.redrawCount == 0, "Redraw request must be suppressed when target is minimized")
+        #expect(invalidateCallbackCount == 0, "onInvalidate callback should not fire if target is minimized")
+        #expect(RenderInstrumentation.shared.lastReason == .model, "Invalidation reason is still recorded for telemetry")
     }
     
-    func testRemovingSolidRedrawsOnce() {
+    @Test func testRemovingSolidRedrawsOnce() {
         let stub = StubInvalidationTarget()
         let coordinator = ViewportCoordinator(target: stub)
         
         // Simulating solid removal triggering invalidation
         coordinator.invalidate(reason: .model)
         
-        XCTAssertEqual(stub.redrawCount, 1, "Removing a solid must trigger redraw once")
-        XCTAssertEqual(RenderInstrumentation.shared.lastReason, .model)
+        #expect(stub.redrawCount == 1, "Removing a solid must trigger redraw once")
+        #expect(RenderInstrumentation.shared.lastReason == .model)
     }
     
-    func testTwoMeshesSettleInSameFrame() {
+    @Test func testTwoMeshesSettleInSameFrame() {
         let stub = StubInvalidationTarget()
         let coordinator = ViewportCoordinator(target: stub)
         
         // First mesh settles
         coordinator.invalidate(reason: .model)
-        XCTAssertEqual(stub.redrawCount, 1)
+        #expect(stub.redrawCount == 1)
         
         // Second mesh settles in the same frame/tick
         coordinator.invalidate(reason: .model)
-        XCTAssertEqual(stub.redrawCount, 2)
-        XCTAssertEqual(RenderInstrumentation.shared.lastReason, .model)
+        #expect(stub.redrawCount == 2)
+        #expect(RenderInstrumentation.shared.lastReason == .model)
     }
     
-    func testInvalidateReasonClassification() {
+    @Test func testInvalidateReasonClassification() {
         let stub = StubInvalidationTarget()
         let coordinator = ViewportCoordinator(target: stub)
         
@@ -127,36 +126,36 @@ final class ViewportCoordinatorTests: XCTestCase {
         let reasons: [InvalidateReason] = [.camera, .resize, .model, .interaction]
         for (index, reason) in reasons.enumerated() {
             coordinator.invalidate(reason: reason)
-            XCTAssertEqual(stub.redrawCount, index + 1)
-            XCTAssertEqual(RenderInstrumentation.shared.lastReason, reason)
+            #expect(stub.redrawCount == (index + 1))
+            #expect(RenderInstrumentation.shared.lastReason == reason)
         }
     }
     
-    func testCameraInvalidationAdvancesRedrawCountByExactlyOne() {
+    @Test func testCameraInvalidationAdvancesRedrawCountByExactlyOne() {
         let stub = StubInvalidationTarget()
         let coordinator = ViewportCoordinator(target: stub)
         
-        XCTAssertEqual(stub.redrawCount, 0)
+        #expect(stub.redrawCount == 0)
         coordinator.invalidate(reason: .camera)
-        XCTAssertEqual(stub.redrawCount, 1)
-        XCTAssertEqual(RenderInstrumentation.shared.lastReason, .camera)
+        #expect(stub.redrawCount == 1)
+        #expect(RenderInstrumentation.shared.lastReason == .camera)
     }
     
-    func testRenderInstrumentationTelemetry() {
-        XCTAssertEqual(RenderInstrumentation.shared.renderCount, 0)
-        XCTAssertEqual(RenderInstrumentation.shared.drawCalls, 0)
+    @Test func testRenderInstrumentationTelemetry() {
+        #expect(RenderInstrumentation.shared.renderCount == 0)
+        #expect(RenderInstrumentation.shared.drawCalls == 0)
         
         RenderInstrumentation.shared.recordRender(drawCalls: 5)
-        XCTAssertEqual(RenderInstrumentation.shared.renderCount, 1)
-        XCTAssertEqual(RenderInstrumentation.shared.drawCalls, 5)
+        #expect(RenderInstrumentation.shared.renderCount == 1)
+        #expect(RenderInstrumentation.shared.drawCalls == 5)
         
         RenderInstrumentation.shared.recordRender(drawCalls: 3)
-        XCTAssertEqual(RenderInstrumentation.shared.renderCount, 2)
-        XCTAssertEqual(RenderInstrumentation.shared.drawCalls, 3)
+        #expect(RenderInstrumentation.shared.renderCount == 2)
+        #expect(RenderInstrumentation.shared.drawCalls == 3)
         
         RenderInstrumentation.shared.reset()
-        XCTAssertEqual(RenderInstrumentation.shared.renderCount, 0)
-        XCTAssertEqual(RenderInstrumentation.shared.drawCalls, 0)
-        XCTAssertNil(RenderInstrumentation.shared.lastReason)
+        #expect(RenderInstrumentation.shared.renderCount == 0)
+        #expect(RenderInstrumentation.shared.drawCalls == 0)
+        #expect(RenderInstrumentation.shared.lastReason == nil)
     }
 }

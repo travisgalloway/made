@@ -18,7 +18,7 @@ These invariants must hold at every phase. A violation is treated as a build bre
 
 4. **The kernel sits behind our own interface.** UI and viewport code communicate with an asynchronous `KernelClient` protocol contract (`KernelRequest` and `KernelResult`, through `KernelClientProtocol`), never directly with the underlying geometry engine (Euclid or OpenCASCADE). The geometry engine can be swapped or augmented without affecting viewport or UI code.
 
-5. **Direct Metal 3 graphics pipeline.** The application renders natively through Apple's Metal 3 API via MetalKit, utilizing compiled Metal Shading Language (MSL) pipelines. Offscreen render passes generate high-resolution image snapshots for visual agent verification.
+5. **Direct Metal 4 graphics pipeline.** The application renders natively through Apple's Metal 4 API (`MTL4CommandQueue`, argument tables, residency sets) via MetalKit, with Metal Shading Language (MSL) shaders compiled at build time. Metal 4 requires Apple silicon, so Intel Macs are unsupported. Offscreen render passes generate image snapshots for visual agent verification.
 
 6. **Meshes cross boundaries as typed arrays and live in shared-storage buffers.** `MeshPayload` carries `[Float]` and `[UInt32]` arrays. The renderer copies them into Metal buffers allocated with `.storageModeShared`, which Apple Silicon unified memory makes visible to both CPU and GPU.
 
@@ -42,7 +42,7 @@ Table 1. Enforcement status per invariant, as of 2026-10-10.
 | 2 | Not tested | `MTKView.isPaused = true` and `enableSetNeedsDisplay = true` in `CADMetalViewRepresentable.swift`. Nothing in `macos/Tests` references `renderCount`, so a flat-at-idle test does not exist. Only the `model` invalidation reason is recorded today (#94). |
 | 3 | Not tested | Module separation only: `MadeCore/Scene` holds the `@Observable DocumentModel`, and `MadeCore/Viewport` holds the Metal buffers. |
 | 4 | Convention only | `KernelClientProtocol` and the wire types in `MadeCore/Kernel/Types.swift`. `MadeApp/ContentView.swift` constructs `KernelClient` and `MetalRenderer` directly. No lint rule or test enforces the boundary. |
-| 5 | Not tested | The renderer uses Metal through `MetalKit`. No test creates a Metal device or compiles the shaders. The offscreen snapshot works only in the GUI; the headless server has no provider (#89). |
+| 5 | Tested on a GPU | `MetalRendererGeometryTests` builds the Metal 4 renderer, loads the precompiled shaders, and checks an offscreen render pixel by pixel. The suite skips without a GPU, and the git hooks fail on that skip. The headless server has no snapshot provider (#89). |
 | 6 | Not tested | `MetalRenderer.createMesh` allocates three `.storageModeShared` buffers with `makeBuffer(bytes:length:options:)`. That call copies the `[Float]` and `[UInt32]` arrays once per upload. |
 | 7 | Partly tested | `KernelClientTests` cover the actor, the debounce, conflation, and the stale-debounce race. Several types are `@unchecked Sendable` (#91). |
 | 8 | Partly tested | `GestureArbiterTests` has three tests: single-pointer drag, two-pointer drag, and a pure tap. `PointerRouter` has no test. Nothing feeds pointer events to the router in the viewport (#87). |

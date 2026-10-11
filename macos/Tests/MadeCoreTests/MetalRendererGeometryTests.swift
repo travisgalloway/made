@@ -1,30 +1,29 @@
-import XCTest
+import Testing
+import Foundation
 import Metal
 import simd
 import CoreGraphics
 import ImageIO
 @testable import MadeCore
 
-final class MetalRendererGeometryTests: XCTestCase {
+@Suite struct MetalRendererGeometryTests {
     private let width = 800
     private let height = 600
 
-    func testBoxRendersInsideItsProjectedBounds() async throws {
-        guard let device = MTLCreateSystemDefaultDevice(),
-              let renderer = MetalRenderer(device: device) else {
-            throw XCTSkip("Metal unavailable")
-        }
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testBoxRendersInsideItsProjectedBounds() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
 
         // Only the solid draws, so every covered pixel must belong to the box.
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
 
         let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
-        let mesh = try XCTUnwrap(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
         renderer.meshes[SolidId("box")] = mesh
 
         let snapshot = await renderer.captureSnapshotPngBase64()
-        let base64 = try XCTUnwrap(snapshot)
+        let base64 = try #require(snapshot)
         let pixels = try decodeRGBA(base64)
 
         let bounds = projectedBounds(of: payload, renderer: renderer)
@@ -48,30 +47,27 @@ final class MetalRendererGeometryTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(outside, 0, "pixels drawn outside the box's projected bounds")
-        XCTAssertGreaterThan(Double(inside), 0.5 * Double(bounds.width * bounds.height),
-                             "box covers too little of its projected bounds")
+        #expect(outside == 0, "pixels drawn outside the box's projected bounds")
+        #expect(Double(inside) > (0.5 * Double(bounds.width * bounds.height)), "box covers too little of its projected bounds")
     }
 
-    func testBoxShowsItsTopFaceToACameraAbove() async throws {
-        guard let device = MTLCreateSystemDefaultDevice(),
-              let renderer = MetalRenderer(device: device) else {
-            throw XCTSkip("Metal unavailable")
-        }
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testBoxShowsItsTopFaceToACameraAbove() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
 
         let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
-        let mesh = try XCTUnwrap(renderer.createMesh(from: payload, color: SIMD4<Float>(0, 0, 1, 1)))
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0, 0, 1, 1)))
         renderer.meshes[SolidId("box")] = mesh
 
         let snapshot = await renderer.captureSnapshotPngBase64()
-        let pixels = try decodeRGBA(try XCTUnwrap(snapshot))
+        let pixels = try decodeRGBA(try #require(snapshot))
 
         // The lit top face reads about 239 in blue; an inside-out box shows a dimmer back face here, about 179.
         let topCenter = project(SIMD3<Float>(0, 0, 10), renderer: renderer)
         let i = (Int(topCenter.y) * width + Int(topCenter.x)) * 4
-        XCTAssertGreaterThan(pixels[i + 2], 210, "front faces are culled, so the box renders inside-out")
+        #expect(pixels[i + 2] > 210, "front faces are culled, so the box renders inside-out")
     }
 
     private func viewProjection(_ renderer: MetalRenderer) -> simd_float4x4 {
@@ -98,11 +94,11 @@ final class MetalRendererGeometryTests: XCTestCase {
     }
 
     private func decodeRGBA(_ base64: String) throws -> [UInt8] {
-        let data = try XCTUnwrap(Data(base64Encoded: base64))
-        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
-        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let data = try #require(Data(base64Encoded: base64))
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let context = try XCTUnwrap(CGContext(
+        let context = try #require(CGContext(
             data: &pixels,
             width: width,
             height: height,

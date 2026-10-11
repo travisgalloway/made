@@ -1,4 +1,4 @@
-.PHONY: all help build build-tests test run run-mcp clean ci-local hooks
+.PHONY: all help setup build build-tests test run run-mcp clean ci-local hooks
 
 PKG_PATH := macos
 
@@ -6,6 +6,7 @@ all: build
 
 help:
 	@echo "Available make targets for made:"
+	@echo "  make setup          Install the Metal Toolchain and the git hooks"
 	@echo "  make build          Build MadeApp and MadeCore library"
 	@echo "  make build-tests    Build application targets and unit test suite"
 	@echo "  make test           Run all unit tests (or 'make test FILTER=<name>')"
@@ -42,3 +43,6 @@ ci-local: build-tests test
 
 hooks:
 	git config core.hooksPath .githooks
+
+setup: hooks
+	xcodebuild -downloadComponent MetalToolchain

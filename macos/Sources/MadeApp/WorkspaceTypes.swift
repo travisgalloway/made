@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import os
 import MadeCore
 
 public enum ConsoleLogLevel: String, Sendable, CaseIterable {
@@ -8,6 +9,14 @@ public enum ConsoleLogLevel: String, Sendable, CaseIterable {
     case snap = "SNAP"
     case agent = "AGENT"
     case error = "ERROR"
+    
+    var osLogType: OSLogType {
+        switch self {
+        case .info, .snap, .agent: return .info
+        case .kernel: return .debug
+        case .error: return .error
+        }
+    }
     
     public var color: Color {
         switch self {

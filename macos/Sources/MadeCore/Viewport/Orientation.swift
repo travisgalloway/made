@@ -1,5 +1,6 @@
 import Foundation
 import simd
+import Spatial
 
 public enum Orientation {
     /// World Up axis: +Z (standard for CAD: AutoCAD, SketchUp, Blender, OpenCASCADE)
@@ -11,43 +12,28 @@ public enum Orientation {
     /// 3/4 view direction from front-right above (matching orientation.ts)
     public static let defaultViewDirection = simd_normalize(SIMD3<Float>(1, -1, 0.6))
     
-    /// Constructs a right-handed view matrix where +Z is up, looking at `target` from `eye`.
+    /// Right-handed view matrix for a camera at `eye` looking at `target`.
+    /// Spatial's pose faces +Z toward its target, and a view looks down -Z, so the pose aims away from `target`.
     public static func makeLookAt(eye: SIMD3<Float>, target: SIMD3<Float>, up: SIMD3<Float> = worldUp) -> simd_float4x4 {
-        let f = simd_normalize(target - eye)
-        var s = simd_cross(f, up)
-        if simd_length_squared(s) < 1e-6 {
-            // When looking along the up vector, use an alternative up vector to avoid singularity
-            let altUp = abs(up.z) > 0.9 ? SIMD3<Float>(0, 1, 0) : SIMD3<Float>(0, 0, 1)
-            s = simd_cross(f, altUp)
+        var up = up
+        if simd_length_squared(simd_cross(simd_normalize(target - eye), up)) < 1e-6 {
+            // Looking along the up vector is singular, so fall back to another up axis.
+            up = abs(up.z) > 0.9 ? SIMD3<Float>(0, 1, 0) : SIMD3<Float>(0, 0, 1)
         }
-        let sNorm = simd_normalize(s)
-        let u = simd_cross(sNorm, f)
-        
-        var m = matrix_identity_float4x4
-        m.columns.0 = SIMD4<Float>(sNorm.x, u.x, -f.x, 0)
-        m.columns.1 = SIMD4<Float>(sNorm.y, u.y, -f.y, 0)
-        m.columns.2 = SIMD4<Float>(sNorm.z, u.z, -f.z, 0)
-        m.columns.3 = SIMD4<Float>(
-            -simd_dot(sNorm, eye),
-            -simd_dot(u, eye),
-            simd_dot(f, eye),
-            1
-        )
-        return m
+        let pose = Pose3D(position: Point3D(eye), target: Point3D(eye + (eye - target)), up: Vector3D(up))
+        return simd_float4x4(pose.matrix.inverse)
     }
     
-    /// Constructs a right-handed perspective projection matrix for Metal (NDC depth in [0, 1]).
+    /// Right-handed perspective projection for Metal (NDC depth in [0, 1]), from Spatial.
     public static func makePerspective(fovyRadians: Float, aspect: Float, nearZ: Float, farZ: Float) -> simd_float4x4 {
-        let ys = 1.0 / tan(fovyRadians * 0.5)
-        let xs = ys / aspect
-        let zs = farZ / (nearZ - farZ)
-        
-        var m = matrix_identity_float4x4
-        m.columns.0 = SIMD4<Float>(xs, 0, 0, 0)
-        m.columns.1 = SIMD4<Float>(0, ys, 0, 0)
-        m.columns.2 = SIMD4<Float>(0, 0, zs, -1)
-        m.columns.3 = SIMD4<Float>(0, 0, zs * nearZ, 0)
-        return m
+        let projection = ProjectiveTransform3D(
+            fovY: Angle2D(radians: Double(fovyRadians)),
+            aspectRatio: Double(aspect),
+            nearZ: Double(nearZ),
+            farZ: Double(farZ),
+            reverseZ: false
+        )
+        return simd_float4x4(projection.matrix)
     }
     
     /// Constructs a right-handed orthographic projection matrix for Metal (NDC depth in [0, 1]).
@@ -67,5 +53,11 @@ public enum Orientation {
             1.0
         )
         return m
+    }
+}
+
+extension simd_float4x4 {
+    init(_ m: simd_double4x4) {
+        self.init(SIMD4<Float>(m.columns.0), SIMD4<Float>(m.columns.1), SIMD4<Float>(m.columns.2), SIMD4<Float>(m.columns.3))
     }
 }
