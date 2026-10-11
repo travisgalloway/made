@@ -48,44 +48,9 @@ public enum ObjectDef: Sendable, Equatable {
 
 public struct MaterialAttributes: Sendable, Equatable {
     public var color: SIMD4<Float>
-    public var roughness: Float
-    public var opacity: Float
     
-    public init(
-        color: SIMD4<Float> = SIMD4<Float>(0.35, 0.65, 0.95, 1.0),
-        roughness: Float = 0.5,
-        opacity: Float = 1.0
-    ) {
+    public init(color: SIMD4<Float> = SIMD4<Float>(0.35, 0.65, 0.95, 1.0)) {
         self.color = color
-        self.roughness = roughness
-        self.opacity = opacity
-    }
-}
-
-public enum SimulationBodyType: String, Sendable, CaseIterable, Identifiable {
-    case dynamicBody = "Dynamic"
-    case staticBody = "Static"
-    case kinematicBody = "Kinematic"
-    
-    public var id: String { rawValue }
-}
-
-public struct SimulationParameters: Sendable, Equatable {
-    public var bodyType: SimulationBodyType
-    public var mass: Float // kg
-    public var friction: Float
-    public var restitution: Float // bounciness
-    
-    public init(
-        bodyType: SimulationBodyType = .dynamicBody,
-        mass: Float = 1.0,
-        friction: Float = 0.5,
-        restitution: Float = 0.1
-    ) {
-        self.bodyType = bodyType
-        self.mass = mass
-        self.friction = friction
-        self.restitution = restitution
     }
 }
 
@@ -94,32 +59,26 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
     public var name: String
     public var def: ObjectDef
     public var transform: Transform
-    public var layer: String
     public var isVisible: Bool
     public var isLocked: Bool
     public var material: MaterialAttributes
-    public var simulation: SimulationParameters
     
     public init(
         id: ObjectId,
         name: String? = nil,
         def: ObjectDef,
         transform: Transform = .identity,
-        layer: String = "Default Layer",
         isVisible: Bool = true,
         isLocked: Bool = false,
-        material: MaterialAttributes = MaterialAttributes(),
-        simulation: SimulationParameters = SimulationParameters()
+        material: MaterialAttributes = MaterialAttributes()
     ) {
         self.id = id
         self.name = name ?? id.rawValue
         self.def = def
         self.transform = transform
-        self.layer = layer
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.material = material
-        self.simulation = simulation
     }
 }
 
@@ -245,18 +204,8 @@ public final class DocumentModel: @unchecked Sendable {
         objects[index].isLocked = isLocked
     }
     
-    public func setLayer(id: ObjectId, layer: String) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
-        objects[index].layer = layer
-    }
-    
     public func setMaterial(id: ObjectId, material: MaterialAttributes) {
         guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
         objects[index].material = material
-    }
-    
-    public func setSimulation(id: ObjectId, simulation: SimulationParameters) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
-        objects[index].simulation = simulation
     }
 }
