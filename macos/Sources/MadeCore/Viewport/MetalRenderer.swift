@@ -59,8 +59,9 @@ public struct MetalMesh: @unchecked Sendable {
     public let normalBuffer: MTLBuffer
     public let indexBuffer: MTLBuffer
     public let indexCount: Int
-    public let transform: Transform
+    public var transform: Transform
     public let color: SIMD4<Float>
+    public var candidateMesh: CandidateMesh
     
     public init(
         positionBuffer: MTLBuffer,
@@ -68,7 +69,8 @@ public struct MetalMesh: @unchecked Sendable {
         indexBuffer: MTLBuffer,
         indexCount: Int,
         transform: Transform = .identity,
-        color: SIMD4<Float> = SIMD4<Float>(0.4, 0.6, 0.9, 1.0)
+        color: SIMD4<Float> = SIMD4<Float>(0.4, 0.6, 0.9, 1.0),
+        candidateMesh: CandidateMesh? = nil
     ) {
         self.positionBuffer = positionBuffer
         self.normalBuffer = normalBuffer
@@ -76,6 +78,7 @@ public struct MetalMesh: @unchecked Sendable {
         self.indexCount = indexCount
         self.transform = transform
         self.color = color
+        self.candidateMesh = candidateMesh ?? CandidateMesh(id: SolidId("mesh"), positions: [], edges: [], transform: transform)
     }
 }
 
@@ -110,6 +113,14 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     private var labelVertexCount: Int = 0
     private var axesLength: Float = AxesGenerator.defaultLength
     private var axesLabelSize: Float = AxesGenerator.defaultLabelSize
+    
+    // Snap marker rendering resources
+    private let snapDepthState: MTLDepthStencilState
+    private var snapPositionBuffer: MTLBuffer?
+    private var snapNormalBuffer: MTLBuffer?
+    private var snapIndexBuffer: MTLBuffer?
+    private var snapIndexCount: Int = 0
+    public var activeSnap: SnapResult? = nil
     
     public var camera: Camera = Camera()
     public var cameraPosition: SIMD3<Float> {
@@ -238,10 +249,17 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         self.billboardSampler = sampler
         self.billboardTexture = AxesGenerator.createAxesLabelAtlas(device: device)
         
+        let snapDepthDesc = MTLDepthStencilDescriptor()
+        snapDepthDesc.depthCompareFunction = .always
+        snapDepthDesc.isDepthWriteEnabled = false
+        guard let snapDepth = device.makeDepthStencilState(descriptor: snapDepthDesc) else { return nil }
+        self.snapDepthState = snapDepth
+        
         super.init()
         
         setupGrid()
         setupAxes()
+        setupSnapMarker()
     }
     
     private func setupGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
@@ -329,8 +347,57 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         setupAxes(length: length, labelSize: labelSize)
     }
     
+    private func setupSnapMarker(radius: Float = 2.5) {
+        let faces: [(SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)] = [
+            (SIMD3<Float>(0, 0, radius), SIMD3<Float>(radius, 0, 0), SIMD3<Float>(0, -radius, 0)),
+            (SIMD3<Float>(0, 0, radius), SIMD3<Float>(0, -radius, 0), SIMD3<Float>(-radius, 0, 0)),
+            (SIMD3<Float>(0, 0, radius), SIMD3<Float>(-radius, 0, 0), SIMD3<Float>(0, radius, 0)),
+            (SIMD3<Float>(0, 0, radius), SIMD3<Float>(0, radius, 0), SIMD3<Float>(radius, 0, 0)),
+            (SIMD3<Float>(0, 0, -radius), SIMD3<Float>(0, -radius, 0), SIMD3<Float>(radius, 0, 0)),
+            (SIMD3<Float>(0, 0, -radius), SIMD3<Float>(-radius, 0, 0), SIMD3<Float>(0, -radius, 0)),
+            (SIMD3<Float>(0, 0, -radius), SIMD3<Float>(0, radius, 0), SIMD3<Float>(-radius, 0, 0)),
+            (SIMD3<Float>(0, 0, -radius), SIMD3<Float>(radius, 0, 0), SIMD3<Float>(0, radius, 0))
+        ]
+        
+        var positions: [Float] = []
+        var normals: [Float] = []
+        var indices: [UInt32] = []
+        
+        for (v0, v1, v2) in faces {
+            let n = simd_normalize(simd_cross(v1 - v0, v2 - v0))
+            let baseIndex = UInt32(positions.count / 3)
+            for v in [v0, v1, v2] {
+                positions.append(contentsOf: [v.x, v.y, v.z])
+                normals.append(contentsOf: [n.x, n.y, n.z])
+            }
+            indices.append(contentsOf: [baseIndex, baseIndex + 1, baseIndex + 2])
+        }
+        
+        self.snapIndexCount = indices.count
+        self.snapPositionBuffer = device.makeBuffer(
+            bytes: positions,
+            length: positions.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        self.snapNormalBuffer = device.makeBuffer(
+            bytes: normals,
+            length: normals.count * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        )
+        self.snapIndexBuffer = device.makeBuffer(
+            bytes: indices,
+            length: indices.count * MemoryLayout<UInt32>.stride,
+            options: .storageModeShared
+        )
+    }
+    
     /// Converts a MeshPayload into a MetalMesh with zero-copy shared memory allocation on Apple Silicon.
-    public func createMesh(from payload: MeshPayload, transform: Transform = .identity, color: SIMD4<Float>) -> MetalMesh? {
+    public func createMesh(
+        from payload: MeshPayload,
+        solidId: SolidId = SolidId("solid"),
+        transform: Transform = .identity,
+        color: SIMD4<Float>
+    ) -> MetalMesh? {
         guard !payload.positions.isEmpty, !payload.indices.isEmpty else { return nil }
         
         let posByteLength = payload.positions.count * MemoryLayout<Float>.stride
@@ -354,14 +421,26 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
             options: .storageModeShared
         ) else { return nil }
         
+        let candidate = CandidateMesh(id: solidId, payload: payload, transform: transform)
+        
         return MetalMesh(
             positionBuffer: posBuffer,
             normalBuffer: normBuffer,
             indexBuffer: idxBuffer,
             indexCount: payload.indices.count,
             transform: transform,
-            color: color
+            color: color,
+            candidateMesh: candidate
         )
+    }
+    
+    /// Returns the scene's current candidate meshes for snapping.
+    public func candidateMeshes() -> [CandidateMesh] {
+        return meshes.map { (id, mesh) in
+            var c = mesh.candidateMesh
+            c.transform = mesh.transform
+            return c
+        }
     }
     
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -465,6 +544,53 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
             encoder.setFragmentSamplerState(billboardSampler, index: 0)
             
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: labelVertexCount)
+            drawCalls += 1
+        }
+        
+        // Draw snap marker if active
+        if let snap = activeSnap,
+           let snapPos = snapPositionBuffer,
+           let snapNorm = snapNormalBuffer,
+           let snapIdx = snapIndexBuffer,
+           snapIndexCount > 0 {
+            encoder.setRenderPipelineState(pipelineState)
+            encoder.setDepthStencilState(snapDepthState)
+            encoder.setCullMode(.none)
+            
+            var modelMatrix = matrix_identity_float4x4
+            modelMatrix.columns.3 = SIMD4<Float>(snap.point.x, snap.point.y, snap.point.z, 1.0)
+            
+            let normalMatrix = matrix_identity_float3x3
+            
+            let snapColor: SIMD4<Float>
+            switch snap.kind {
+            case .vertex:
+                snapColor = SIMD4<Float>(1.0, 0.65, 0.0, 1.0) // amber
+            case .edge:
+                snapColor = SIMD4<Float>(0.0, 0.85, 1.0, 1.0) // cyan
+            case .grid:
+                snapColor = SIMD4<Float>(0.2, 0.9, 0.2, 1.0)  // green
+            }
+            
+            var uniforms = RenderUniforms(
+                modelMatrix: modelMatrix,
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix,
+                normalMatrix: normalMatrix,
+                color: snapColor
+            )
+            
+            encoder.setVertexBuffer(snapPos, offset: 0, index: 0)
+            encoder.setVertexBuffer(snapNorm, offset: 0, index: 1)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<RenderUniforms>.stride, index: 2)
+            
+            encoder.drawIndexedPrimitives(
+                type: .triangle,
+                indexCount: snapIndexCount,
+                indexType: .uint32,
+                indexBuffer: snapIdx,
+                indexBufferOffset: 0
+            )
             drawCalls += 1
         }
         

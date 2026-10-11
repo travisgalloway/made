@@ -16,6 +16,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - KERN-9 is Shipped. The conflation race (finding DSN-efe60d18) was fixed under #90.
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
+- INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
 - Issue holds the GitHub issue number that tracks the capability.
 
 Persistence note. No capability persists a document. The .made file format is planned under #83.
@@ -48,11 +49,11 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-10. Source: capabili
 | INPUT-3 | A user can use Apple Pencil input that always routes to manipulate and never to navigate | none | done | n/a | In progress | #87 | n/a |
 | INPUT-4 | A user can use touch input routed through the multi-pointer arbiter | none | done | n/a | In progress | #87 | n/a |
 | INPUT-5 | A user can click or drag with the mouse; movement past 6 px classifies the gesture as navigate, otherwise manipulate (doc states a 3 pt threshold) | done | done | n/a | Shipped | #87 | n/a |
-| INPUT-6 | A user can snap a point to a 10 mm XY grid with Z unchanged (doc states a 1 mm or 5 mm pitch) | none | done | n/a | In progress | #88, #102 | n/a |
-| INPUT-7 | A user can resolve snap candidates by strict priority vertex over edge over grid inside a 20 px tolerance (doc states a 10 mm radius) | none | done | n/a | In progress | #88 | n/a |
+| INPUT-6 | A user can snap a point to a 10 mm XY grid with Z unchanged (doc states a 1 mm or 5 mm pitch) | done | done | n/a | Shipped | #88, #102 | n/a |
+| INPUT-7 | A user can resolve snap candidates by strict priority vertex over edge over grid inside a 20 px tolerance (doc states a 10 mm radius) | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-8 | A user can orbit, pan and zoom the camera with trackpad, mouse or multi-touch | done | done | n/a | Shipped | #87 | n/a |
 | INPUT-9 | A user can click or tap a solid in the viewport to select it (picking) | none | none | n/a | Planned | #69 | n/a |
-| INPUT-10 | A user can snap to vertices and edges of existing solids while manipulating | none | none | n/a | Planned | #88 | n/a |
+| INPUT-10 | A user can snap to vertices and edges of existing solids while manipulating | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-11 | A user can two-finger tap to trigger context actions | none | none | n/a | Planned | #42 | n/a |
 | KERN-1 | A user or agent can convert a Euclid mesh into an indexed triangle `MeshPayload` in Z-up coordinates | n/a | done | done | Shipped | none | n/a |
 | KERN-2 | A user can generate a parametric box mesh (X width, Y depth, Z height) | done | done | n/a | Shipped | none | n/a |
