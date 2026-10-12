@@ -50,6 +50,7 @@ Not built. `macos/Package.swift` declares only the Euclid dependency, and `Kerne
 ### Tier 3: Declarative CAD DSL (Cadova-Style Scripting)
 - **Implementation**: [`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift).
 - **Capabilities**: Declarative Swift result builders and operator overloads (`-`, `+`, `&`) allowing AI agents and engineers to express geometric models programmatically.
+- **Evaluation**: The DSL performs no geometry work. Each shape builds a `ShapeNode` operation tree ([`ShapeNode.swift`](../../macos/Sources/MadeCore/Kernel/ShapeNode.swift)), and `evaluate(on:solidId:jobId:)` sends the whole tree through `KernelClient` as one `evaluateShape` request. `LocalKernelEngine` validates the tree against `ShapeLimits` (depth 64, 4,096 nodes, 3 to 512 cylinder slices, positive finite dimensions, finite offsets) and evaluates it on the engine actor. A failure returns `invalidParams` and stores nothing. `LayeringTests.scriptingReferencesNoEuclid` fails the build when `Scripting/` names Euclid.
 
 ---
 
@@ -64,6 +65,7 @@ public enum KernelRequest: Sendable {
     case booleanOperation(jobId: JobId, solidId: SolidId, op: BooleanOp, solidA: SolidId, solidB: SolidId)
     case tessellate(jobId: JobId, solidId: SolidId)
     case importStep(jobId: JobId, solidId: SolidId, data: Data)
+    case evaluateShape(jobId: JobId, solidId: SolidId, shape: ShapeNode)
 }
 
 public struct MeshPayload: Sendable {

@@ -69,7 +69,7 @@ let mountingPlate = Box(width: 50, depth: 50, height: 10)
     - Cylinder(radius: 6, height: 20)
     + Box(width: 10, depth: 10, height: 5).translated(x: 20)
 
-let payload = mountingPlate.toMeshPayload()
+let result = await mountingPlate.evaluate(on: kernel, solidId: SolidId("plate"))
 ```
 
 ---

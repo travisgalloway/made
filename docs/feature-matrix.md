@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 151 capabilities with their implementation status. The matrix shows 90 Shipped, 43 In progress, 12 Planned, and 6 Deprecated rows.
+Table 1 lists 152 capabilities with their implementation status. The matrix shows 91 Shipped, 43 In progress, 12 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -87,6 +87,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-17 | A caller gets typed failures (`kernel-init-failed`, `invalid-params`, `geometry-failed`, `unknown-solid`, `cancelled`, `worker-crashed`) instead of thrown errors; the kernel service produces `kernel-init-failed` (no session, breaker open) and `worker-crashed` (service stopped during the job) | n/a | done | n/a | Shipped | #245 | n/a |
 | KERN-18 | A user can keep the previous valid mesh on screen when a kernel job fails | done | done | n/a | Shipped | #109 | n/a |
 | KERN-20 | A user keeps the window and document when the geometry kernel crashes; the kernel runs in an XPC service, meshes return as shared memory, and the app relaunches the service and regenerates every solid from the document | done | done | done | Shipped | #245 | n/a |
+| KERN-21 | A developer can evaluate a shape-description tree (box, cylinder, translate, boolean) in one kernel request, validated against depth and node limits, on the kernel actor | n/a | done | n/a | Shipped | #331 | n/a |
 | KERN-19 | A user can export or import STEP and IGES files, and apply B-Rep fillets, chamfers and draft angles (OCCTSwift Tier 2) | none | none | none | Planned | #82 | n/a |
 | DOC-1 | A user can have scene objects of kind box, cylinder or imported (name only) | done | done | done | Shipped |  | n/a |
 | DOC-2 | A user gets parameter values clamped to fixed ranges when an object is added and when a parameter is set (box 5 to 90 mm, cylinder radius 5 to 50 mm, cylinder height 5 to 90 mm; NaN becomes the minimum) | done | done | done | Shipped | #104 | n/a |
@@ -167,15 +168,15 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | AGENT-26 | A user can give the Copilot free-form natural language (for example "Make a 50x50 plate and subtract a 10mm hole in the center") | none | n/a | n/a | Planned |  | n/a |
 | AGENT-27 | An agent receives `-32603` for a failed geometry operation | n/a | none | n/a | Planned |  | n/a |
 | AGENT-28 | An agent can connect over an IPC transport as well as stdio: a local TCP listener (`NWListener(using: .tcp, on: 9820)`) exists; it sets no loopback restriction although the MCP window states 127.0.0.1, and it has no authentication | n/a | done | n/a | In progress |  | n/a |
-| DSL-1 | A developer can define any shape through the `CADShape` protocol (`buildMesh`) | n/a | done | n/a | Shipped |  | n/a |
-| DSL-2 | A developer can wrap a built mesh as `CSGCompositeShape` | n/a | done | n/a | Shipped |  | n/a |
+| DSL-1 | A developer can define any shape through the `CADShape` protocol (`shapeDescription`) | n/a | done | n/a | Shipped | #331 | n/a |
+| DSL-2 | A developer can wrap a shape description as `CSGCompositeShape` | n/a | done | n/a | Shipped | #331 | n/a |
 | DSL-3 | A developer can create `Box(width:depth:height:)` or `Box(x:y:z:)` with an `offset` | n/a | done | n/a | Shipped |  | n/a |
 | DSL-4 | A developer can create `Cylinder(radius:height:slices:)` or `Cylinder(diameter:height:slices:)` with an `offset` | n/a | done | n/a | Shipped |  | n/a |
 | DSL-5 | A developer can translate a shape with `.translated(x:y:z:)` | n/a | done | n/a | Shipped |  | n/a |
 | DSL-6 | A developer can subtract with `.subtracting(_:)` or the builder-closure form | n/a | done | n/a | Shipped |  | n/a |
 | DSL-7 | A developer can union with `.union(_:)` or the builder-closure form | n/a | done | n/a | Shipped |  | n/a |
 | DSL-8 | A developer can intersect with `.intersecting(_:)` | n/a | done | n/a | Shipped |  | n/a |
-| DSL-9 | A developer can convert a shape to a `MeshPayload` with `.toMeshPayload()` | n/a | done | n/a | Shipped |  | n/a |
+| DSL-9 | A developer can evaluate a shape through `KernelClient` with `.evaluate(on:solidId:)` | n/a | done | n/a | Shipped | #331 | n/a |
 | DSL-10 | A developer can compose shapes with the operators `-`, `+` and `&` | n/a | done | n/a | Shipped |  | n/a |
 | DSL-11 | A developer can use `@CADShapeBuilder` to group shapes; only a single-shape `buildBlock` exists, so multi-statement hierarchies do not compile | n/a | done | n/a | In progress |  | n/a |
 | DSL-12 | An agent can author a DSL model and see it in the viewport or the document | n/a | none | n/a | Planned | #85 | n/a |

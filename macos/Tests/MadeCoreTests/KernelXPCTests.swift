@@ -18,6 +18,7 @@ import XPC
             .execute(.tessellate(jobId: j, solidId: s)),
             .execute(.importStep(jobId: j, solidId: s, data: Data([1, 2, 3]))),
             .execute(.booleanOperation(jobId: j, solidId: s, op: .intersect, solidA: SolidId("a"), solidB: SolidId("b"))),
+            .execute(.evaluateShape(jobId: j, solidId: s, shape: .boolean(.subtract, .translate(.box(box), offset: SIMD3(1, -2, 0.5)), .cylinder(CylinderParams(radius: 2, height: 3), slices: 12)))),
             .dispose(s),
             .terminate
         ]
@@ -71,6 +72,19 @@ import XPC
         #expect(Array(remote.normals) == Array(local.normals))
         #expect(Array(remote.indices) == Array(local.indices))
         #expect(await engine.execute(.tessellate(jobId: JobId("t"), solidId: SolidId("b"))).isSuccess)
+    }
+    
+    @Test func testShapeTreeRoundTripsThroughService() async throws {
+        let harness = KernelServiceHarness()
+        let engine = harness.makeEngine()
+        let shape = ShapeNode.boolean(.subtract, .box(box), .translate(.cylinder(CylinderParams(radius: 1, height: 20), slices: 16), offset: SIMD3(1, 1, 0)))
+        let request = KernelRequest.evaluateShape(jobId: JobId("j"), solidId: SolidId("tree"), shape: shape)
+        
+        let remote = try #require(await engine.execute(request).value)
+        let local = try #require(await LocalKernelEngine().execute(request).value)
+        #expect(remote.triangleCount > 0)
+        #expect(Array(remote.indices) == Array(local.indices))
+        #expect(await engine.execute(.tessellate(jobId: JobId("t"), solidId: SolidId("tree"))).isSuccess)
     }
     
     @Test func testSessionFactoryFailureReturnsKernelInitFailed() async {

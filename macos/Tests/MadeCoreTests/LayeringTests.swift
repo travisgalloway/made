@@ -1,7 +1,8 @@
 import Testing
 import Foundation
 
-/// Invariant 3 lint: MadeCore is one target, so the compiler cannot stop `Viewport/` from naming an Agent or Scene type.
+/// Invariants 3 and 4 lint: MadeCore is one target, so the compiler cannot stop `Viewport/` from naming an Agent or Scene type,
+/// or `Scripting/` from calling Euclid directly.
 @Suite struct LayeringTests {
     static let sourcesRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -19,7 +20,21 @@ import Foundation
         #expect(found.isEmpty, "Viewport references Agent or Scene types:\n\(found.joined(separator: "\n"))")
     }
 
+    static let scriptingForbidden: Set<String> = ["Euclid", "EuclidEngine", "Mesh", "LocalKernelEngine", "ShapeEvaluator"]
+
+    @Test func scriptingReferencesNoEuclid() throws {
+        var found: [String] = []
+        for file in try Self.swiftFiles(in: "Scripting") {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            found += Self.violations(in: source, file: file.lastPathComponent, forbidden: Self.scriptingForbidden)
+        }
+        #expect(found.isEmpty, "Scripting references kernel internals:\n\(found.joined(separator: "\n"))")
+    }
+
     @Test func scanIsNotBlind() throws {
+        let scriptingFiles = try Self.swiftFiles(in: "Scripting")
+        #expect(scriptingFiles.contains { $0.lastPathComponent == "CADDSL.swift" })
+
         let viewportFiles = try Self.swiftFiles(in: "Viewport")
         #expect(!viewportFiles.isEmpty)
         #expect(viewportFiles.allSatisfy { $0.pathExtension == "swift" })
