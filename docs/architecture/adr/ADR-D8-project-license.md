@@ -6,7 +6,7 @@
 
 ## Context
 
-The repository had no LICENSE file. The license choice decides which third-party geometry, solver, and meshing code `made` can link, and how.
+`made` is a non-commercial hobby project, and releases are free. The license obligations below apply to distribution whether or not anyone pays. The repository had no LICENSE file. The license choice decides which third-party geometry, solver, and meshing code `made` can link, and how.
 
 ## Options Considered
 
