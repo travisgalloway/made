@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/
 Audit run: 20261011-195134
 
-The list holds 57 parked findings, in source order and unranked. Format: ID, file:line, finding, source pass.
+The list holds 55 parked findings, in source order and unranked. Format: ID, file:line, finding, source pass.
 
 - INPUT-7 | macos/Sources/MadeCore/Input/Snapping.swift:57 | `screenPixelDistance` has a single reference in Sources and no caller. | closure A
 - KERN-7 | macos/Sources/MadeCore/Kernel/Geometry.swift:7 | `NativeGeometryGenerator.generateBox` has no reference outside its declaration. | closure A
@@ -25,8 +25,6 @@ The list holds 57 parked findings, in source order and unranked. Format: ID, fil
 - DSN-06c119fb | macos/Sources/MadeCore/Agent/MCPServer.swift:85 | `try?` on the stdin read treats an error as end of input and exits with success, and the write failure at :102 is dropped. (superseded by decision DSN-2a85e7de on 2026-10-11) | design D2
 - DSN-cbc7f8bb | macos/Sources/MadeCore/Agent/MCPServer.swift:76 | `encodeResponse` returns nil on an encoding error, so the client receives no reply and the cause is discarded. (superseded by decision DSN-2a85e7de on 2026-10-11) | design D2
 - DSN-9e901d18 | macos/Sources/MadeApp/WorkspaceModel.swift:152 | The `Task` in `recomputeSolid` drops its handle and ignores the failure branch. | design D2
-- DSN-a46151d3 | macos/Sources/MadeCore/Viewport/MetalRenderer.swift:56 | Viewport references the Agent directory through `SnapshotProvider`, which sits above it in the assumed layer order. | design D2
-- DSN-d809c2cf | macos/Sources/MadeCore/Viewport/MetalRenderer.swift:36 | Viewport references the Scene directory through `Transform`, which sits above it in the assumed layer order. | design D2
 - DSN-dbd85a54 | macos/Sources/MadeCore/Viewport/MetalRenderer.swift:64 | `MetalRenderer.meshes` is mutated on the main actor and iterated off it, grouped under the decision DSN-1eb23904. (ticketed as #131 on 2026-10-11) | design D2
 - API-24a1c7aa | macos/Sources/MadeCore/Agent/CADTools.swift:143 | An unknown tool name returns an `isError` result where MCP specifies a -32602 protocol error. | api P1
 - API-0e69ca70 | macos/Sources/MadeCore/Agent/CADTools.swift:149 | `cad_get_scene` returns every object in one response with no limit or cursor. | api P1

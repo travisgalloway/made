@@ -39,7 +39,7 @@ Phase 3 establishes first-class autonomous AI agent integration in `made`. Inste
 
 ### 4. Multimodal Visual Feedback Loop (GUI only)
 - **File**: [`MetalRenderer.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift)
-- Implements `SnapshotProvider` (declared in `CADTools.swift`).
+- Implements `SnapshotProvider` (declared in `CADTools.swift`). The conformance is declared in `Agent/MetalRenderer+SnapshotProvider.swift`.
 - Renders an 800x600 offscreen frame, reads the bytes back, and encodes a base64 PNG.
 - The GUI registers the renderer as the provider (`WorkspaceModel.swift`). Over `--mcp-stdio` there is no provider, and `cad_capture_snapshot` returns an error (#89).
 
