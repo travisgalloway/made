@@ -4,15 +4,15 @@ This document outlines the coding standards, concurrency conventions, and commit
 
 ## Commands
 
-Run every command from the `macos/` directory:
+Prefer the `make` targets from the repository root (`make build`, `make test`, `make run`). To run `swift` directly, run it from the `macos/` directory and pass `--build-system swiftbuild`, because only Swift Build compiles `Shaders.metal`:
 
 ```sh
 cd macos
-swift build
-swift test
-swift test --filter <TestClass>
-swift run MadeApp
-swift run MadeApp --mcp-stdio
+swift build --build-system swiftbuild
+swift test --build-system swiftbuild
+swift test --build-system swiftbuild --filter <TestClass>
+swift run --build-system swiftbuild MadeApp
+swift run --build-system swiftbuild MadeApp --mcp-stdio
 ```
 
 ---
@@ -21,7 +21,7 @@ swift run MadeApp --mcp-stdio
 
 ## 1. Swift 6 Concurrency & Type Safety
 
-`macos/Package.swift` sets `swift-tools-version: 6.0`, which selects the Swift 6 language mode and its concurrency checking.
+`macos/Package.swift` sets `swift-tools-version: 6.2`, which selects the Swift 6 language mode and its concurrency checking.
 
 ### Sendable Conformance
 - Every struct, enum, or class that crosses an actor or task boundary **must** conform to `Sendable`.
@@ -58,10 +58,13 @@ swift run MadeApp --mcp-stdio
 Commits must follow the Conventional Commits specification:
 
 ```
-<type>(<scope>): <short description> (#<issue>)
+<type>(<scope>): <description> (#<issue>) (#<PR>)
 
 [optional body explaining design rationale]
 ```
+
+### Allowed Scopes
+Scopes match the `MadeCore` directories (`kernel`, `viewport`, `input`, `scene`, `agent`), plus `ui`, `infra`, and `docs`.
 
 ### Allowed Types
 - `feat`: A new user-facing or agent-facing capability.

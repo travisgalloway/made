@@ -10,7 +10,7 @@
 ┌────────────────────────────────────────────────────────┐
 │           External Agents (Claude, Cursor, CLI)        │
 └──────────────────────────┬─────────────────────────────┘
-                           │ JSON-RPC 2.0 (stdio or IPC)
+                           │ JSON-RPC 2.0 (stdio or local TCP)
 ┌──────────────────────────▼─────────────────────────────┐
 │                       MCPServer                        │
 │   • Conforms to MCP Spec (2024-11-05)                  │
@@ -54,6 +54,15 @@ swift run MadeApp --mcp-stdio
 This mode is not fully headless. `MadeApp.init` starts the server task, and the SwiftUI window scene still launches. The server creates a fresh `DocumentModel` and `KernelClient` and builds its `CADToolRegistry` without a snapshot provider, so `cad_capture_snapshot` always returns an error (#89). The process exits when standard input closes.
 
 The server reads standard input in 64 KB chunks and splits each chunk on newlines. A message larger than one chunk is split and fails to parse (#101).
+
+### In-App TCP Transport
+The MCP window starts a TCP listener inside the running GUI. `WorkspaceModel.toggleMCPServer` calls `MCPServer.start(port:)`, and the default port is 9820. The listener serves the same JSON-RPC 2.0 methods as the stdio transport.
+
+The listener shares the window's own `DocumentModel`, `KernelClient`, and `MetalRenderer`. An agent connected over TCP therefore edits the document that the window shows, and `cad_capture_snapshot` works. Tool calls change the document, so the Navigator and Inspector update through `@Observable`. The tool registry has no viewport redraw call, and the window redraws a removed solid through `WorkspaceModel.syncMeshes` (AGENT-25).
+
+**Requirement (user decision, 2026-10-11).** The listener must accept connections only from the local machine (loopback). The MCP window already displays the address as `127.0.0.1:9820`.
+
+**Known gap.** `MCPServer.start` creates `NWListener(using: .tcp, on: port)` with no interface restriction, so the listener binds to all interfaces. Another host on the network can reach it. DSN-f5402406 (#129, issue number pending) tracks restricting the bind to loopback.
 
 ### Configuration for Claude Desktop / Cursor
 Add `made` to your `claude_desktop_config.json`:
@@ -110,7 +119,7 @@ sequenceDiagram
     participant Agent as LLM Agent
     participant MCP as MadeApp (MCP)
     participant Kernel as KernelClient (Actor)
-    participant GPU as Metal 3 Viewport
+    participant GPU as Metal 4 Viewport
 
     Agent->>MCP: tools/call ("cad_add_solid", {box})
     MCP->>Kernel: makeBox(...)
@@ -146,6 +155,15 @@ let meshPayload = mountingBracket.toMeshPayload()
 - **Operator Overloads**: `-` for CSG subtraction, `+` for CSG union, and `&` for intersection.
 - **Fluent Transforms**: `.translated(x:y:z:)` and parameter setters.
 - **Result Builders**: `@CADShapeBuilder` allows composite hierarchy definitions.
+
+---
+
+## Open Decisions
+
+These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by placeholder.
+
+- #132: Whether an agent drives the open document (the window's session) or a separate session. Today the TCP transport shares the window document, and `--mcp-stdio` does not.
+- #148: Which runtime hosts the in-app scripting REPL. Options are the compiled Swift DSL in `CADDSL.swift`, JavaScriptCore, or embedded Python. Agents use MCP in every case.
 
 ---
 

@@ -1,33 +1,38 @@
 # Testing Strategy & Verification
 
-The testing architecture in `made` is built on Swift Package Manager (`swift test`) using **XCTest** and Swift Concurrency testing primitives. The package has one test target, `MadeCoreTests`, with focused suites in [`macos/Tests/MadeCoreTests`](../../macos/Tests/MadeCoreTests).
+The testing architecture in `made` is built on Swift Package Manager (`swift test`) using **Swift Testing** (`@Test` and `#expect`) and Swift Concurrency testing primitives. The package has one test target, `MadeCoreTests`, with focused suites in [`macos/Tests/MadeCoreTests`](../../macos/Tests/MadeCoreTests).
 
 ---
 
 ## Test Suites Overview
 
-`MadeCoreTests` has 8 suites and 34 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and nothing in the test target creates a Metal device or a SwiftUI view.
+`MadeCoreTests` has 18 suites and 128 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and no test creates a SwiftUI view. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
 
 | Suite Name | Target Module | What It Verifies |
 | ---------- | ------------- | ---------------- |
 | **`CADDSLTests`** | `MadeCore/Scripting` | Cadova-style declarative DSL, operator overloads (`-`, `+`, `&`), and triangulation. |
 | **`EuclidEngineTests`** | `MadeCore/Kernel` | Pure-Swift CSG parametric primitives and watertight boolean evaluations. |
 | **`KernelClientTests`** | `MadeCore/Kernel` | Box and cylinder generation, invalid dimensions, 60-ms debounce conflation, and the stale-debounce race (#90). |
-| **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: lock on first move for one pointer, lock to navigate for two pointers, and a pure tap resolving at release. `PointerRouter` has no test. |
+| **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: lock on first move for one pointer, lock to navigate for two pointers, and a pure tap resolving at release. `CameraTests` covers `PointerRouter`. |
 | **`SnappingTests`** | `MadeCore/Input` | Invariant 9: Vertex > Edge > Grid precedence, the 20 px tolerance, and grid rounding to 10 mm with Z unchanged. |
 | **`DocumentModelTests`** | `MadeCore/Scene` | Default two-solid scene, add and remove, and `setParam` limits clamping. |
 | **`CADToolsTests`** | `MadeCore/Agent` | Tool registry execution (`cad_add_solid`, `cad_measure`, `cad_boolean_operation`). |
 | **`MCPServerTests`** | `MadeCore/Agent` | JSON-RPC 2.0 handshake, tool discovery, a tool call, and the unknown-method error. The tests call `MCPServer` in process. |
+| **`CameraTests`**, **`CameraFramingTests`** | `MadeCore/Viewport` | Orbit, pan, zoom, view presets, scene framing, and `PointerRouter` routing. |
+| **`GridGeneratorTests`**, **`AxesGeneratorTests`** | `MadeCore/Viewport` | Ground grid and axes indicator geometry. |
+| **`ViewportStateTests`**, **`ViewportToolTests`**, **`ViewportCoordinatorTests`** | `MadeCore/Viewport`, `MadeCore/Input` | Viewport state, tool routing, and invalidation reasons including the flat `renderCount` at idle. |
+| **`OrientationTests`** | `MadeCore/Viewport` | The right-handed Z-up convention. |
+| **`MetalRendererGeometryTests`**, **`ShaderLibraryTests`** | `MadeCore/Viewport` | Offscreen render checks and the bundled shader library. |
 
 ---
 
 ## Running Automated Tests
 
-Run the complete test suite:
+Run the complete test suite with `make test`, or directly:
 
 ```sh
 cd macos
-swift test
+swift test --build-system swiftbuild
 ```
 
 Run a specific test suite or test case by name:
@@ -36,26 +41,32 @@ Run a specific test suite or test case by name:
 cd macos
 
 # Run only CAD DSL tests
-swift test --filter CADDSLTests
+swift test --build-system swiftbuild --filter CADDSLTests
 
 # Run a single test case
-swift test --filter KernelClientTests/testInvalidDimensionsFailWithErrorCode
+swift test --build-system swiftbuild --filter KernelClientTests/testInvalidDimensionsFailWithErrorCode
 ```
 
 Build and run the application:
 
 ```sh
 cd macos
-swift build
-swift run MadeApp
-swift run MadeApp --mcp-stdio
+swift build --build-system swiftbuild
+swift run --build-system swiftbuild MadeApp
+swift run --build-system swiftbuild MadeApp --mcp-stdio
 ```
+
+---
+
+## Git Hooks and Make Targets
+
+`make test` runs the full suite, and `make test FILTER=<name>` runs one suite or test. `make hooks` installs the `.githooks` pre-commit and pre-push hooks. When a change touches `macos/`, the hooks run every suite that calls `MTLCreateSystemDefaultDevice` (`.githooks/run-metal-tests.sh`). A failure or a skipped test blocks the commit or push, because CI runners may have no GPU.
 
 ---
 
 ## Stdio MCP Protocol Verification
 
-External AI agents can drive `made` through standard I/O pipes. No automated test starts the `MadeApp` process, so the checks below are manual shell recipes. Run them from the repository root after `cd macos && swift build`:
+External AI agents can drive `made` through standard I/O pipes. No automated test starts the `MadeApp` process, so the checks below are manual shell recipes. Run them from the repository root after `make build`:
 
 ### 1. Initialize Protocol Handshake
 ```sh
@@ -82,9 +93,7 @@ echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_get_sc
 
 ## Rendering Observability Contract
 
-`RenderInstrumentation.shared` records submitted frames (`renderCount`, `drawCalls`, `lastReason`) and the viewport HUD displays them. No test reads these values yet, so Invariant 2 is not covered by automation. The intended checks, once a test can create a renderer, are:
-- At idle, `renderCount` stays flat.
-- When an object parameter changes, `renderCount` advances by one frame once the kernel job settles.
+`RenderInstrumentation.shared` records submitted frames (`renderCount`, `drawCalls`, `lastReason`) and the viewport HUD displays them. `ViewportCoordinatorTests` reads these values and asserts that `renderCount` stays flat at idle (`testRenderCountStaysFlatAtIdle`). Invariant 2 is partly covered. The remaining check is that `renderCount` advances by one frame once a kernel job settles after an object parameter change.
 
 ---
 

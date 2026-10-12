@@ -31,7 +31,7 @@ Many web and game engines use Y-up coordinates, forcing translators to swap $Y$ 
    Generates primitives directly with $Z$ as the extrusion or height axis:
    - Box: $X = \text{width}$, $Y = \text{depth}$, $Z = \text{height}$.
    - Cylinder: Base lies on $XY$ plane, height extends along $+Z$.
-2. **Metal 3 Viewport Pipeline**:
+2. **Metal 4 Viewport Pipeline**:
    The camera view matrix defines the up vector as $+Z$:
    ```swift
    let up = SIMD3<Float>(0, 0, 1)

@@ -32,21 +32,21 @@ These invariants must hold at every phase. A violation is treated as a build bre
 
 ## Enforcement Matrix
 
-Table 1 states what each invariant relies on today. "Tested" means a test in `macos/Tests/MadeCoreTests` exercises the rule. No test target covers `MetalRenderer`, `RenderInstrumentation`, or the SwiftUI views, and the package has no UI test target.
+Table 1 states what each invariant relies on today. "Tested" means a test in `macos/Tests/MadeCoreTests` exercises the rule. No test covers the SwiftUI views, and the package has no UI test target.
 
-Table 1. Enforcement status per invariant, as of 2026-10-10.
+Table 1. Enforcement status per invariant, as of 2026-10-11.
 
 | # | Status | Enforced By |
 | - | ------ | ----------- |
 | 1 | Partly tested | `KernelClient` is an `actor`, and `KernelClientTests` exercise it. No test asserts that the main thread stays free. |
-| 2 | Not tested | `MTKView.isPaused = true` and `enableSetNeedsDisplay = true` in `CADMetalViewRepresentable.swift`. Nothing in `macos/Tests` references `renderCount`, so a flat-at-idle test does not exist. Only the `model` invalidation reason is recorded today (#94). |
+| 2 | Partly tested | `MTKView.isPaused = true` and `enableSetNeedsDisplay = true` in `CADMetalViewRepresentable.swift`. `ViewportCoordinatorTests.testRenderCountStaysFlatAtIdle` asserts a flat `renderCount` at idle. The viewport records the `model`, `camera`, and `interaction` invalidation reasons. |
 | 3 | Not tested | Module separation only: `MadeCore/Scene` holds the `@Observable DocumentModel`, and `MadeCore/Viewport` holds the Metal buffers. |
-| 4 | Convention only | `KernelClientProtocol` and the wire types in `MadeCore/Kernel/Types.swift`. `MadeApp/ContentView.swift` constructs `KernelClient` and `MetalRenderer` directly. No lint rule or test enforces the boundary. |
+| 4 | Convention only | `KernelClientProtocol` and the wire types in `MadeCore/Kernel/Types.swift`. `MadeApp/WorkspaceModel.swift` constructs `KernelClient` and holds the `MetalRenderer` through the viewport manager. No lint rule or test enforces the boundary. |
 | 5 | Tested on a GPU | `MetalRendererGeometryTests` builds the Metal 4 renderer, loads the precompiled shaders, and checks an offscreen render pixel by pixel. The renderer tests skip on a device without Metal 4, such as the paravirtual GPU on hosted CI runners, and the git hooks fail on that skip. `ShaderLibraryTests` runs on any Metal device and checks the bundled shader library. The headless server has no snapshot provider (#89). |
 | 6 | Not tested | `MetalRenderer.createMesh` allocates three `.storageModeShared` buffers with `makeBuffer(bytes:length:options:)`. That call copies the `[Float]` and `[UInt32]` arrays once per upload. |
 | 7 | Partly tested | `KernelClientTests` cover the actor, the debounce, conflation, and the stale-debounce race. Several types are `@unchecked Sendable` (#91). |
-| 8 | Partly tested | `GestureArbiterTests` has three tests: single-pointer drag, two-pointer drag, and a pure tap. `PointerRouter` has no test. Nothing feeds pointer events to the router in the viewport (#87). |
-| 9 | Partly tested | `SnappingTests` has four tests for vertex over edge over grid precedence, tolerance, and grid rounding. The snapping module has no caller in `MadeApp` or the viewport (#88). |
+| 8 | Partly tested | `GestureArbiterTests` has seven tests. `CameraTests` covers the `PointerRouter` click-versus-drag threshold, scroll and magnify events, and pen routing, and `ViewportToolTests` covers tool routing. `CADMetalViewRepresentable` feeds mouse events to the router. |
+| 9 | Partly tested | `SnappingTests` has 17 tests covering vertex over edge over grid precedence, tolerance, and grid rounding. `CADMetalViewRepresentable` calls `resolveSnapAtPointer` during drags. |
 
 ---
 

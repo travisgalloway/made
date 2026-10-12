@@ -24,7 +24,7 @@ macOS App Sandbox rules restrict arbitrary standard I/O pipe inheritance and chi
 ### Mitigation
 - Provide a dual-distribution posture:
   - **Developer / CLI Build**: Distributed as an open binary or Homebrew package where `--mcp-stdio` connects directly to local AI agents (Claude Desktop, Cursor).
-  - **App Store Build**: Sandboxed GUI application utilizing Apple's native XPC services or a local loopback WebSocket endpoint for agent communication.
+  - **App Store Build**: Sandboxed GUI application utilizing Apple's native XPC services for agent communication. A TCP listener on port 9820 already exists in the GUI (`MCPServer.start`). It binds to all interfaces today, so loopback binding and sandbox entitlements are open work (DSN-f5402406, #129).
 
 ---
 
@@ -47,9 +47,15 @@ None of the following is implemented. The code applies no rounding tolerance and
 Direct manipulation with the Apple Pencil demands sub-16 ms latency. Recalculating complex CSG meshes on every stylus drag event would drop frames and cause noticeable lag.
 
 ### Mitigation
-The Apple Pencil channel is planned (#84), and the gizmo interactions are planned (#71, #72). The viewport does not receive pointer input today.
+The Apple Pencil channel is planned (#84), and the gizmo interactions are planned (#71, #72). The viewport receives mouse and trackpad input today (orbit, pan, zoom, and snapping), but Pencil input and gizmos do not exist.
 - **Two-Physics Rule (planned)**: Stylus translation drags modify only the object's rigid transform matrix ($4\times 4$) on the GPU. The geometry kernel is not called during move or rotate gestures.
 - Stylus dimension resize drags preview a GPU scale transform, then dispatch one debounced re-tessellation to the background actor on stylus lift.
+
+---
+
+## Open Decisions
+
+- #145: Project license. The license choice gates #146 and #147. Options include a permissive license, a copyleft license, or a proprietary license.
 
 ---
 
