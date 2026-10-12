@@ -6,11 +6,12 @@ The testing architecture in `made` is built on Swift Package Manager (`swift tes
 
 ## Test Suites Overview
 
-`MadeCoreTests` has 21 suites and 163 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and no test creates a SwiftUI view. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
+`MadeCoreTests` has 28 suites and 235 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and no test creates a SwiftUI view. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
 
 | Suite Name | Target Module | What It Verifies |
 | ---------- | ------------- | ---------------- |
-| **`CADDSLTests`** | `MadeCore/Scripting` | Cadova-style declarative DSL, operator overloads (`-`, `+`, `&`), and triangulation. |
+| **`CADDSLTests`** | `MadeCore/Scripting` | Cadova-style declarative DSL: the `ShapeNode` each shape, modifier, and operator (`-`, `+`, `&`) builds, and triangulation through `KernelClient`. |
+| **`ShapeEvaluationTests`** | `MadeCore/Kernel` | `evaluateShape` (#331): one request per tree, CSG off the main thread, validation limits, failure storing nothing, and conflation. |
 | **`EuclidEngineTests`** | `MadeCore/Kernel` | Pure-Swift CSG parametric primitives and watertight boolean evaluations. |
 | **`KernelClientTests`** | `MadeCore/Kernel` | Box and cylinder generation, invalid dimensions, 60-ms debounce conflation, and the stale-debounce race (#90). |
 | **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: lock on first move for one pointer, lock to navigate for two pointers, and a pure tap resolving at release. `CameraTests` covers `PointerRouter`. |

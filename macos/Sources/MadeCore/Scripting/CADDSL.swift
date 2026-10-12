@@ -1,22 +1,18 @@
 import Foundation
-import Euclid
 import simd
 
 // MARK: - Cadova-Inspired Declarative CAD DSL
 
+/// A shape that only describes geometry. The kernel builds it, through `evaluate(on:solidId:jobId:)` (invariants 1 and 4).
 public protocol CADShape: Sendable {
-    func buildMesh() -> Mesh
+    var shapeDescription: ShapeNode { get }
 }
 
 public struct CSGCompositeShape: CADShape, Sendable {
-    private let mesh: Mesh
+    public let shapeDescription: ShapeNode
     
-    public init(mesh: Mesh) {
-        self.mesh = mesh
-    }
-    
-    public func buildMesh() -> Mesh {
-        return mesh
+    public init(shapeDescription: ShapeNode) {
+        self.shapeDescription = shapeDescription
     }
 }
 
@@ -36,12 +32,9 @@ public struct Box: CADShape, Sendable {
         self.init(width: x, depth: y, height: z)
     }
     
-    public func buildMesh() -> Mesh {
-        var m = EuclidEngine.makeBox(width: width, depth: depth, height: height)
-        if offset != .zero {
-            m = m.translated(by: Vector(Double(offset.x), Double(offset.y), Double(offset.z)))
-        }
-        return m
+    public var shapeDescription: ShapeNode {
+        let node = ShapeNode.box(BoxParams(width: width, depth: depth, height: height))
+        return offset == .zero ? node : .translate(node, offset: offset)
     }
 }
 
@@ -61,12 +54,9 @@ public struct Cylinder: CADShape, Sendable {
         self.init(radius: diameter / 2.0, height: height, slices: slices)
     }
     
-    public func buildMesh() -> Mesh {
-        var m = EuclidEngine.makeCylinder(radius: radius, height: height, slices: slices)
-        if offset != .zero {
-            m = m.translated(by: Vector(Double(offset.x), Double(offset.y), Double(offset.z)))
-        }
-        return m
+    public var shapeDescription: ShapeNode {
+        let node = ShapeNode.cylinder(CylinderParams(radius: radius, height: height), slices: slices)
+        return offset == .zero ? node : .translate(node, offset: offset)
     }
 }
 
@@ -74,13 +64,11 @@ public struct Cylinder: CADShape, Sendable {
 
 extension CADShape {
     public func translated(x: Float = 0, y: Float = 0, z: Float = 0) -> CSGCompositeShape {
-        let m = self.buildMesh().translated(by: Vector(Double(x), Double(y), Double(z)))
-        return CSGCompositeShape(mesh: m)
+        CSGCompositeShape(shapeDescription: .translate(shapeDescription, offset: SIMD3(x, y, z)))
     }
     
     public func subtracting(_ other: any CADShape) -> CSGCompositeShape {
-        let result = EuclidEngine.subtract(self.buildMesh(), other.buildMesh())
-        return CSGCompositeShape(mesh: result)
+        CSGCompositeShape(shapeDescription: .boolean(.subtract, shapeDescription, other.shapeDescription))
     }
     
     public func subtracting(@CADShapeBuilder _ other: () -> any CADShape) -> CSGCompositeShape {
@@ -88,8 +76,7 @@ extension CADShape {
     }
     
     public func union(_ other: any CADShape) -> CSGCompositeShape {
-        let result = EuclidEngine.union(self.buildMesh(), other.buildMesh())
-        return CSGCompositeShape(mesh: result)
+        CSGCompositeShape(shapeDescription: .boolean(.union, shapeDescription, other.shapeDescription))
     }
     
     public func union(@CADShapeBuilder _ other: () -> any CADShape) -> CSGCompositeShape {
@@ -97,12 +84,12 @@ extension CADShape {
     }
     
     public func intersecting(_ other: any CADShape) -> CSGCompositeShape {
-        let result = EuclidEngine.intersect(self.buildMesh(), other.buildMesh())
-        return CSGCompositeShape(mesh: result)
+        CSGCompositeShape(shapeDescription: .boolean(.intersect, shapeDescription, other.shapeDescription))
     }
     
-    public func toMeshPayload() -> MeshPayload {
-        return EuclidEngine.toMeshPayload(self.buildMesh())
+    /// Sends the whole tree as one kernel request, so CSG runs on the kernel actor (invariants 1 and 4).
+    public func evaluate(on kernel: any KernelClientProtocol, solidId: SolidId, jobId: JobId = JobId(UUID().uuidString)) async -> KernelResult<MeshPayload> {
+        await kernel.request(.evaluateShape(jobId: jobId, solidId: solidId, shape: shapeDescription))
     }
 }
 

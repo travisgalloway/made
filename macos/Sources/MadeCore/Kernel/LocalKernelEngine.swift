@@ -54,6 +54,16 @@ public actor LocalKernelEngine: KernelEngine {
             solids[sId] = payload
             return .success(jobId: jobId, value: payload)
             
+        case .evaluateShape(_, let sId, let shape):
+            if let error = shape.validate() {
+                return .failure(jobId: jobId, error: error)
+            }
+            let euclid = ShapeEvaluator.mesh(for: shape)
+            euclidMeshes[sId] = euclid
+            let mesh = EuclidEngine.toMeshPayload(euclid)
+            solids[sId] = mesh
+            return .success(jobId: jobId, value: mesh)
+            
         case .tessellate(_, let sId):
             if let existing = solids[sId] {
                 return .success(jobId: jobId, value: existing)

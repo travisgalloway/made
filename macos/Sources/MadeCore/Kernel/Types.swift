@@ -121,6 +121,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case tessellate(jobId: JobId, solidId: SolidId)
     case importStep(jobId: JobId, solidId: SolidId, data: Data)
     case booleanOperation(jobId: JobId, solidId: SolidId, op: BooleanOp, solidA: SolidId, solidB: SolidId)
+    case evaluateShape(jobId: JobId, solidId: SolidId, shape: ShapeNode)
     
     public var jobId: JobId {
         switch self {
@@ -129,6 +130,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         case .tessellate(let j, _): return j
         case .importStep(let j, _, _): return j
         case .booleanOperation(let j, _, _, _, _): return j
+        case .evaluateShape(let j, _, _): return j
         }
     }
     
@@ -139,6 +141,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         case .tessellate(_, let s): return s
         case .importStep(_, let s, _): return s
         case .booleanOperation(_, let s, _, _, _): return s
+        case .evaluateShape(_, let s, _): return s
         }
     }
 }

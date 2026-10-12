@@ -148,7 +148,8 @@ let mountingBracket = Box(width: 50, depth: 50, height: 10)
     - Cylinder(radius: 6, height: 20)
     + Box(width: 10, depth: 10, height: 5).translated(x: 20)
 
-let meshPayload = mountingBracket.toMeshPayload()
+// The tree crosses to the kernel actor as one request; the DSL itself runs no CSG.
+let result = await mountingBracket.evaluate(on: kernel, solidId: SolidId("bracket"))
 ```
 
 ### DSL Features
