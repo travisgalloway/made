@@ -150,16 +150,9 @@ final class WorkspaceModel {
         }
 
         Task {
-            guard case .success(_, let payload) = await kernelClient.request(request),
-                  let renderer = viewportManager.renderer else { return }
-            var transform = obj.transform
-            if transform.position == .zero {
-                // Spreads the two demo solids apart until the document stores real positions.
-                transform.position = id == boxSolidId ? SIMD3<Float>(-25, 0, 0) : SIMD3<Float>(25, 0, 0)
-            }
-            guard let mesh = renderer.createMesh(from: payload, solidId: id, transform: transform, color: obj.material.color) else { return }
-            renderer.meshes[id] = mesh
-            if !obj.isVisible { renderer.hiddenSolidIds.insert(id) }
+            let result = await kernelClient.request(request)
+            guard let renderer = viewportManager.renderer,
+                  SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) else { return }
             invalidateViewport(.model)
         }
     }

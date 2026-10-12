@@ -83,7 +83,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-11. Source: closure
 | KERN-15 | none | none | none (no UI test target) | none | No test references this capability. The tessellate request is never issued by a test. |
 | KERN-16 | none | none | none (no UI test target) | none | No test references this capability. importStep always returns geometryFailed; the failure is untested. |
 | KERN-17 | KernelClientTests.swift: testInvalidDimensionsFailWithErrorCode, testRapidRequestsConflateToLatestValue | none | none (no UI test target) | invalidParams and cancelled | unknownSolid, geometryFailed, kernelInitFailed and workerCrashed are never asserted. |
-| KERN-18 | none | none | none (no UI test target) | none | No test references this capability. WorkspaceModel.recomputeSolid (MadeApp) keeping the old mesh on failure is untested. |
+| KERN-18 | SolidMeshApplierTests.swift (testFailedResultInstallsNothing) | none | none (no UI test target) | failed result installs nothing | The WorkspaceModel.recomputeSolid call site (MadeApp) is untested. The failure stays silent, tracked by #109. |
 | KERN-19 | none | none | none (no UI test target) | none | Capability not implemented; no test expected until built. |
 | DOC-1 | DocumentModelTests.swift: testInitialDocumentHasTwoDefaultSolids, testAddAndRemoveObject | none | none (no UI test target) | box and cylinder | The imported kind is untested. |
 | DOC-2 | DocumentModelTests.swift: testSetParamClampsWithinLimits; CADToolsTests.swift: testSetParamClampsAndUpdates | none | none (no UI test target) | below min and above max for box width | Cylinder ranges and NaN-to-minimum are untested. |
@@ -107,7 +107,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-11. Source: closure
 | UI-6 | none | none | none (no UI test target) | none | Slider binding and mm readout (InspectorPanelView) are untested. No test references this capability. |
 | UI-7 | none | none | none (no UI test target) | none | Slider binding and mm readout (InspectorPanelView) are untested. No test references this capability. |
 | UI-8 | none | none | none (no UI test target) | none | No test references this capability. |
-| UI-9 | none | none | none (no UI test target) | none | No test references this capability. WorkspaceModel.setParam and recomputeSolid (MadeApp) are untested. |
+| UI-9 | SolidMeshApplierTests.swift (testAppliesTransformSetAfterRequest, testReadsLiveColorAndVisibility, testZeroPositionGetsDemoOffset); KernelClientTests stale-result drop | none | none (no UI test target) | removal during recompute, double transform edit, parameter plus transform edit, failed result, sink allocation failure, zero-position demo offset | The slider binding and the WorkspaceModel call site (MadeApp) are untested. |
 | UI-10 | DocumentModelTests.swift: testInitialDocumentHasTwoDefaultSolids (document only) | none | none (no UI test target) | none | Mesh generation at launch (WorkspaceModel.setUp) is untested. |
 | UI-11 | removed | none | removed | none | Removed; no test expected. |
 | UI-12 | removed | none | removed | none | Removed; no test expected. |
