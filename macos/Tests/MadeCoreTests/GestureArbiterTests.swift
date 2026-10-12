@@ -125,4 +125,72 @@ import Foundation
         #expect(cancel.mode == .manipulate)
         #expect(arbiter.current().mode == nil)
     }
+    
+    private func pointer(_ id: Int, _ x: Float = 0, _ y: Float = 0) -> ArbiterPointer {
+        ArbiterPointer(pointerId: id, x: x, y: y)
+    }
+    
+    @Test func testSecondPointerJoiningLockedNavigateKeepsNavigate() {
+        let arbiter = GestureArbiter()
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        _ = arbiter.handle(.down(pointer: pointer(2)))
+        #expect(arbiter.handle(.move(pointer: pointer(1, 5, 5))) == GestureDecision(mode: .navigate, locked: true))
+        
+        #expect(arbiter.handle(.down(pointer: pointer(3))) == GestureDecision(mode: .navigate, locked: true))
+        
+        _ = arbiter.handle(.up(pointerId: 1))
+        _ = arbiter.handle(.up(pointerId: 2))
+        #expect(arbiter.handle(.up(pointerId: 3)) == GestureDecision(mode: .navigate, locked: true))
+        #expect(arbiter.current() == .undecided)
+    }
+    
+    @Test func testSecondPointerMovingFirstLocksNavigate() {
+        let arbiter = GestureArbiter()
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        _ = arbiter.handle(.down(pointer: pointer(2)))
+        #expect(arbiter.handle(.move(pointer: pointer(2, 5, 5))) == GestureDecision(mode: .navigate, locked: true))
+    }
+    
+    @Test func testSecondPointerAfterSingleTapStartsFreshGesture() {
+        let arbiter = GestureArbiter()
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        #expect(arbiter.handle(.up(pointerId: 1)).mode == .manipulate)
+        
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        _ = arbiter.handle(.down(pointer: pointer(2)))
+        #expect(arbiter.handle(.move(pointer: pointer(1, 5, 5))).mode == .navigate)
+    }
+    
+    @Test func testCancellingOnePointerKeepsLock() {
+        let arbiter = GestureArbiter()
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        _ = arbiter.handle(.down(pointer: pointer(2)))
+        _ = arbiter.handle(.move(pointer: pointer(1, 5, 5)))
+        
+        #expect(arbiter.handle(.cancel(pointerId: 2)) == GestureDecision(mode: .navigate, locked: true))
+        #expect(arbiter.current() == GestureDecision(mode: .navigate, locked: true))
+        
+        #expect(arbiter.handle(.up(pointerId: 1)).mode == .navigate)
+        #expect(arbiter.current() == .undecided)
+    }
+    
+    @Test func testMoveForUnknownPointerDoesNotLock() {
+        let arbiter = GestureArbiter()
+        #expect(arbiter.handle(.move(pointer: pointer(9, 5, 5))) == .undecided)
+        #expect(arbiter.current() == .undecided)
+        
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        _ = arbiter.handle(.down(pointer: pointer(2)))
+        #expect(arbiter.handle(.move(pointer: pointer(1, 5, 5))).mode == .navigate)
+    }
+    
+    @Test func testUpOrCancelForUnknownPointerIsIgnored() {
+        let arbiter = GestureArbiter()
+        #expect(arbiter.handle(.up(pointerId: 9)) == .undecided)
+        #expect(arbiter.handle(.cancel(pointerId: 9)) == .undecided)
+        
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        #expect(arbiter.handle(.up(pointerId: 9)) == .undecided)
+        #expect(arbiter.handle(.move(pointer: pointer(1, 5, 5))) == GestureDecision(mode: .manipulate, locked: true))
+    }
 }
