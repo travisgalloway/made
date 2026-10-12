@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/feature-matrix.md` and `docs/test-plan.md` track every capability by ID, with its status, issue, and tests.
 - `docs/reviews/` holds dated audit reports. `docs/parked-findings.md` holds findings with no ticket.
 - `docs/guides/` covers testing and conventions.
+- `docs/architecture/adr/` holds accepted architecture decision records (ADRs).
 
 ## The removed web prototype
 
@@ -122,4 +123,4 @@ All three are pure and unit-tested. `CADMetalViewRepresentable` calls them for m
 
 ## Current phase
 
-Phases 0 and 1 are complete. Phases 2 and 3 are in progress, and `docs/roadmap/phases.md` lists each open gap with its issue. Close those gaps before you declare a phase done. Phase 4 (CAD depth) is split into milestones 4.0 (architecture decisions) and 4A to 4E. Phase 4.0 records ADR-D1 to ADR-D8, which gate the B-rep, document, solver, and licensing work. Phases 5 to 8 hold the v1 and Later research items: assemblies, drawings and materials; simulation; breadth; and advanced work.
+Phases 0 and 1 are complete. Phases 2 and 3 are in progress, and `docs/roadmap/phases.md` lists each open gap with its issue. Close those gaps before you declare a phase done. Phase 4 (CAD depth) is split into milestones 4.0 (architecture decisions) and 4A to 4E. Phase 4.0 records ADR-D1 to ADR-D8, which gate the B-rep, document, and solver work. ADR-D8 is accepted: `made` is MIT-licensed, so GPL code never links in process (`docs/architecture/adr/`). Phases 5 to 8 hold the v1 and Later research items: assemblies, drawings and materials; simulation; breadth; and advanced work.

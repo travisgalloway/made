@@ -53,12 +53,6 @@ The Apple Pencil channel is planned (#84), and the gizmo interactions are planne
 
 ---
 
-## Open Decisions
-
-- #145: Project license. The license choice gates #146 and #147. Options include a permissive license, a copyleft license, or a proprietary license.
-
----
-
 ## Related Documentation
 
 - [`kernel.md`](./architecture/kernel.md): Multi-tier geometry engine

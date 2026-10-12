@@ -90,3 +90,9 @@ Nine architectural rules govern this codebase:
 ## Web Prototype (Archived Reference)
 
 The original web prototype (SvelteKit + brepjs/OpenCascade WASM + WebGPU) was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation is in [`docs/archive/web-prototype/`](docs/archive/web-prototype/README.md).
+
+---
+
+## License
+
+`made` is released under the [MIT License](LICENSE). [ADR-D8](docs/architecture/adr/ADR-D8-project-license.md) records the decision and its effect on dependencies.

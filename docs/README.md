@@ -25,6 +25,7 @@ Then navigate based on your task:
 | Checking what is built and what is planned | [feature matrix](./feature-matrix.md) |
 | Checking test coverage by type | [test plan](./test-plan.md) |
 | Reading audit findings | [reviews](./reviews/) and [parked findings](./parked-findings.md) |
+| Checking an accepted architecture decision | [ADRs](./architecture/adr/) |
 
 ---
 
@@ -69,13 +70,14 @@ macos/
     MadeCoreTests/        # 18 test suites (DSL, CSG, Kernel, Arbiter, Snapping, Document, Tools, MCP, camera, grid, axes, viewport, renderer, shader)
 docs/
   architecture/           # Canonical architecture reference specifications
+    adr/                  # Accepted architecture decision records
   roadmap/                # Phased delivery status and backlog migration audit
   guides/                 # Testing and engineering conventions
   archive/web-prototype/  # Archived documentation for original web prototype
   feature-matrix.md       # Implementation status per capability
   test-plan.md            # Test coverage by type
   parked-findings.md      # Audit findings deferred from the current scope
-  reviews/                # Audit reports (2026-10-10)
+  reviews/                # Audit reports (2026-10-10, 2026-10-11)
 ```
 
 ---
