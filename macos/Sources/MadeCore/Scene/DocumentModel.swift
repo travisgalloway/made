@@ -116,6 +116,17 @@ public enum DocumentLimits {
         default: return value
         }
     }
+
+    public static func clamp(_ def: ObjectDef) -> ObjectDef {
+        switch def {
+        case .box(let p):
+            return .box(BoxParams(width: boxWidth.clamp(p.width), depth: boxDepth.clamp(p.depth), height: boxHeight.clamp(p.height)))
+        case .cylinder(let p):
+            return .cylinder(CylinderParams(radius: cylinderRadius.clamp(p.radius), height: cylinderHeight.clamp(p.height)))
+        case .imported:
+            return def
+        }
+    }
 }
 
 public let boxSolidId = SolidId("box-1")
@@ -150,7 +161,7 @@ public final class DocumentModel: @unchecked Sendable {
     public func addObject(def: ObjectDef, transform: Transform = .identity) -> ObjectId {
         seq += 1
         let id = ObjectId("\(def.kind)-\(seq)")
-        let obj = SceneObject(id: id, def: def, transform: transform)
+        let obj = SceneObject(id: id, def: DocumentLimits.clamp(def), transform: transform)
         objects.append(obj)
         return id
     }

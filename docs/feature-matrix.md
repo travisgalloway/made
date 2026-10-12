@@ -87,7 +87,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-18 | A user can keep the previous valid mesh on screen when a kernel job fails | done | done | n/a | Shipped | #109 | n/a |
 | KERN-19 | A user can export or import STEP and IGES files, and apply B-Rep fillets, chamfers and draft angles (OCCTSwift Tier 2) | none | none | none | Planned | #82 | n/a |
 | DOC-1 | A user can have scene objects of kind box, cylinder or imported (name only) | done | done | done | Shipped |  | n/a |
-| DOC-2 | A user gets parameter values clamped to fixed ranges (box 5 to 90 mm, cylinder radius 5 to 50 mm, cylinder height 5 to 90 mm; NaN becomes the minimum) | done | done | done | Shipped | #104 | n/a |
+| DOC-2 | A user gets parameter values clamped to fixed ranges when an object is added and when a parameter is set (box 5 to 90 mm, cylinder radius 5 to 50 mm, cylinder height 5 to 90 mm; NaN becomes the minimum) | done | done | done | Shipped | #104 | n/a |
 | DOC-3 | A user sees UI panels update when the document changes (`@Observable` model) | done | n/a | done | Shipped |  | n/a |
 | DOC-4 | A user starts with a default scene of `box-1` (40x30x20 mm) and `cylinder-1` (radius 15, height 40 mm) | done | n/a | done | Shipped |  | n/a |
 | DOC-5 | An agent can add a box, cylinder or imported object and get an ID of the form `<kind>-<seq>` (first new ID is `-2`) | none | done | done | Shipped | #91 | n/a |
