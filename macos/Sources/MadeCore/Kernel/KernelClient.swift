@@ -13,6 +13,16 @@ public struct KernelStats: Sendable {
     public init() {}
 }
 
+/// Per-store entry counts. Lets tests prove dispose leaves nothing behind.
+struct KernelStoreCounts: Equatable, Sendable {
+    var solids = 0
+    var euclidMeshes = 0
+    var pendingJobs = 0
+    var activeJobs = 0
+    var cancelledJobs = 0
+    var debounceTasks = 0
+}
+
 public protocol KernelClientProtocol: Sendable {
     func request(_ request: KernelRequest) async -> KernelResult<MeshPayload>
     func cancel(jobId: JobId) async
@@ -45,9 +55,12 @@ public actor KernelClient: KernelClientProtocol {
     
     public func dispose(solidId: SolidId) async {
         solids.removeValue(forKey: solidId)
+        euclidMeshes.removeValue(forKey: solidId)
+        activeJobForSolid.removeValue(forKey: solidId)
         debounceTasks[solidId]?.cancel()
         debounceTasks.removeValue(forKey: solidId)
         if let pending = pendingJobs.removeValue(forKey: solidId) {
+            cancelledJobs.remove(pending.request.jobId)
             stats.dropped += 1
             pending.continuation.resume(returning: .failure(jobId: pending.request.jobId, error: KernelError(code: .cancelled, message: "Solid disposed")))
         }
@@ -84,6 +97,11 @@ public actor KernelClient: KernelClientProtocol {
     /// Pending job for a solid, if any. Lets tests order requests deterministically.
     func pendingJobId(for solidId: SolidId) -> JobId? {
         pendingJobs[solidId]?.request.jobId
+    }
+    
+    func storeCounts() -> KernelStoreCounts {
+        KernelStoreCounts(solids: solids.count, euclidMeshes: euclidMeshes.count, pendingJobs: pendingJobs.count,
+                          activeJobs: activeJobForSolid.count, cancelledJobs: cancelledJobs.count, debounceTasks: debounceTasks.count)
     }
     
     func executePending(for solidId: SolidId, expectedJobId: JobId) {

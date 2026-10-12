@@ -101,6 +101,92 @@ import Foundation
         #expect((result.error?.code) == .invalidParams)
     }
     
+    @Test func testDisposeMakesSolidUnknownToBoolean() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let a = SolidId("dispose-a"), b = SolidId("dispose-b")
+        await makeBox(client, a, "ja")
+        await makeBox(client, b, "jb")
+        
+        await client.dispose(solidId: a)
+        
+        let result = await client.request(.booleanOperation(jobId: JobId("jc"), solidId: SolidId("out"), op: .union, solidA: a, solidB: b))
+        #expect(result.error?.code == .unknownSolid)
+    }
+    
+    @Test func testRepeatedAddAndDisposeLeavesStoresEmpty() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        for i in 0..<20 {
+            let id = SolidId("cycle-\(i)")
+            await makeBox(client, id, "cycle-job-\(i)")
+            await client.dispose(solidId: id)
+        }
+        #expect(await client.storeCounts() == KernelStoreCounts())
+    }
+    
+    @Test func testDisposeWithPendingJobResumesCancelled() async {
+        let client = KernelClient(debounceDuration: .seconds(10))
+        let solidId = SolidId("pending-dispose")
+        let jobId = JobId("pending-job")
+        
+        let waiting = Task { await client.request(.makeBox(jobId: jobId, solidId: solidId, params: BoxParams(width: 5, depth: 5, height: 5))) }
+        await waitForPending(client, solidId, jobId)
+        await client.cancel(jobId: jobId)
+        await client.dispose(solidId: solidId)
+        
+        let result = await waiting.value
+        #expect(result.error?.code == .cancelled)
+        #expect(await client.getStats().dropped == 1)
+        #expect(await client.storeCounts() == KernelStoreCounts())
+    }
+    
+    @Test func testDisposeUnknownSolidIsNoOp() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let a = SolidId("noop-a")
+        await makeBox(client, a, "ja")
+        
+        await client.dispose(solidId: SolidId("never-seen"))
+        
+        let result = await client.request(.booleanOperation(jobId: JobId("jb"), solidId: SolidId("out"), op: .union, solidA: a, solidB: a))
+        #expect(result.isSuccess)
+        #expect(await client.storeCounts().solids == 2)
+    }
+    
+    @Test func testReAddAfterDisposeRestoresSolid() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let a = SolidId("readd-a"), b = SolidId("readd-b")
+        await makeBox(client, a, "ja")
+        await makeBox(client, b, "jb")
+        await client.dispose(solidId: a)
+        
+        let failed = await client.request(.booleanOperation(jobId: JobId("j1"), solidId: SolidId("o1"), op: .union, solidA: a, solidB: b))
+        #expect(failed.error?.code == .unknownSolid)
+        
+        await makeBox(client, a, "ja2")
+        let ok = await client.request(.booleanOperation(jobId: JobId("j2"), solidId: SolidId("o2"), op: .union, solidA: a, solidB: b))
+        #expect(ok.isSuccess)
+    }
+    
+    @Test func testDisposeDuringInFlightRequestLeavesNoCache() async {
+        let client = KernelClient(debounceDuration: .milliseconds(200))
+        let solidId = SolidId("inflight")
+        
+        let first = Task { await client.request(.makeBox(jobId: JobId("f1"), solidId: solidId, params: BoxParams(width: 5, depth: 5, height: 5))) }
+        await waitForPending(client, solidId, JobId("f1"))
+        await client.dispose(solidId: solidId)
+        #expect((await first.value).error?.code == .cancelled)
+        #expect(await client.storeCounts() == KernelStoreCounts())
+        
+        // A request landing after dispose repopulates the cache; the second dispose clears it.
+        _ = await client.request(.makeBox(jobId: JobId("f2"), solidId: solidId, params: BoxParams(width: 5, depth: 5, height: 5)))
+        await client.dispose(solidId: solidId)
+        #expect(await client.storeCounts() == KernelStoreCounts())
+    }
+    
+    private func makeBox(_ client: KernelClient, _ id: SolidId, _ job: String) async {
+        let r = await client.request(.makeBox(jobId: JobId(job), solidId: id, params: BoxParams(width: 10, depth: 10, height: 10)))
+        #expect(r.isSuccess)
+    }
+    
     private func waitForPending(_ client: KernelClient, _ solidId: SolidId, _ jobId: JobId) async {
         for _ in 0..<1_000 {
             if await client.pendingJobId(for: solidId) == jobId { return }

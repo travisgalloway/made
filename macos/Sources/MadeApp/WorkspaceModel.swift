@@ -89,6 +89,7 @@ final class WorkspaceModel {
 
     func removeObject(_ id: ObjectId) {
         document.removeObject(id: id)
+        Task { await kernelClient.dispose(solidId: id) }
         viewportManager.renderer?.meshes.removeValue(forKey: id)
         if selectedId == id { selectedId = document.objects.first?.id }
         log(.info, "Scene", "Removed object \(id.rawValue)")
@@ -151,6 +152,11 @@ final class WorkspaceModel {
 
         Task {
             let result = await kernelClient.request(request)
+            // The solid was removed while the request was in flight; release what it repopulated.
+            guard document.objects.contains(where: { $0.id == id }) else {
+                await kernelClient.dispose(solidId: id)
+                return
+            }
             guard let renderer = viewportManager.renderer,
                   SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) else { return }
             invalidateViewport(.model)

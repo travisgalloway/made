@@ -79,7 +79,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-10 | A user gets non-positive box or cylinder dimensions rejected with `invalidParams` | n/a | done | n/a | Shipped |  | n/a |
 | KERN-11 | An agent can cancel a job by ID before it executes | n/a | done | n/a | In progress |  | n/a |
 | KERN-12 | A user gets a superseded in-flight result dropped (honest cancellation); the check at :175 compares an ID set synchronously at :107, so only the conflation path at :61 takes effect | n/a | done | n/a | In progress |  | n/a |
-| KERN-13 | An agent can dispose a solid's cached payload and pending job | n/a | done | done | In progress | #93 | n/a |
+| KERN-13 | A user or agent can dispose a solid's cached payloads, active job, and pending job | n/a | done | done | Shipped | #93 | n/a |
 | KERN-14 | A developer can read dispatched, conflated, dropped and completed job counters | n/a | done | n/a | In progress |  | n/a |
 | KERN-15 | A user can re-fetch a solid's cached mesh with a tessellate request | n/a | done | done | In progress |  | n/a |
 | KERN-16 | A user can import a STEP file (`importStep`); the request always fails with `geometryFailed` "pending OpenCASCADE bridge" | none | none | n/a | In progress | #38 | n/a |
@@ -91,7 +91,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-3 | A user sees UI panels update when the document changes (`@Observable` model) | done | n/a | done | Shipped |  | n/a |
 | DOC-4 | A user starts with a default scene of `box-1` (40x30x20 mm) and `cylinder-1` (radius 15, height 40 mm) | done | n/a | done | Shipped |  | n/a |
 | DOC-5 | An agent can add a box, cylinder or imported object and get an ID of the form `<kind>-<seq>` (first new ID is `-2`) | none | done | done | Shipped | #91 | n/a |
-| DOC-6 | An agent can remove an object by ID; the GUI now removes through the Navigator, but the kernel cache is not freed (`dispose` has no caller) | none | done | done | In progress | #91, #93, #73 | n/a |
+| DOC-6 | An agent can remove an object by ID; removal through the Navigator or `cad_remove_solid` frees the kernel cache; renderer mesh pruning is tracked in #73 | none | done | done | In progress | #91, #93, #73 | n/a |
 | DOC-7 | A user or agent can set a named parameter on a box or cylinder (unknown keys and imported objects are ignored silently) | done | done | done | Shipped | #91 | n/a |
 | DOC-8 | An agent can set an object's world position; the Inspector also writes scale; `rotation` has no writer and the renderer applies only translation | none | done | done | In progress | #91, #71 | n/a |
 | DOC-9 | A user can give objects a name and a visibility flag | done | done | done | Shipped |  | n/a |
