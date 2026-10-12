@@ -126,7 +126,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         do {
             Self.pipelineBuildLock.lock()
             defer { Self.pipelineBuildLock.unlock() }
-            let library = try device.makeDefaultLibrary(bundle: .module)
+            let library = try Self.makeShaderLibrary(device: device)
             let compiler = try device.makeCompiler(descriptor: MTL4CompilerDescriptor())
             self.solidPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "cadFragmentShader")
             self.linePipeline = try Self.makePipeline(compiler, library, vertex: "gridVertexShader", fragment: "gridFragmentShader")
@@ -164,6 +164,18 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
         setupAxes()
         setupSnapMarker()
         queue.addResidencySet(residency)
+    }
+
+    /// Shader entry points the renderer links; tests check the bundled library against this list.
+    public static let shaderFunctionNames = [
+        "cadVertexShader", "cadFragmentShader",
+        "gridVertexShader", "gridFragmentShader",
+        "billboardVertexShader", "billboardFragmentShader"
+    ]
+
+    /// Loads the build-time `default.metallib` from the MadeCore resource bundle. Works on any Metal device.
+    public static func makeShaderLibrary(device: MTLDevice) throws -> MTLLibrary {
+        try device.makeDefaultLibrary(bundle: .module)
     }
 
     private static func makePipeline(

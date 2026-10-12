@@ -202,7 +202,7 @@ import simd
         #expect(closeProjected > projectedSizes[0], "Close zoom increases apparent size naturally")
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testMetalRendererAxesIntegration() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testMetalRendererAxesIntegration() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -222,7 +222,7 @@ import simd
         #expect(updatedSnapshot != nil)
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testOriginHiddenBehindSolidSnapshot() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testOriginHiddenBehindSolidSnapshot() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -251,7 +251,7 @@ import simd
         #expect([UInt8](data.prefix(8)) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testSnapshotLookingAlongEachAxis() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testSnapshotLookingAlongEachAxis() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -275,7 +275,7 @@ import simd
         }
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testSnapshotViaCADToolsIncludesAxes() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testSnapshotViaCADToolsIncludesAxes() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         

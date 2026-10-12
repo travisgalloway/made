@@ -80,7 +80,7 @@ import Metal
         #expect(manager.renderer == nil)
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testDeviceLostAfterLaunchTransition() throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testDeviceLostAfterLaunchTransition() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -106,7 +106,7 @@ import Metal
         #expect(manager.renderer == nil)
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testDeviceLostViaNotification() throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testDeviceLostViaNotification() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         

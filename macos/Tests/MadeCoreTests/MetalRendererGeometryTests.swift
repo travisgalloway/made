@@ -10,7 +10,7 @@ import ImageIO
     private let width = 800
     private let height = 600
 
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testBoxRendersInsideItsProjectedBounds() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testBoxRendersInsideItsProjectedBounds() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
 
@@ -51,7 +51,7 @@ import ImageIO
         #expect(Double(inside) > (0.5 * Double(bounds.width * bounds.height)), "box covers too little of its projected bounds")
     }
 
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testBoxShowsItsTopFaceToACameraAbove() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testBoxShowsItsTopFaceToACameraAbove() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         renderer.updateGrid(size: 0)

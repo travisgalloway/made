@@ -101,7 +101,7 @@ import simd
         #expect(empty2.lineCount == 0)
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testMetalRendererGridIntegration() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testMetalRendererGridIntegration() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -122,7 +122,7 @@ import simd
         #expect(updatedSnapshot != nil)
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testCameraBelowPlaneSnapshot() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testCameraBelowPlaneSnapshot() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -139,7 +139,7 @@ import simd
         #expect([UInt8](data.prefix(8)) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testSolidsRestingOnGroundPlaneSnapshot() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testSolidsRestingOnGroundPlaneSnapshot() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -172,7 +172,7 @@ import simd
         #expect([UInt8](data.prefix(8)) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testSnapshotViaCADTools() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testSnapshotViaCADTools() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
@@ -197,7 +197,7 @@ import simd
         #expect([UInt8](data.prefix(8)) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
     
-    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testDefaultSceneWithSolidsAndGridSnapshot() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testDefaultSceneWithSolidsAndGridSnapshot() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         
