@@ -30,6 +30,11 @@ struct MadeApp: App {
         .commands {
             SidebarCommands()
             InspectorCommands()
+            #if DEBUG
+            CommandMenu("Debug") {
+                Button("Fail Next Recompute") { workspace.failNextRecompute() }
+            }
+            #endif
         }
 
         Window("Model Context Protocol", id: MCPServerView.windowId) {

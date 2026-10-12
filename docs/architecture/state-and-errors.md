@@ -34,7 +34,9 @@ public struct KernelError: Error, Equatable, Sendable {
 If an engineer enters an extreme or invalid dimension (e.g., width = 0), `KernelClient` rejects the job with `.invalidParams`.
 - The viewport does not clear the mesh.
 - The previous valid 3D geometry remains on screen.
-- Planned (#109): the Inspector shows a message when a kernel recompute fails. `WorkspaceModel.recomputeSolid` returns silently on a failed request and shows no warning today. The slider ranges in `DocumentLimits` keep most degenerate values out of the kernel.
+- The Inspector's Dimensions section shows a warning row for the failed solid, naming its ID and the error code (`RecomputeFailures`). The console records the same line at error level. The next successful recompute of that solid, or its removal, clears the row.
+- A `.cancelled` result produces no message and keeps any earlier failure visible, because a newer job is already pending.
+- The slider ranges in `DocumentLimits` keep most degenerate values out of the kernel. A debug build can force the next recompute to fail with Debug > Fail Next Recompute (`FaultInjectingKernelClient`).
 
 ### 2. Honest Cancellation Handling
 When a job is cancelled due to rapid slider scrubbing:

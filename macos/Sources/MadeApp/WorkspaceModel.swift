@@ -7,13 +7,20 @@ import os
 @MainActor
 final class WorkspaceModel {
     let document = DocumentModel()
-    let kernelClient = KernelClient()
+    #if DEBUG
+    private let faultInjector = FaultInjectingKernelClient(wrapping: KernelClient())
+    var kernelClient: any KernelClientProtocol { faultInjector }
+    #else
+    let kernelClient: any KernelClientProtocol = KernelClient()
+    #endif
     let viewportManager = ViewportStateManager()
 
     var selectedId: ObjectId? = boxSolidId
     var coordinator: CADMetalViewRepresentable.Coordinator?
     private(set) var renderStats = RenderStats()
     var activeSnapKind: SnapKind?
+    /// Last failed recompute per solid, shown in the Inspector (invariant 3: panels only).
+    private(set) var recomputeFailures = RecomputeFailures()
 
     // Layout
     var columnVisibility: NavigationSplitViewVisibility = .all
@@ -90,6 +97,7 @@ final class WorkspaceModel {
     func removeObject(_ id: ObjectId) {
         document.removeObject(id: id)
         Task { await kernelClient.dispose(solidId: id) }
+        recomputeFailures.clear(id)
         viewportManager.renderer?.meshes.removeValue(forKey: id)
         if selectedId == id { selectedId = document.objects.first?.id }
         log(.info, "Scene", "Removed object \(id.rawValue)")
@@ -136,6 +144,7 @@ final class WorkspaceModel {
         let remaining = Set(new.map(\.id))
         for obj in old where !remaining.contains(obj.id) {
             viewportManager.renderer?.meshes.removeValue(forKey: obj.id)
+            recomputeFailures.clear(obj.id)
             invalidateViewport(.model)
         }
     }
@@ -157,11 +166,24 @@ final class WorkspaceModel {
                 await kernelClient.dispose(solidId: id)
                 return
             }
+            // A failure leaves the previous mesh installed; only the message changes.
+            if let message = recomputeFailures.record(result, for: id) {
+                log(.error, "Kernel", message)
+            }
             guard let renderer = viewportManager.renderer,
                   SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) else { return }
             invalidateViewport(.model)
         }
     }
+
+    #if DEBUG
+    /// Forces the next recompute of any solid to fail, so the failure message can be checked by hand.
+    func failNextRecompute() {
+        let code = KernelErrorCode.invalidParams
+        Task { await faultInjector.failNextRequest(with: code) }
+        log(.info, "Kernel", "Next recompute will fail with \(code.rawValue)")
+    }
+    #endif
 
     // MARK: - Viewport
 
