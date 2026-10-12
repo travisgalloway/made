@@ -47,6 +47,46 @@ import Foundation
         }
     }
     
+    @Test func testAddSolidClampsOutOfRangeBox() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let args: [String: AnyCodableValue] = [
+            "type": .string("box"),
+            "width": .double(500),
+            "depth": .double(-3),
+            "height": .double(20)
+        ]
+        let result = await registry.callTool(name: "cad_add_solid", arguments: args)
+        #expect(result.isError == false)
+        if case .box(let p) = doc.objects.last?.def {
+            #expect(p.width == 90)
+            #expect(p.depth == 5)
+            #expect(p.height == 20)
+        } else {
+            Issue.record("Expected box solid")
+        }
+    }
+
+    @Test func testAddSolidCreatesClampedCylinder() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let args: [String: AnyCodableValue] = [
+            "type": .string("cylinder"),
+            "radius": .double(0),
+            "height": .double(200)
+        ]
+        let result = await registry.callTool(name: "cad_add_solid", arguments: args)
+        #expect(result.isError == false)
+        if case .cylinder(let p) = doc.objects.last?.def {
+            #expect(p.radius == 5)
+            #expect(p.height == 90)
+        } else {
+            Issue.record("Expected cylinder solid")
+        }
+    }
+
     @Test func testSetParamClampsAndUpdates() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))

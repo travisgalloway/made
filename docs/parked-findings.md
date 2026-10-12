@@ -65,3 +65,5 @@ The list holds 57 parked findings, in source order and unranked. Format: ID, fil
 - UX-6c264994 | macos/Sources/MadeApp/ContentView.swift:78 | The MCP toolbar button shows the running state by color only, and the label does not change. | ux U1
 - [2026-10-12] `macos/Sources/MadeCore/Agent/CADTools.swift:331`, `handleBooleanOperation` caches its result under a `csg-xxxxxx` ID but registers the document object under a different ID, so removing that object never disposes the cache entry. Found while working on #93. Severity, low.
 - [2026-10-12] `macos/Sources/MadeCore/Kernel/KernelClient.swift:43`, `cancel(jobId:)` inserts into `cancelledJobs` even for a job that never reaches `executePending`, so the entry is never removed. Found while working on #93. Severity, low.
+- [2026-10-12] `macos/Sources/MadeCore/Agent/CADTools.swift:234`, `cad_set_param` echoes the raw input value and reports success for unknown keys. Found while working on #104. Severity, low.
+- [2026-10-12] `macos/Sources/MadeCore/Kernel/KernelClient.swift:135`, the kernel rejects values at or below zero but accepts NaN. Found while working on #104. Severity, low.

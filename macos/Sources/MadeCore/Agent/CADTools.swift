@@ -193,19 +193,13 @@ public final class CADToolRegistry: @unchecked Sendable {
             let w = arguments["width"]?.floatValue ?? 40.0
             let d = arguments["depth"]?.floatValue ?? 30.0
             let h = arguments["height"]?.floatValue ?? 20.0
-            let params = BoxParams(
-                width: DocumentLimits.boxWidth.clamp(w),
-                depth: DocumentLimits.boxDepth.clamp(d),
-                height: DocumentLimits.boxHeight.clamp(h)
-            )
+            // The document model clamps to DocumentLimits.
+            let params = BoxParams(width: w, depth: d, height: h)
             id = document.addObject(def: .box(params), transform: transform)
         } else if type == "cylinder" {
             let r = arguments["radius"]?.floatValue ?? 15.0
             let h = arguments["height"]?.floatValue ?? 40.0
-            let params = CylinderParams(
-                radius: DocumentLimits.cylinderRadius.clamp(r),
-                height: DocumentLimits.cylinderHeight.clamp(h)
-            )
+            let params = CylinderParams(radius: r, height: h)
             id = document.addObject(def: .cylinder(params), transform: transform)
         } else {
             return .error("Unsupported solid type '\(type)'. Supported: 'box', 'cylinder'")
