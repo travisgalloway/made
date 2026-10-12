@@ -131,7 +131,7 @@ public final class CADToolRegistry: @unchecked Sendable {
             return handleSetTransform(arguments: arguments)
             
         case "cad_remove_solid":
-            return handleRemoveSolid(arguments: arguments)
+            return await handleRemoveSolid(arguments: arguments)
             
         case "cad_measure":
             return handleMeasure(arguments: arguments)
@@ -252,7 +252,7 @@ public final class CADToolRegistry: @unchecked Sendable {
         return .text("Updated transform for solid '\(idStr)' to position (\(transform.position.x), \(transform.position.y), \(transform.position.z))")
     }
     
-    private func handleRemoveSolid(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+    private func handleRemoveSolid(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
         guard let idStr = arguments["id"]?.stringValue else {
             return .error("Missing required argument 'id'")
         }
@@ -262,6 +262,7 @@ public final class CADToolRegistry: @unchecked Sendable {
         }
         
         document.removeObject(id: id)
+        await kernelClient.dispose(solidId: id)
         return .text("Removed solid '\(idStr)' from scene")
     }
     

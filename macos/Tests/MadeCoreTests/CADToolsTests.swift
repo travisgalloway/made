@@ -95,4 +95,32 @@ import Foundation
         #expect(doc.objects.count == 1)
         #expect(!doc.objects.contains(where: { $0.id == boxSolidId }))
     }
+    
+    @Test func testRemoveSolidReleasesKernelCache() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let box = await kernel.request(.makeBox(jobId: JobId("jb"), solidId: boxSolidId, params: BoxParams(width: 40, depth: 30, height: 20)))
+        let cyl = await kernel.request(.makeCylinder(jobId: JobId("jc"), solidId: cylinderSolidId, params: CylinderParams(radius: 15, height: 40)))
+        #expect(box.isSuccess && cyl.isSuccess)
+        
+        _ = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string("box-1")])
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: [
+            "solidA": .string("box-1"), "solidB": .string("cylinder-1"), "operation": .string("union")
+        ])
+        
+        #expect(result.isError == true)
+        #expect(result.content.first?.text?.contains("not found") == true)
+    }
+    
+    @Test func testRemoveUnknownSolidReturnsError() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        let result = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string("nope")])
+        
+        #expect(result.isError == true)
+        #expect(doc.objects.count == 2)
+    }
 }

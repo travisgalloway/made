@@ -63,3 +63,5 @@ The list holds 57 parked findings, in source order and unranked. Format: ID, fil
 - UX-2413dcfc | macos/Sources/MadeApp/ConsoleDrawerView.swift:18 | Clear Console Logs runs at once with no confirmation. The impact is low, since logs are diagnostic. | ux U1
 - UX-c45e9d6c | macos/Sources/MadeApp/NavigatorSidebarView.swift:1 | The UI names the scene entity object, solid, and Scene Outline in different places, and the console three ways. | ux U1
 - UX-6c264994 | macos/Sources/MadeApp/ContentView.swift:78 | The MCP toolbar button shows the running state by color only, and the label does not change. | ux U1
+- [2026-10-12] `macos/Sources/MadeCore/Agent/CADTools.swift:331`, `handleBooleanOperation` caches its result under a `csg-xxxxxx` ID but registers the document object under a different ID, so removing that object never disposes the cache entry. Found while working on #93. Severity, low.
+- [2026-10-12] `macos/Sources/MadeCore/Kernel/KernelClient.swift:43`, `cancel(jobId:)` inserts into `cancelledJobs` even for a job that never reaches `executePending`, so the entry is never removed. Found while working on #93. Severity, low.
