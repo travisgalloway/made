@@ -59,6 +59,10 @@ Not covered by `swift test`:
 - The stdio pipeline. No test starts `MadeApp --mcp-stdio`. The shell recipes in [`testing.md`](../guides/testing.md) are manual.
 - `cad_capture_snapshot`, in either mode.
 
+## Planned: File-Edit Agent Workflow (Mac MVP)
+
+In the Mac MVP, external agents edit part source files directly, in the style of [brepjs](https://brepjs.dev/agent/overview). The running app reloads each saved file (#427). Agents then inspect app state over MCP on the loopback listener: diagnostics with file and line, an explicit reload, verification against an `expected` block, and snapshots from named views (#428). A Claude Code plugin skill teaches the edit, reload, verify, and repair loop (#429). The script runtime (#148) and the file layout (#149) gate this work. In-app agents on Apple's models wait for V2.
+
 ## Open Issues
 
 | Issue | Topic |
@@ -69,3 +73,4 @@ Not covered by `swift test`:
 | #97, #98, #99 | Argument validation for `cad_set_param`, transform and size, and booleans |
 | #100 | Boolean result ID unusable by other tools |
 | #101 | Messages larger than one read chunk |
+| #427, #428, #429 | File-edit agent workflow: reload, inspection tools, and the plugin skill |

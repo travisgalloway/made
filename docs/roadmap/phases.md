@@ -17,7 +17,7 @@ Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). T
 | **0** | Native Foundation | Complete | None | None. |
 | **1** | Metal 4 Viewport & Input | Complete | Phase 1: Metal 3 Viewport & Input (closed; milestone title predates Metal 4) | None. |
 | **2** | Native CSG Kernel | In progress | Phase 2: Native CSG Kernel | Kernel cache not freed on removal (#93); recompute overwrites a transform (#92); parameter clamping (#104); recompute failure message (#109). |
-| **3** | Agentic Subsystem | In progress | Phase 3: Agentic Subsystem & MCP | Headless snapshot (#89); actor isolation (#91); protocol and argument validation (#95 to #101). |
+| **3** | Agentic Subsystem | In progress | Phase 3: Agentic Subsystem & MCP | Headless snapshot (#89); actor isolation (#91); protocol and argument validation (#95 to #101); the file-edit agent workflow (#427 to #429). |
 | **4.0** | Architecture Decisions | Not started | Phase 4.0: Architecture Decisions | Open decisions listed in the architecture documents. |
 | **4A** | Native Scene & Interaction Foundation | In progress | Phase 4A | Issues #66, #67, #69 to #73. |
 | **4B** | B-Rep Engine, STEP Exchange & Document Persistence | Not started | Phase 4B | Held in the milestone. |
@@ -28,6 +28,7 @@ Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). T
 | **6** | Simulation (CAE) Foundations | Not started | Phase 6 | Held in the milestone. |
 | **7** | Breadth | Not started | Phase 7 | Held in the milestone. |
 | **8** | Advanced | Not started | Phase 8 | Held in the milestone. |
+| **V2** | macOS 27 and In-App Apple Models | Not started | V2: macOS 27 and In-App Apple Models | Held in the milestone. |
 
 ---
 
@@ -114,6 +115,9 @@ Widens the product to more design domains and platforms. Scope covers sheet meta
 
 ## Phase 8: Advanced (Not started)
 Adds advanced analysis and team workflows. Scope covers nonlinear analysis, computational fluid dynamics (CFD), optimization, and collaboration. Phase 8 also holds the App Store path (#419). Swift reimplementations in `libs/` replace the GPL solver and mesher (#415 to #417). App Store builds keep OCCT, with a Swift B-rep engine as the fallback (#418, #420 to #424). [ADR-D8](../architecture/adr/ADR-D8-project-license.md) records the plan.
+
+## V2: macOS 27 and In-App Apple Models (Not started)
+The second major version targets the macOS 27 and iPadOS 27 frameworks (#430). It adds an in-app agent on Apple's Foundation Models, similar to the agentic features in Xcode (#432). The agent uses the same CAD tools as MCP (#431). Quick edits run on the on-device model, and longer requests run on Apple's Private Cloud Compute model. An evaluation set measures accuracy (#433), and users may bring a partner model such as Claude (#434). The free-form Copilot item (#155) moved here.
 
 ---
 
