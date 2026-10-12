@@ -95,4 +95,4 @@ The original web prototype (SvelteKit + brepjs/OpenCascade WASM + WebGPU) was re
 
 ## License
 
-`made` is released under the [MIT License](LICENSE). [ADR-D8](docs/architecture/adr/ADR-D8-project-license.md) records the decision and its effect on dependencies.
+Copyright (C) 2026 Travis Galloway. `made` is released under the [GNU Lesser General Public License, version 2.1 or later](LICENSE) (`LGPL-2.1-or-later`). [ADR-D8](docs/architecture/adr/ADR-D8-project-license.md) records the decision and its effect on dependencies.
