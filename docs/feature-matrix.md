@@ -108,7 +108,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-6 | A user can set cylinder radius from the inspector slider | done | n/a | n/a | Shipped | #106 | n/a |
 | UI-7 | A user can set cylinder height (Z) from the inspector slider | done | n/a | n/a | Shipped | #106 | n/a |
 | UI-8 | A user can see an imported solid's name in the inspector (read-only) | done | n/a | n/a | Shipped |  | n/a |
-| UI-9 | A user sees the changed solid re-tessellated and redrawn after a slider change (solids at zero position are drawn at x = -25 for `box-1` and +25 otherwise) | done | n/a | n/a | Shipped | #92, #94 | n/a |
+| UI-9 | A user sees the changed solid re-tessellated and redrawn after a slider change, using the solid's current transform, color and visibility; a solid removed during the recompute stays removed (solids at zero position are drawn at x = -25 for `box-1` and +25 otherwise) | done | n/a | n/a | Shipped | #92, #94 | n/a |
 | UI-10 | A user sees the initial two-solid scene generated at launch | done | n/a | n/a | Shipped |  | n/a |
 | UI-11 | A user can type a prompt in the Copilot field and send it with Return or the send button (disabled when empty) | none | n/a | n/a | Deprecated | #105, #107 | n/a |
 | UI-12 | A user can read the Copilot transcript with user bubbles, assistant bubbles, a tool badge and auto-scroll | none | n/a | n/a | Deprecated |  | n/a |
