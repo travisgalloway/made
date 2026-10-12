@@ -27,6 +27,11 @@ Version 2.1 matches OCCT. The "or later" clause keeps LGPL-3.0 code compatible.
 - LGPL-2.1 code, such as OCCT and OCCTSwift (#82), can link into `made` statically or dynamically. The `made` source stays available under the LGPL, so users can rebuild and relink the combined app. A static `OCCT.xcframework` is therefore acceptable.
 - LGPL code from other projects, such as FreeCAD planegcs (#146), can link in process on the same terms.
 - GPL code in process would make each distributed `made` binary subject to the GPL. SolveSpace's solver (GPLv3) is therefore excluded for #146, unless a later ADR accepts that.
-- GPL solvers and meshers, such as CalculiX, run as separate executables driven by input files (#147). Bundling one still requires its license text and source offer.
+- GPL solvers and meshers, such as CalculiX and Gmsh, run as separate executables driven by input and result files (#147).
+- Release builds bundle those executables in `MadeApp.app/Contents/Helpers/` (#413). Each one is signed and notarized, and ships with its license text. Each GPL binary also needs its corresponding source, published or offered in writing. The bundled GPL programs likely rule out the Mac App Store (#254).
 - A binary release must ship the LGPL text and the license notices of every bundled library.
 - Each new dependency records its license in the pull request that adds it.
+
+## Deferred
+
+Swift ports or reimplementations of third-party solvers, kept in a separate `libs/` directory, were discussed on 2026-10-12 and deferred. A port keeps the license of its source, so only MIT, BSD, or LGPL code, or code written from published papers and specifications, could link into `made`.
