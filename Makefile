@@ -1,6 +1,8 @@
 .PHONY: all help setup build build-tests test run run-mcp clean ci-local hooks
 
 PKG_PATH := macos
+# Swift Build compiles Shaders.metal; the native build system (the Swift 6.3 default) only copies it.
+SWIFT_FLAGS := --package-path $(PKG_PATH) --build-system swiftbuild
 
 all: build
 
@@ -17,23 +19,23 @@ help:
 	@echo "  make hooks          Install the pre-commit and pre-push hooks that run the Metal test suites"
 
 build:
-	swift build --package-path $(PKG_PATH)
+	swift build $(SWIFT_FLAGS)
 
 build-tests:
-	swift build --package-path $(PKG_PATH) --build-tests
+	swift build $(SWIFT_FLAGS) --build-tests
 
 test:
 ifdef FILTER
-	swift test --package-path $(PKG_PATH) --filter $(FILTER)
+	swift test $(SWIFT_FLAGS) --filter $(FILTER)
 else
-	swift test --package-path $(PKG_PATH)
+	swift test $(SWIFT_FLAGS)
 endif
 
 run:
-	swift run --package-path $(PKG_PATH) MadeApp
+	swift run $(SWIFT_FLAGS) MadeApp
 
 run-mcp:
-	swift run --package-path $(PKG_PATH) MadeApp --mcp-stdio
+	swift run $(SWIFT_FLAGS) MadeApp --mcp-stdio
 
 clean:
 	swift package --package-path $(PKG_PATH) clean

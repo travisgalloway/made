@@ -17,7 +17,7 @@ fi
 
 log=$(mktemp -t "made-$hook") || exit 1
 echo "$hook: running Metal suites ($suites)"
-swift test --package-path macos --filter "^MadeCoreTests\.($suites)/" >"$log" 2>&1
+swift test --package-path macos --build-system swiftbuild --filter "^MadeCoreTests\.($suites)/" >"$log" 2>&1
 status=$?
 
 # Swift Testing colours its output and prefixes lines with SF Symbols, so match on plain text only.

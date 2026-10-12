@@ -41,12 +41,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: macos/.build
-          key: spm-v4-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+          key: spm-v5-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
           restore-keys: |
-            spm-v4-${{ runner.os }}-
+            spm-v5-${{ runner.os }}-
 
+      # Swift Build compiles Shaders.metal into default.metallib; the native build system only copies it.
       - name: Build
-        run: swift build --build-tests
+        run: swift build --build-system swiftbuild --build-tests
 
       - name: Test
-        run: swift test --skip-build
+        run: swift test --build-system swiftbuild --skip-build
