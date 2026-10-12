@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 150 capabilities with their implementation status. The matrix shows 88 Shipped, 44 In progress, 12 Planned, and 6 Deprecated rows.
+Table 1 lists 151 capabilities with their implementation status. The matrix shows 90 Shipped, 43 In progress, 12 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -54,6 +54,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | VIEW-23 | A user sees an "Initializing Metal 4" progress view, and a "Metal Unavailable" message with the reason (no device, pipeline failed, device lost) when Metal 4 cannot start or the device is removed | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-24 | A developer can force the no-GPU path with `--force-no-gpu`, `--no-gpu`, `--disable-metal`, or `MADE_FORCE_NO_GPU` and `MADE_DISABLE_METAL` | n/a | done | n/a | Shipped |  | n/a |
 | VIEW-25 | A developer can switch the renderer to an orthographic projection with `MetalRenderer.projectionMode`; no caller sets it and no UI control existss | none | done | n/a | In progress | #128 | n/a |
+| VIEW-26 | A maintainer gets a failing swift test run when a Viewport file references an Agent or Scene type | n/a | n/a | n/a | Shipped | #317 | n/a |
 | INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift; `GestureArbiter` is reached only by the `.touch` path of `PointerRouter`, and the macOS view feeds only `.mouse` and `.pen` events | done | done | n/a | In progress | #87 | n/a |
 | INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | done | done | n/a | In progress | #87 | n/a |
 | INPUT-3 | A user can use Apple Pencil input that always routes to manipulate and never to navigate; the macOS view reuses the `.pen` channel for non-navigating mouse drags (A/CADMetalViewRepresentable.swift:247), and no Pencil source exists | none | done | n/a | In progress | #87 | n/a |

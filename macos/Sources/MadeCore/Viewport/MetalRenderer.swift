@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 import os
 
 /// Metal 4 renderer for the CAD viewport (invariant 5). Draws on demand only (invariant 2).
-public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @unchecked Sendable {
+public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     public let device: MTLDevice
     public let commandQueue: MTL4CommandQueue
 

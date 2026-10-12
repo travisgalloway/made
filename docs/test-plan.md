@@ -4,9 +4,9 @@ Date: 2026-10-11
 Scope: macos/ (Swift package, test target MadeCoreTests)
 Audit run: 20261011-195134
 
-The plan covers 150 capabilities. The MadeCoreTests target holds 24 Swift Testing files and one shared support file, with 186 tests, and every file imports MadeCore. The audit did not run `swift test`, so pass and fail status is unobserved.
+The plan covers 151 capabilities. The MadeCoreTests target holds 25 Swift Testing files and one shared support file, with 192 tests. Every file except `LayeringTests.swift`, which reads source files only, imports MadeCore. The audit did not run `swift test`, so pass and fail status is unobserved.
 
-Of the 150 capabilities, 87 have at least one unit or integration reference. Another 45 wired or partial capabilities have no reference of any kind. The remaining 18 are 12 claimed-only capabilities, which need no test until built, and 6 removed capabilities.
+Of the 151 capabilities, 98 have at least one unit or integration reference, and the 6 Deprecated rows are among them. Another 41 Shipped or In progress capabilities have no reference of any kind. The remaining 12 are claimed-only capabilities, which need no test until built.
 
 The audit found `KernelClientTests.testRapidRequestsConflateToLatestValue` flaky and a race in `KernelClient.executePending` (DSN-efe60d18). #90 fixed both. The test now enqueues requests in a fixed order, and `testStaleDebounceDoesNotStrandNewerRequest` covers the race.
 
@@ -53,6 +53,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-11. Source: closure
 | VIEW-23 | ViewportStateTests.swift: testInitialStateIsInitializing, testNoDevicePathProducesUnavailableNoDevice, testDeviceLostAfterLaunchTransition, testViewportStateDescriptions | none | none (no UI test target) | each unavailable reason text | The SwiftUI views (ViewportCanvasView.swift:65) are untested; only the state and status strings. |
 | VIEW-24 | ViewportStateTests.swift: testForceNoGPUSeam | none | none (no UI test target) | seam forces nil device | Argument and environment parsing (ViewportState.swift:78, :81, :85) is not tested; the test sets the static seam directly. |
 | VIEW-25 | CameraTests.swift: testMakeOrthographicProjection; CameraFramingTests.swift (orthographic half-extents at line 44) | none | none (no UI test target) | none | MetalRenderer.projectionMode (MetalRenderer.swift:83, :380) is not asserted. |
+| VIEW-26 | LayeringTests.swift: viewportReferencesNoAgentOrSceneType, scanIsNotBlind, checkerFlagsAForbiddenName, checkerIgnoresCommentsAndStrings, checkerIgnoresSubstrings, checkerCollectsAttributedAndModifiedDeclarations | none | n/a | Names inside `//`, nested `/* */`, string, and `"""` literals are ignored; substring tokens are ignored; attributed and modified top-level declarations are collected and nested ones are not; an empty Viewport scan or a missing forbidden name fails; `Shaders.metal` is not scanned. | Agent-to-Viewport and other layer pairs are not checked. |
 | INPUT-1 | GestureArbiterTests.swift: testSinglePointerDragLocksManipulateOnMove, testTwoPointersLockNavigateOnMove, testSecondPointerJoiningLockedGestureDoesNotChangeMode, testPointersDroppingInLockedNavigateDoesNotChangeMode, testCancelledGestureResetsArbiter | none | none (no UI test target) | lock holds when pointers join or drop; cancel resets | Arbiter has no caller in MadeApp; no wiring test. |
 | INPUT-2 | GestureArbiterTests.swift: testPureTapDecidesAtReleaseUsingPeakCount, testSinglePointerPureTapDecidesManipulateAtRelease | none | none (no UI test target) | peak 1 and peak 2 taps | None at unit level; no caller in MadeApp. |
 | INPUT-3 | CameraTests.swift: testPointerRouterPenAlwaysManipulate | none | none (no UI test target) | pen move locks manipulate | The macOS view reuse path is untested. |

@@ -34,13 +34,13 @@ These invariants must hold at every phase. A violation is treated as a build bre
 
 Table 1 states what each invariant relies on today. "Tested" means a test in `macos/Tests/MadeCoreTests` exercises the rule. No test covers the SwiftUI views, and the package has no UI test target.
 
-Table 1. Enforcement status per invariant, as of 2026-10-11.
+Table 1. Enforcement status per invariant, as of 2026-10-12.
 
 | # | Status | Enforced By |
 | - | ------ | ----------- |
 | 1 | Partly tested | `KernelClient` and the engines are actors, and `KernelClientTests` exercise them. In the bundled app, geometry runs in the kernel XPC service; `KernelXPCTests` cover the crash, retry, breaker, and terminate paths against an in-process listener. No test asserts that the main thread stays free. |
 | 2 | Partly tested | `MTKView.isPaused = true` and `enableSetNeedsDisplay = true` in `CADMetalViewRepresentable.swift`. `ViewportCoordinatorTests.testRenderCountStaysFlatAtIdle` asserts a flat `renderCount` at idle. The viewport records the `model`, `camera`, and `interaction` invalidation reasons. |
-| 3 | Not tested | Module separation only: `MadeCore/Scene` holds the `@Observable DocumentModel`, and `MadeCore/Viewport` holds the Metal buffers. |
+| 3 | Tested | `LayeringTests` fails `swift test` when a file in `MadeCore/Viewport` references a type declared at top level in `MadeCore/Agent` or `MadeCore/Scene`. The forbidden names are read from those sources, so a new type is covered without a test edit. `Transform` lives in `MadeCore/Kernel`. The `SolidMeshSink` and `SnapshotProvider` conformances of `MetalRenderer` are declared in `Scene/MetalRenderer+SolidMeshSink.swift` and `Agent/MetalRenderer+SnapshotProvider.swift`. `MadeCore/Scene` holds the `@Observable DocumentModel`, and `MadeCore/Viewport` holds the Metal buffers. |
 | 4 | Partly tested | `KernelClientProtocol` and the `Codable` wire types in `MadeCore/Kernel/Types.swift`. `KernelXPCTests.testRequestRoundTripsEveryCase` round-trips every request through the XPC wire encoding, which carries no Euclid type. `MadeApp/WorkspaceModel.swift` constructs `KernelClient.makeDefault()`. No lint rule enforces the boundary. |
 | 5 | Tested on a GPU | `MetalRendererGeometryTests` builds the Metal 4 renderer, loads the precompiled shaders, and checks an offscreen render pixel by pixel. The renderer tests skip on a device without Metal 4, such as the paravirtual GPU on hosted CI runners, and the git hooks fail on that skip. `ShaderLibraryTests` runs on any Metal device and checks the bundled shader library. The headless server has no snapshot provider (#89). |
 | 6 | Partly tested | `MeshStorageTests` check page alignment and the `xpc_shmem` round trip, and `KernelXPCTests.testBoxRoundTripsThroughService` checks a mesh crossing the service boundary. `MetalRenderer.createMesh` copies each mapped component once with `makeBuffer(bytes:length:options:)` into a `.storageModeShared` buffer; `MetalRendererGeometryTests` renders the result. |

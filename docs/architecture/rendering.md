@@ -105,7 +105,7 @@ The viewport draws a ground grid on Z = 0 (#102) with 10 mm pitch matching snapT
 
 For autonomous AI agents and local copilot workflows, numerical CAD parameters are insufficient to verify aesthetics, clearance, and topology. Agents require visual feedback.
 
-`MetalRenderer` implements the [`SnapshotProvider`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L4) protocol, which is declared in `Agent/CADTools.swift`, not in the renderer file:
+`MetalRenderer` implements the [`SnapshotProvider`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L4) protocol, which is declared in `Agent/CADTools.swift`. The conformance is declared in [`Agent/MetalRenderer+SnapshotProvider.swift`](../../macos/Sources/MadeCore/Agent/MetalRenderer+SnapshotProvider.swift), so no Viewport file names an Agent type (invariant 3):
 
 ```swift
 public protocol SnapshotProvider: AnyObject, Sendable {
