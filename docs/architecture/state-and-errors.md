@@ -34,7 +34,7 @@ public struct KernelError: Error, Equatable, Sendable {
 If an engineer enters an extreme or invalid dimension (e.g., width = 0), `KernelClient` rejects the job with `.invalidParams`.
 - The viewport does not clear the mesh.
 - The previous valid 3D geometry remains on screen.
-- Planned (#109): the Inspector shows a message when a kernel recompute fails. `ContentView.swift` has no warning indicator today. The slider ranges in `DocumentLimits` keep most degenerate values out of the kernel.
+- Planned (#109): the Inspector shows a message when a kernel recompute fails. `WorkspaceModel.recomputeSolid` returns silently on a failed request and shows no warning today. The slider ranges in `DocumentLimits` keep most degenerate values out of the kernel.
 
 ### 2. Honest Cancellation Handling
 When a job is cancelled due to rapid slider scrubbing:

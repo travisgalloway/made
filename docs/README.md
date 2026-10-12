@@ -25,6 +25,7 @@ Then navigate based on your task:
 | Checking what is built and what is planned | [feature matrix](./feature-matrix.md) |
 | Checking test coverage by type | [test plan](./test-plan.md) |
 | Reading audit findings | [reviews](./reviews/) and [parked findings](./parked-findings.md) |
+| Checking an accepted architecture decision | [ADRs](./architecture/adr/) |
 
 ---
 
@@ -32,15 +33,15 @@ Then navigate based on your task:
 
 | Concern | Implementation Choice |
 | ------- | --------------------- |
-| **Language** | Swift 6 (`swift-tools-version: 6.0`, Swift 6 language mode) |
+| **Language** | Swift 6 (`swift-tools-version: 6.2`, Swift 6 language mode) |
 | **UI Framework** | SwiftUI (macOS 26+; iPadOS is planned, #84) |
 | **3D Rendering** | Metal 4, MetalKit (`MTKView`), MSL shaders compiled at build time |
 | **Memory Architecture** | Metal buffers allocated with `.storageModeShared`; mesh arrays are copied in at upload |
 | **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) |
 | **Geometry Kernel (Tier 2)** | Planned, not in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) |
-| **Agent Interface** | Model Context Protocol (JSON-RPC 2.0 stdio transport) |
+| **Agent Interface** | Model Context Protocol (JSON-RPC 2.0 over stdio and local TCP on port 9820) |
 | **CAD Scripting DSL** | Cadova-inspired declarative Swift (`@resultBuilder`) |
-| **Testing** | Swift Package Manager (`swift test`), XCTest |
+| **Testing** | Swift Package Manager (`swift test`), Swift Testing (`@Test`) |
 
 ---
 
@@ -60,19 +61,23 @@ macos/
       Platform/           # AppKit / UIKit platform abstraction shims
     MadeApp/              # Application executable target
       MadeApp.swift       # SwiftUI @main entrypoint & --mcp-stdio handler
-      ContentView.swift   # Viewport, inspector controls, AI copilot sidebar
+      ContentView.swift   # NavigationSplitView and toolbar
+      WorkspaceModel.swift, WorkspaceTypes.swift # Window state, selection, MCP server control
+      NavigatorSidebarView.swift, InspectorPanelView.swift, ViewportCanvasView.swift # Navigator, inspector, viewport header and HUD
+      ConsoleDrawerView.swift, MCPServerPopoutView.swift # Console drawer and MCP window
       CADMetalViewRepresentable.swift # MTKView representable (AppKit; UIKit branch is not built)
   Tests/
-    MadeCoreTests/        # 8 unit test suites (DSL, CSG, Kernel, Arbiter, Snapping, Document, Tools, MCP)
+    MadeCoreTests/        # 18 test suites (DSL, CSG, Kernel, Arbiter, Snapping, Document, Tools, MCP, camera, grid, axes, viewport, renderer, shader)
 docs/
   architecture/           # Canonical architecture reference specifications
+    adr/                  # Accepted architecture decision records
   roadmap/                # Phased delivery status and backlog migration audit
   guides/                 # Testing and engineering conventions
   archive/web-prototype/  # Archived documentation for original web prototype
   feature-matrix.md       # Implementation status per capability
   test-plan.md            # Test coverage by type
   parked-findings.md      # Audit findings deferred from the current scope
-  reviews/                # Audit reports (2026-10-10)
+  reviews/                # Audit reports (2026-10-10, 2026-10-11)
 ```
 
 ---

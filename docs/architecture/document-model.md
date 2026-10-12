@@ -19,6 +19,7 @@ The document model in `made` is the single source of truth for all 3D scene obje
 │   • removeObject(id:)                                  │
 │   • setParam(id:key:value:)                            │
 │   • setTransform(id:transform:)                        │
+│   • setName / setVisibility / setLocked / setMaterial  │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Reactive Bindings        │ Async Invalidation
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
@@ -36,8 +37,12 @@ Every entity in the scene graph is represented by a `SceneObject`:
 ```swift
 public struct SceneObject: Identifiable, Sendable, Equatable {
     public let id: ObjectId              // typealias for SolidId
+    public var name: String
     public var def: ObjectDef            // .box, .cylinder, .imported(name:)
     public var transform: Transform      // position, rotation, scale
+    public var isVisible: Bool
+    public var isLocked: Bool
+    public var material: MaterialAttributes
 }
 
 public enum ObjectDef: Sendable, Equatable {
@@ -47,7 +52,7 @@ public enum ObjectDef: Sendable, Equatable {
 }
 ```
 
-Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model has no object name, visibility flag, or boolean-result type. Selection is a `@State var selectedId` in `ContentView`, not part of the model (#69).
+Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model stores an object name, a visibility flag, a lock flag, and material attributes, but it has no boolean-result type. Selection is `WorkspaceModel.selectedId` in `MadeApp`, not part of the model (#69).
 
 ### Supported Object Types
 1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).
@@ -79,6 +84,8 @@ document.setTransform(id: boxId, transform: t)
 document.removeObject(id: boxId)
 ```
 
+The model also exposes `setName(id:name:)`, `setVisibility(id:isVisible:)`, `setLocked(id:isLocked:)`, and `setMaterial(id:material:)`. The Navigator calls the first three. No caller uses `setMaterial` yet, and no edit path enforces `isLocked`.
+
 ### Limits Clamping
 `DocumentLimits` in `DocumentModel.swift` clamps parameter updates made through `setParam` to fixed ranges (a NaN value becomes the minimum):
 
@@ -100,6 +107,15 @@ Planned (#83): the document model integrates with Apple's `FileDocument` protoco
   - `document.json`: Serialized scene graph hierarchy, parameters, and transforms.
   - `history.json`: Parametric feature tree and undo/redo operations.
   - `assets/`: Embedded STEP/IGES binary data for imported components.
+
+---
+
+## Open Decisions
+
+These questions have no decision yet. Each links to an architecture decision record (ADR) by issue number.
+
+- #143: Feature list paradigm. Options include a parametric feature history, direct modeling, or a hybrid of both.
+- #149: Encoding of the `.made` document. Options include a JSON package bundle, a binary container, or another format. Part source files must stay readable text that agents edit directly ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #427).
 
 ---
 

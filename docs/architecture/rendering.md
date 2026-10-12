@@ -32,7 +32,7 @@ Every render call increments telemetry tracked in [`RenderInstrumentation`](../.
 - `drawCalls`: Number of distinct mesh draw primitives issued in the last pass.
 - `lastReason`: The invalidation trigger responsible for the frame.
 
-This telemetry is exposed in the SwiftUI HUD in the viewport corner. No automated test reads `renderCount`, so the flat-at-idle behavior is not yet tested. Only the `model` reason is recorded today (#94).
+This telemetry is exposed in the SwiftUI HUD in the viewport corner. `ViewportCoordinatorTests.testRenderCountStaysFlatAtIdle` reads `renderCount` to check the flat-at-idle behavior. The viewport records the `model`, `camera`, and `interaction` reasons.
 
 ---
 
@@ -90,11 +90,14 @@ let vertexBuffer = device.makeBuffer(
 Every position and normal buffer is tightly packed at 12 bytes per vertex. The vertex shaders therefore read them as `packed_float3`, because MSL `float3` has a 16-byte stride. Euclid emits counter-clockwise triangles, so the solid pass sets `setFrontFacing(.counterClockwise)` before it enables back-face culling. `MetalRendererGeometryTests` renders a box offscreen and checks both rules against its pixels.
 
 ### Shading & Lighting Model
-Shaders are written in Metal Shading Language (MSL) in [`MetalShaders.swift`](../../macos/Sources/MadeCore/Viewport/MetalShaders.swift):
+Shaders are written in Metal Shading Language (MSL) in [`Shaders.metal`](../../macos/Sources/MadeCore/Viewport/Shaders.metal):
 - **Vertex Shader**: Transforms vertices by `modelMatrix`, `viewMatrix`, and `projectionMatrix`, and transforms normals to world space with `normalMatrix`.
 - **Fragment Shader**: Evaluates Lambertian diffuse shading from two directional lights (key weight 0.7, fill weight 0.3) plus a 0.25 ambient term. It has no specular term. Blinn-Phong highlights are not implemented.
 
 The viewport draws a ground grid on Z = 0 (#102) with 10 mm pitch matching snapToGrid, and a labelled XYZ axes indicator at the origin (#103).
+
+### Camera
+`Camera` in `Camera.swift` holds a position, a target, and distance and pitch limits. It provides orbit, pan, and zoom operations, plus view presets (perspective, top, front, right, isometric) and a perspective or orthographic projection. `CameraFraming.swift` computes `SceneBounds` and frames the camera on the scene. `ViewportTool` (select, orbit, pan, zoom) chooses what a drag does. Camera input from the viewport invalidates it with the `camera` reason.
 
 ---
 
@@ -110,7 +113,7 @@ public protocol SnapshotProvider: AnyObject, Sendable {
 }
 ```
 
-The GUI wires the renderer into the tool registry (`ContentView.swift`). The `--mcp-stdio` mode builds its registry without a provider, so `cad_capture_snapshot` returns an error there (#89).
+The GUI wires the renderer into the tool registry (`WorkspaceModel.swift`). The `--mcp-stdio` mode builds its registry without a provider, so `cad_capture_snapshot` returns an error there (#89).
 
 ### Execution Flow
 1. An agent calls the `cad_capture_snapshot` MCP tool.

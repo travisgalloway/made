@@ -18,36 +18,36 @@ The following 10 issues were created for the web-based PWA architecture (service
 | **#33** | Phase 3.6: Install prompt via beforeinstallprompt | Retired. Native desktop app distribution. |
 | **#46** | Deferred: Threaded OCCT (SharedArrayBuffer + cross-origin isolation) | Retired. Replaced by Swift 6 concurrency and Grand Central Dispatch; no browser COOP/COEP restrictions. |
 | **#49** | Phase 3.7: Code-split renderer and kernel out of initial bundle | Retired. Replaced by modular Swift packages (`MadeCore` and `MadeApp`). |
-| **#50** | Deferred: Render-in-worker (OffscreenCanvas) | Retired. Replaced by native Metal 3 on-demand rendering and an offscreen snapshot pass. |
+| **#50** | Deferred: Render-in-worker (OffscreenCanvas) | Retired. Replaced by native Metal 4 on-demand rendering and an offscreen snapshot pass. |
 | **#76** | Phase 3.8: IndexedDB persistence | Retired. Replaced by the planned native `.made` file format (#83). No persistence exists today. |
 
 ---
 
 ## 2. Phase 4 CAD Depth Issues (Modernized for Native)
 
-The following issues represent core CAD features that remain open and have been reframed for Swift 6, Metal 3, and SwiftUI. All are open on GitHub. None is delivered. The last column states what the code does today:
+The following issues represent core CAD features that remain open and have been reframed for Swift 6, Metal 4, and SwiftUI. All are open on GitHub. None is delivered. The last column states what the code does today:
 
 | Issue # | Modernized Title | Native Implementation Target |
 | ------- | ---------------- | ---------------------------- |
 | **#34** | Feature tree UI in SwiftUI | SwiftUI `OutlineGroup` or hierarchical list bound to `DocumentModel`. |
 | **#35** | Boolean operations and fillets | CSG booleans in `EuclidEngine` + topological fillets in `OCCTSwift`. |
-| **#36** | 2D sketching layer | Interactive 2D sketch plane in Metal 3 using Euclid path extrusion. |
+| **#36** | 2D sketching layer | Interactive 2D sketch plane in Metal 4 using Euclid path extrusion. |
 | **#37** | 2D constraint solver | On-the-fly geometric constraint inference engine in pure Swift. |
 | **#38** | STEP import/export bridge | ISO 10303 STEP exchange via `SecondMouseAU/OCCTSwift`. |
 | **#39** | Undo/redo on DocumentModel | Integration with system `UndoManager` wrapping command mutations. |
-| **#40** | Selection outline shader | Metal 3 stencil buffer and post-processing outline pipeline. |
+| **#40** | Selection outline shader | Metal 4 stencil buffer and post-processing outline pipeline. |
 | **#41** | Predictive command palette | Context-aware SwiftUI action surface reacting to selected sub-elements. |
 | **#42** | Contextual radial menu | Radial touch gesture menu for iPadOS pencil/touch interaction. |
 | **#43** | Widget-less constrained transforms | Gesture-driven axis constraints backed by `Snapping.swift`. |
 | **#44** | Dimension by selection | Dynamic numeric overlays on selected vertices, edges, and faces. |
 | **#45** | View snapping | Double-tap / gesture face alignment to square the Metal camera. |
 | **#66** | Multi-object scene generalization | Open. `DocumentModel` holds an array of objects and `MetalRenderer` draws several meshes. Generalizing the scene (positions, per-object rotation and scale) is not done. |
-| **#67** | Parametric panel adaptation | Open. The `ContentView` Inspector has slider controls for the active solid. Numeric fields are not built. |
-| **#69** | Selection model state | Open. `ContentView` keeps a `@State selectedId`, set by a menu picker. The document has no selection state and the viewport has no picking. |
-| **#70** | Selection-driven inspector | Open. The Inspector follows the picker choice. Typed dimension and position fields are not built. |
-| **#71** | Gizmo write-back (move/rotate) | Metal 3 transform handles writing to `DocumentModel.setTransform`. |
+| **#67** | Parametric panel adaptation | Open. The Inspector (`InspectorPanelView.swift`) has sliders for dimensions and numeric fields for position and scale. Numeric dimension fields are not built. |
+| **#69** | Selection model state | Open. `WorkspaceModel.selectedId` holds the selection, set by the Navigator list. The document has no selection state and the viewport has no picking. |
+| **#70** | Selection-driven inspector | Open. The Inspector follows the Navigator selection. Typed dimension fields are not built. |
+| **#71** | Gizmo write-back (move/rotate) | Metal 4 transform handles writing to `DocumentModel.setTransform`. |
 | **#72** | Gizmo resize with GPU preview | Scale matrix preview during drag, single debounced kernel tessellation on release. |
-| **#73** | Add / remove objects | Open. `addObject` and `removeObject` exist and run only through agent tools. The GUI has no add or remove control, and the Geometry menu items have empty actions. |
+| **#73** | Add / remove objects | Open. `addObject` and `removeObject` run through agent tools and through the Navigator Add menu and Delete action (`NavigatorSidebarView.swift`). |
 
 ---
 
@@ -71,7 +71,7 @@ The following new engineering epics were created on GitHub. All are open:
 
 4. **#85: Epic: Interactive Cadova-Style Swift CAD Scripting REPL**
    - Live script reload: watching `.swift` CAD scripts and re-rendering on save.
-   - Swift syntax highlighting and auto-completion in the Copilot sidebar.
+   - Swift syntax highlighting and auto-completion in the console or MCP pane (placement open).
 
 
 ---
@@ -88,7 +88,7 @@ The active backlog is organized into seven sequential milestones. The first thre
 
 | Milestone | Scope | Issues |
 | --------- | ----- | ------ |
-| Phase 1: Metal 3 Viewport & Input (9) | Camera navigation, snapping, grid, axes, redraw reasons. | #87, #88, #94, #102, #103, #108 |
+| Phase 1: Metal 4 Viewport & Input (9) | Camera navigation, snapping, grid, axes, redraw reasons. | #87, #88, #94, #102, #103, #108 |
 | Phase 2: Native CSG Kernel (10) | Cache lifetime, recompute races, parameter clamping. | #92, #93, #104, #109 |
 | Phase 3: Agentic Subsystem & MCP (11) | Protocol validation, tool argument errors, headless snapshot, actor isolation. | #89, #91, #95 to #101, #105, #107 |
 | Phase 4A: Native Scene & Interaction Foundation (5) | Scene generalization, selection, inspector, gizmos. | #40, #45, #66, #67, #69 to #73, #106 |

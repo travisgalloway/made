@@ -32,7 +32,7 @@ The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the c
                └───────────┬──────────────┘
                            │ MeshPayload (Positions, Normals, Indices)
 ┌──────────────────────────▼─────────────────────────────┐
-│             Metal 3 Viewport (GPU Shared)              │
+│             Metal 4 Viewport (GPU Shared)              │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -106,6 +106,17 @@ A request that arrives while an earlier request for the same solid is still wait
 2. `cancel(jobId:)` adds the job to `cancelledJobs`. `executePending` checks that set before it calls the engine.
 3. After the engine returns, `KernelClient` compares `activeJobForSolid[solidId]` with the job ID (line 162). The engine call is synchronous inside the actor, so this check seldom differs; the conflation path is the effective guard (see the feature matrix, KERN-12).
 4. `dispose(solidId:)` removes the solid's cached payload and pending job but not its Euclid mesh (#93).
+
+---
+
+## Open Decisions
+
+These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by issue number.
+
+- #142: Canonical kernel. Options include OpenCASCADE through OCCTSwift and other B-Rep kernels. The interface must stay engine-neutral, because App Store builds may need a Swift B-rep engine as a fallback (#418).
+- #144: Topological naming. Options include persistent identifiers on faces and edges, geometric matching, or a kernel-native scheme.
+- #245: Kernel XPC (inter-process communication) isolation. Options are an in-process actor, as today, or a separate XPC service.
+- #247: Fate of Euclid once a canonical kernel exists. Options are to keep it as a lightweight tier, to demote it to tests, or to remove it.
 
 ---
 

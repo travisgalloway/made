@@ -1,9 +1,26 @@
 # Phase 4: CAD Depth
 
-**Status**: Not started. No Phase 4 issue is closed.  
+**Status**: In progress. No Phase 4 issue is closed.  
 **Package Targets**: `MadeCore`, `MadeApp`
 
 Phase 4 expands `made` from a parametric primitive viewer with agentic capabilities into a full-featured Computer-Aided Design application. It builds on the N-object [`DocumentModel`](../../macos/Sources/MadeCore/Scene/DocumentModel.swift), the [`KernelClient`](../../macos/Sources/MadeCore/Kernel/KernelClient.swift) actor, and the [`MetalRenderer`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift).
+
+---
+
+## Milestone Layout
+
+Phase 4 splits into six milestones. [`phases.md`](./phases.md) gives the goal of each milestone and of Phases 5 to 8, and the GitHub milestones hold the issues.
+
+| Milestone | Name |
+| --------- | ---- |
+| Phase 4.0 | Architecture Decisions |
+| Phase 4A | Native Scene & Interaction Foundation |
+| Phase 4B | B-Rep Engine, STEP Exchange & Document Persistence |
+| Phase 4C | 2D Sketching & Constraint Solver |
+| Phase 4D | Pencil Precision, Contextual UI & Agent REPL |
+| Phase 4E | Part Features & MVP Exchange |
+
+Phase 4.0 records the open decisions that gate the milestones after it.
 
 ---
 
@@ -48,7 +65,7 @@ The document model holds an ordered array of objects with `addObject`, `removeOb
 ## 4. Interaction & Direct Manipulation
 
 - **4.7 3D Transform Gizmos in Metal** (#71, #72):
-  - Visual translation axes, rotation rings, and scale handles rendered directly in the Metal 3 viewport.
+  - Visual translation axes, rotation rings, and scale handles rendered directly in the Metal 4 viewport.
   - **Two-Physics Rule**: Move/rotate updates the world transform directly without kernel re-tessellation. Resize previews a GPU scale matrix during drag, dispatching exactly one debounced re-tessellation upon release.
 - **4.8 Contextual Predictive Commands** (#41, #42, #43, #44):
   - Selecting an edge surfaces fillet/chamfer options; selecting a face surfaces sketch or push-pull tools.
