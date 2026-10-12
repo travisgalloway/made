@@ -1,220 +1,106 @@
 import SwiftUI
 import MadeCore
 
-public struct NavigatorSidebarView: View {
-    @Bindable var document: DocumentModel
-    @Binding var selectedId: ObjectId
-    var onAddObject: (ObjectDef) -> Void
-    var onToggleVisibility: (ObjectId) -> Void
-    var onToggleLock: (ObjectId) -> Void
-    var onDeleteObject: (ObjectId) -> Void
-    
-    @State private var filterText: String = ""
-    
-    public init(
-        document: DocumentModel,
-        selectedId: Binding<ObjectId>,
-        onAddObject: @escaping (ObjectDef) -> Void,
-        onToggleVisibility: @escaping (ObjectId) -> Void,
-        onToggleLock: @escaping (ObjectId) -> Void,
-        onDeleteObject: @escaping (ObjectId) -> Void
-    ) {
-        self.document = document
-        self._selectedId = selectedId
-        self.onAddObject = onAddObject
-        self.onToggleVisibility = onToggleVisibility
-        self.onToggleLock = onToggleLock
-        self.onDeleteObject = onDeleteObject
-    }
-    
-    public var body: some View {
-        VStack(spacing: 0) {
-            // Header Bar
-            HStack(spacing: 6) {
-                Image(systemName: "cube.transparent")
-                    .foregroundColor(.accentColor)
-                    .font(.system(size: 13))
+struct NavigatorSidebarView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    @State private var filterText = ""
+
+    var body: some View {
+        @Bindable var workspace = workspace
+
+        List(selection: $workspace.selectedId) {
+            Section {
+                ForEach(filteredObjects) { obj in
+                    row(for: obj).tag(obj.id)
+                }
+            } header: {
                 Text("Scene Outline")
-                    .font(.system(size: 12, weight: .semibold))
+                    .badge(filteredObjects.count)
+            }
+        }
+        .listStyle(.sidebar)
+        .searchable(text: $filterText, placement: .sidebar, prompt: "Filter")
+        .overlay {
+            if filteredObjects.isEmpty {
+                ContentUnavailableView.search(text: filterText)
+            }
+        }
+        .contextMenu(forSelectionType: ObjectId.self) { ids in
+            if let id = ids.first, let obj = workspace.document.objects.first(where: { $0.id == id }) {
+                Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
+                Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
+                Divider()
+                Button("Delete", role: .destructive) { workspace.removeObject(id) }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Menu("Add", systemImage: "plus") {
+                    Button("Box Solid", systemImage: "shippingbox") {
+                        workspace.addObject(.box(BoxParams(width: 30, depth: 30, height: 30)))
+                    }
+                    Button("Cylinder Solid", systemImage: "cylinder") {
+                        workspace.addObject(.cylinder(CylinderParams(radius: 12, height: 35)))
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .menuIndicator(.hidden)
+                .fixedSize()
                 Spacer()
-                Text("\(filteredObjects.count)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.12))
-                    .cornerRadius(4)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color(NSColor.controlBackgroundColor))
-            
-            Divider()
-            
-            // Objects List
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    if filteredObjects.isEmpty {
-                        Text("No matching objects")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 16)
-                            .padding(.horizontal, 12)
-                    } else {
-                        ForEach(filteredObjects) { obj in
-                            objectRow(for: obj)
-                        }
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 6)
-            }
-            
-            Divider()
-            
-            // Bottom Filter & Add Bar
-            HStack(spacing: 6) {
-                Menu {
-                    Button("Add Box Solid") {
-                        onAddObject(.box(BoxParams(width: 30, depth: 30, height: 30)))
-                    }
-                    Button("Add Cylinder Solid") {
-                        onAddObject(.cylinder(CylinderParams(radius: 12, height: 35)))
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.primary)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 24)
-                
-                HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    TextField("Filter", text: $filterText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 11))
-                    if !filterText.isEmpty {
-                        Button {
-                            filterText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color(NSColor.textBackgroundColor))
-                .cornerRadius(5)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.2), lineWidth: 1))
             }
             .padding(8)
-            .background(Color(NSColor.windowBackgroundColor))
         }
-        .frame(minWidth: 200, maxWidth: 300)
-        .background(Color(NSColor.controlBackgroundColor))
     }
-    
-    // MARK: - Row View
-    
-    private func objectRow(for obj: SceneObject) -> some View {
-        let isSelected = (obj.id == selectedId)
-        
-        return HStack(spacing: 6) {
-            // Primitive Type Icon
-            Image(systemName: iconFor(def: obj.def))
-                .font(.system(size: 12))
-                .foregroundColor(isSelected ? .white : colorFor(def: obj.def))
-                .frame(width: 16)
-            
-            // Entity Name and ID
-            VStack(alignment: .leading, spacing: 1) {
-                Text(obj.name)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    .foregroundColor(isSelected ? .white : .primary)
-                    .lineLimit(1)
-                Text(obj.id.rawValue)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
+
+    private func row(for obj: SceneObject) -> some View {
+        HStack {
+            Label {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(obj.name)
+                    Text(obj.id.rawValue)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: icon(for: obj.def))
+                    .foregroundStyle(tint(for: obj.def))
             }
-            
             Spacer()
-            
-            // Visibility Toggle
-            Button {
-                onToggleVisibility(obj.id)
-            } label: {
-                Image(systemName: obj.isVisible ? "eye.fill" : "eye.slash")
-                    .font(.system(size: 11))
-                    .foregroundColor(isSelected ? .white : (obj.isVisible ? .secondary : .red))
+            Button(obj.isVisible ? "Hide object" : "Show object",
+                   systemImage: obj.isVisible ? "eye.fill" : "eye.slash") {
+                workspace.toggleVisibility(obj.id)
             }
-            .buttonStyle(.plain)
+            .labelStyle(.iconOnly)
+            .foregroundStyle(obj.isVisible ? Color.secondary : Color.red)
             .help(obj.isVisible ? "Hide object" : "Show object")
-            
-            // Lock Toggle
-            Button {
-                onToggleLock(obj.id)
-            } label: {
-                Image(systemName: obj.isLocked ? "lock.fill" : "lock.open")
-                    .font(.system(size: 11))
-                    .foregroundColor(isSelected ? .white : (obj.isLocked ? .orange : .secondary.opacity(0.6)))
+            Button(obj.isLocked ? "Unlock object" : "Lock object",
+                   systemImage: obj.isLocked ? "lock.fill" : "lock.open") {
+                workspace.toggleLock(obj.id)
             }
-            .buttonStyle(.plain)
+            .labelStyle(.iconOnly)
+            .foregroundStyle(obj.isLocked ? Color.orange : Color.secondary)
             .help(obj.isLocked ? "Unlock object" : "Lock object")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            isSelected ? Color.accentColor : Color.clear
-        )
-        .cornerRadius(6)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            selectedId = obj.id
-        }
-        .contextMenu {
-            Button("Focus in Viewport") {
-                selectedId = obj.id
-            }
-            Button(obj.isVisible ? "Hide" : "Show") {
-                onToggleVisibility(obj.id)
-            }
-            Button(obj.isLocked ? "Unlock" : "Lock") {
-                onToggleLock(obj.id)
-            }
-            Divider()
-            Button("Delete", role: .destructive) {
-                onDeleteObject(obj.id)
-            }
-        }
+        .buttonStyle(.borderless)
     }
-    
-    // MARK: - Helpers
-    
+
     private var filteredObjects: [SceneObject] {
-        if filterText.trimmingCharacters(in: .whitespaces).isEmpty {
-            return document.objects
-        }
-        return document.objects.filter {
-            $0.name.localizedCaseInsensitiveContains(filterText) ||
-            $0.id.rawValue.localizedCaseInsensitiveContains(filterText)
+        let query = filterText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return workspace.document.objects }
+        return workspace.document.objects.filter {
+            $0.name.localizedCaseInsensitiveContains(query) || $0.id.rawValue.localizedCaseInsensitiveContains(query)
         }
     }
-    
-    private func iconFor(def: ObjectDef) -> String {
+
+    private func icon(for def: ObjectDef) -> String {
         switch def {
         case .box: return "shippingbox.fill"
         case .cylinder: return "cylinder.fill"
         case .imported: return "cube.transparent"
         }
     }
-    
-    private func colorFor(def: ObjectDef) -> Color {
+
+    private func tint(for def: ObjectDef) -> Color {
         switch def {
         case .box: return .blue
         case .cylinder: return .orange

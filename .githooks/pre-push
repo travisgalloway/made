@@ -1,0 +1,29 @@
+#!/bin/sh
+# Blocks a push of macOS changes while a Metal-backed test fails or skips, including commits made with --no-verify.
+
+zero=0000000000000000000000000000000000000000
+bypass="git push --no-verify"
+needs_tests=0
+head=$(git rev-parse HEAD) || exit 1
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue  # branch deletion pushes no code
+
+    # Only the commits that no remote has yet are new in this push.
+    changed=$(git rev-list "$local_sha" --not --remotes | while read -r c; do git diff-tree --no-commit-id --name-only -r "$c"; done) || {
+        echo "pre-push: cannot list the commits in this push" >&2
+        exit 1
+    }
+    printf '%s\n' "$changed" | grep -qE '^(macos/|Makefile$|\.githooks/)' || continue
+
+    # The tests run against the working tree, so it must match the commit being pushed.
+    if [ "$local_sha" != "$head" ] || ! git diff --quiet HEAD -- macos; then
+        echo "pre-push: $local_ref is not the clean checkout, so the tests cannot verify it." >&2
+        echo "Check out $local_ref and stash local macos/ changes, or bypass deliberately with: $bypass" >&2
+        exit 1
+    fi
+    needs_tests=1
+done
+
+[ "$needs_tests" -eq 1 ] || exit 0
+exec "$(git rev-parse --show-toplevel)/.githooks/run-metal-tests.sh" pre-push "$bypass"

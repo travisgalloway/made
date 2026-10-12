@@ -1,10 +1,10 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "MadeNative",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v26)
     ],
     products: [
         .library(
@@ -25,7 +25,8 @@ let package = Package(
             dependencies: [
                 .product(name: "Euclid", package: "Euclid")
             ],
-            path: "Sources/MadeCore"
+            path: "Sources/MadeCore",
+            resources: [.process("Viewport/Shaders.metal")]
         ),
         .executableTarget(
             name: "MadeApp",

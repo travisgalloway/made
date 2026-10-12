@@ -1,8 +1,9 @@
-import XCTest
+import Testing
+import Foundation
 @testable import MadeCore
 
-final class KernelClientTests: XCTestCase {
-    func testMakeBoxGeneratesIndexedTriangles() async {
+@Suite struct KernelClientTests {
+    @Test func testMakeBoxGeneratesIndexedTriangles() async {
         let client = KernelClient(debounceDuration: .milliseconds(5))
         let solidId = SolidId("box-test")
         let jobId = JobId("job-1")
@@ -10,19 +11,19 @@ final class KernelClientTests: XCTestCase {
         
         let result = await client.request(.makeBox(jobId: jobId, solidId: solidId, params: params))
         
-        XCTAssertTrue(result.isSuccess)
+        #expect(result.isSuccess)
         guard let payload = result.value else {
-            XCTFail("Expected mesh payload")
+            Issue.record("Expected mesh payload")
             return
         }
         
-        XCTAssertEqual(payload.triangleCount, 12) // 6 faces * 2 triangles
-        XCTAssertEqual(payload.indices.count, 36)
-        XCTAssertEqual(payload.positions.count, payload.normals.count)
-        XCTAssertEqual(payload.positions.count, payload.triangleCount * 3 * 3)
+        #expect(payload.triangleCount == 12) // 6 faces * 2 triangles
+        #expect(payload.indices.count == 36)
+        #expect(payload.positions.count == payload.normals.count)
+        #expect(payload.positions.count == (payload.triangleCount * 3 * 3))
     }
     
-    func testMakeCylinderGeneratesValidNormals() async {
+    @Test func testMakeCylinderGeneratesValidNormals() async {
         let client = KernelClient(debounceDuration: .milliseconds(5))
         let solidId = SolidId("cylinder-test")
         let jobId = JobId("job-2")
@@ -30,17 +31,17 @@ final class KernelClientTests: XCTestCase {
         
         let result = await client.request(.makeCylinder(jobId: jobId, solidId: solidId, params: params))
         
-        XCTAssertTrue(result.isSuccess)
+        #expect(result.isSuccess)
         guard let payload = result.value else {
-            XCTFail("Expected mesh payload")
+            Issue.record("Expected mesh payload")
             return
         }
         
-        XCTAssertGreaterThan(payload.triangleCount, 0)
-        XCTAssertEqual(payload.positions.count, payload.normals.count)
+        #expect(payload.triangleCount > 0)
+        #expect(payload.positions.count == payload.normals.count)
     }
     
-    func testRapidRequestsConflateToLatestValue() async {
+    @Test func testRapidRequestsConflateToLatestValue() async {
         let client = KernelClient(debounceDuration: .milliseconds(50))
         let solidId = SolidId("conflation-box")
         
@@ -54,22 +55,22 @@ final class KernelClientTests: XCTestCase {
         
         let (r1, r2, r3) = await (t1.value, t2.value, t3.value)
         
-        XCTAssertEqual(r1.error?.code, .cancelled)
-        XCTAssertEqual(r2.error?.code, .cancelled)
-        XCTAssertTrue(r3.isSuccess)
-        XCTAssertEqual(r3.jobId, JobId("j3"))
+        #expect((r1.error?.code) == .cancelled)
+        #expect((r2.error?.code) == .cancelled)
+        #expect(r3.isSuccess)
+        #expect(r3.jobId == JobId("j3"))
         if let payload = r3.value {
-            XCTAssertEqual(extentX(payload), 30, accuracy: 1e-3)
+            #expect(abs(extentX(payload) - 30) <= 1e-3)
         } else {
-            XCTFail("Expected the latest request to produce a mesh")
+            Issue.record("Expected the latest request to produce a mesh")
         }
         
         let stats = await client.getStats()
-        XCTAssertEqual(stats.conflated, 2)
-        XCTAssertEqual(stats.dispatched, 1)
+        #expect(stats.conflated == 2)
+        #expect(stats.dispatched == 1)
     }
     
-    func testStaleDebounceDoesNotStrandNewerRequest() async {
+    @Test func testStaleDebounceDoesNotStrandNewerRequest() async {
         // Regression for #90: a stale debounce firing must leave the newer pending job in place.
         let client = KernelClient(debounceDuration: .milliseconds(50))
         let solidId = SolidId("stale-box")
@@ -80,15 +81,15 @@ final class KernelClientTests: XCTestCase {
         await client.executePending(for: solidId, expectedJobId: JobId("stale"))
         
         let stillPending = await client.pendingJobId(for: solidId)
-        XCTAssertEqual(stillPending, JobId("new"))
+        #expect(stillPending == JobId("new"))
         guard stillPending != nil else { return } // Without the fix the newer task never resumes.
         
         let result = await newer.value
-        XCTAssertTrue(result.isSuccess)
-        XCTAssertEqual(result.jobId, JobId("new"))
+        #expect(result.isSuccess)
+        #expect(result.jobId == JobId("new"))
     }
     
-    func testInvalidDimensionsFailWithErrorCode() async {
+    @Test func testInvalidDimensionsFailWithErrorCode() async {
         let client = KernelClient(debounceDuration: .milliseconds(5))
         let solidId = SolidId("invalid-box")
         let jobId = JobId("job-err")
@@ -96,8 +97,8 @@ final class KernelClientTests: XCTestCase {
         
         let result = await client.request(.makeBox(jobId: jobId, solidId: solidId, params: params))
         
-        XCTAssertFalse(result.isSuccess)
-        XCTAssertEqual(result.error?.code, .invalidParams)
+        #expect(!result.isSuccess)
+        #expect((result.error?.code) == .invalidParams)
     }
     
     private func waitForPending(_ client: KernelClient, _ solidId: SolidId, _ jobId: JobId) async {
@@ -105,7 +106,7 @@ final class KernelClientTests: XCTestCase {
             if await client.pendingJobId(for: solidId) == jobId { return }
             await Task.yield()
         }
-        XCTFail("Job \(jobId) never became pending")
+        Issue.record("Job \(jobId) never became pending")
     }
     
     private func extentX(_ payload: MeshPayload) -> Float {

@@ -19,7 +19,7 @@ concurrency:
 jobs:
   swift:
     name: Swift build and test
-    runs-on: macos-15
+    runs-on: macos-26
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     timeout-minutes: 15
     defaults:
@@ -33,16 +33,21 @@ jobs:
           xcodebuild -version
           swift --version
 
+      # Shaders compile at build time, and Xcode 26 ships the Metal compiler as a separate component.
+      - name: Install Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Cache SwiftPM build
         uses: actions/cache@v4
         with:
           path: macos/.build
-          key: spm-v3-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+          key: spm-v5-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
           restore-keys: |
-            spm-v3-${{ runner.os }}-
+            spm-v5-${{ runner.os }}-
 
+      # Swift Build compiles Shaders.metal into default.metallib; the native build system only copies it.
       - name: Build
-        run: swift build --build-tests
+        run: swift build --build-system swiftbuild --build-tests
 
       - name: Test
-        run: swift test --skip-build
+        run: swift test --build-system swiftbuild --skip-build

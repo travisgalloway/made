@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`made` (macOS-native Aided Design and Engineering) is a native CAD application. It is a Swift 6 package in `macos/`, with SwiftUI for the interface, Metal 3 for rendering, and `nicklockwood/Euclid` for pure-Swift CSG (constructive solid geometry). An embedded MCP (Model Context Protocol) server lets external agents drive a CAD session over stdio. The GitHub repository is still named `wade`.
+`made` (macOS-native Aided Design and Engineering) is a native CAD application. It is a Swift 6 package in `macos/`, with SwiftUI for the interface, Metal 4 for rendering, and `nicklockwood/Euclid` for pure-Swift CSG (constructive solid geometry). An embedded MCP (Model Context Protocol) server lets external agents drive a CAD session over stdio. The GitHub repository is still named `wade`.
 
 `docs/` holds the architecture reference. Start at `docs/README.md`. The most relevant files:
 
@@ -17,11 +17,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The original SvelteKit prototype was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation lives in `docs/archive/web-prototype/`. Do not restore it, and do not cite its files in new issues or docs.
 
-CI (`.github/workflows/ci.yml`) runs `swift build --build-tests` and `swift test` on `macos-15` for non-draft pull requests touching `macos/**`, workflow, or build files. Push runs on `main` and docs-only changes skip CI to save runner minutes. Manual runs can be triggered with `gh workflow run ci.yml`.
+CI (`.github/workflows/ci.yml`) runs `swift build --build-tests` and `swift test` on `macos-26` for non-draft pull requests touching `macos/**`, workflow, or build files. Push runs on `main` and docs-only changes skip CI to save runner minutes. Manual runs can be triggered with `gh workflow run ci.yml`.
 
 ## Commands
 
-Run commands from the repository root using `make`, or directly from `macos/` with `swift`. The package needs Swift 6 tools (`swift-tools-version: 6.0`) and targets macOS 14.
+Run commands from the repository root using `make`, or directly from `macos/` with `swift`. The package needs Swift 6 tools (`swift-tools-version: 6.2`) and targets macOS 26 on Apple silicon. Building needs the Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`), because shaders compile at build time.
 
 | Task | Root Make Command | Direct Swift Command (in `macos/`) |
 | --- | --- | --- |
@@ -34,8 +34,14 @@ Run commands from the repository root using `make`, or directly from `macos/` wi
 | One test | `make test FILTER=KernelClientTests/testRapidRequestsConflateToLatestValue` | `swift test --filter KernelClientTests/testRapidRequestsConflateToLatestValue` |
 | Clean artifacts | `make clean` | `swift package clean && rm -rf .build` |
 | Full local CI | `make ci-local` | `swift build --build-tests && swift test --skip-build` |
+| First-time setup (Metal Toolchain and hooks) | `make setup` | `xcodebuild -downloadComponent MetalToolchain` |
+| Install the git hooks | `make hooks` | `git config core.hooksPath .githooks` (run from the repository root) |
 
-Tests use XCTest in `macos/Tests/MadeCoreTests`. There are thirteen test files, and no UI or integration test target.
+Tests use XCTest in `macos/Tests/MadeCoreTests`. There are 14 test files, and no UI or integration test target.
+
+The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTLCreateSystemDefaultDevice` when the change touches `macos/`. A failure or a skipped test blocks the commit or push, because CI runners may have no GPU. The pre-push hook also blocks when the pushed ref is not the clean checkout, because the tests run against the working tree. Bypass deliberately with `git commit --no-verify` or `git push --no-verify`.
+
+**Stage every change before you commit** (`git add -A`). The pre-commit hook tests the staged snapshot. It saves unstaged edits as a patch, runs the tests, and reapplies the patch. If reapplying fails, the hook prints the patch path and the `git apply` command to restore it. Untracked files under `macos/` block the commit, because SwiftPM would compile them into the build.
 
 ## Layout
 
@@ -62,7 +68,7 @@ macos/
 2. **Rendering is on-demand.** `MTKView.isPaused = true` and `enableSetNeedsDisplay = true`. Draw only on a camera move, a solid change, or an active interaction.
 3. **The viewport is imperative, not reactive.** SwiftUI state drives panels only. Meshes and per-frame state never live in `@State`.
 4. **The kernel sits behind our own interface.** UI and viewport code use `KernelRequest` and `KernelResult` from `Kernel/Types.swift`, never Euclid directly.
-5. **Direct Metal 3 pipeline.** Rendering uses compiled MSL pipelines through MetalKit.
+5. **Direct Metal 4 pipeline.** Rendering uses `MTL4CommandQueue`, argument tables, and residency sets through MetalKit, with MSL compiled at build time. Apple silicon only.
 6. **Meshes cross boundaries as shared buffers** in unified memory (`.storageModeShared`).
 7. **Thread-safe geometry execution.** Swift 6 strict concurrency, 60-ms debounce, and cancellation of superseded jobs.
 8. **Navigation and editing never share a gesture.** The arbiter locks the mode on first movement and holds it until release.

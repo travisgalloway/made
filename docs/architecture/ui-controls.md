@@ -21,7 +21,7 @@ The application layout is structured as a split view in [`ContentView.swift`](..
 │                                               │                        │
 │                                               │ (no position fields)   │
 │ ┌───────────────────────────────────────────┐ │                        │
-│ │ ⚡ Metal 3 | Renders: 42 | Invalidate: mod│ │                        │
+│ │ ⚡ Metal 4 | Renders: 42 | Invalidate: mod│ │                        │
 │ └───────────────────────────────────────────┘ │                        │
 └───────────────────────────────────────────────┴────────────────────────┘
 ```
@@ -33,7 +33,7 @@ The application layout is structured as a split view in [`ContentView.swift`](..
 ### 1. 3D Metal Viewport
 - **Container**: [`CADMetalViewRepresentable`](../../macos/Sources/MadeApp/CADMetalViewRepresentable.swift) hosting an `MTKView`.
 - **Event Handling (planned, #87)**: `CADMetalViewRepresentable` holds a `PointerRouter` in its coordinator, but nothing feeds it pointer events. The viewport has no orbit, pan, zoom, or selection.
-- **Telemetry HUD**: An ultra-thin material overlay in the lower corner displaying live Metal 3 status, total frame submissions, draw call counts, and the last invalidation cause.
+- **Telemetry HUD**: An ultra-thin material overlay in the lower corner displaying live Metal 4 status, total frame submissions, draw call counts, and the last invalidation cause.
 
 ### 2. Dual-Mode Sidebar
 The right sidebar features a segmented picker switching between two primary workflows:

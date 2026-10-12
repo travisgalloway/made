@@ -1,5 +1,8 @@
 import Foundation
 import Euclid
+import os
+
+private let kernelSignposter = OSSignposter(subsystem: "com.made.app", category: "Kernel")
 
 public struct KernelStats: Sendable {
     public var dispatched: Int = 0
@@ -103,6 +106,9 @@ public actor KernelClient: KernelClientProtocol {
         
         activeJobForSolid[solidId] = jobId
         stats.dispatched += 1
+        
+        let interval = kernelSignposter.beginInterval("Kernel Job", id: kernelSignposter.makeSignpostID(), "\(solidId.rawValue, privacy: .public)")
+        defer { kernelSignposter.endInterval("Kernel Job", interval) }
         
         // Compute geometry
         let result: KernelResult<MeshPayload>

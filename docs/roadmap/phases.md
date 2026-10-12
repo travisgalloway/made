@@ -26,13 +26,13 @@ Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). T
 Established the Swift 6 package hierarchy for `MadeNative`:
 - `MadeCore`: Library target containing geometry, viewport, input, and agent modules.
 - `MadeApp`: Executable SwiftUI application target.
-- Target platform: `.macOS(.v14)` only (`Package.swift`). An iPadOS target is planned (#84).
+- Target platform: `.macOS(.v26)` only (`Package.swift`). An iPadOS target is planned (#84).
 
 ---
 
 ## Phase 1: Metal 3 Viewport & Input (In progress)
 Built:
-- Direct Metal 3 pipeline with compiled Metal Shading Language shaders.
+- Direct Metal 4 pipeline with Metal Shading Language shaders compiled at build time (originally Metal 3).
 - On-demand invalidation loop (`MTKView.isPaused = true`, `enableSetNeedsDisplay = true`).
 - Telemetry HUD showing render count and draw calls (#94).
 - `GestureArbiter` and `PointerRouter` modules, unit tested (Invariant 8).

@@ -1,82 +1,67 @@
-import XCTest
+import Testing
+import Foundation
 import Metal
 @testable import MadeCore
 
 @MainActor
-final class ViewportStateTests: XCTestCase {
+@Suite final class ViewportStateTests {
     
-    override func tearDown() {
+    deinit {
         MetalDeviceProvider.forceNoDeviceSeam = false
-        super.tearDown()
     }
     
-    func testInitialStateIsInitializing() {
+    @Test func testInitialStateIsInitializing() {
         let manager = ViewportStateManager()
-        XCTAssertEqual(manager.state, .initializing)
-        XCTAssertFalse(manager.state.isAvailable)
-        XCTAssertFalse(manager.state.isUnavailable)
-        XCTAssertNil(manager.state.unavailableReason)
-        XCTAssertEqual(manager.state.statusText, "Initializing Metal 3...")
+        #expect(manager.state == .initializing)
+        #expect(!manager.state.isAvailable)
+        #expect(!manager.state.isUnavailable)
+        #expect(manager.state.unavailableReason == nil)
+        #expect(manager.state.statusText == "Initializing Metal 4...")
     }
     
-    func testStateResolverLogic() {
-        XCTAssertEqual(
-            ViewportStateResolver.resolve(deviceAvailable: false, rendererCreated: false),
-            .unavailable(reason: .noDevice)
-        )
-        XCTAssertEqual(
-            ViewportStateResolver.resolve(deviceAvailable: false, rendererCreated: true),
-            .unavailable(reason: .noDevice)
-        )
-        XCTAssertEqual(
-            ViewportStateResolver.resolve(deviceAvailable: true, rendererCreated: false),
-            .unavailable(reason: .pipelineCreationFailed)
-        )
-        XCTAssertEqual(
-            ViewportStateResolver.resolve(deviceAvailable: true, rendererCreated: true),
-            .ready
-        )
+    @Test func testStateResolverLogic() {
+        #expect(ViewportStateResolver.resolve(deviceAvailable: false, rendererCreated: false) == .unavailable(reason: .noDevice))
+        #expect(ViewportStateResolver.resolve(deviceAvailable: false, rendererCreated: true) == .unavailable(reason: .noDevice))
+        #expect(ViewportStateResolver.resolve(deviceAvailable: true, rendererCreated: false) == .unavailable(reason: .pipelineCreationFailed))
+        #expect(ViewportStateResolver.resolve(deviceAvailable: true, rendererCreated: true) == .ready)
     }
     
-    func testNoDevicePathProducesUnavailableNoDevice() {
+    @Test func testNoDevicePathProducesUnavailableNoDevice() {
         let provider = CustomMetalDeviceProvider(device: nil)
         let manager = ViewportStateManager(deviceProvider: provider)
         
         let state = manager.setup()
         
-        XCTAssertEqual(state, .unavailable(reason: .noDevice))
-        XCTAssertEqual(manager.state, .unavailable(reason: .noDevice))
-        XCTAssertTrue(manager.state.isUnavailable)
-        XCTAssertFalse(manager.state.isAvailable)
-        XCTAssertEqual(manager.state.unavailableReason, .noDevice)
-        XCTAssertEqual(manager.state.statusText, "Metal unavailable")
-        XCTAssertNil(manager.renderer)
+        #expect(state == .unavailable(reason: .noDevice))
+        #expect(manager.state == .unavailable(reason: .noDevice))
+        #expect(manager.state.isUnavailable)
+        #expect(!manager.state.isAvailable)
+        #expect(manager.state.unavailableReason == .noDevice)
+        #expect(manager.state.statusText == "Metal unavailable")
+        #expect(manager.renderer == nil)
     }
     
-    func testForceNoGPUSeam() {
-        XCTAssertFalse(MetalDeviceProvider.forceNoDeviceSeam)
+    @Test func testForceNoGPUSeam() {
+        #expect(!MetalDeviceProvider.forceNoDeviceSeam)
         
         MetalDeviceProvider.forceNoDeviceSeam = true
-        XCTAssertTrue(MetalDeviceProvider.isForceNoGPUEnabled)
+        #expect(MetalDeviceProvider.isForceNoGPUEnabled)
         
         let provider = DefaultMetalDeviceProvider()
-        XCTAssertNil(provider.makeDevice(), "Seam must force makeDevice to return nil")
+        #expect(provider.makeDevice() == nil, "Seam must force makeDevice to return nil")
         
         let manager = ViewportStateManager(deviceProvider: provider)
         let state = manager.setup()
         
-        XCTAssertEqual(state, .unavailable(reason: .noDevice))
-        XCTAssertNil(manager.renderer)
+        #expect(state == .unavailable(reason: .noDevice))
+        #expect(manager.renderer == nil)
         
         MetalDeviceProvider.forceNoDeviceSeam = false
-        XCTAssertFalse(MetalDeviceProvider.isForceNoGPUEnabled)
+        #expect(!MetalDeviceProvider.isForceNoGPUEnabled)
     }
     
-    func testPipelineCreationFailedProducesUnavailable() {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            // If running on a system without any GPU, skip device-dependent portion
-            return
-        }
+    @Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil, "Metal unavailable")) func testPipelineCreationFailedProducesUnavailable() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
         
         let provider = CustomMetalDeviceProvider(device: device)
         // Simulate pipeline creation failure by returning nil from renderer factory
@@ -87,19 +72,17 @@ final class ViewportStateTests: XCTestCase {
         
         let state = manager.setup()
         
-        XCTAssertEqual(state, .unavailable(reason: .pipelineCreationFailed))
-        XCTAssertEqual(manager.state, .unavailable(reason: .pipelineCreationFailed))
-        XCTAssertTrue(manager.state.isUnavailable)
-        XCTAssertEqual(manager.state.unavailableReason, .pipelineCreationFailed)
-        XCTAssertEqual(manager.state.statusText, "Metal unavailable")
-        XCTAssertNil(manager.renderer)
+        #expect(state == .unavailable(reason: .pipelineCreationFailed))
+        #expect(manager.state == .unavailable(reason: .pipelineCreationFailed))
+        #expect(manager.state.isUnavailable)
+        #expect(manager.state.unavailableReason == .pipelineCreationFailed)
+        #expect(manager.state.statusText == "Metal unavailable")
+        #expect(manager.renderer == nil)
     }
     
-    func testDeviceLostAfterLaunchTransition() {
-        guard let device = MTLCreateSystemDefaultDevice(),
-              let renderer = MetalRenderer(device: device) else {
-            return
-        }
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testDeviceLostAfterLaunchTransition() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
         
         let provider = CustomMetalDeviceProvider(device: device)
         let manager = ViewportStateManager(
@@ -108,26 +91,24 @@ final class ViewportStateTests: XCTestCase {
         )
         
         let state = manager.setup()
-        XCTAssertEqual(state, .ready)
-        XCTAssertTrue(manager.state.isAvailable)
-        XCTAssertNotNil(manager.renderer)
+        #expect(state == .ready)
+        #expect(manager.state.isAvailable)
+        #expect(manager.renderer != nil)
         
         // Simulate device loss
         manager.handleDeviceLost()
         
-        XCTAssertEqual(manager.state, .unavailable(reason: .deviceLost))
-        XCTAssertTrue(manager.state.isUnavailable)
-        XCTAssertFalse(manager.state.isAvailable)
-        XCTAssertEqual(manager.state.unavailableReason, .deviceLost)
-        XCTAssertEqual(manager.state.statusText, "Metal unavailable")
-        XCTAssertNil(manager.renderer)
+        #expect(manager.state == .unavailable(reason: .deviceLost))
+        #expect(manager.state.isUnavailable)
+        #expect(!manager.state.isAvailable)
+        #expect(manager.state.unavailableReason == .deviceLost)
+        #expect(manager.state.statusText == "Metal unavailable")
+        #expect(manager.renderer == nil)
     }
     
-    func testDeviceLostViaNotification() {
-        guard let device = MTLCreateSystemDefaultDevice(),
-              let renderer = MetalRenderer(device: device) else {
-            return
-        }
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testDeviceLostViaNotification() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
         
         let provider = CustomMetalDeviceProvider(device: device)
         let manager = ViewportStateManager(
@@ -136,7 +117,7 @@ final class ViewportStateTests: XCTestCase {
         )
         
         manager.setup()
-        XCTAssertEqual(manager.state, .ready)
+        #expect(manager.state == .ready)
         
         // Post device removal notification
         NotificationCenter.default.post(
@@ -144,11 +125,11 @@ final class ViewportStateTests: XCTestCase {
             object: nil
         )
         
-        XCTAssertEqual(manager.state, .unavailable(reason: .deviceLost))
-        XCTAssertNil(manager.renderer)
+        #expect(manager.state == .unavailable(reason: .deviceLost))
+        #expect(manager.renderer == nil)
     }
     
-    func testKernelRunsWithoutRenderer() async {
+    @Test func testKernelRunsWithoutRenderer() async {
         let kernel = KernelClient()
         let doc = DocumentModel()
         
@@ -161,13 +142,13 @@ final class ViewportStateTests: XCTestCase {
         )
         
         let result = await kernel.request(request)
-        XCTAssertTrue(result.isSuccess)
+        #expect(result.isSuccess)
         guard let payload = result.value else {
-            XCTFail("Kernel makeBox failed to return mesh payload")
+            Issue.record("Kernel makeBox failed to return mesh payload")
             return
         }
-        XCTAssertFalse(payload.positions.isEmpty)
-        XCTAssertFalse(payload.indices.isEmpty)
+        #expect(!payload.positions.isEmpty)
+        #expect(!payload.indices.isEmpty)
         
         // Cylinder geometry computation
         let cylParams = CylinderParams(radius: 15, height: 40)
@@ -177,33 +158,33 @@ final class ViewportStateTests: XCTestCase {
             params: cylParams
         )
         let cylResult = await kernel.request(cylRequest)
-        XCTAssertTrue(cylResult.isSuccess)
+        #expect(cylResult.isSuccess)
         guard let cylPayload = cylResult.value else {
-            XCTFail("Kernel makeCylinder failed to return mesh payload")
+            Issue.record("Kernel makeCylinder failed to return mesh payload")
             return
         }
-        XCTAssertFalse(cylPayload.positions.isEmpty)
-        XCTAssertFalse(cylPayload.indices.isEmpty)
+        #expect(!cylPayload.positions.isEmpty)
+        #expect(!cylPayload.indices.isEmpty)
         
         // Document manipulation without renderer
         doc.setParam(id: boxSolidId, key: "width", value: 65)
         if case .box(let updatedParams) = doc.paramsFor(id: boxSolidId) {
-            XCTAssertEqual(updatedParams.width, 65.0)
+            #expect(updatedParams.width == 65.0)
         } else {
-            XCTFail("Expected box params to update")
+            Issue.record("Expected box params to update")
         }
         
         // CADToolRegistry with nil snapshotProvider operates cleanly
         let registry = CADToolRegistry(document: doc, kernelClient: kernel, snapshotProvider: nil)
-        XCTAssertFalse(registry.tools.isEmpty)
+        #expect(!registry.tools.isEmpty)
         
         let sceneResult = await registry.callTool(name: "cad_get_scene", arguments: [:])
-        XCTAssertEqual(sceneResult.isError, false)
+        #expect(sceneResult.isError == false)
     }
     
-    func testViewportStateDescriptions() {
-        XCTAssertEqual(ViewportUnavailableReason.noDevice.description, "No Metal device found")
-        XCTAssertEqual(ViewportUnavailableReason.pipelineCreationFailed.description, "Failed to create Metal render pipeline")
-        XCTAssertEqual(ViewportUnavailableReason.deviceLost.description, "Metal device was lost or disconnected")
+    @Test func testViewportStateDescriptions() {
+        #expect(ViewportUnavailableReason.noDevice.description == "No Metal device found")
+        #expect(ViewportUnavailableReason.pipelineCreationFailed.description == "Failed to create Metal render pipeline")
+        #expect(ViewportUnavailableReason.deviceLost.description == "Metal device was lost or disconnected")
     }
 }

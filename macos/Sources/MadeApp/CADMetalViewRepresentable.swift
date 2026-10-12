@@ -23,14 +23,57 @@ enum MouseButton: Int {
     var pointerId: Int {
         rawValue
     }
+    
+    var pointerButton: ViewportPointerButton {
+        switch self {
+        case .left: return .primary
+        case .right: return .secondary
+        case .other: return .middle
+        }
+    }
 }
 
 final class CADMTKView: MTKView {
     weak var coordinator: CADMetalViewRepresentable.Coordinator?
     
+    var tool: ViewportTool = .select {
+        didSet {
+            if oldValue != tool { window?.invalidateCursorRects(for: self) }
+        }
+    }
+    
     override var acceptsFirstResponder: Bool { true }
     
+    static func cursor(for tool: ViewportTool) -> NSCursor {
+        switch tool {
+        case .select: return .arrow
+        case .orbit: return .crosshair
+        case .pan: return .openHand
+        case .zoom: return .resizeUpDown
+        }
+    }
+    
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: Self.cursor(for: tool))
+    }
+    
+    // AppKit does not re-evaluate cursor rects mid-drag, so the drag cursor is set directly.
+    func beginDragCursor(for action: ViewportDragAction) {
+        if action == .pan { NSCursor.closedHand.set() }
+    }
+    
+    func endDragCursor() {
+        Self.cursor(for: tool).set()
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        if coordinator?.handleKeyDown(with: event) != true {
+            super.keyDown(with: event)
+        }
+    }
+    
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         coordinator?.handleMouseDown(with: event, button: .left)
     }
     
@@ -78,22 +121,31 @@ final class CADMTKView: MTKView {
 public struct CADMetalViewRepresentable: NSViewRepresentable {
     @Bindable var document: DocumentModel
     var renderer: MetalRenderer
+    var tool: ViewportTool
     var coordinatorBinding: Binding<Coordinator?>?
     var onInvalidate: (() -> Void)?
     var onSnapChanged: ((SnapResult?) -> Void)?
+    var onToolShortcut: ((ViewportTool) -> Void)?
+    var onResetView: (() -> Void)?
     
     public init(
         document: DocumentModel,
         renderer: MetalRenderer,
+        tool: ViewportTool = .select,
         coordinator: Binding<Coordinator?>? = nil,
         onInvalidate: (() -> Void)? = nil,
-        onSnapChanged: ((SnapResult?) -> Void)? = nil
+        onSnapChanged: ((SnapResult?) -> Void)? = nil,
+        onToolShortcut: ((ViewportTool) -> Void)? = nil,
+        onResetView: (() -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
+        self.tool = tool
         self.coordinatorBinding = coordinator
         self.onInvalidate = onInvalidate
         self.onSnapChanged = onSnapChanged
+        self.onToolShortcut = onToolShortcut
+        self.onResetView = onResetView
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -105,6 +157,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     public func makeNSView(context: Context) -> MTKView {
         let view = CADMTKView()
         view.coordinator = context.coordinator
+        view.tool = tool
         view.device = renderer.device
         view.delegate = renderer
         
@@ -128,6 +181,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     }
     
     public func updateNSView(_ nsView: MTKView, context: Context) {
+        // The coordinator outlives this struct, so refresh its copy to pick up the current tool and callbacks.
+        context.coordinator.parent = self
+        (nsView as? CADMTKView)?.tool = tool
         if coordinatorBinding?.wrappedValue !== context.coordinator {
             DispatchQueue.main.async {
                 coordinatorBinding?.wrappedValue = context.coordinator
@@ -148,6 +204,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         private var lastMousePoint: CGPoint = .zero
         private var activeMouseButton: MouseButton? = nil
+        private var activeDragAction: ViewportDragAction? = nil
         private var isShiftDown: Bool = false
         private var activeSnapResult: SnapResult? = nil
         
@@ -174,19 +231,28 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             activeMouseButton = button
             isShiftDown = event.modifierFlags.contains(.shift)
             
-            let isNavigate = event.modifierFlags.contains(.option) || button == .right || button == .other
-            let pType: PointerType = isNavigate ? .mouse : .pen
+            let action = ViewportTool.dragAction(
+                tool: parent.tool,
+                button: button.pointerButton,
+                option: event.modifierFlags.contains(.option),
+                shift: isShiftDown
+            )
+            activeDragAction = action
+            (view as? CADMTKView)?.beginDragCursor(for: action)
+            
             let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
-            _ = pointerRouter.handle(.down(pointerType: pType, pointer: pointer))
+            _ = pointerRouter.handle(.down(pointerType: pointerType(for: action), pointer: pointer))
+        }
+        
+        private func pointerType(for action: ViewportDragAction) -> PointerType {
+            action.isNavigation ? .mouse : .pen
         }
         
         func handleMouseDragged(with event: NSEvent, button: MouseButton) {
-            guard let view = mtkView else { return }
+            guard let view = mtkView, let action = activeDragAction else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
-            let isNavigate = event.modifierFlags.contains(.option) || button == .right || button == .other
-            let pType: PointerType = isNavigate ? .mouse : .pen
             let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
-            let decision = pointerRouter.handle(.move(pointerType: pType, pointer: pointer))
+            let decision = pointerRouter.handle(.move(pointerType: pointerType(for: action), pointer: pointer))
             
             let deltaX = Float(loc.x - lastMousePoint.x)
             let deltaY = Float(loc.y - lastMousePoint.y)
@@ -194,36 +260,67 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             
             if decision.mode == .navigate {
                 guard deltaX != 0 || deltaY != 0 else { return }
-                let shift = event.modifierFlags.contains(.shift) || isShiftDown
-                if button == .right && !event.modifierFlags.contains(.option) && !shift {
-                    // Right-drag: Orbit
-                    let sensitivity: Float = 0.008
+                let sensitivity: Float = 0.008
+                switch action {
+                case .orbit:
                     parent.renderer.camera = Camera.orbit(
                         camera: parent.renderer.camera,
                         deltaAzimuth: -deltaX * sensitivity,
                         deltaElevation: deltaY * sensitivity
                     )
-                } else if button == .other || shift {
-                    // Middle or Shift-drag: Pan
+                case .pan:
                     parent.renderer.camera = Camera.pan(
                         camera: parent.renderer.camera,
                         deltaX: deltaX,
                         deltaY: deltaY,
                         viewportSize: view.bounds.size
                     )
-                } else {
-                    // Option-drag: Orbit
-                    let sensitivity: Float = 0.008
-                    parent.renderer.camera = Camera.orbit(
+                case .zoom:
+                    guard deltaY != 0 else { return }
+                    parent.renderer.camera = Camera.zoom(
                         camera: parent.renderer.camera,
-                        deltaAzimuth: -deltaX * sensitivity,
-                        deltaElevation: deltaY * sensitivity
+                        factor: ViewportTool.zoomFactor(forDragDeltaY: deltaY)
                     )
+                case .manipulate:
+                    return
                 }
                 invalidate(reason: .camera)
             } else if decision.mode == .manipulate {
                 resolveSnap(at: loc, in: view)
             }
+        }
+        
+        func handleKeyDown(with event: NSEvent) -> Bool {
+            let blocking: NSEvent.ModifierFlags = [.command, .control, .option]
+            guard event.modifierFlags.intersection(blocking).isEmpty,
+                  let key = event.charactersIgnoringModifiers?.lowercased().first else { return false }
+            if let tool = ViewportTool.forShortcutKey(key) {
+                parent.onToolShortcut?(tool)
+                return true
+            }
+            switch key {
+            case "f": fitToScene()
+            case "h": parent.onResetView?()
+            case "=", "+": zoomStep(zoomIn: true)
+            case "-": zoomStep(zoomIn: false)
+            default: return false
+            }
+            return true
+        }
+        
+        /// Frames every visible solid without changing the view direction.
+        public func fitToScene() {
+            guard let view = mtkView,
+                  let bounds = SceneBounds.of(parent.renderer.candidateMeshes()) else { return }
+            let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+            parent.renderer.camera = Camera.framing(camera: parent.renderer.camera, bounds: bounds, aspect: aspect)
+            invalidate(reason: .camera)
+        }
+        
+        public func zoomStep(zoomIn: Bool) {
+            let factor = zoomIn ? Camera.zoomStepFactor : 1.0 / Camera.zoomStepFactor
+            parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
+            invalidate(reason: .camera)
         }
         
         private func resolveSnap(at loc: CGPoint, in view: MTKView) {
@@ -262,10 +359,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleMouseUp(with event: NSEvent, button: MouseButton) {
-            let isNavigate = event.modifierFlags.contains(.option) || button == .right || button == .other
-            let pType: PointerType = isNavigate ? .mouse : .pen
-            _ = pointerRouter.handle(.up(pointerType: pType, pointerId: button.pointerId))
+            let action = activeDragAction ?? .manipulate
+            _ = pointerRouter.handle(.up(pointerType: pointerType(for: action), pointerId: button.pointerId))
             activeMouseButton = nil
+            activeDragAction = nil
+            (mtkView as? CADMTKView)?.endDragCursor()
             
             if activeSnapResult != nil {
                 activeSnapResult = nil
@@ -278,6 +376,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         func handleCancel(button: MouseButton) {
             _ = pointerRouter.handle(.cancel(pointerType: .mouse, pointerId: button.pointerId))
             activeMouseButton = nil
+            activeDragAction = nil
+            (mtkView as? CADMTKView)?.endDragCursor()
             
             if activeSnapResult != nil {
                 activeSnapResult = nil
