@@ -55,7 +55,7 @@ macos/
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool
     Scene/                 DocumentModel (@Observable)
     Agent/                 MCPProtocol, MCPServer, CADTools (tool registry), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
-    Scripting/             CADDSL (result-builder CAD DSL)
+    Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
     Platform/              AppKit and UIKit shims
   Sources/MadeApp/         MadeApp (@main, sidebar and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,

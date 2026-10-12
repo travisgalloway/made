@@ -160,10 +160,16 @@ let meshPayload = mountingBracket.toMeshPayload()
 
 ## Open Decisions
 
-These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by placeholder.
+These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by issue number.
 
 - #132: Whether an agent drives the open document (the window's session) or a separate session. Today the TCP transport shares the window document, and `--mcp-stdio` does not.
-- #148: Which runtime hosts the in-app scripting REPL. Options are the compiled Swift DSL in `CADDSL.swift`, JavaScriptCore, or embedded Python. Agents use MCP in every case.
+
+
+---
+
+## Decided
+
+- ADR-D6 (#148) is decided. Part files are TypeScript with a brepjs-style API, run by JavaScriptCore inside the app ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #435). External agents edit the files, and the app reloads them (#427). Agents inspect the result over MCP (#428).
 
 ---
 

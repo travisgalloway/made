@@ -59,6 +59,8 @@ The window also starts an in-app MCP server over TCP on port 9820 (see `docs/arc
 
 ### Declarative CAD Scripting (Cadova-Style Swift DSL)
 
+The Swift DSL below serves tests and library use. User and agent part files will be TypeScript, with a brepjs-style API, run by JavaScriptCore inside the app ([ADR-D6](docs/architecture/adr/ADR-D6-scripting-runtime.md), #435).
+
 ```swift
 import MadeCore
 
