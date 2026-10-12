@@ -86,7 +86,7 @@ See [`phase-3-native-agent.md`](./phase-3-native-agent.md).
 ---
 
 ## Phase 4.0: Architecture Decisions (Not started)
-Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list each open decision under "Open decisions": the canonical kernel, topological naming, the feature list paradigm, the `.made` encoding, and the scripting approach. The project license is decided as `LGPL-2.1-or-later` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
+Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list each open decision under "Open decisions": the canonical kernel, topological naming, the feature list paradigm, the `.made` encoding, and the scripting approach. The project license is decided as `MPL-2.0` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
 
 ## Phase 4A: Native Scene & Interaction Foundation (In progress)
 Generalizes the scene and the interaction model so that selection, gizmos, and the inspector have a base. Scope covers the multi-object scene, selection, the inspector, gizmos, and add and remove objects.
@@ -113,7 +113,7 @@ Adds the base of computer-aided engineering (CAE) so a model can be analyzed. Sc
 Widens the product to more design domains and platforms. Scope covers sheet metal, surfacing, motion, iPad, and versioning.
 
 ## Phase 8: Advanced (Not started)
-Adds advanced analysis and team workflows. Scope covers nonlinear analysis, computational fluid dynamics (CFD), optimization, and collaboration. Phase 8 also holds the App Store path (#419). Swift reimplementations in `libs/` replace the dependencies that block App Store distribution (#414 to #418). A Swift B-rep engine replaces OCCT in those builds (#420 to #424). [ADR-D8](../architecture/adr/ADR-D8-project-license.md) records the plan.
+Adds advanced analysis and team workflows. Scope covers nonlinear analysis, computational fluid dynamics (CFD), optimization, and collaboration. Phase 8 also holds the App Store path (#419). Swift reimplementations in `libs/` replace the GPL solver and mesher (#415 to #417). App Store builds keep OCCT, with a Swift B-rep engine as the fallback (#418, #420 to #424). [ADR-D8](../architecture/adr/ADR-D8-project-license.md) records the plan.
 
 ---
 
