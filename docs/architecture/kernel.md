@@ -111,9 +111,9 @@ A request that arrives while an earlier request for the same solid is still wait
 
 ## Open Decisions
 
-These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by placeholder.
+These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by issue number.
 
-- #142: Canonical kernel. Options include OpenCASCADE through OCCTSwift and other B-Rep kernels.
+- #142: Canonical kernel. Options include OpenCASCADE through OCCTSwift and other B-Rep kernels. The interface must stay engine-neutral, because App Store builds may need a Swift B-rep engine as a fallback (#418).
 - #144: Topological naming. Options include persistent identifiers on faces and edges, geometric matching, or a kernel-native scheme.
 - #245: Kernel XPC (inter-process communication) isolation. Options are an in-process actor, as today, or a separate XPC service.
 - #247: Fate of Euclid once a canonical kernel exists. Options are to keep it as a lightweight tier, to demote it to tests, or to remove it.

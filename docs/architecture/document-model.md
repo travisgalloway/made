@@ -112,10 +112,10 @@ Planned (#83): the document model integrates with Apple's `FileDocument` protoco
 
 ## Open Decisions
 
-These questions have no decision yet. Each links to an architecture decision record (ADR) by placeholder.
+These questions have no decision yet. Each links to an architecture decision record (ADR) by issue number.
 
 - #143: Feature list paradigm. Options include a parametric feature history, direct modeling, or a hybrid of both.
-- #149: Encoding of the `.made` document. Options include a JSON package bundle, a binary container, or another format.
+- #149: Encoding of the `.made` document. Options include a JSON package bundle, a binary container, or another format. Part source files must stay readable text that agents edit directly ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #427).
 
 ---
 
