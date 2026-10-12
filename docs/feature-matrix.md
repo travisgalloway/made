@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 149 capabilities with their implementation status. The matrix shows 86 Shipped, 44 In progress, 13 Planned, and 6 Deprecated rows.
+Table 1 lists 149 capabilities with their implementation status. The matrix shows 87 Shipped, 44 In progress, 12 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -120,7 +120,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-18 | A user can choose Geometry > Import STEP File... (Cmd+Shift+I) | none | n/a | n/a | Deprecated | #38 | n/a |
 | UI-19 | A user can type exact dimension values in the inspector (numeric fields); dimensions are sliders only, numeric fields exist for position and scale (UI-20, UI-30) | none | n/a | n/a | Planned | #70 | n/a |
 | UI-20 | A user can edit an object's X, Y and Z position in the inspector | done | n/a | n/a | Shipped | #70 | n/a |
-| UI-21 | A user sees an inline warning next to a parameter the kernel rejected | none | n/a | n/a | Planned | #109 | n/a |
+| UI-21 | A user sees an inline warning next to a parameter the kernel rejected | done | n/a | done | Shipped | #109 | n/a |
 | UI-22 | A user can remove a solid from the GUI | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-23 | A user can run the app on iPadOS 17 | none | n/a | n/a | Planned | #84 | n/a |
 | UI-24 | A user can show or hide the Navigator, Console and Inspector panes from toolbar toggle buttons | done | n/a | n/a | Shipped |  | n/a |

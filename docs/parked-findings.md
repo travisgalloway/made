@@ -67,3 +67,4 @@ The list holds 57 parked findings, in source order and unranked. Format: ID, fil
 - [2026-10-12] `macos/Sources/MadeCore/Kernel/KernelClient.swift:43`, `cancel(jobId:)` inserts into `cancelledJobs` even for a job that never reaches `executePending`, so the entry is never removed. Found while working on #93. Severity, low.
 - [2026-10-12] `macos/Sources/MadeCore/Agent/CADTools.swift:234`, `cad_set_param` echoes the raw input value and reports success for unknown keys. Found while working on #104. Severity, low.
 - [2026-10-12] `macos/Sources/MadeCore/Kernel/KernelClient.swift:135`, the kernel rejects values at or below zero but accepts NaN. Found while working on #104. Severity, low.
+- [2026-10-12] `docs/guides/testing.md:19`, the suite table omits `SolidMeshApplierTests`, so it lists fewer suites than the count above it. Found while working on #109. Severity, low, docs.

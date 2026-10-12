@@ -6,7 +6,7 @@ The testing architecture in `made` is built on Swift Package Manager (`swift tes
 
 ## Test Suites Overview
 
-`MadeCoreTests` has 18 suites and 128 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and no test creates a SwiftUI view. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
+`MadeCoreTests` has 21 suites and 163 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and no test creates a SwiftUI view. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
 
 | Suite Name | Target Module | What It Verifies |
 | ---------- | ------------- | ---------------- |
@@ -16,6 +16,8 @@ The testing architecture in `made` is built on Swift Package Manager (`swift tes
 | **`GestureArbiterTests`** | `MadeCore/Input` | Invariant 8: lock on first move for one pointer, lock to navigate for two pointers, and a pure tap resolving at release. `CameraTests` covers `PointerRouter`. |
 | **`SnappingTests`** | `MadeCore/Input` | Invariant 9: Vertex > Edge > Grid precedence, the 20 px tolerance, and grid rounding to 10 mm with Z unchanged. |
 | **`DocumentModelTests`** | `MadeCore/Scene` | Default two-solid scene, add and remove, and `setParam` limits clamping. |
+| **`RecomputeFailuresTests`** | `MadeCore/Scene` | The recompute failure message for every `KernelErrorCode`, the cancelled rule, and clearing on success or removal (#109). |
+| **`FaultInjectingKernelClientTests`** | `MadeCore/Kernel` | The debug fault injector fails one request with the chosen code, then forwards (#109). |
 | **`CADToolsTests`** | `MadeCore/Agent` | Tool registry execution (`cad_add_solid`, `cad_measure`, `cad_boolean_operation`). |
 | **`MCPServerTests`** | `MadeCore/Agent` | JSON-RPC 2.0 handshake, tool discovery, a tool call, and the unknown-method error. The tests call `MCPServer` in process. |
 | **`CameraTests`**, **`CameraFramingTests`** | `MadeCore/Viewport` | Orbit, pan, zoom, view presets, scene framing, and `PointerRouter` routing. |
@@ -55,6 +57,8 @@ swift build --build-system swiftbuild
 swift run --build-system swiftbuild MadeApp
 swift run --build-system swiftbuild MadeApp --mcp-stdio
 ```
+
+To check the recompute failure message by hand, run a debug build and choose Debug > Fail Next Recompute. Drag the box Width slider. The previous box stays on screen, and the Inspector shows `box-1 failed to recompute (invalid-params): Forced failure` with a matching error line in the console. Drag again, and the message clears as the box resizes.
 
 ---
 

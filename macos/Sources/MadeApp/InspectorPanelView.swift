@@ -70,6 +70,11 @@ struct InspectorPanelView: View {
             case .imported(let name):
                 LabeledContent("Imported Mesh", value: name)
             }
+            if let message = workspace.recomputeFailures.message(for: obj.id) {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+            }
         }
     }
 

@@ -4,9 +4,9 @@ Date: 2026-10-11
 Scope: macos/ (Swift package, test target MadeCoreTests)
 Audit run: 20261011-195134
 
-The plan covers 149 capabilities. The MadeCoreTests target holds 18 Swift Testing files with 128 tests, and every file imports MadeCore. The audit did not run `swift test`, so pass and fail status is unobserved.
+The plan covers 149 capabilities. The MadeCoreTests target holds 21 Swift Testing files with 163 tests, and every file imports MadeCore. The audit did not run `swift test`, so pass and fail status is unobserved.
 
-Of the 149 capabilities, 85 have at least one unit or integration reference. Another 45 wired or partial capabilities have no reference of any kind. The remaining 19 are 13 claimed-only capabilities, which need no test until built, and 6 removed capabilities.
+Of the 149 capabilities, 86 have at least one unit or integration reference. Another 45 wired or partial capabilities have no reference of any kind. The remaining 18 are 12 claimed-only capabilities, which need no test until built, and 6 removed capabilities.
 
 The audit found `KernelClientTests.testRapidRequestsConflateToLatestValue` flaky and a race in `KernelClient.executePending` (DSN-efe60d18). #90 fixed both. The test now enqueues requests in a fixed order, and `testStaleDebounceDoesNotStrandNewerRequest` covers the race.
 
@@ -83,7 +83,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-11. Source: closure
 | KERN-15 | none | none | none (no UI test target) | none | No test references this capability. The tessellate request is never issued by a test. |
 | KERN-16 | none | none | none (no UI test target) | none | No test references this capability. importStep always returns geometryFailed; the failure is untested. |
 | KERN-17 | KernelClientTests.swift: testInvalidDimensionsFailWithErrorCode, testRapidRequestsConflateToLatestValue | none | none (no UI test target) | invalidParams and cancelled | unknownSolid, geometryFailed, kernelInitFailed and workerCrashed are never asserted. |
-| KERN-18 | SolidMeshApplierTests.swift (testFailedResultInstallsNothing) | none | none (no UI test target) | failed result installs nothing | The WorkspaceModel.recomputeSolid call site (MadeApp) is untested. The failure stays silent, tracked by #109. |
+| KERN-18 | SolidMeshApplierTests.swift (testFailedResultInstallsNothing) | none | none (no UI test target) | failed result installs nothing | The WorkspaceModel.recomputeSolid call site (MadeApp) is untested. |
 | KERN-19 | none | none | none (no UI test target) | none | Capability not implemented; no test expected until built. |
 | DOC-1 | DocumentModelTests.swift: testInitialDocumentHasTwoDefaultSolids, testAddAndRemoveObject | none | none (no UI test target) | box and cylinder | The imported kind is untested. |
 | DOC-2 | DocumentModelTests.swift: testSetParamClampsWithinLimits, testSetParamClampsCylinderAndNaN, testAddObjectClampsBoxAboveMax, testAddObjectClampsCylinderRadiusZero, testAddObjectClampsNonFiniteAndNegative, testAddObjectKeepsValuesAtLimits, testAddObjectPassesImportedThrough; CADToolsTests.swift: testSetParamClampsAndUpdates, testAddSolidClampsOutOfRangeBox, testAddSolidCreatesClampedCylinder | none | none (no UI test target) | below min, above max, exact limits, NaN, infinity, negative, cylinder, add and set paths | none |
@@ -119,7 +119,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-11. Source: closure
 | UI-18 | removed | none | removed | none | Removed; no test expected. |
 | UI-19 | none | none | none (no UI test target) | none | Capability not implemented; no test expected until built. |
 | UI-20 | none | none | none (no UI test target) | none | No test references this capability. |
-| UI-21 | none | none | none (no UI test target) | none | Capability not implemented; no test expected until built. |
+| UI-21 | RecomputeFailuresTests.swift (messageMapsEveryErrorCode, cancelledMapsToNoMessage, successAfterFailureClearsMessage, twoFailuresInARowKeepTheLatest, cancelledResultLeavesStateUnchanged, clearRemovesMessageForRemovedSolid, failuresArePerSolid) | FaultInjectingKernelClientTests.swift (nextRequestFailsWithInjectedCode, injectionIsOneShot, forwardsWithoutInjection) | none (no UI test target); manual Debug > Fail Next Recompute | every error code, cancelled keeps the earlier message, latest failure wins, removal clears, per-solid isolation, one-shot injection | The Inspector row and the WorkspaceModel call site (MadeApp) are checked by hand only. |
 | UI-22 | DocumentModelTests.swift: testAddAndRemoveObject; CADToolsTests.swift: testRemoveSolidDeletesFromDocument (document only) | none | none (no UI test target) | none | WorkspaceModel.removeObject and the Navigator button are untested. |
 | UI-23 | none | none | none (no UI test target) | none | Capability not implemented; no test expected until built. |
 | UI-24 | none | none | none (no UI test target) | none | No test references this capability. |

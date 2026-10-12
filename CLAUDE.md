@@ -38,7 +38,7 @@ Run commands from the repository root using `make`, or directly from `macos/` wi
 | First-time setup (Metal Toolchain and hooks) | `make setup` | `xcodebuild -downloadComponent MetalToolchain` |
 | Install the git hooks | `make hooks` | `git config core.hooksPath .githooks` (run from the repository root) |
 
-Tests use Swift Testing (`@Test`) in 18 files under `macos/Tests/MadeCoreTests`. There is no UI or integration test target.
+Tests use Swift Testing (`@Test`) in 21 files under `macos/Tests/MadeCoreTests`. There is no UI or integration test target.
 
 The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTLCreateSystemDefaultDevice` when the change touches `macos/`. A failure or a skipped test blocks the commit or push, because CI runners may have no GPU. The pre-push hook also blocks when the pushed ref is not the clean checkout, because the tests run against the working tree. Bypass deliberately with `git commit --no-verify` or `git push --no-verify`.
 
