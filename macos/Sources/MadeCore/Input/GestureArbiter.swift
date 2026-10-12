@@ -54,9 +54,9 @@ public final class GestureArbiter: @unchecked Sendable {
             return snapshot()
             
         case .move(let pointer):
-            if pointers[pointer.pointerId] != nil {
-                pointers[pointer.pointerId] = pointer
-            }
+            // A stray event for a pointer that is not down must not lock or end a gesture.
+            guard pointers[pointer.pointerId] != nil else { return snapshot() }
+            pointers[pointer.pointerId] = pointer
             peakConcurrent = max(peakConcurrent, pointers.count)
             if !locked {
                 lock()
@@ -64,7 +64,7 @@ public final class GestureArbiter: @unchecked Sendable {
             return snapshot()
             
         case .up(let pointerId), .cancel(let pointerId):
-            pointers.removeValue(forKey: pointerId)
+            guard pointers.removeValue(forKey: pointerId) != nil else { return snapshot() }
             if !pointers.isEmpty {
                 return snapshot()
             }

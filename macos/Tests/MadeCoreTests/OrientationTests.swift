@@ -51,4 +51,41 @@ import simd
         #expect(up.y > 0)
         #expect(abs(up.x - 0) <= 1e-5)
     }
+
+    @Test func testGroundNormalMatchesWorldUp() {
+        #expect(Orientation.groundNormal == Orientation.worldUp)
+        #expect(Orientation.worldUp == SIMD3<Float>(0, 0, 1))
+    }
+
+    @Test func testDefaultViewDirectionIsUnitFrontRightAbove() {
+        let d = Orientation.defaultViewDirection
+        #expect(abs(simd_length(d) - 1) <= 1e-6)
+        #expect(d.x > 0)
+        #expect(d.y < 0)
+        #expect(d.z > 0)
+    }
+
+    @Test func testLookAtStraightDownAndUpFallBackToFiniteMatrix() {
+        for eye in [SIMD3<Float>(0, 0, 100), SIMD3<Float>(0, 0, -100)] {
+            let view = Orientation.makeLookAt(eye: eye, target: .zero)
+            for c in 0..<4 {
+                for r in 0..<4 { #expect(view[c][r].isFinite, "eye \(eye) column \(c) row \(r)") }
+            }
+            let targetInView = view * SIMD4<Float>(0, 0, 0, 1)
+            #expect(abs(targetInView.x) <= 1e-3)
+            #expect(abs(targetInView.y) <= 1e-3)
+            #expect(abs(targetInView.z + 100) <= 1e-3)
+            let eyeInView = view * SIMD4<Float>(eye, 1)
+            #expect(simd_length(SIMD3(eyeInView.x, eyeInView.y, eyeInView.z)) <= 1e-3)
+        }
+    }
+
+    @Test func testLookAtWithYUpParallelFallsBackToZ() {
+        let view = Orientation.makeLookAt(eye: SIMD3(0, -50, 0), target: .zero, up: SIMD3(0, 1, 0))
+        for c in 0..<4 {
+            for r in 0..<4 { #expect(view[c][r].isFinite) }
+        }
+        let z = view * SIMD4<Float>(0, 0, 1, 0)
+        #expect(z.y > 0)
+    }
 }
