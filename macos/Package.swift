@@ -14,6 +14,10 @@ let package = Package(
         .executable(
             name: "MadeApp",
             targets: ["MadeApp"]
+        ),
+        .executable(
+            name: "MadeKernelService",
+            targets: ["MadeKernelService"]
         )
     ],
     dependencies: [
@@ -32,6 +36,11 @@ let package = Package(
             name: "MadeApp",
             dependencies: ["MadeCore"],
             path: "Sources/MadeApp"
+        ),
+        .executableTarget(
+            name: "MadeKernelService",
+            dependencies: ["MadeCore"],
+            path: "Sources/MadeKernelService"
         ),
         .testTarget(
             name: "MadeCoreTests",

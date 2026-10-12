@@ -144,7 +144,7 @@ public struct CandidateMesh: Sendable {
     }
     
     public init(id: SolidId, payload: MeshPayload, transform: Transform = .identity) {
-        self.init(id: id, rawPositions: payload.positions, indices: payload.indices, transform: transform)
+        self.init(id: id, rawPositions: Array(payload.positions), indices: Array(payload.indices), transform: transform)
     }
 }
 

@@ -182,6 +182,24 @@ import Foundation
         #expect(await client.storeCounts() == KernelStoreCounts())
     }
     
+    @Test func testDisposeDuringExecutingJobLeavesNoEngineEntry() async {
+        let started = Flag()
+        let engine = HookedEngine { _ in
+            started.set()
+            try? await Task.sleep(for: .milliseconds(100))
+            return true
+        }
+        let client = KernelClient(engine: engine, debounceDuration: .milliseconds(5))
+        let solidId = SolidId("executing")
+        
+        let job = Task { await client.request(.makeBox(jobId: JobId("e1"), solidId: solidId, params: BoxParams(width: 5, depth: 5, height: 5))) }
+        #expect(await eventually { started.isSet })
+        await client.dispose(solidId: solidId)
+        
+        #expect((await job.value).error?.code == .cancelled)
+        #expect(await client.storeCounts() == KernelStoreCounts())
+    }
+    
     private func makeBox(_ client: KernelClient, _ id: SolidId, _ job: String) async {
         let r = await client.request(.makeBox(jobId: JobId(job), solidId: id, params: BoxParams(width: 10, depth: 10, height: 10)))
         #expect(r.isSuccess)

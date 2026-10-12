@@ -1,6 +1,6 @@
 # Geometry Kernel Architecture
 
-The geometry kernel in `made` handles 3D solid construction, boolean operations, parameter evaluation, and polygon tessellation. All kernel operations execute asynchronously off the main UI thread within a dedicated Swift Actor.
+The geometry kernel in `made` handles 3D solid construction, boolean operations, parameter evaluation, and polygon tessellation. All kernel requests go through the `KernelClient` actor, off the main UI thread. In the bundled app, geometry runs in a separate process, the `MadeKernelService` XPC service, so a crash in Euclid ends that process and not the app.
 
 ---
 
@@ -67,12 +67,15 @@ public enum KernelRequest: Sendable {
 }
 
 public struct MeshPayload: Sendable {
-    public let positions: [Float]    // 3 floats per vertex (X, Y, Z)
-    public let normals: [Float]      // 3 floats per vertex (Nx, Ny, Nz)
-    public let indices: [UInt32]     // 3 indices per triangle
-    public let triangleCount: Int    // indices.count / 3, set by init(positions:normals:indices:)
+    public let storage: MeshStorage                 // one page-aligned MAP_SHARED region
+    public var positions: MeshComponent<Float>      // 3 floats per vertex (X, Y, Z)
+    public var normals: MeshComponent<Float>        // 3 floats per vertex (Nx, Ny, Nz)
+    public var indices: MeshComponent<UInt32>       // 3 indices per triangle
+    public var triangleCount: Int                   // indices.count / 3
 }
 ```
+
+Every wire type is `Codable`, and none names a Euclid type. `MeshStorage` lays out positions, then normals, then indices in one region allocated with `mmap(MAP_SHARED | MAP_ANON)`. `MeshComponent` is a read-only `RandomAccessCollection` over one component. `init(positions:normals:indices:)` copies arrays into new storage for tests and generated geometry.
 
 `MeshPayload` carries no `solidId`. The `KernelResult` pairs it with a `JobId`, and the caller knows the `SolidId` it requested. The wire contract imports only Foundation, not rendering or UI frameworks.
 
@@ -84,6 +87,7 @@ The kernel is managed by `KernelClient`, an isolated Swift Actor enforcing Invar
 
 ```swift
 public actor KernelClient {
+    private let engine: any KernelEngine
     private let debounceDuration: Duration
     private var debounceTasks: [SolidId: Task<Void, Never>] = [:]
     private var pendingJobs: [SolidId: (request: KernelRequest, continuation: CheckedContinuation<KernelResult<MeshPayload>, Never>)] = [:]
@@ -103,9 +107,40 @@ When an engineer or an agent scrubs a dimensional parameter, slider events fire 
 ### Honest Cancellation Guarantee
 A request that arrives while an earlier request for the same solid is still waiting in the debounce window replaces it:
 1. The earlier pending job resumes with `.failure(cancelled)` ("Conflated by newer request") and the `conflated` and `dropped` counters increase.
-2. `cancel(jobId:)` adds the job to `cancelledJobs`. `executePending` checks that set before it calls the engine.
-3. After the engine returns, `KernelClient` compares `activeJobForSolid[solidId]` with the job ID (line 162). The engine call is synchronous inside the actor, so this check seldom differs; the conflation path is the effective guard (see the feature matrix, KERN-12).
-4. `dispose(solidId:)` removes the solid's cached payload and pending job but not its Euclid mesh (#93).
+2. `cancel(jobId:)` adds a pending job to `cancelledJobs`, and `executePending` checks that set before it calls the engine. Cancelling a job the engine is executing calls `engine.terminate(jobId:)`, which ends the kernel service (see below).
+3. After the engine returns, `KernelClient` compares `activeJobForSolid[solidId]` with the job ID. The engine call is an `await`, so a newer job for the same solid can start meanwhile, and the older result is then dropped as `cancelled`.
+4. `dispose(solidId:)` drops the pending job and tells the engine to free the solid's mesh and Euclid mesh. When the solid's job is executing, `KernelClient` disposes again after the engine returns, so the result the job cached is freed too.
+
+---
+
+## Kernel XPC Service (#245)
+
+`KernelClient` holds an `any KernelEngine`. Two engines exist:
+
+- `LocalKernelEngine` runs Euclid in the calling process. The service hosts one, and `swift run`, tests, and unbundled runs use it directly.
+- `XPCKernelEngine` sends each request to the `com.made.app.kernel` service over `XPCSession`. `KernelClient.makeDefault()` picks it when `Made.app/Contents/XPCServices/MadeKernelService.xpc` exists.
+
+**Wire format.** `KernelWire` encodes a message as a binary property list under `message`. A reply holds a `KernelWireReply` header (job ID, error, component counts, and the answering engine's instance ID) under `header`. A non-empty mesh travels under `mesh` as an `xpc_shmem` object made from the `MeshStorage` region. The app maps the same pages with `xpc_shmem_map` and checks the mapped length against the header counts. A missing header or a short region returns `geometry-failed` ("Malformed kernel reply"). A zero-triangle mesh sends no region.
+
+**Service side.** `KernelServiceHandler` accepts each session with its own engine and an ordered work queue, and replies from that queue. The session queue stays free, so the service sees the app leave while a job runs. The service exits when its session ends, and on a `terminate` message.
+
+**One job at a time.** `XPCKernelEngine` sends jobs one by one from a FIFO, so the job in flight when the service stops caused the stop. Queued jobs never reach the dead service, and they run on the relaunched one.
+
+**Crash recovery.** A reply error, or the session ending while a job is in flight, is a service loss. The engine drops the session and resends the job once on a new session, which relaunches the service. A second loss returns `worker-crashed` for that job. Every loss emits a `KernelRestart` on `restarts()`, after the job resolves:
+
+- `.crashed` with no excluded solid, when the resend succeeded or the service died while idle.
+- `.crashed` excluding the culprit solid, when the job got `worker-crashed`.
+- `.terminated` excluding the solid, when a cancel ended the service.
+
+XPC can relaunch an idle service behind a live session without reporting it. A reply from a new engine instance ID also emits `.crashed`.
+
+**Regeneration.** A restart empties the service cache. `WorkspaceModel` and the `--mcp-stdio` server consume `restarts()` and resubmit every box and cylinder in their document through `KernelRegeneration`, except the excluded solid. The excluded solid keeps its previous mesh and shows its `worker-crashed` message in the Inspector; editing it retries. Boolean (`csg-`) cache entries are not in the document, so a restart loses them, and a later boolean that names one returns `unknown-solid`.
+
+**Breaker.** Three restarts inside 30 s open a breaker. While it is open, `execute` returns `kernel-init-failed` without contacting the service and emits no restart events. It closes 30 s after the last restart. Terminations do not count. A session that cannot be created also returns `kernel-init-failed`.
+
+**Cancellation.** `terminate(jobId:)` acts only on the job in flight. It sends `terminate`, cancels the session, resolves the job as `cancelled`, and emits `.terminated`. The next request relaunches the service.
+
+**Bundle.** `make bundle` runs `macos/scripts/bundle-app.sh`, which assembles `macos/.build/Made.app` with the service in `Contents/XPCServices` and ad-hoc signs both. `make run` and `make run-mcp` launch that bundle.
 
 ---
 
@@ -115,7 +150,6 @@ These questions have no decision yet. Each links to an architecture decision rec
 
 - #142: Canonical kernel. Options include OpenCASCADE through OCCTSwift and other B-Rep kernels. The interface must stay engine-neutral, because App Store builds may need a Swift B-rep engine as a fallback (#418).
 - #144: Topological naming. Options include persistent identifiers on faces and edges, geometric matching, or a kernel-native scheme.
-- #245: Kernel XPC (inter-process communication) isolation. Options are an in-process actor, as today, or a separate XPC service.
 - #247: Fate of Euclid once a canonical kernel exists. Options are to keep it as a lightweight tier, to demote it to tests, or to remove it.
 
 ---

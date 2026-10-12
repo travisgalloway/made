@@ -28,8 +28,9 @@ Run commands from the repository root using `make`, or directly from `macos/` wi
 | --- | --- | --- |
 | Build | `make build` | `swift build --build-system swiftbuild` |
 | Build tests | `make build-tests` | `swift build --build-system swiftbuild --build-tests` |
-| Run the app | `make run` | `swift run --build-system swiftbuild MadeApp` |
-| Run with MCP on stdio | `make run-mcp` | `swift run --build-system swiftbuild MadeApp --mcp-stdio` |
+| Assemble `Made.app` with the kernel XPC service | `make bundle` | `scripts/bundle-app.sh` (after a build) |
+| Run the bundled app | `make run` | `swift run --build-system swiftbuild MadeApp` (no kernel service; geometry runs in process) |
+| Run the bundled app with MCP on stdio | `make run-mcp` | `swift run --build-system swiftbuild MadeApp --mcp-stdio` (no kernel service) |
 | All tests | `make test` | `swift test --build-system swiftbuild` |
 | One test class | `make test FILTER=KernelClientTests` | `swift test --build-system swiftbuild --filter KernelClientTests` |
 | One test | `make test FILTER=KernelClientTests/testRapidRequestsConflateToLatestValue` | `swift test --build-system swiftbuild --filter KernelClientTests/testRapidRequestsConflateToLatestValue` |
@@ -38,7 +39,7 @@ Run commands from the repository root using `make`, or directly from `macos/` wi
 | First-time setup (Metal Toolchain and hooks) | `make setup` | `xcodebuild -downloadComponent MetalToolchain` |
 | Install the git hooks | `make hooks` | `git config core.hooksPath .githooks` (run from the repository root) |
 
-Tests use Swift Testing (`@Test`) in 21 files under `macos/Tests/MadeCoreTests`. There is no UI or integration test target.
+Tests use Swift Testing (`@Test`) in 24 files under `macos/Tests/MadeCoreTests`. There is no UI or integration test target.
 
 The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTLCreateSystemDefaultDevice` when the change touches `macos/`. A failure or a skipped test blocks the commit or push, because CI runners may have no GPU. The pre-push hook also blocks when the pushed ref is not the clean checkout, because the tests run against the working tree. Bypass deliberately with `git commit --no-verify` or `git push --no-verify`.
 
@@ -48,15 +49,19 @@ The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTL
 
 ```
 macos/
-  Package.swift            MadeCore (library), MadeApp (executable), MadeCoreTests
+  Package.swift            MadeCore (library), MadeApp and MadeKernelService (executables), MadeCoreTests
+  Support/                 Info.plist files for Made.app and the kernel XPC service
+  scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle)
   Sources/MadeCore/
-    Kernel/                Types.swift (wire contract), KernelClient actor, EuclidEngine, Geometry
+    Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, Geometry
+    Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
     Viewport/              MetalRenderer, Shaders.metal, Orientation, Camera, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation)
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool
-    Scene/                 DocumentModel (@Observable)
+    Scene/                 DocumentModel (@Observable), KernelRegeneration
     Agent/                 MCPProtocol, MCPServer, CADTools (tool registry), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
     Platform/              AppKit and UIKit shims
+  Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
   Sources/MadeApp/         MadeApp (@main, sidebar and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoutView, CADMetalViewRepresentable
@@ -77,13 +82,14 @@ macos/
 8. **Navigation and editing never share a gesture.** The arbiter locks the mode on first movement and holds it until release.
 9. **Precision comes from snapping and typed values, not steady fingers.**
 
-Enforcement is weaker than the doc's matrix once claimed. Check `docs/architecture/invariants.md` for the current state before you rely on a test to catch a violation. Known gaps: 14 types are `@unchecked Sendable` (invariant 7, #91).
+Enforcement is weaker than the doc's matrix once claimed. Check `docs/architecture/invariants.md` for the current state before you rely on a test to catch a violation. Known gaps: 15 types are `@unchecked Sendable` (invariant 7, #91).
 
 ## The kernel boundary (`Kernel/`)
 
 - `Types.swift` is the wire contract: `KernelRequest`, `KernelResult<T>`, `MeshPayload`, `KernelError`.
 - **Never throw across the boundary.** Every fallible call returns `KernelResult`. `KernelErrorCode` is a closed set: `kernelInitFailed`, `invalidParams`, `geometryFailed`, `unknownSolid`, `cancelled`, `workerCrashed`.
 - **`SolidId` vs `JobId`.** A `SolidId` is stable across a solid's lifetime. A `JobId` is never reused, and stale results are dropped by `JobId`.
+- In the bundled app, `KernelClient` runs geometry in the `MadeKernelService` XPC service through `XPCKernelEngine` (`KernelClient.makeDefault()`). `swift run` and tests use `LocalKernelEngine` in process. A service crash fails at most the job in flight with `worker-crashed`. The engine relaunches the service, emits `restarts()`, and `WorkspaceModel` and the stdio server regenerate every solid from the document. Three restarts in 30 s open a breaker that returns `kernel-init-failed`. Meshes cross as `xpc_shmem` regions (`MeshStorage`).
 - `KernelClient` debounces requests 60 ms (`debounceDuration`) and conflates them per solid, with one pending slot each. `executePending` checks the job ID before it takes the slot, so a stale debounce task never strands a newer request.
 - STEP import returns `geometryFailed` until the OpenCASCADE bridge lands. OCCTSwift is planned (#82), not a dependency. `Package.swift` depends only on Euclid.
 

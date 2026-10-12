@@ -24,7 +24,7 @@ macOS App Sandbox rules restrict arbitrary standard I/O pipe inheritance and chi
 ### Mitigation
 - Provide a dual-distribution posture:
   - **Developer / CLI Build**: Distributed as an open binary or Homebrew package where `--mcp-stdio` connects directly to local AI agents (Claude Desktop, Cursor).
-  - **App Store Build**: Sandboxed GUI application utilizing Apple's native XPC services for agent communication. A TCP listener on port 9820 already exists in the GUI (`MCPServer.start`). It binds to all interfaces today, so loopback binding and sandbox entitlements are open work (DSN-f5402406, #129).
+  - **App Store Build**: Sandboxed GUI application utilizing Apple's native XPC services for agent communication. A TCP listener on port 9820 already exists in the GUI (`MCPServer.start`). It binds to all interfaces today, so loopback binding and sandbox entitlements are open work (DSN-f5402406, #129). The geometry kernel already runs in a bundled XPC service (#245); its sandbox entitlements are also open (#129).
 
 ---
 

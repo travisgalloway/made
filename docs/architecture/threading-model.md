@@ -60,7 +60,7 @@ Apple Silicon shares physical memory between CPU and GPU.
 
 Data structures crossing actor boundaries conform to `Sendable`:
 - **`KernelRequest` & `KernelResult`**: Pure enums carrying value types.
-- **`MeshPayload`**: Immutable struct containing `[Float]` and `[UInt32]`.
+- **`MeshPayload`**: Immutable struct over a `MeshStorage` shared-memory region. `MeshStorage` is `@unchecked Sendable` because its region is written only inside `init`.
 - **`MetalMesh`**: Encapsulates `MTLBuffer` references and is marked `@unchecked Sendable`.
 
 ### Current Isolation
@@ -68,9 +68,8 @@ Nine types opt out of compiler checking with `@unchecked Sendable`: `DocumentMod
 
 ---
 
-## Open Decisions
-
-- #245: Whether the kernel runs in a separate XPC (inter-process communication) service instead of the in-process `KernelClient` actor. The decision changes the isolation and crash-recovery model described above.
+### App and Kernel Service Processes
+The bundled app runs geometry in the `MadeKernelService` XPC service (#245). `KernelClient` stays an actor in the app and keeps the debounce, conflation, and job bookkeeping. `XPCKernelEngine`, a second actor, owns the `XPCSession`, sends one job at a time, and resumes callers from XPC reply handlers through `Task` hops onto the actor. In the service, `KernelServiceHandler` runs each session's messages on an ordered `AsyncStream` consumer, so the XPC session queue never blocks on geometry. A crash in the service ends that process only. The app relaunches it and regenerates from the document, as `kernel.md` describes.
 
 ---
 

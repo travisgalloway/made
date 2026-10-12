@@ -4,52 +4,34 @@ import simd
 
 public enum EuclidEngine {
     /// Converts a Euclid.Mesh into a GPU-ready indexed MeshPayload in right-handed Z-up coordinates.
+    /// Counts triangles first so the vertices are written once, straight into shared storage.
     public static func toMeshPayload(_ mesh: Mesh) -> MeshPayload {
-        let triangulated = mesh.triangulate()
-        var positions: [Float] = []
-        var normals: [Float] = []
-        var indices: [UInt32] = []
+        let polygons = mesh.triangulate().polygons.filter { $0.vertices.count >= 3 }
+        let triangleCount = polygons.reduce(0) { $0 + $1.vertices.count - 2 }
+        let floatCount = triangleCount * 9
         
-        var currentIndex: UInt32 = 0
-        for polygon in triangulated.polygons {
-            let verts = polygon.vertices
-            guard verts.count >= 3 else { continue }
-            
-            // Standard triangulation (fan or 3-vert polygon)
-            for i in 1..<(verts.count - 1) {
-                let v0 = verts[0]
-                let v1 = verts[i]
-                let v2 = verts[i + 1]
-                
-                positions.append(Float(v0.position.x))
-                positions.append(Float(v0.position.y))
-                positions.append(Float(v0.position.z))
-                normals.append(Float(v0.normal.x))
-                normals.append(Float(v0.normal.y))
-                normals.append(Float(v0.normal.z))
-                
-                positions.append(Float(v1.position.x))
-                positions.append(Float(v1.position.y))
-                positions.append(Float(v1.position.z))
-                normals.append(Float(v1.normal.x))
-                normals.append(Float(v1.normal.y))
-                normals.append(Float(v1.normal.z))
-                
-                positions.append(Float(v2.position.x))
-                positions.append(Float(v2.position.y))
-                positions.append(Float(v2.position.z))
-                normals.append(Float(v2.normal.x))
-                normals.append(Float(v2.normal.y))
-                normals.append(Float(v2.normal.z))
-                
-                indices.append(currentIndex)
-                indices.append(currentIndex + 1)
-                indices.append(currentIndex + 2)
-                currentIndex += 3
+        let storage = MeshStorage(positionCount: floatCount, normalCount: floatCount, indexCount: triangleCount * 3) { positions, normals, indices in
+            var f = 0
+            var currentIndex: UInt32 = 0
+            for polygon in polygons {
+                let verts = polygon.vertices
+                // Standard triangulation (fan or 3-vert polygon)
+                for i in 1..<(verts.count - 1) {
+                    for v in [verts[0], verts[i], verts[i + 1]] {
+                        positions[f] = Float(v.position.x)
+                        positions[f + 1] = Float(v.position.y)
+                        positions[f + 2] = Float(v.position.z)
+                        normals[f] = Float(v.normal.x)
+                        normals[f + 1] = Float(v.normal.y)
+                        normals[f + 2] = Float(v.normal.z)
+                        f += 3
+                        indices[Int(currentIndex)] = currentIndex
+                        currentIndex += 1
+                    }
+                }
             }
         }
-        
-        return MeshPayload(positions: positions, normals: normals, indices: indices)
+        return MeshPayload(storage: storage)
     }
     
     /// Generates a box mesh using Euclid.

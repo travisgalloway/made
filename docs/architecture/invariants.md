@@ -20,9 +20,9 @@ These invariants must hold at every phase. A violation is treated as a build bre
 
 5. **Direct Metal 4 graphics pipeline.** The application renders natively through Apple's Metal 4 API (`MTL4CommandQueue`, argument tables, residency sets) via MetalKit, with Metal Shading Language (MSL) shaders compiled at build time. Metal 4 requires Apple silicon, so Intel Macs are unsupported. Offscreen render passes generate image snapshots for visual agent verification.
 
-6. **Meshes cross boundaries as typed arrays and live in shared-storage buffers.** `MeshPayload` carries `[Float]` and `[UInt32]` arrays. The renderer copies them into Metal buffers allocated with `.storageModeShared`, which Apple Silicon unified memory makes visible to both CPU and GPU.
+6. **Meshes cross boundaries as shared memory and live in shared-storage buffers.** `MeshPayload` carries one page-aligned `MAP_SHARED` region (`MeshStorage`), which crosses the kernel XPC boundary as `xpc_shmem` without a copy. The renderer copies each component once into a Metal buffer allocated with `.storageModeShared`, which Apple Silicon unified memory makes visible to both CPU and GPU.
 
-7. **Thread-safe geometry execution.** Swift 6 language mode and actor isolation for `KernelClient` guard kernel state. Other types are `@unchecked Sendable` today (#91). High-frequency parameter mutations are conflated with a 60 ms debounce window, and superseded results are dropped by job ID.
+7. **Thread-safe geometry execution.** Swift 6 language mode and actor isolation for `KernelClient`, `LocalKernelEngine`, and `XPCKernelEngine` guard kernel state. Fifteen types are `@unchecked Sendable` today (#91). High-frequency parameter mutations are conflated with a 60 ms debounce window, and superseded results are dropped by job ID.
 
 8. **Navigation and editing never share a gesture.** Multi-touch gestures drive camera navigation (pan, orbit, zoom), single-pointer input drives selection and manipulation, and the Apple Pencil provides a dedicated precision create-and-edit channel. The gesture arbiter locks mode on the first movement and holds it until release.
 
@@ -38,13 +38,13 @@ Table 1. Enforcement status per invariant, as of 2026-10-11.
 
 | # | Status | Enforced By |
 | - | ------ | ----------- |
-| 1 | Partly tested | `KernelClient` is an `actor`, and `KernelClientTests` exercise it. No test asserts that the main thread stays free. |
+| 1 | Partly tested | `KernelClient` and the engines are actors, and `KernelClientTests` exercise them. In the bundled app, geometry runs in the kernel XPC service; `KernelXPCTests` cover the crash, retry, breaker, and terminate paths against an in-process listener. No test asserts that the main thread stays free. |
 | 2 | Partly tested | `MTKView.isPaused = true` and `enableSetNeedsDisplay = true` in `CADMetalViewRepresentable.swift`. `ViewportCoordinatorTests.testRenderCountStaysFlatAtIdle` asserts a flat `renderCount` at idle. The viewport records the `model`, `camera`, and `interaction` invalidation reasons. |
 | 3 | Not tested | Module separation only: `MadeCore/Scene` holds the `@Observable DocumentModel`, and `MadeCore/Viewport` holds the Metal buffers. |
-| 4 | Convention only | `KernelClientProtocol` and the wire types in `MadeCore/Kernel/Types.swift`. `MadeApp/WorkspaceModel.swift` constructs `KernelClient` and holds the `MetalRenderer` through the viewport manager. No lint rule or test enforces the boundary. |
+| 4 | Partly tested | `KernelClientProtocol` and the `Codable` wire types in `MadeCore/Kernel/Types.swift`. `KernelXPCTests.testRequestRoundTripsEveryCase` round-trips every request through the XPC wire encoding, which carries no Euclid type. `MadeApp/WorkspaceModel.swift` constructs `KernelClient.makeDefault()`. No lint rule enforces the boundary. |
 | 5 | Tested on a GPU | `MetalRendererGeometryTests` builds the Metal 4 renderer, loads the precompiled shaders, and checks an offscreen render pixel by pixel. The renderer tests skip on a device without Metal 4, such as the paravirtual GPU on hosted CI runners, and the git hooks fail on that skip. `ShaderLibraryTests` runs on any Metal device and checks the bundled shader library. The headless server has no snapshot provider (#89). |
-| 6 | Not tested | `MetalRenderer.createMesh` allocates three `.storageModeShared` buffers with `makeBuffer(bytes:length:options:)`. That call copies the `[Float]` and `[UInt32]` arrays once per upload. |
-| 7 | Partly tested | `KernelClientTests` cover the actor, the debounce, conflation, and the stale-debounce race. Several types are `@unchecked Sendable` (#91). |
+| 6 | Partly tested | `MeshStorageTests` check page alignment and the `xpc_shmem` round trip, and `KernelXPCTests.testBoxRoundTripsThroughService` checks a mesh crossing the service boundary. `MetalRenderer.createMesh` copies each mapped component once with `makeBuffer(bytes:length:options:)` into a `.storageModeShared` buffer; `MetalRendererGeometryTests` renders the result. |
+| 7 | Partly tested | `KernelClientTests` cover the actor, the debounce, conflation, the stale-debounce race, and dispose during an executing job. Fifteen types are `@unchecked Sendable` (#91). |
 | 8 | Partly tested | `GestureArbiterTests` has seven tests. `CameraTests` covers the `PointerRouter` click-versus-drag threshold, scroll and magnify events, and pen routing, and `ViewportToolTests` covers tool routing. `CADMetalViewRepresentable` feeds mouse events to the router. |
 | 9 | Partly tested | `SnappingTests` has 17 tests covering vertex over edge over grid precedence, tolerance, and grid rounding. `CADMetalViewRepresentable` calls `resolveSnapAtPointer` during drags. |
 
