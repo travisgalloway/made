@@ -8,9 +8,16 @@ struct MadeApp: App {
     init() {
         if CommandLine.arguments.contains("--mcp-stdio") {
             let doc = DocumentModel()
-            let kernel = KernelClient()
+            let kernel = KernelClient.makeDefault()
             let registry = CADToolRegistry(document: doc, kernelClient: kernel)
             let server = MCPServer(toolRegistry: registry)
+
+            // A restarted kernel service holds no solids; rebuild this document's from its parameters.
+            Task {
+                for await restart in await kernel.restarts() {
+                    await KernelRegeneration.regenerate(document: doc, client: kernel, excluding: restart.excludedSolid)
+                }
+            }
 
             // Run headless MCP server over stdio
             Task {

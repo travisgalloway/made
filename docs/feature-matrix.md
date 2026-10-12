@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 149 capabilities with their implementation status. The matrix shows 87 Shipped, 44 In progress, 12 Planned, and 6 Deprecated rows.
+Table 1 lists 150 capabilities with their implementation status. The matrix shows 88 Shipped, 44 In progress, 12 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -77,14 +77,15 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-8 | A developer can generate a cylinder mesh with side wall and caps by hand | n/a | done | n/a | In progress |  | n/a |
 | KERN-9 | A user can request geometry and have requests debounced 60 ms and conflated to one pending job per solid | done | done | n/a | Shipped | #90 | n/a |
 | KERN-10 | A user gets non-positive box or cylinder dimensions rejected with `invalidParams` | n/a | done | n/a | Shipped |  | n/a |
-| KERN-11 | An agent can cancel a job by ID before it executes | n/a | done | n/a | In progress |  | n/a |
-| KERN-12 | A user gets a superseded in-flight result dropped (honest cancellation); the check at :175 compares an ID set synchronously at :107, so only the conflation path at :61 takes effect | n/a | done | n/a | In progress |  | n/a |
+| KERN-11 | An agent can cancel a job by ID before it executes; cancelling a job that is executing in the kernel service ends the service and returns `cancelled` | n/a | done | done | In progress | #245 | n/a |
+| KERN-12 | A user gets a superseded in-flight result dropped (honest cancellation); `executePending` awaits the engine, so a newer job for the same solid can start meanwhile and the older result resolves as `cancelled` | n/a | done | n/a | In progress |  | n/a |
 | KERN-13 | A user or agent can dispose a solid's cached payloads, active job, and pending job | n/a | done | done | Shipped | #93 | n/a |
 | KERN-14 | A developer can read dispatched, conflated, dropped and completed job counters | n/a | done | n/a | In progress |  | n/a |
 | KERN-15 | A user can re-fetch a solid's cached mesh with a tessellate request | n/a | done | done | In progress |  | n/a |
 | KERN-16 | A user can import a STEP file (`importStep`); the request always fails with `geometryFailed` "pending OpenCASCADE bridge" | none | none | n/a | In progress | #38 | n/a |
-| KERN-17 | A caller gets typed failures (`kernel-init-failed`, `invalid-params`, `geometry-failed`, `unknown-solid`, `cancelled`, `worker-crashed`) instead of thrown errors | n/a | done | n/a | Shipped |  | n/a |
+| KERN-17 | A caller gets typed failures (`kernel-init-failed`, `invalid-params`, `geometry-failed`, `unknown-solid`, `cancelled`, `worker-crashed`) instead of thrown errors; the kernel service produces `kernel-init-failed` (no session, breaker open) and `worker-crashed` (service stopped during the job) | n/a | done | n/a | Shipped | #245 | n/a |
 | KERN-18 | A user can keep the previous valid mesh on screen when a kernel job fails | done | done | n/a | Shipped | #109 | n/a |
+| KERN-20 | A user keeps the window and document when the geometry kernel crashes; the kernel runs in an XPC service, meshes return as shared memory, and the app relaunches the service and regenerates every solid from the document | done | done | done | Shipped | #245 | n/a |
 | KERN-19 | A user can export or import STEP and IGES files, and apply B-Rep fillets, chamfers and draft angles (OCCTSwift Tier 2) | none | none | none | Planned | #82 | n/a |
 | DOC-1 | A user can have scene objects of kind box, cylinder or imported (name only) | done | done | done | Shipped |  | n/a |
 | DOC-2 | A user gets parameter values clamped to fixed ranges when an object is added and when a parameter is set (box 5 to 90 mm, cylinder radius 5 to 50 mm, cylinder height 5 to 90 mm; NaN becomes the minimum) | done | done | done | Shipped | #104 | n/a |

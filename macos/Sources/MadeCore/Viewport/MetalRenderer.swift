@@ -292,6 +292,16 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, SnapshotProvider, @
     }
 
     /// Converts a MeshPayload into a MetalMesh in shared, unified memory (invariant 6).
+    /// The one app-side copy of a kernel mesh: from the mapped shared region into a shared Metal buffer (invariant 6).
+    private func makeBuffer<T>(_ component: MeshComponent<T>, label: String) -> MTLBuffer? {
+        let buffer = component.withUnsafeBytes { bytes -> MTLBuffer? in
+            guard let base = bytes.baseAddress, bytes.count > 0 else { return nil }
+            return device.makeBuffer(bytes: base, length: bytes.count, options: .storageModeShared)
+        }
+        buffer?.label = label
+        return buffer
+    }
+
     public func createMesh(
         from payload: MeshPayload,
         solidId: SolidId = SolidId("solid"),

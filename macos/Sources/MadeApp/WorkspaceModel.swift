@@ -8,10 +8,10 @@ import os
 final class WorkspaceModel {
     let document = DocumentModel()
     #if DEBUG
-    private let faultInjector = FaultInjectingKernelClient(wrapping: KernelClient())
+    private let faultInjector = FaultInjectingKernelClient(wrapping: KernelClient.makeDefault())
     var kernelClient: any KernelClientProtocol { faultInjector }
     #else
-    let kernelClient: any KernelClientProtocol = KernelClient()
+    let kernelClient: any KernelClientProtocol = KernelClient.makeDefault()
     #endif
     let viewportManager = ViewportStateManager()
 
@@ -83,6 +83,21 @@ final class WorkspaceModel {
 
         for obj in document.objects { recomputeSolid(id: obj.id) }
         log(.info, "Metal", "Metal 4 pipeline initialized")
+        watchKernelRestarts()
+    }
+
+    /// A restarted kernel service holds no solids; resubmit each one, except the solid whose job stopped it.
+    private func watchKernelRestarts() {
+        Task { [weak self, kernelClient] in
+            for await restart in await kernelClient.restarts() {
+                guard let self else { return }
+                let culprit = restart.excludedSolid.map { ", skipping \($0.rawValue)" } ?? ""
+                self.log(.error, "Kernel", "Kernel service restarted (\(restart.reason))\(culprit); regenerating solids")
+                for obj in self.document.objects where obj.id != restart.excludedSolid {
+                    self.recomputeSolid(id: obj.id)
+                }
+            }
+        }
     }
 
     // MARK: - Scene editing
@@ -151,13 +166,7 @@ final class WorkspaceModel {
 
     private func recomputeSolid(id: ObjectId) {
         guard let obj = document.objects.first(where: { $0.id == id }) else { return }
-        let jobId = JobId("job-\(UUID().uuidString)")
-        let request: KernelRequest
-        switch obj.def {
-        case .box(let params): request = .makeBox(jobId: jobId, solidId: id, params: params)
-        case .cylinder(let params): request = .makeCylinder(jobId: jobId, solidId: id, params: params)
-        case .imported: return
-        }
+        guard let request = KernelRegeneration.request(for: obj, jobId: JobId("job-\(UUID().uuidString)")) else { return }
 
         Task {
             let result = await kernelClient.request(request)

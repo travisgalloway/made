@@ -25,4 +25,5 @@ public actor FaultInjectingKernelClient: KernelClientProtocol {
     public func cancel(jobId: JobId) async { await inner.cancel(jobId: jobId) }
     public func dispose(solidId: SolidId) async { await inner.dispose(solidId: solidId) }
     public func getStats() async -> KernelStats { await inner.getStats() }
+    public func restarts() async -> AsyncStream<KernelRestart> { await inner.restarts() }
 }

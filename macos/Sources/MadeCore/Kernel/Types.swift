@@ -1,6 +1,6 @@
 import Foundation
 
-public struct SolidId: Hashable, Equatable, Sendable, CustomStringConvertible {
+public struct SolidId: Hashable, Equatable, Sendable, Codable, CustomStringConvertible {
     public let rawValue: String
     
     public init(_ rawValue: String) {
@@ -10,7 +10,7 @@ public struct SolidId: Hashable, Equatable, Sendable, CustomStringConvertible {
     public var description: String { rawValue }
 }
 
-public struct JobId: Hashable, Equatable, Sendable, CustomStringConvertible {
+public struct JobId: Hashable, Equatable, Sendable, Codable, CustomStringConvertible {
     public let rawValue: String
     
     public init(_ rawValue: String) {
@@ -20,7 +20,7 @@ public struct JobId: Hashable, Equatable, Sendable, CustomStringConvertible {
     public var description: String { rawValue }
 }
 
-public struct BoxParams: Hashable, Equatable, Sendable {
+public struct BoxParams: Hashable, Equatable, Sendable, Codable {
     public var width: Float
     public var depth: Float
     public var height: Float
@@ -32,7 +32,7 @@ public struct BoxParams: Hashable, Equatable, Sendable {
     }
 }
 
-public struct CylinderParams: Hashable, Equatable, Sendable {
+public struct CylinderParams: Hashable, Equatable, Sendable, Codable {
     public var radius: Float
     public var height: Float
     
@@ -42,21 +42,28 @@ public struct CylinderParams: Hashable, Equatable, Sendable {
     }
 }
 
+/// A triangle mesh held in one page-aligned shared-memory region, so it can cross XPC without a copy (invariant 6).
 public struct MeshPayload: Sendable {
-    public let positions: [Float]
-    public let normals: [Float]
-    public let indices: [UInt32]
-    public let triangleCount: Int
+    public let storage: MeshStorage
+    public var positions: MeshComponent<Float> { storage.positions }
+    public var normals: MeshComponent<Float> { storage.normals }
+    public var indices: MeshComponent<UInt32> { storage.indices }
+    public var triangleCount: Int { storage.indexCount / 3 }
+    
+    public init(storage: MeshStorage) {
+        self.storage = storage
+    }
     
     public init(positions: [Float], normals: [Float], indices: [UInt32]) {
-        self.positions = positions
-        self.normals = normals
-        self.indices = indices
-        self.triangleCount = indices.count / 3
+        self.storage = MeshStorage(positionCount: positions.count, normalCount: normals.count, indexCount: indices.count) { p, n, i in
+            _ = p.initialize(from: positions)
+            _ = n.initialize(from: normals)
+            _ = i.initialize(from: indices)
+        }
     }
 }
 
-public enum KernelErrorCode: String, Sendable {
+public enum KernelErrorCode: String, Sendable, Codable, CaseIterable {
     case kernelInitFailed = "kernel-init-failed"
     case invalidParams = "invalid-params"
     case geometryFailed = "geometry-failed"
@@ -65,7 +72,7 @@ public enum KernelErrorCode: String, Sendable {
     case workerCrashed = "worker-crashed"
 }
 
-public struct KernelError: Error, Equatable, Sendable {
+public struct KernelError: Error, Equatable, Sendable, Codable {
     public let code: KernelErrorCode
     public let message: String
     
@@ -108,7 +115,7 @@ public enum BooleanOp: String, Sendable, Codable {
     case intersect
 }
 
-public enum KernelRequest: Sendable {
+public enum KernelRequest: Sendable, Codable, Equatable {
     case makeBox(jobId: JobId, solidId: SolidId, params: BoxParams)
     case makeCylinder(jobId: JobId, solidId: SolidId, params: CylinderParams)
     case tessellate(jobId: JobId, solidId: SolidId)

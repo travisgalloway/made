@@ -24,7 +24,7 @@ public struct KernelError: Error, Equatable, Sendable {
 }
 ```
 
-`KernelErrorCode` is a top-level enum with six cases. No `internalError` case exists. The JSON-RPC `internalError` (-32603) is a separate payload in `MCPProtocol.swift`. `kernelInitFailed` and `workerCrashed` are defined but nothing in the code produces them today.
+`KernelErrorCode` is a top-level enum with six cases. No `internalError` case exists. The JSON-RPC `internalError` (-32603) is a separate payload in `MCPProtocol.swift`. `XPCKernelEngine` produces `kernelInitFailed` when the kernel service session cannot be created or the restart breaker is open, and `workerCrashed` when the service stops twice while computing the same job (#245).
 
 ---
 

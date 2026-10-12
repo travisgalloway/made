@@ -1,5 +1,4 @@
 import Foundation
-import Euclid
 import os
 
 private let kernelSignposter = OSSignposter(subsystem: "com.made.app", category: "Kernel")
@@ -28,35 +27,55 @@ public protocol KernelClientProtocol: Sendable {
     func cancel(jobId: JobId) async
     func dispose(solidId: SolidId) async
     func getStats() async -> KernelStats
+    /// Events after which the kernel holds no solids; callers resubmit from the document.
+    func restarts() async -> AsyncStream<KernelRestart>
+}
+
+extension KernelClientProtocol {
+    public func restarts() async -> AsyncStream<KernelRestart> {
+        AsyncStream { $0.finish() }
+    }
 }
 
 public actor KernelClient: KernelClientProtocol {
-    private var solids: [SolidId: MeshPayload] = [:]
-    private var euclidMeshes: [SolidId: Euclid.Mesh] = [:]
+    private let engine: any KernelEngine
     private var pendingJobs: [SolidId: (request: KernelRequest, continuation: CheckedContinuation<KernelResult<MeshPayload>, Never>)] = [:]
     private var activeJobForSolid: [SolidId: JobId] = [:]
     private var cancelledJobs: Set<JobId> = []
+    /// Jobs awaiting the engine. A dispose that lands meanwhile must free what the job writes back.
+    private var executingJobs: Set<JobId> = []
+    private var disposedWhileExecuting: Set<JobId> = []
     private var debounceTasks: [SolidId: Task<Void, Never>] = [:]
     
     private var stats = KernelStats()
     private let debounceDuration: Duration
     
-    public init(debounceDuration: Duration = .milliseconds(60)) {
+    public init(engine: any KernelEngine = LocalKernelEngine(), debounceDuration: Duration = .milliseconds(60)) {
+        self.engine = engine
         self.debounceDuration = debounceDuration
+    }
+    
+    public func restarts() async -> AsyncStream<KernelRestart> {
+        engine.restarts()
     }
     
     public func getStats() async -> KernelStats {
         return stats
     }
     
+    /// A pending job is dropped before it runs. An executing job is ended by the engine, which may stop the service.
     public func cancel(jobId: JobId) async {
-        cancelledJobs.insert(jobId)
+        if executingJobs.contains(jobId) {
+            _ = await engine.terminate(jobId: jobId)
+        } else {
+            cancelledJobs.insert(jobId)
+        }
     }
     
     public func dispose(solidId: SolidId) async {
-        solids.removeValue(forKey: solidId)
-        euclidMeshes.removeValue(forKey: solidId)
-        activeJobForSolid.removeValue(forKey: solidId)
+        if let active = activeJobForSolid.removeValue(forKey: solidId), executingJobs.contains(active) {
+            disposedWhileExecuting.insert(active)
+        }
         debounceTasks[solidId]?.cancel()
         debounceTasks.removeValue(forKey: solidId)
         if let pending = pendingJobs.removeValue(forKey: solidId) {
@@ -64,6 +83,7 @@ public actor KernelClient: KernelClientProtocol {
             stats.dropped += 1
             pending.continuation.resume(returning: .failure(jobId: pending.request.jobId, error: KernelError(code: .cancelled, message: "Solid disposed")))
         }
+        await engine.dispose(solidId: solidId)
     }
     
     public func request(_ request: KernelRequest) async -> KernelResult<MeshPayload> {
@@ -99,12 +119,13 @@ public actor KernelClient: KernelClientProtocol {
         pendingJobs[solidId]?.request.jobId
     }
     
-    func storeCounts() -> KernelStoreCounts {
-        KernelStoreCounts(solids: solids.count, euclidMeshes: euclidMeshes.count, pendingJobs: pendingJobs.count,
+    func storeCounts() async -> KernelStoreCounts {
+        let engineCounts = await engine.storeCounts()
+        return KernelStoreCounts(solids: engineCounts.solids, euclidMeshes: engineCounts.euclidMeshes, pendingJobs: pendingJobs.count,
                           activeJobs: activeJobForSolid.count, cancelledJobs: cancelledJobs.count, debounceTasks: debounceTasks.count)
     }
     
-    func executePending(for solidId: SolidId, expectedJobId: JobId) {
+    func executePending(for solidId: SolidId, expectedJobId: JobId) async {
         // Check before removing: a stale debounce task must never take a newer job's slot (#90).
         guard let pending = pendingJobs[solidId], pending.request.jobId == expectedJobId else {
             return
@@ -128,65 +149,18 @@ public actor KernelClient: KernelClientProtocol {
         let interval = kernelSignposter.beginInterval("Kernel Job", id: kernelSignposter.makeSignpostID(), "\(solidId.rawValue, privacy: .public)")
         defer { kernelSignposter.endInterval("Kernel Job", interval) }
         
-        // Compute geometry
-        let result: KernelResult<MeshPayload>
-        switch pending.request {
-        case .makeBox(_, let sId, let params):
-            if params.width <= 0 || params.depth <= 0 || params.height <= 0 {
-                result = .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Box dimensions must be positive"))
-            } else {
-                let euclid = EuclidEngine.makeBox(width: params.width, depth: params.depth, height: params.height)
-                euclidMeshes[sId] = euclid
-                let mesh = EuclidEngine.toMeshPayload(euclid)
-                solids[sId] = mesh
-                result = .success(jobId: jobId, value: mesh)
+        executingJobs.insert(jobId)
+        let result = await engine.execute(req)
+        executingJobs.remove(jobId)
+        
+        if disposedWhileExecuting.remove(jobId) != nil {
+            // The engine cached this solid after dispose cleared it; free it unless a newer job owns the solid.
+            if activeJobForSolid[solidId] == nil {
+                await engine.dispose(solidId: solidId)
             }
-            
-        case .makeCylinder(_, let sId, let params):
-            if params.radius <= 0 || params.height <= 0 {
-                result = .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Cylinder dimensions must be positive"))
-            } else {
-                let euclid = EuclidEngine.makeCylinder(radius: params.radius, height: params.height)
-                euclidMeshes[sId] = euclid
-                let mesh = EuclidEngine.toMeshPayload(euclid)
-                solids[sId] = mesh
-                result = .success(jobId: jobId, value: mesh)
-            }
-            
-        case .booleanOperation(_, let sId, let op, let solidA, let solidB):
-            guard let meshA = euclidMeshes[solidA] else {
-                result = .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid A '\(solidA)' not found for CSG boolean"))
-                break
-            }
-            guard let meshB = euclidMeshes[solidB] else {
-                result = .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid B '\(solidB)' not found for CSG boolean"))
-                break
-            }
-            
-            let resultMesh: Euclid.Mesh
-            switch op {
-            case .subtract:
-                resultMesh = EuclidEngine.subtract(meshA, meshB)
-            case .union:
-                resultMesh = EuclidEngine.union(meshA, meshB)
-            case .intersect:
-                resultMesh = EuclidEngine.intersect(meshA, meshB)
-            }
-            
-            euclidMeshes[sId] = resultMesh
-            let payload = EuclidEngine.toMeshPayload(resultMesh)
-            solids[sId] = payload
-            result = .success(jobId: jobId, value: payload)
-            
-        case .tessellate(_, let sId):
-            if let existing = solids[sId] {
-                result = .success(jobId: jobId, value: existing)
-            } else {
-                result = .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid \(sId) not found"))
-            }
-            
-        case .importStep(_, _, _):
-            result = .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "STEP import pending OpenCASCADE bridge"))
+            stats.dropped += 1
+            pending.continuation.resume(returning: .failure(jobId: jobId, error: KernelError(code: .cancelled, message: "Solid disposed during execution")))
+            return
         }
         
         // Drop result if active job for solid changed in between (honest cancellation guarantee)
