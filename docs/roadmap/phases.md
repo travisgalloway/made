@@ -113,7 +113,7 @@ Adds the base of computer-aided engineering (CAE) so a model can be analyzed. Sc
 Widens the product to more design domains and platforms. Scope covers sheet metal, surfacing, motion, iPad, and versioning.
 
 ## Phase 8: Advanced (Not started)
-Adds advanced analysis and team workflows. Scope covers nonlinear analysis, computational fluid dynamics (CFD), optimization, and collaboration.
+Adds advanced analysis and team workflows. Scope covers nonlinear analysis, computational fluid dynamics (CFD), optimization, and collaboration. Phase 8 also holds the App Store path (#419). Swift reimplementations in `libs/` replace the dependencies that block App Store distribution (#414 to #418). [ADR-D8](../architecture/adr/ADR-D8-project-license.md) records the plan.
 
 ---
 

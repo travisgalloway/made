@@ -28,10 +28,22 @@ Version 2.1 matches OCCT. The "or later" clause keeps LGPL-3.0 code compatible.
 - LGPL code from other projects, such as FreeCAD planegcs (#146), can link in process on the same terms.
 - GPL code in process would make each distributed `made` binary subject to the GPL. SolveSpace's solver (GPLv3) is therefore excluded for #146, unless a later ADR accepts that.
 - GPL solvers and meshers, such as CalculiX and Gmsh, run as separate executables driven by input and result files (#147).
-- Release builds bundle those executables in `MadeApp.app/Contents/Helpers/` (#413). Each one is signed and notarized, and ships with its license text. Each GPL binary also needs its corresponding source, published or offered in writing. The bundled GPL programs likely rule out the Mac App Store (#254).
+- Release builds bundle those executables in `MadeApp.app/Contents/Helpers/` (#413). Each one is signed and notarized, and ships with its license text. Each GPL binary also needs its corresponding source, published or offered in writing. The bundled GPL programs rule out the App Store for this build.
 - A binary release must ship the LGPL text and the license notices of every bundled library.
 - Each new dependency records its license in the pull request that adds it.
 
-## Deferred
+## Distribution Plan
 
-Swift ports or reimplementations of third-party solvers, kept in a separate `libs/` directory, were discussed on 2026-10-12 and deferred. A port keeps the license of its source, so only MIT, BSD, or LGPL code, or code written from published papers and specifications, could link into `made`.
+The maintainer set this plan on 2026-10-12.
+
+| Stage | Build | Dependencies | Updates |
+| --- | --- | --- | --- |
+| Mac MVP | Signed, notarized direct download (#254) | OCCT in process, and GPL solver and mesher binaries bundled as helpers (#413) | Manual. The user installs a newer download. |
+| Longer term | App Store, on macOS and iPadOS (#419) | Swift reimplementations in `libs/` replace the incompatible dependencies | Through the App Store |
+
+The longer-term stage depends on these issues:
+
+- #414: a contributor license agreement (CLA), in place before the first outside pull request. Without one, contributed LGPL code cannot ship under App Store terms.
+- #415: the `libs/` directory and its clean-room procedure. A port keeps the license of its source, so each reimplementation is written from published papers and specifications, with its references in `PROVENANCE.md`.
+- #416 and #417: Swift replacements for the CAE solver and the volume mesher.
+- #418: an ADR on OCCT in App Store builds. Reimplementing OCCT is not practical, so the options are a commercial license, a dynamic LGPL framework, or a narrower App Store edition.
