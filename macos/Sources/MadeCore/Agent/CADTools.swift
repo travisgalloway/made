@@ -193,7 +193,7 @@ public final class CADToolRegistry: @unchecked Sendable {
             let w = arguments["width"]?.floatValue ?? 40.0
             let d = arguments["depth"]?.floatValue ?? 30.0
             let h = arguments["height"]?.floatValue ?? 20.0
-            // The document model clamps to DocumentLimits.
+            // The document model clamps these to its limits.
             let params = BoxParams(width: w, depth: d, height: h)
             id = document.addObject(def: .box(params), transform: transform)
         } else if type == "cylinder" {
