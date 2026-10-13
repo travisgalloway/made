@@ -77,3 +77,6 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 
 - [2026-10-13] `macos/Sources/MadeCore/Agent/InAppAgentController.swift:137-150`, a prompt containing "cylinder" and "width" or "depth" sends a box-only name to `cylinder-1`, which `cad_set_param` now rejects with an error.
   Found while working on #97 set-param validation. Severity, low (the controller has no caller in `MadeApp`).
+
+- [2026-10-13] `macos/Sources/MadeApp/InspectorPanelView.swift:64-74`, the inspector position fields accept values outside `DocumentLimits.position`.
+  Found while working on #98 transform validation. Severity, low.

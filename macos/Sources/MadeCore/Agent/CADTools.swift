@@ -42,9 +42,9 @@ public final class CADToolRegistry {
                         "depth": MCPProperty(type: "number", description: "Depth (Y dimension) for a box in mm"),
                         "height": MCPProperty(type: "number", description: "Height (Z dimension) in mm"),
                         "radius": MCPProperty(type: "number", description: "Radius in mm for a cylinder"),
-                        "posX": MCPProperty(type: "number", description: "X world position in mm (default 0)"),
-                        "posY": MCPProperty(type: "number", description: "Y world position in mm (default 0)"),
-                        "posZ": MCPProperty(type: "number", description: "Z world position in mm (default 0)")
+                        "posX": MCPProperty(type: "number", description: "X world position in mm, from -10000 to 10000 (default 0)"),
+                        "posY": MCPProperty(type: "number", description: "Y world position in mm, from -10000 to 10000 (default 0)"),
+                        "posZ": MCPProperty(type: "number", description: "Z world position in mm, from -10000 to 10000 (default 0)")
                     ],
                     required: ["type"]
                 )
@@ -63,13 +63,13 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_set_transform",
-                description: "Updates the 3D position or scale of an existing solid in world coordinates.",
+                description: "Updates the world position of an existing solid. Omitted coordinates are unchanged.",
                 inputSchema: MCPInputSchema(
                     properties: [
                         "id": MCPProperty(type: "string", description: "The solid ID"),
-                        "posX": MCPProperty(type: "number", description: "X position in mm"),
-                        "posY": MCPProperty(type: "number", description: "Y position in mm"),
-                        "posZ": MCPProperty(type: "number", description: "Z position in mm")
+                        "posX": MCPProperty(type: "number", description: "X position in mm, from -10000 to 10000. Omitted coordinates are unchanged."),
+                        "posY": MCPProperty(type: "number", description: "Y position in mm, from -10000 to 10000. Omitted coordinates are unchanged."),
+                        "posZ": MCPProperty(type: "number", description: "Z position in mm, from -10000 to 10000. Omitted coordinates are unchanged.")
                     ],
                     required: ["id"]
                 )
@@ -180,31 +180,37 @@ public final class CADToolRegistry {
             return .error("Missing 'type' argument (must be 'box' or 'cylinder')")
         }
         
-        let posX = arguments["posX"]?.floatValue ?? 0
-        let posY = arguments["posY"]?.floatValue ?? 0
-        let posZ = arguments["posZ"]?.floatValue ?? 0
-        let transform = Transform(
-            position: SIMD3<Float>(posX, posY, posZ),
-            rotation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
-            scale: SIMD3<Float>(1, 1, 1)
-        )
-        
-        let id: ObjectId
-        if type == "box" {
-            let w = arguments["width"]?.floatValue ?? 40.0
-            let d = arguments["depth"]?.floatValue ?? 30.0
-            let h = arguments["height"]?.floatValue ?? 20.0
-            // The document model clamps these to its limits.
-            let params = BoxParams(width: w, depth: d, height: h)
-            id = document.addObject(def: .box(params), transform: transform)
-        } else if type == "cylinder" {
-            let r = arguments["radius"]?.floatValue ?? 15.0
-            let h = arguments["height"]?.floatValue ?? 40.0
-            let params = CylinderParams(radius: r, height: h)
-            id = document.addObject(def: .cylinder(params), transform: transform)
-        } else {
+        guard type == "box" || type == "cylinder" else {
             return .error("Unsupported solid type '\(type)'. Supported: 'box', 'cylinder'")
         }
+        
+        let transform: Transform
+        let def: ObjectDef
+        do {
+            let posX = try Self.optionalPosition(arguments, "posX") ?? 0
+            let posY = try Self.optionalPosition(arguments, "posY") ?? 0
+            let posZ = try Self.optionalPosition(arguments, "posZ") ?? 0
+            transform = Transform(
+                position: SIMD3<Float>(posX, posY, posZ),
+                rotation: simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
+                scale: SIMD3<Float>(1, 1, 1)
+            )
+            // The document model clamps sizes to its limits.
+            if type == "box" {
+                let w = try Self.optionalNumber(arguments, "width").map(Float.init) ?? 40.0
+                let d = try Self.optionalNumber(arguments, "depth").map(Float.init) ?? 30.0
+                let h = try Self.optionalNumber(arguments, "height").map(Float.init) ?? 20.0
+                def = .box(BoxParams(width: w, depth: d, height: h))
+            } else {
+                let r = try Self.optionalNumber(arguments, "radius").map(Float.init) ?? 15.0
+                let h = try Self.optionalNumber(arguments, "height").map(Float.init) ?? 40.0
+                def = .cylinder(CylinderParams(radius: r, height: h))
+            }
+        } catch {
+            return .error(error.message)
+        }
+        
+        let id = document.addObject(def: def, transform: transform)
         
         return .text("Successfully added solid with ID: \(id.rawValue)")
     }
@@ -241,6 +247,31 @@ public final class CADToolRegistry {
         return .text("Updated parameter '\(param)' on solid '\(idStr)' to \(stored)")
     }
     
+    /// A tool argument that failed validation; the message is returned to the agent as an isError result.
+    private struct ArgumentError: Error { let message: String }
+    
+    /// The finite numeric value of an optional argument, or nil when the key is absent.
+    private static func optionalNumber(_ arguments: [String: AnyCodableValue], _ key: String) throws(ArgumentError) -> Double? {
+        guard let raw = arguments[key] else { return nil }
+        guard let value = raw.doubleValue else {
+            throw ArgumentError(message: "Argument '\(key)' must be a number")
+        }
+        guard value.isFinite else {
+            throw ArgumentError(message: "Argument '\(key)' must be a finite number")
+        }
+        return value
+    }
+    
+    /// An optional position coordinate, checked against the position bound before conversion to Float.
+    private static func optionalPosition(_ arguments: [String: AnyCodableValue], _ key: String) throws(ArgumentError) -> Float? {
+        guard let value = try optionalNumber(arguments, key) else { return nil }
+        let range = DocumentLimits.position
+        guard value >= Double(range.min), value <= Double(range.max) else {
+            throw ArgumentError(message: "Argument '\(key)' must be between \(Int(range.min)) and \(Int(range.max)) mm")
+        }
+        return Float(value)
+    }
+    
     /// Ordered name-and-value pairs of the parameters an agent may set, or nil for a solid with none.
     private static func editableParams(of def: ObjectDef) -> [(name: String, value: Float)]? {
         switch def {
@@ -260,9 +291,16 @@ public final class CADToolRegistry {
         }
         
         var transform = obj.transform
-        if let x = arguments["posX"]?.floatValue { transform.position.x = x }
-        if let y = arguments["posY"]?.floatValue { transform.position.y = y }
-        if let z = arguments["posZ"]?.floatValue { transform.position.z = z }
+        do {
+            let x = try Self.optionalPosition(arguments, "posX")
+            let y = try Self.optionalPosition(arguments, "posY")
+            let z = try Self.optionalPosition(arguments, "posZ")
+            if let x { transform.position.x = x }
+            if let y { transform.position.y = y }
+            if let z { transform.position.z = z }
+        } catch {
+            return .error(error.message)
+        }
         
         document.setTransform(id: id, transform: transform)
         return .text("Updated transform for solid '\(idStr)' to position (\(transform.position.x), \(transform.position.y), \(transform.position.z))")
