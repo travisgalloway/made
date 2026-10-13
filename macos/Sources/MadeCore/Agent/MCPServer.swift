@@ -1,9 +1,14 @@
 import Foundation
 import Network
 
+/// Recovers a request's id before the full decode, so an invalid request can echo it.
+private struct IDProbe: Decodable {
+    let id: JSONRPCID?
+}
+
 public final class MCPServer: @unchecked Sendable {
     public let toolRegistry: CADToolRegistry
-    private let encoder = JSONEncoder()
+    private let encoder: JSONEncoder
     private let decoder = JSONDecoder()
     
     // In-app TCP server state
@@ -13,8 +18,14 @@ public final class MCPServer: @unchecked Sendable {
     public private(set) var port: UInt16 = 9820
     public var onStateChange: (@Sendable (Bool) -> Void)? = nil
     
-    public init(toolRegistry: CADToolRegistry) {
+    public convenience init(toolRegistry: CADToolRegistry) {
+        self.init(toolRegistry: toolRegistry, encoder: JSONEncoder())
+    }
+    
+    /// Accepts an injected encoder so tests can reach the -32603 path.
+    init(toolRegistry: CADToolRegistry, encoder: JSONEncoder) {
         self.toolRegistry = toolRegistry
+        self.encoder = encoder
     }
     
     /// Starts the in-app MCP TCP listener on the specified local port (default: 9820).
@@ -91,11 +102,22 @@ public final class MCPServer: @unchecked Sendable {
             return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
         }
         
+        // -32700 is reserved for text that is not JSON at all.
+        guard let value = try? decoder.decode(AnyCodableValue.self, from: data) else {
+            return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
+        }
+        guard case .dictionary = value else {
+            return encodeResponse(JSONRPCResponse(id: nil, error: .invalidRequest))
+        }
+        guard let probe = try? decoder.decode(IDProbe.self, from: data) else {
+            return encodeResponse(JSONRPCResponse(id: nil, error: .invalidRequest))
+        }
+        
         let request: JSONRPCRequest
         do {
             request = try decoder.decode(JSONRPCRequest.self, from: data)
         } catch {
-            return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
+            return encodeResponse(JSONRPCResponse(id: probe.id, error: .invalidRequest))
         }
         
         let response = await handleRequest(request)

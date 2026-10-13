@@ -157,8 +157,8 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | AGENT-14 | A user can ask the Copilot to add a cylinder, with radius and height numbers, at a random XY position | none | n/a | n/a | In progress |  | n/a |
 | AGENT-15 | A user can ask the Copilot to set width, depth, height or radius on `box-1` or `cylinder-1` (keywords "width", "wide", "depth", "height", "tall", "radius") | none | n/a | n/a | In progress |  | n/a |
 | AGENT-16 | A user can ask the Copilot to show the scene (keywords "scene", "list", "show", "what") | none | n/a | n/a | In progress |  | n/a |
-| AGENT-17 | An agent can receive standard JSON-RPC error payloads (-32700, -32601, -32602, -32603 are produced; -32600 is defined at C/Agent/MCPProtocol.swift:77 and never returned) | n/a | done | n/a | Shipped | #95 | n/a |
-| AGENT-18 | An agent can parse one JSON-RPC message string and get a response string (`processMessage`) | n/a | done | n/a | Shipped | #95 | n/a |
+| AGENT-17 | An agent can receive standard JSON-RPC error payloads. -32700 for text that is not JSON, -32600 for JSON that is not a valid request, -32601 for an unknown method, -32602 for `tools/call` without a name, -32603 when a result cannot be encoded. Every response carries `id`, null when unknown | n/a | done | n/a | Shipped | #95 | n/a |
+| AGENT-18 | An agent can parse one JSON-RPC message string and get a response string (`processMessage`). Non-JSON text returns -32700 with a null id. Valid JSON that is not a request object returns -32600, echoing the id when it is a string or an integer | n/a | done | n/a | Shipped | #95 | n/a |
 | AGENT-19 | An agent can call `initialize` and receive protocol 2024-11-05, server `made-native-cad` 0.1.0 and the tools capability | n/a | done | n/a | Shipped |  | n/a |
 | AGENT-20 | An agent can discover the 8 tool schemas | n/a | done | n/a | Shipped |  | n/a |
 | AGENT-21 | An agent can invoke any registered tool by name with arguments (missing name gives `-32602`; unknown tool gives an `isError` result) | n/a | done | n/a | Shipped |  | n/a |
