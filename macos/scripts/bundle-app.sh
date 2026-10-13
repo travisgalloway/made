@@ -25,8 +25,15 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$service/Contents/MacO
 cp "$pkg_dir/Support/MadeApp-Info.plist" "$app/Contents/Info.plist"
 cp "$bin_dir/MadeApp" "$app/Contents/MacOS/MadeApp"
 cp -R "$bin_dir/$resources" "$app/Contents/Resources/$resources"
-xcrun actool "$icon" --compile "$app/Contents/Resources" --platform macosx --minimum-deployment-target 26.0 \
-    --app-icon made --output-partial-info-plist /dev/null --output-format human-readable-text >/dev/null
+# actool can exit 0 without writing anything, so success is both outputs existing.
+actool_log=$(xcrun actool "$icon" --compile "$app/Contents/Resources" --platform macosx \
+    --minimum-deployment-target 26.0 --app-icon made --output-partial-info-plist /dev/null \
+    --output-format human-readable-text 2>&1) || true
+if [ ! -f "$app/Contents/Resources/Assets.car" ] || [ ! -f "$app/Contents/Resources/made.icns" ]; then
+    echo "bundle-app: actool could not compile $icon (it needs Xcode 26 or later and an existing .icon file):" >&2
+    echo "$actool_log" >&2
+    exit 1
+fi
 cp "$pkg_dir/Support/MadeKernelService-Info.plist" "$service/Contents/Info.plist"
 cp "$bin_dir/MadeKernelService" "$service/Contents/MacOS/MadeKernelService"
 

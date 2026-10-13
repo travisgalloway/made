@@ -63,8 +63,9 @@ macos/
       MadeApp.swift       # SwiftUI @main entrypoint & --mcp-stdio handler
       ContentView.swift   # NavigationSplitView and toolbar
       WorkspaceModel.swift, WorkspaceTypes.swift # Window state, selection, MCP server control
-      NavigatorSidebarView.swift, InspectorPanelView.swift, ViewportCanvasView.swift # Navigator, inspector, viewport header and HUD
-      ConsoleDrawerView.swift, MCPServerPopoutView.swift # Console drawer and MCP window
+      NavigatorSidebarView.swift, InspectorPanelView.swift, ViewportCanvasView.swift # Navigator, inspector, viewport header
+      ViewportStatusBar.swift, BarControls.swift, PaneTabs.swift # Status bar, shared bar controls, pane tab bars
+      ConsoleDrawerView.swift, MCPServerPopoverView.swift # Console pane and MCP popover
       CADMetalViewRepresentable.swift # MTKView representable (AppKit; UIKit branch is not built)
   Tests/
     MadeCoreTests/        # 18 test suites (DSL, CSG, Kernel, Arbiter, Snapping, Document, Tools, MCP, camera, grid, axes, viewport, renderer, shader)

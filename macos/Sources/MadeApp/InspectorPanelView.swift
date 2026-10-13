@@ -4,6 +4,9 @@ import simd
 
 struct InspectorPanelView: View {
     @Environment(WorkspaceModel.self) private var workspace
+    /// Per-field commit count. A commit the model clamps back to its current value changes no state,
+    /// so the field would keep the rejected text; bumping its identity redraws it from the model.
+    @State private var fieldRevisions: [String: Int] = [:]
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -61,14 +64,14 @@ struct InspectorPanelView: View {
     private func transformSection(_ obj: SceneObject) -> some View {
         Section {
             LabeledContent("Position (mm)") {
-                vectorFields(obj.transform.position) { position in
+                vectorFields("position", obj.transform.position) { position in
                     var t = obj.transform
                     t.position = position
                     workspace.setTransform(obj.id, t)
                 }
             }
             LabeledContent("Scale") {
-                vectorFields(obj.transform.scale) { scale in
+                vectorFields("scale", obj.transform.scale) { scale in
                     var t = obj.transform
                     t.scale = simd_max(scale, SIMD3<Float>(repeating: 0.01))
                     workspace.setTransform(obj.id, t)
@@ -113,8 +116,12 @@ struct InspectorPanelView: View {
 
     // MARK: - Controls
 
+    private func committed(_ key: String) {
+        fieldRevisions[key, default: 0] &+= 1
+    }
+
     /// Three axis fields with X/Y/Z captions beneath, so Position and Scale lay out identically.
-    private func vectorFields(_ value: SIMD3<Float>, onChange: @escaping (SIMD3<Float>) -> Void) -> some View {
+    private func vectorFields(_ key: String, _ value: SIMD3<Float>, onChange: @escaping (SIMD3<Float>) -> Void) -> some View {
         HStack(spacing: 6) {
             ForEach(0..<3, id: \.self) { axis in
                 let name = ["X", "Y", "Z"][axis]
@@ -125,8 +132,10 @@ struct InspectorPanelView: View {
                             var v = value
                             v[axis] = Float(newValue)
                             onChange(v)
+                            committed("\(key).\(name)")
                         }
                     ), format: .number.precision(.fractionLength(1)))
+                    .id(fieldRevisions["\(key).\(name)", default: 0])
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(width: 56)
@@ -142,11 +151,15 @@ struct InspectorPanelView: View {
 
     /// A typed millimeter value with a 1-mm stepper; `setParam` clamps to the range (invariant 9).
     private func paramField(_ label: String, _ value: Float, _ range: ParamRange, onChange: @escaping (Float) -> Void) -> some View {
-        let binding = Binding(get: { Double(value) }, set: { onChange(Float($0)) })
+        let binding = Binding(get: { Double(value) }, set: {
+            onChange(Float($0))
+            committed(label)
+        })
         let spoken = "\(value.formatted(.number.precision(.fractionLength(1)))) millimeters"
         return LabeledContent(label) {
             HStack(spacing: 4) {
                 TextField(label, value: binding, format: .number.precision(.fractionLength(1)))
+                    .id(fieldRevisions[label, default: 0])
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(width: 64)

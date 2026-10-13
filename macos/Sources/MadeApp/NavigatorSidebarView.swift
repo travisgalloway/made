@@ -102,6 +102,13 @@ private struct NavigatorRow: View {
             .barControl()
         }
         .onHover { isHovered = $0 }
+        // The row buttons appear only on hover, so VoiceOver gets the same commands as row actions.
+        .accessibilityAction(named: object.isVisible ? "Hide Object" : "Show Object") {
+            workspace.toggleVisibility(object.id)
+        }
+        .accessibilityAction(named: object.isLocked ? "Unlock Object" : "Lock Object") {
+            workspace.toggleLock(object.id)
+        }
     }
 
     private var icon: String {
