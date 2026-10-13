@@ -8,10 +8,7 @@ struct ViewportCanvasView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ZStack(alignment: .bottomLeading) {
-                canvas
-                statusHUD
-            }
+            canvas
         }
     }
 
@@ -35,8 +32,8 @@ struct ViewportCanvasView: View {
             }
             .pickerStyle(.menu)
             .labelsHidden()
-            .controlSize(.small)
             .fixedSize()
+            .barControl()
             .help("Camera View Perspective")
         }
         .padding(.horizontal, 10)
@@ -67,46 +64,6 @@ struct ViewportCanvasView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .unavailable(let reason):
             ContentUnavailableView("Metal Unavailable", systemImage: "exclamationmark.triangle", description: Text(reason.description))
-        }
-    }
-
-    private var statusHUD: some View {
-        let stats = workspace.renderStats
-        let state = workspace.viewportManager.state
-        return HStack(spacing: 12) {
-            if state.isUnavailable {
-                Label("Metal unavailable", systemImage: "bolt.slash.fill").foregroundStyle(.red)
-            } else {
-                Label("Metal 4", systemImage: "bolt.fill").foregroundStyle(state == .ready ? .green : .yellow)
-            }
-            Divider().frame(height: 12)
-            Text("Render: \(stats.renderCount)")
-            Divider().frame(height: 12)
-            Text("Draw Calls: \(stats.drawCalls)")
-            Divider().frame(height: 12)
-            Text("Invalidate: \(stats.lastReason)").foregroundStyle(.secondary)
-            Divider().frame(height: 12)
-            Text("Tool: \(workspace.tool.title)")
-            Divider().frame(height: 12)
-            if let snap = workspace.activeSnapKind {
-                Text("Snap: \(snap.rawValue)").foregroundStyle(color(for: snap))
-            } else {
-                Text("Snap: none").foregroundStyle(.secondary)
-            }
-        }
-        .font(.caption)
-        .monospacedDigit()
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .glassEffect(in: .capsule)
-        .padding(10)
-    }
-
-    private func color(for kind: SnapKind) -> Color {
-        switch kind {
-        case .vertex: return .orange
-        case .edge: return .cyan
-        case .grid: return .green
         }
     }
 }

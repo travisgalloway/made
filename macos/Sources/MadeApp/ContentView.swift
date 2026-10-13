@@ -3,8 +3,7 @@ import MadeCore
 
 struct ContentView: View {
     @Environment(WorkspaceModel.self) private var workspace
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
+    @State private var isMCPPopoverPresented = false
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -12,22 +11,33 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $workspace.columnVisibility) {
             NavigatorSidebarView()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
-                .toolbar(removing: .sidebarToggle)
         } detail: {
-            VStack(spacing: 0) {
-                ViewportCanvasView()
-                if workspace.isConsoleVisible {
+            VSplitView {
+                VStack(spacing: 0) {
+                    ViewportCanvasView()
                     Divider()
+                    ViewportStatusBar()
+                }
+                .frame(minHeight: 300)
+                if workspace.isConsoleVisible {
                     ConsoleDrawerView()
+                        .frame(minHeight: 80, idealHeight: 160)
                 }
             }
-            .frame(minWidth: 400, minHeight: 300)
+            .frame(minWidth: 400)
+            .toolbar { workspaceToolbar }
         }
         .inspector(isPresented: $workspace.isInspectorPresented) {
             InspectorPanelView()
                 .inspectorColumnWidth(min: 240, ideal: 280, max: 340)
+                .toolbar {
+                    ToolbarSpacer(.flexible)
+                    ToolbarItem {
+                        inspectorToggle
+                    }
+                }
         }
-        .toolbar { workspaceToolbar }
+        .navigationTitle("Untitled Project")
         .onAppear { workspace.setUp() }
         .onChange(of: workspace.document.objects) { old, new in
             workspace.syncMeshes(removedFrom: old, to: new)
@@ -40,15 +50,7 @@ struct ContentView: View {
     private var workspaceToolbar: some ToolbarContent {
         @Bindable var workspace = workspace
 
-        ToolbarItem(placement: .navigation) {
-            Text("Untitled Project")
-                .font(.headline)
-                .padding(.horizontal, 4)
-        }
-
-        ToolbarSpacer(.flexible)
-
-        ToolbarItem(placement: .automatic) {
+        ToolbarItem(placement: .principal) {
             Picker("Viewport Tool", selection: $workspace.tool) {
                 ForEach(ViewportTool.allCases) { tool in
                     Label(tool.title, systemImage: tool.systemImage).tag(tool)
@@ -59,54 +61,42 @@ struct ContentView: View {
             .help("Viewport tool: Select (V), Orbit (O), Pan (P), Zoom (Z). Option-drag orbits and middle-drag pans under every tool.")
         }
 
-        ToolbarItem(placement: .automatic) {
-            ControlGroup("View", systemImage: "camera") {
-                Button("Zoom In", systemImage: "plus.magnifyingglass") { workspace.zoomStep(zoomIn: true) }
-                    .help("Zoom In (=)")
-                Button("Zoom Out", systemImage: "minus.magnifyingglass") { workspace.zoomStep(zoomIn: false) }
-                    .help("Zoom Out (-)")
-                Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { workspace.fitToScene() }
-                    .help("Zoom to Fit (F)")
-                Button("Reset View", systemImage: "house") { workspace.resetView() }
-                    .help("Reset View (H)")
-            }
-            .disabled(workspace.coordinator == nil)
+        ToolbarItemGroup {
+            Button("Zoom In", systemImage: "plus.magnifyingglass") { workspace.zoomStep(zoomIn: true) }
+                .help("Zoom In (=)")
+                .disabled(workspace.coordinator == nil)
+            Button("Zoom Out", systemImage: "minus.magnifyingglass") { workspace.zoomStep(zoomIn: false) }
+                .help("Zoom Out (-)")
+                .disabled(workspace.coordinator == nil)
+            Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { workspace.fitToScene() }
+                .help("Zoom to Fit (F)")
+                .disabled(workspace.coordinator == nil)
+            Button("Reset View", systemImage: "house") { workspace.resetView() }
+                .help("Reset View (H)")
+                .disabled(workspace.coordinator == nil)
         }
 
-        ToolbarItem(placement: .automatic) {
+        ToolbarSpacer(.fixed)
+
+        ToolbarItemGroup {
             Button {
-                if workspace.isMCPWindowOpen {
-                    dismissWindow(id: MCPServerView.windowId)
-                } else {
-                    openWindow(id: MCPServerView.windowId)
-                }
+                isMCPPopoverPresented.toggle()
             } label: {
-                Label("MCP", systemImage: "sparkle")
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(workspace.isMCPServerRunning ? .green : .secondary)
+                Label("MCP Server", systemImage: "sparkles")
+                    .foregroundStyle(workspace.isMCPServerRunning ? Color.green : Color.primary)
             }
-            .help("Model Context Protocol (MCP) Server")
+            .help(workspace.isMCPServerRunning ? "MCP Server: running" : "MCP Server: off")
+            .popover(isPresented: $isMCPPopoverPresented, arrowEdge: .bottom) {
+                MCPServerPopover()
+            }
         }
+    }
 
-        ToolbarItem(placement: .automatic) {
-            ControlGroup("Panes", systemImage: "rectangle.3.group") {
-                Toggle(isOn: Binding(
-                    get: { workspace.isNavigatorVisible },
-                    set: { workspace.columnVisibility = $0 ? .all : .detailOnly }
-                )) {
-                    Label("Navigator", systemImage: "sidebar.left")
-                }
-                .help("Toggle Navigator Sidebar")
-                Toggle(isOn: $workspace.isConsoleVisible.animation(.easeInOut(duration: 0.15))) {
-                    Label("Console", systemImage: "rectangle.bottomhalf.inset.filled")
-                }
-                .help("Toggle Debug Console")
-                Toggle(isOn: $workspace.isInspectorPresented) {
-                    Label("Inspector", systemImage: "sidebar.right")
-                }
-                .help("Toggle Inspector Panel")
-            }
-            .toggleStyle(.button)
+    private var inspectorToggle: some View {
+        Button(workspace.isInspectorPresented ? "Hide Inspector" : "Show Inspector",
+               systemImage: "sidebar.right") {
+            workspace.isInspectorPresented.toggle()
         }
+        .help(workspace.isInspectorPresented ? "Hide Inspector (⌃⌘I)" : "Show Inspector (⌃⌘I)")
     }
 }

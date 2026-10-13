@@ -33,23 +33,19 @@ struct MadeApp: App {
                 .environment(workspace)
         }
         .defaultSize(width: 1440, height: 900)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowToolbarStyle(.unified)
         .commands {
             SidebarCommands()
             InspectorCommands()
+            CommandGroup(after: .sidebar) {
+                Button(workspace.isConsoleVisible ? "Hide Console" : "Show Console") { workspace.toggleConsole() }
+                    .keyboardShortcut("y", modifiers: [.command, .shift])
+            }
             #if DEBUG
             CommandMenu("Debug") {
                 Button("Fail Next Recompute") { workspace.failNextRecompute() }
             }
             #endif
         }
-
-        Window("Model Context Protocol", id: MCPServerView.windowId) {
-            MCPServerView()
-                .environment(workspace)
-        }
-        .windowResizability(.contentSize)
-        .windowLevel(.floating)
-        .defaultPosition(.center)
     }
 }

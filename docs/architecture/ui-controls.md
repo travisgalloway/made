@@ -6,23 +6,33 @@ The user interface in `made` is built with **SwiftUI**, for macOS. iPadOS is pla
 
 ## Desktop Layout Architecture
 
-The application layout is a `NavigationSplitView` in [`ContentView.swift`](../../macos/Sources/MadeApp/ContentView.swift), with an inspector column and a console drawer:
+The application layout is a `NavigationSplitView` in [`ContentView.swift`](../../macos/Sources/MadeApp/ContentView.swift), with an inspector column and a console split pane:
 
 ```
-┌─────────────────────────────── toolbar (tool picker, MCP, panel toggles) ───┐
+┌ ● ● ● [≡] │ Untitled Project   (tool picker)   (zoom, fit, reset) (✦) │ [⊟] ┐
 ├──────────────┬──────────────────────────────────────┬───────────────────────┤
-│ Navigator    │ Viewport header (Scene)              │ Inspector             │
-│  Box-1       ├──────────────────────────────────────┤  Identity: name       │
-│  Cylinder-1  │                                      │  Transform: X Y Z     │
-│              │          3D Metal Viewport           │  Dimensions: sliders  │
-│              │   (orbit, pan, zoom, snap marker)    │                       │
-│              │  ┌────────────────────────────────┐  │                       │
-│              │  │ Metal 4 | Renders | Invalidate │  │                       │
-│              │  └────────────────────────────────┘  │                       │
-│              ├──────────────────────────────────────┤                       │
-│              │ Console drawer                       │                       │
+│ Scene        │ Viewport header (Scene > name)       │ Identity              │
+│  box-1       ├──────────────────────────────────────┤  Name  [box-1]        │
+│  cylinder-1  │                                      │ Transform             │
+│              │          3D Metal Viewport           │  Position [x][y][z]   │
+│              │   (orbit, pan, zoom, snap marker)    │ Dimensions            │
+│              ├──────────────────────────────────────┤  Width [40.0] mm [±]  │
+│              │ Metal 4 | Render | Draw Calls … [▁]  │                       │
+│              ├──────────── (drag to resize) ────────┤                       │
+│ [+] [Filter] │ Console log            [Filter] [🗑] │                       │
 └──────────────┴──────────────────────────────────────┴───────────────────────┘
 ```
+
+---
+
+## Control Conventions
+
+The window uses system primitives for its chrome, and one button style per context:
+
+- **Toolbar.** `.navigationTitle` draws the title. The system sidebar toggle sits beside the window controls. Related buttons form one `ToolbarItemGroup`, which the system draws as one glass capsule, and `ToolbarSpacer(.fixed)` separates the groups. The toolbar is declared on the detail column, because spacers declared on the split view itself are ignored. The viewport tool picker is the only segmented control.
+- **Bars inside content.** The viewport header, status bar, console footer, and Navigator footer use `barControl()` from [`BarControls.swift`](../../macos/Sources/MadeApp/BarControls.swift). It applies small, borderless, icon-only buttons. `BarFilterField` is the shared filter field.
+- **Forms.** The Inspector uses `.formStyle(.columns)` with small controls. The MCP popover uses `.formStyle(.grouped)`. Neither uses glass button styles.
+- Every icon-only button keeps a text title and a `.help` string, for VoiceOver and tooltips.
 
 ---
 
@@ -31,29 +41,29 @@ The application layout is a `NavigationSplitView` in [`ContentView.swift`](../..
 ### 1. 3D Metal Viewport
 - **Container**: [`CADMetalViewRepresentable`](../../macos/Sources/MadeApp/CADMetalViewRepresentable.swift) hosting an `MTKView`.
 - **Event Handling**: The coordinator feeds mouse and trackpad events to a `PointerRouter`. Orbit, pan, and zoom move the camera, tool shortcuts are handled in `handleKeyDown`, and a snapping marker follows the pointer. Object picking is not built.
-- **Telemetry HUD**: An ultra-thin material overlay in the lower corner displaying live Metal 4 status, total frame submissions, draw call counts, and the last invalidation cause.
+- **Status bar**: [`ViewportStatusBar`](../../macos/Sources/MadeApp/ViewportStatusBar.swift) sits under the viewport. It shows Metal 4 status, render count, draw calls, the last invalidation cause, the active tool, and the snap kind. Its trailing button shows or hides the console.
 
 ### 2. Navigator
-- [`NavigatorSidebarView`](../../macos/Sources/MadeApp/NavigatorSidebarView.swift) lists the scene objects. The list selection is `WorkspaceModel.selectedId`.
-- An Add menu creates a box or cylinder, and a context-menu Delete removes the selected object.
+- [`NavigatorSidebarView`](../../macos/Sources/MadeApp/NavigatorSidebarView.swift) lists the scene objects, one line per row. The list selection is `WorkspaceModel.selectedId`.
+- Visibility and lock buttons appear on hover. They stay visible while an object is hidden or locked.
+- The footer holds the Add menu (box or cylinder) and the filter field. A context-menu Delete removes the selected object.
 
 ### 3. Parametric Inspector
-- [`InspectorPanelView`](../../macos/Sources/MadeApp/InspectorPanelView.swift) is a single form with Identity, Transform, and Dimensions sections.
-- Position and scale have numeric text fields. Each dimension has a SwiftUI `Slider` with a millimeter readout and no numeric field (#70).
-- A slider change calls `DocumentModel.setParam(id:key:value:)`, which clamps to the `DocumentLimits` ranges, then requests tessellation from `KernelClient`, which debounces it.
-- Sliders have no accessibility names or unit values (#106).
+- [`InspectorPanelView`](../../macos/Sources/MadeApp/InspectorPanelView.swift) is a single columns-style form with Identity, Transform, and Dimensions sections.
+- Position and scale have three numeric fields each, with X, Y, and Z captions.
+- Each dimension has a numeric millimeter field and a 1-mm stepper, with accessibility names and values in millimeters. Both call `DocumentModel.setParam(id:key:value:)`, which clamps to the `DocumentLimits` ranges, then requests tessellation from `KernelClient`, which debounces it.
 
-### 4. Console Drawer
-- [`ConsoleDrawerView`](../../macos/Sources/MadeApp/ConsoleDrawerView.swift) appears below the viewport when `WorkspaceModel.isConsoleVisible` is set.
+### 4. Console
+- [`ConsoleDrawerView`](../../macos/Sources/MadeApp/ConsoleDrawerView.swift) sits in a `VSplitView` below the viewport, so its height can be dragged. It appears when `WorkspaceModel.isConsoleVisible` is set. Its footer holds the filter field and the clear button.
 
 ### 5. Toolbar
-- The toolbar holds the viewport tool picker (select, orbit, pan, zoom), zoom in, zoom out, zoom to fit, and reset view buttons, the MCP window control, and the Navigator, Inspector, and Console toggles.
+- The toolbar holds the viewport tool picker (select, orbit, pan, zoom), one group of zoom in, zoom out, zoom to fit, and reset view buttons, and the MCP button. The Inspector toggle is declared in the inspector's own toolbar, so it sits over the inspector column. The system moves it to the window toolbar while the inspector is hidden.
 
-### 6. MCP Window
-- [`MCPServerPopoutView`](../../macos/Sources/MadeApp/MCPServerPopoutView.swift) starts and stops the in-app TCP listener on port 9820. See [`agent-api.md`](./agent-api.md).
+### 6. MCP Popover
+- The sparkles toolbar button opens [`MCPServerPopover`](../../macos/Sources/MadeApp/MCPServerPopoverView.swift). Its switch starts and stops the in-app TCP listener on port 9820, and the icon turns green while the server runs. The popover also shows the address, copies the Claude Desktop config, and lists the registered tools. See [`agent-api.md`](./agent-api.md).
 
 ### 7. Menus and Keybindings
-`MadeApp.swift` declares only the standard `SidebarCommands` and `InspectorCommands`, which add View menu items. The earlier File and Geometry menu items were removed. Document creation is planned with the `.made` format (#83), and STEP import is planned (#38). Add Box and Add Cylinder live in the Navigator Add menu.
+`MadeApp.swift` declares the standard `SidebarCommands` and `InspectorCommands`, plus a View menu item that shows or hides the console with ⇧⌘Y. Document creation is planned with the `.made` format (#83), and STEP import is planned (#38). Add Box and Add Cylinder live in the Navigator Add menu.
 
 ---
 

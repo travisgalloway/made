@@ -73,7 +73,7 @@ Open:
 Built:
 - Pure-Swift JSON-RPC 2.0 and Model Context Protocol (2024-11-05 spec) implementation.
 - `--mcp-stdio` flag for external agents (Claude Desktop, Cursor). The SwiftUI window scene still launches in this mode.
-- In-app MCP TCP server on port 9820, started from the MCP window (UI-34 to UI-37). The loopback-only bind is a known gap (DSN-f5402406, #129).
+- In-app MCP TCP server on port 9820, started from the MCP popover (UI-34 to UI-37). The loopback-only bind is a known gap (DSN-f5402406, #129).
 - 8 registered CAD tools covering scene inspection, parameter updates, booleans, and snapshots.
 - Cadova-inspired declarative Swift CAD DSL ([`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift)) with operator overloads (`-`, `+`, `&`).
 

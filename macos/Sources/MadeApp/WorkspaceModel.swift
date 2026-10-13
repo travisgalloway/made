@@ -26,7 +26,6 @@ final class WorkspaceModel {
     var columnVisibility: NavigationSplitViewVisibility = .all
     var isInspectorPresented = true
     var isConsoleVisible = false
-    var isMCPWindowOpen = false
 
     // Viewport
     private(set) var perspective: ViewportPerspective = .perspective
@@ -59,8 +58,6 @@ final class WorkspaceModel {
         guard let selectedId else { return nil }
         return document.objects.first { $0.id == selectedId }
     }
-
-    var isNavigatorVisible: Bool { columnVisibility != .detailOnly }
 
     // MARK: - Setup
 
@@ -260,4 +257,8 @@ final class WorkspaceModel {
     }
 
     func clearLogs() { logs.removeAll() }
+
+    func toggleConsole() {
+        withAnimation(.easeInOut(duration: 0.15)) { isConsoleVisible.toggle() }
+    }
 }
