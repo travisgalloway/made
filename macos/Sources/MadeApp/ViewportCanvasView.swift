@@ -24,20 +24,9 @@ struct ViewportCanvasView: View {
             }
             .font(.caption)
             Spacer()
-            Picker("Camera View", systemImage: "camera.viewfinder", selection: Binding(
-                get: { workspace.perspective },
-                set: { workspace.applyPerspective($0) }
-            )) {
-                ForEach(ViewportPerspective.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .fixedSize()
-            .barControl()
-            .help("Camera View Perspective")
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .frame(height: 28)
         .background(.bar)
     }
 

@@ -62,6 +62,14 @@ struct ContentView: View {
         }
 
         ToolbarItemGroup {
+            Picker("View Angle", systemImage: "camera.viewfinder", selection: Binding(
+                get: { workspace.perspective },
+                set: { workspace.applyPerspective($0) }
+            )) {
+                ForEach(ViewportPerspective.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .help("View Angle")
             Button("Zoom In", systemImage: "plus.magnifyingglass") { workspace.zoomStep(zoomIn: true) }
                 .help("Zoom In (=)")
                 .disabled(workspace.coordinator == nil)

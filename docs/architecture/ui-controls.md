@@ -9,7 +9,7 @@ The user interface in `made` is built with **SwiftUI**, for macOS. iPadOS is pla
 The application layout is a `NavigationSplitView` in [`ContentView.swift`](../../macos/Sources/MadeApp/ContentView.swift), with an inspector column and a console split pane:
 
 ```
-┌ ● ● ● [≡] │ Untitled Project   (tool picker)   (zoom, fit, reset) (✦) │ [⊟] ┐
+┌ ● ● ● [≡] │ Untitled Project   (tools) (View Angle ▾) (zoom, fit, reset) (✦) │ [⊟] ┐
 ├──────────────┬──────────────────────────────────────┬───────────────────────┤
 │ Scene        │ Viewport header (Scene > name)       │ Identity              │
 │  box-1       ├──────────────────────────────────────┤  Name  [box-1]        │
@@ -57,7 +57,7 @@ The window uses system primitives for its chrome, and one button style per conte
 - [`ConsoleDrawerView`](../../macos/Sources/MadeApp/ConsoleDrawerView.swift) sits in a `VSplitView` below the viewport, so its height can be dragged. It appears when `WorkspaceModel.isConsoleVisible` is set. Its footer holds the filter field and the clear button.
 
 ### 5. Toolbar
-- The toolbar holds the viewport tool picker (select, orbit, pan, zoom), one group of zoom in, zoom out, zoom to fit, and reset view buttons, and the MCP button. The Inspector toggle is declared in the inspector's own toolbar, so it sits over the inspector column. The system moves it to the window toolbar while the inspector is hidden.
+- The toolbar holds the viewport tool picker (select, orbit, pan, zoom), the View Angle menu (Perspective, Top, Front, Right, Isometric), one group of zoom in, zoom out, zoom to fit, and reset view buttons, and the MCP button. The Inspector toggle is declared in the inspector's own toolbar, so it sits over the inspector column. The system moves it to the window toolbar while the inspector is hidden.
 
 ### 6. MCP Popover
 - The sparkles toolbar button opens [`MCPServerPopover`](../../macos/Sources/MadeApp/MCPServerPopoverView.swift). Its switch starts and stops the in-app TCP listener on port 9820, and the icon turns green while the server runs. The popover also shows the address, copies the Claude Desktop config, and lists the registered tools. See [`agent-api.md`](./agent-api.md).
