@@ -65,7 +65,8 @@ macos/
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
   Sources/MadeApp/         MadeApp (@main, sidebar and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
-                           MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CADMetalViewRepresentable
+                           MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField,
+                           CADMetalViewRepresentable
   Tests/MadeCoreTests/     Swift Testing suites
 ```
 

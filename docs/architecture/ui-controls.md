@@ -52,6 +52,7 @@ The window uses system primitives for its chrome, and one button style per conte
 ### 3. Parametric Inspector
 - [`InspectorPanelView`](../../macos/Sources/MadeApp/InspectorPanelView.swift) opens with its tab bar (Properties only). The Properties tab is a columns-style form with Identity, Transform, and Dimensions sections.
 - Position and scale have three numeric fields each, with X, Y, and Z captions.
+- Every numeric field is a `CommitNumberField`. It edits a text draft and writes to the model only on Return or focus loss, then shows the model's value, which may be clamped. A field bound directly to the model reformatted its text after each keystroke.
 - Each dimension has a numeric millimeter field and a 1-mm stepper, with accessibility names and values in millimeters. Both call `DocumentModel.setParam(id:key:value:)`, which clamps to the `DocumentLimits` ranges, then requests tessellation from `KernelClient`, which debounces it.
 
 ### 4. Console

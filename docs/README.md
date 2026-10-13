@@ -64,7 +64,7 @@ macos/
       ContentView.swift   # NavigationSplitView and toolbar
       WorkspaceModel.swift, WorkspaceTypes.swift # Window state, selection, MCP server control
       NavigatorSidebarView.swift, InspectorPanelView.swift, ViewportCanvasView.swift # Navigator, inspector, viewport header
-      ViewportStatusBar.swift, BarControls.swift, PaneTabs.swift # Status bar, shared bar controls, pane tab bars
+      ViewportStatusBar.swift, BarControls.swift, PaneTabs.swift, CommitNumberField.swift # Status bar, bar controls, pane tabs, Inspector number field
       ConsoleDrawerView.swift, MCPServerPopoverView.swift # Console pane and MCP popover
       CADMetalViewRepresentable.swift # MTKView representable (AppKit; UIKit branch is not built)
   Tests/
