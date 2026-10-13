@@ -17,7 +17,7 @@ Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). T
 | **0** | Native Foundation | Complete | None | None. |
 | **1** | Metal 4 Viewport & Input | Complete | Phase 1: Metal 3 Viewport & Input (closed; milestone title predates Metal 4) | None. |
 | **2** | Native CSG Kernel | In progress | Phase 2: Native CSG Kernel | Kernel cache not freed on removal (#93); recompute overwrites a transform (#92); parameter clamping (#104); recompute failure message (#109). |
-| **3** | Agentic Subsystem | In progress | Phase 3: Agentic Subsystem & MCP | Headless snapshot (#89); actor isolation (#91); protocol and argument validation (#95 to #101); the file-edit agent workflow (#427 to #429). |
+| **3** | Agentic Subsystem | In progress | Phase 3: Agentic Subsystem & MCP | Actor isolation (#91); protocol and argument validation (#95 to #101); the file-edit agent workflow (#427 to #429). |
 | **4.0** | Architecture Decisions | Not started | Phase 4.0: Architecture Decisions | Open decisions listed in the architecture documents. |
 | **4A** | Native Scene & Interaction Foundation | In progress | Phase 4A | Issues #66, #67, #69 to #73. |
 | **4B** | B-Rep Engine, STEP Exchange & Document Persistence | Not started | Phase 4B | Held in the milestone. |
@@ -72,13 +72,12 @@ Open:
 ## Phase 3: Agentic Subsystem & MCP (In progress)
 Built:
 - Pure-Swift JSON-RPC 2.0 and Model Context Protocol (2024-11-05 spec) implementation.
-- `--mcp-stdio` flag for external agents (Claude Desktop, Cursor). The SwiftUI window scene still launches in this mode.
+- `--mcp-stdio` flag for external agents (Claude Desktop, Cursor). The SwiftUI window scene still launches in this mode. An offscreen renderer serves `cad_capture_snapshot` (#89).
 - In-app MCP TCP server on port 9820, started from the MCP popover (UI-34 to UI-37). The loopback-only bind is a known gap (DSN-f5402406, #129).
 - 8 registered CAD tools covering scene inspection, parameter updates, booleans, and snapshots.
 - Cadova-inspired declarative Swift CAD DSL ([`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift)) with operator overloads (`-`, `+`, `&`).
 
 Open:
-- `cad_capture_snapshot` fails over `--mcp-stdio` because the registry has no snapshot provider (#89).
 - Protocol and validation errors (#95 to #101).
 - Actor isolation of agent-driven document mutations (#91).
 

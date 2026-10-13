@@ -1,6 +1,6 @@
 # Agent API & Model Context Protocol (MCP)
 
-`made` integrates first-class autonomous AI agent capabilities into the core application. Agents can inspect the 3D scene, create and modify parametric geometry, execute boolean operations, script models using a declarative Swift DSL, and request a viewport snapshot. The snapshot works in the GUI only; the headless server cannot produce one (#89).
+`made` integrates first-class autonomous AI agent capabilities into the core application. Agents can inspect the 3D scene, create and modify parametric geometry, execute boolean operations, script models using a declarative Swift DSL, and request a viewport snapshot. The snapshot works in the GUI and over `--mcp-stdio`.
 
 ---
 
@@ -51,7 +51,7 @@ cd macos
 swift run MadeApp --mcp-stdio
 ```
 
-This mode is not fully headless. `MadeApp.init` starts the server task, and the SwiftUI window scene still launches. The server creates a fresh `DocumentModel` and `KernelClient` and builds its `CADToolRegistry` without a snapshot provider, so `cad_capture_snapshot` always returns an error (#89). The process exits when standard input closes.
+This mode is not fully headless. `MadeApp.init` starts the server task, and the SwiftUI window scene still launches. The server creates a fresh `DocumentModel` and `KernelClient`, and a `HeadlessSnapshotProvider` that owns an offscreen `MetalRenderer`. Each `cad_capture_snapshot` call tessellates the document as it stands at the call, drops meshes for removed solids, and renders the frame. Without a Metal 4 device the registry has no provider, and the tool returns an `isError` result naming the missing device while the server keeps serving. The process exits when standard input closes.
 
 The server reads standard input in 64 KB chunks and splits each chunk on newlines. A message larger than one chunk is split and fails to parse (#101).
 
@@ -93,7 +93,7 @@ The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L8) pr
 | `cad_remove_solid` | `id` | Deletes a solid from the document. |
 | `cad_measure` | `id` | Returns calculated volume, bounding extents, and estimated surface area. |
 | `cad_boolean_operation` | `solidA` (target), `solidB` (cutter), `operation` ("subtract" \| "union" \| "intersect") | Runs a CSG boolean in the kernel. The kernel returns `unknown-solid` unless both solids were tessellated earlier. The result is recorded as an `.imported` object under an ID different from the kernel's `csg-` ID, so other tools cannot use the reported ID (#99, #100). |
-| `cad_capture_snapshot` | None | Renders an offscreen 800x600 Metal frame and returns it as MCP `image` content: raw base64 PNG with MIME type `image/png`, not a data URI. GUI only (#89). |
+| `cad_capture_snapshot` | None | Renders an offscreen 800x600 Metal frame and returns it as MCP `image` content: raw base64 PNG with MIME type `image/png`, not a data URI. Over `--mcp-stdio` the document is tessellated before the render. |
 
 ### Error Behavior
 A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` and a text message beginning `Error:`. JSON-RPC error payloads are limited to the following cases:
@@ -111,7 +111,7 @@ The `notifications/initialized` notification receives a response with a null res
 
 ## 3. Multimodal Visual Verification Loop
 
-Visual checks catch artifacts that measurements miss, such as inverted normals or incorrect clearances. The loop below works against the running GUI, where the registry holds the renderer as its snapshot provider. Over `--mcp-stdio` the snapshot step fails (#89).
+Visual checks catch artifacts that measurements miss, such as inverted normals or incorrect clearances. The loop works against the running GUI, where the registry holds the window renderer as its snapshot provider. The loop also works over `--mcp-stdio`, where an offscreen renderer serves the snapshot.
 
 ### The Agent Verify Cycle
 ```mermaid

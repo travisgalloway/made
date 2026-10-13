@@ -59,7 +59,7 @@ macos/
     Viewport/              MetalRenderer, Shaders.metal, Orientation, Camera, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation)
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool
     Scene/                 DocumentModel (@Observable), KernelRegeneration
-    Agent/                 MCPProtocol, MCPServer, CADTools (tool registry), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
+    Agent/                 MCPProtocol, MCPServer, CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
     Platform/              AppKit and UIKit shims
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
@@ -119,7 +119,7 @@ All three are pure and unit-tested. `CADMetalViewRepresentable` calls them for m
 - `Agent/CADTools.swift` registers eight MCP tools: `cad_get_scene`, `cad_add_solid`, `cad_set_param`, `cad_set_transform`, `cad_remove_solid`, `cad_measure`, `cad_boolean_operation`, `cad_capture_snapshot`. `MCPServer` speaks JSON-RPC 2.0 with protocol version `2024-11-05`.
 - Tool failures return an `isError` tool result, not a JSON-RPC error object.
 - The MCP popover (sparkles toolbar button) starts a TCP listener on port 9820 (`MCPServer.start`). It serves the window's own document, kernel, and renderer. The listener must accept connections only from the local machine. It binds every interface today (#129).
-- `--mcp-stdio` builds its own `DocumentModel` and still opens the window. The agent edits a document the window does not show, and snapshots are unavailable in that mode (#89).
+- `--mcp-stdio` builds its own `DocumentModel` and still opens the window. The agent edits a document the window does not show. `HeadlessSnapshotProvider` serves snapshots from an offscreen renderer, tessellating the document before each capture.
 
 ## Conventions
 

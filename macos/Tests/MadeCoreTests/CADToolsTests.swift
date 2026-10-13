@@ -163,4 +163,33 @@ import Foundation
         #expect(result.isError == true)
         #expect(doc.objects.count == 2)
     }
+
+    @Test func testToolsListCaptureSnapshot() {
+        let registry = CADToolRegistry(document: DocumentModel(), kernelClient: KernelClient(debounceDuration: .milliseconds(5)))
+        #expect(registry.tools.contains { $0.name == "cad_capture_snapshot" })
+    }
+
+    @Test func testCaptureSnapshotWithoutProviderReportsNoDevice() async {
+        let registry = CADToolRegistry(document: DocumentModel(), kernelClient: KernelClient(debounceDuration: .milliseconds(5)))
+
+        let result = await registry.callTool(name: "cad_capture_snapshot", arguments: [:])
+
+        #expect(result.isError == true)
+        #expect(result.content.first?.text == "Error: Snapshot unavailable: no Metal 4 device is available to render the viewport")
+    }
+
+    @Test func testCaptureSnapshotFailureIsDistinctFromNoProvider() async {
+        let provider = FailingSnapshotProvider()
+        let registry = CADToolRegistry(document: DocumentModel(), kernelClient: KernelClient(debounceDuration: .milliseconds(5)), snapshotProvider: provider)
+
+        let result = await registry.callTool(name: "cad_capture_snapshot", arguments: [:])
+        withExtendedLifetime(provider) {}
+
+        #expect(result.isError == true)
+        #expect(result.content.first?.text == "Error: Snapshot capture failed: the viewport frame could not be rendered or encoded")
+    }
+}
+
+private final class FailingSnapshotProvider: SnapshotProvider {
+    func captureSnapshotPngBase64() async -> String? { nil }
 }

@@ -71,11 +71,15 @@ To check the recompute failure message by hand, run a debug build and choose Deb
 
 ## Stdio MCP Protocol Verification
 
-External AI agents can drive `made` through standard I/O pipes. No automated test starts the `MadeApp` process, so the checks below are manual shell recipes. Run them from the repository root after `make build`:
+External AI agents can drive `made` through standard I/O pipes. `StdioProcessTests` launches the built `MadeApp --mcp-stdio` executable and checks the handshake, the tool list, a scene edit, and a snapshot. The recipes below repeat those checks by hand. Run them from the repository root after `make build`, with `BIN` set to the built executable:
+
+```sh
+BIN=$(cd macos && swift build --build-system swiftbuild --show-bin-path)/MadeApp
+```
 
 ### 1. Initialize Protocol Handshake
 ```sh
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./macos/.build/debug/MadeApp --mcp-stdio
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$BIN" --mcp-stdio
 ```
 **Expected Output**:
 ```json
@@ -84,15 +88,27 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./macos/.bui
 
 ### 2. Tool Enumeration
 ```sh
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | ./macos/.build/debug/MadeApp --mcp-stdio
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | "$BIN" --mcp-stdio
 ```
 **Expected Output**: JSON list of all 8 CAD tools with their JSON Schema parameters.
 
 ### 3. Tool Execution
 ```sh
-echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}' | ./macos/.build/debug/MadeApp --mcp-stdio
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}' | "$BIN" --mcp-stdio
 ```
 **Expected Output**: Live scene graph JSON with object properties and transforms.
+
+### 4. Viewport Snapshot
+```sh
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_add_solid","arguments":{"type":"box","posZ":40}}}' \
+  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_capture_snapshot","arguments":{}}}' \
+  | "$BIN" --mcp-stdio \
+  | python3 -c 'import sys, json, base64; [sys.stdout.buffer.write(base64.b64decode(m["result"]["content"][0]["data"])) for m in map(json.loads, sys.stdin) if m.get("id") == 3]' > snapshot.png
+sips -g pixelWidth -g pixelHeight snapshot.png
+```
+**Expected Output**: `pixelWidth: 800` and `pixelHeight: 600`. The PNG shows the grid, the axes, the two default solids, and the added box. Without a Metal 4 device the response is an `isError` result that reads `Snapshot unavailable: no Metal 4 device is available to render the viewport`.
 
 ---
 

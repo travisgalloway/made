@@ -300,9 +300,11 @@ public final class CADToolRegistry: @unchecked Sendable {
     }
     
     private func handleCaptureSnapshot() async -> MCPToolCallResult {
-        guard let provider = snapshotProvider,
-              let base64 = await provider.captureSnapshotPngBase64() else {
-            return .error("Snapshot provider not available or failed to capture viewport frame")
+        guard let provider = snapshotProvider else {
+            return .error("Snapshot unavailable: no Metal 4 device is available to render the viewport")
+        }
+        guard let base64 = await provider.captureSnapshotPngBase64() else {
+            return .error("Snapshot capture failed: the viewport frame could not be rendered or encoded")
         }
         return MCPToolCallResult(content: [.image(base64: base64, mimeType: "image/png")], isError: false)
     }
