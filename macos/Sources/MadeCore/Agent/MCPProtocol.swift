@@ -25,8 +25,7 @@ public struct JSONRPCID: Codable, Hashable, Sendable, CustomStringConvertible {
             self.stringValue = strVal
             self.intValue = nil
         } else {
-            self.stringValue = nil
-            self.intValue = nil
+            throw DecodingError.typeMismatch(JSONRPCID.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "A JSON-RPC id must be a string, an integer, or null"))
         }
     }
     
@@ -98,6 +97,19 @@ public struct JSONRPCResponse: Codable, Sendable {
         self.id = id
         self.result = nil
         self.error = error
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case jsonrpc, id, result, error
+    }
+    
+    // JSON-RPC 2.0 requires the id member on every response, null when unknown.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(jsonrpc, forKey: .jsonrpc)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(result, forKey: .result)
+        try container.encodeIfPresent(error, forKey: .error)
     }
 }
 
