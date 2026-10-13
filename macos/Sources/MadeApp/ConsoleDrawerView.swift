@@ -7,29 +7,6 @@ struct ConsoleDrawerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Label("Console", systemImage: "terminal")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                TextField("Filter", text: $filterText)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-                    .frame(width: 140)
-                Button("Clear Console Logs", systemImage: "trash") { workspace.clearLogs() }
-                    .help("Clear Console Logs")
-                Button("Hide Debug Console", systemImage: "chevron.down") {
-                    withAnimation(.easeInOut(duration: 0.15)) { workspace.isConsoleVisible = false }
-                }
-                .help("Hide Debug Console")
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(.bar)
-
-            Divider()
-
             ScrollViewReader { proxy in
                 List(filteredLogs) { entry in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -58,7 +35,20 @@ struct ConsoleDrawerView: View {
                     if let last = workspace.logs.last { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }
-            .frame(height: 130)
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Spacer()
+                BarFilterField(text: $filterText)
+                    .frame(width: 220)
+                Button("Clear Console", systemImage: "trash") { workspace.clearLogs() }
+                    .help("Clear Console")
+            }
+            .barControl()
+            .padding(.horizontal, 10)
+            .frame(height: BarMetrics.height)
+            .background(.bar)
         }
     }
 

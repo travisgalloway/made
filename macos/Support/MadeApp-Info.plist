@@ -6,6 +6,10 @@
 	<string>com.made.app</string>
 	<key>CFBundleName</key>
 	<string>Made</string>
+	<key>CFBundleIconFile</key>
+	<string>made</string>
+	<key>CFBundleIconName</key>
+	<string>made</string>
 	<key>CFBundleExecutable</key>
 	<string>MadeApp</string>
 	<key>CFBundlePackageType</key>

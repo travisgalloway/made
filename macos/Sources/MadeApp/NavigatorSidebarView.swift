@@ -9,17 +9,13 @@ struct NavigatorSidebarView: View {
         @Bindable var workspace = workspace
 
         List(selection: $workspace.selectedId) {
-            Section {
+            Section("Scene") {
                 ForEach(filteredObjects) { obj in
-                    row(for: obj).tag(obj.id)
+                    NavigatorRow(object: obj).tag(obj.id)
                 }
-            } header: {
-                Text("Scene Outline")
-                    .badge(filteredObjects.count)
             }
         }
         .listStyle(.sidebar)
-        .searchable(text: $filterText, placement: .sidebar, prompt: "Filter")
         .overlay {
             if filteredObjects.isEmpty {
                 ContentUnavailableView.search(text: filterText)
@@ -33,55 +29,32 @@ struct NavigatorSidebarView: View {
                 Button("Delete", role: .destructive) { workspace.removeObject(id) }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                Menu("Add", systemImage: "plus") {
-                    Button("Box Solid", systemImage: "shippingbox") {
-                        workspace.addObject(.box(BoxParams(width: 30, depth: 30, height: 30)))
-                    }
-                    Button("Cylinder Solid", systemImage: "cylinder") {
-                        workspace.addObject(.cylinder(CylinderParams(radius: 12, height: 35)))
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                Spacer()
-            }
-            .padding(8)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            PaneTabBar(label: "Navigator", selection: $workspace.navigatorTab)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            footer
         }
     }
 
-    private func row(for obj: SceneObject) -> some View {
-        HStack {
-            Label {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(obj.name)
-                    Text(obj.id.rawValue)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Menu("Add Solid", systemImage: "plus") {
+                Button("Box Solid", systemImage: "shippingbox") {
+                    workspace.addObject(.box(BoxParams(width: 30, depth: 30, height: 30)))
                 }
-            } icon: {
-                Image(systemName: icon(for: obj.def))
-                    .foregroundStyle(tint(for: obj.def))
+                Button("Cylinder Solid", systemImage: "cylinder") {
+                    workspace.addObject(.cylinder(CylinderParams(radius: 12, height: 35)))
+                }
             }
-            Spacer()
-            Button(obj.isVisible ? "Hide object" : "Show object",
-                   systemImage: obj.isVisible ? "eye.fill" : "eye.slash") {
-                workspace.toggleVisibility(obj.id)
-            }
-            .labelStyle(.iconOnly)
-            .foregroundStyle(obj.isVisible ? Color.secondary : Color.red)
-            .help(obj.isVisible ? "Hide object" : "Show object")
-            Button(obj.isLocked ? "Unlock object" : "Lock object",
-                   systemImage: obj.isLocked ? "lock.fill" : "lock.open") {
-                workspace.toggleLock(obj.id)
-            }
-            .labelStyle(.iconOnly)
-            .foregroundStyle(obj.isLocked ? Color.orange : Color.secondary)
-            .help(obj.isLocked ? "Unlock object" : "Lock object")
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Add Solid")
+            BarFilterField(text: $filterText)
         }
-        .buttonStyle(.borderless)
+        .barControl()
+        .padding(.horizontal, 10)
+        .frame(height: BarMetrics.height)
     }
 
     private var filteredObjects: [SceneObject] {
@@ -91,17 +64,63 @@ struct NavigatorSidebarView: View {
             $0.name.localizedCaseInsensitiveContains(query) || $0.id.rawValue.localizedCaseInsensitiveContains(query)
         }
     }
+}
 
-    private func icon(for def: ObjectDef) -> String {
-        switch def {
+/// One outline row. Visibility and lock buttons show on hover, and stay visible while the object is hidden or locked.
+private struct NavigatorRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let object: SceneObject
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack {
+            Label {
+                Text(object.name)
+            } icon: {
+                Image(systemName: icon)
+                    .foregroundStyle(tint)
+            }
+            Spacer()
+            Group {
+                if isHovered || !object.isVisible {
+                    Button(object.isVisible ? "Hide Object" : "Show Object",
+                           systemImage: object.isVisible ? "eye" : "eye.slash") {
+                        workspace.toggleVisibility(object.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(object.isVisible ? "Hide Object" : "Show Object")
+                }
+                if isHovered || object.isLocked {
+                    Button(object.isLocked ? "Unlock Object" : "Lock Object",
+                           systemImage: object.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleLock(object.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(object.isLocked ? "Unlock Object" : "Lock Object")
+                }
+            }
+            .barControl()
+        }
+        .onHover { isHovered = $0 }
+        // The row buttons appear only on hover, so VoiceOver gets the same commands as row actions.
+        .accessibilityAction(named: object.isVisible ? "Hide Object" : "Show Object") {
+            workspace.toggleVisibility(object.id)
+        }
+        .accessibilityAction(named: object.isLocked ? "Unlock Object" : "Lock Object") {
+            workspace.toggleLock(object.id)
+        }
+    }
+
+    private var icon: String {
+        switch object.def {
         case .box: return "shippingbox.fill"
         case .cylinder: return "cylinder.fill"
         case .imported: return "cube.transparent"
         }
     }
 
-    private func tint(for def: ObjectDef) -> Color {
-        switch def {
+    private var tint: Color {
+        switch object.def {
         case .box: return .blue
         case .cylinder: return .orange
         case .imported: return .purple

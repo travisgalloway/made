@@ -56,11 +56,11 @@ This mode is not fully headless. `MadeApp.init` starts the server task, and the 
 The server reads standard input in 64 KB chunks and splits each chunk on newlines. A message larger than one chunk is split and fails to parse (#101).
 
 ### In-App TCP Transport
-The MCP window starts a TCP listener inside the running GUI. `WorkspaceModel.toggleMCPServer` calls `MCPServer.start(port:)`, and the default port is 9820. The listener serves the same JSON-RPC 2.0 methods as the stdio transport.
+The MCP popover (the sparkles toolbar button) starts a TCP listener inside the running GUI. `WorkspaceModel.toggleMCPServer` calls `MCPServer.start(port:)`, and the default port is 9820. The listener serves the same JSON-RPC 2.0 methods as the stdio transport.
 
 The listener shares the window's own `DocumentModel`, `KernelClient`, and `MetalRenderer`. An agent connected over TCP therefore edits the document that the window shows, and `cad_capture_snapshot` works. Tool calls change the document, so the Navigator and Inspector update through `@Observable`. The tool registry has no viewport redraw call, and the window redraws a removed solid through `WorkspaceModel.syncMeshes` (AGENT-25).
 
-**Requirement (user decision, 2026-10-11).** The listener must accept connections only from the local machine (loopback). The MCP window already displays the address as `127.0.0.1:9820`.
+**Requirement (user decision, 2026-10-11).** The listener must accept connections only from the local machine (loopback). The MCP popover already displays the address as `127.0.0.1:9820`.
 
 **Known gap.** `MCPServer.start` creates `NWListener(using: .tcp, on: port)` with no interface restriction, so the listener binds to all interfaces. Another host on the network can reach it. DSN-f5402406 (#129, issue number pending) tracks restricting the bind to loopback.
 

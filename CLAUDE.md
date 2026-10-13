@@ -52,6 +52,7 @@ macos/
   Package.swift            MadeCore (library), MadeApp and MadeKernelService (executables), MadeCoreTests
   Support/                 Info.plist files for Made.app and the kernel XPC service
   scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle)
+                           and compiles the app icon (img/made.icon, an Icon Composer file) with actool
   Sources/MadeCore/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, Geometry
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
@@ -64,7 +65,8 @@ macos/
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
   Sources/MadeApp/         MadeApp (@main, sidebar and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
-                           MCPServerPopoutView, CADMetalViewRepresentable
+                           MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField,
+                           CADMetalViewRepresentable
   Tests/MadeCoreTests/     Swift Testing suites
 ```
 
@@ -96,7 +98,7 @@ Enforcement is weaker than the doc's matrix once claimed. Check `docs/architectu
 ## Rendering (`Viewport/`)
 
 - `MetalRenderer` owns the pipeline and the per-solid `meshes` dictionary. `CADMetalViewRepresentable` hosts the `MTKView`.
-- `RenderInstrumentation.shared` records `renderCount`, `drawCalls`, and the last `InvalidateReason`. Tests and the HUD (heads-up display) read it. Publish new viewport telemetry there.
+- `RenderInstrumentation.shared` records `renderCount`, `drawCalls`, and the last `InvalidateReason`. Tests and the viewport status bar read it. Publish new viewport telemetry there.
 - The ground grid (#102), axes indicator (#103), and orbit, pan, and zoom navigation (#87) are built. Object picking is not.
 
 ## Coordinate convention: right-handed Z-up
@@ -116,7 +118,7 @@ All three are pure and unit-tested. `CADMetalViewRepresentable` calls them for m
 - `Scene/DocumentModel.swift` is the `@Observable` scene: objects, parameters with clamp ranges, transforms, and `addObject`/`removeObject`/`setParam`/`setTransform`.
 - `Agent/CADTools.swift` registers eight MCP tools: `cad_get_scene`, `cad_add_solid`, `cad_set_param`, `cad_set_transform`, `cad_remove_solid`, `cad_measure`, `cad_boolean_operation`, `cad_capture_snapshot`. `MCPServer` speaks JSON-RPC 2.0 with protocol version `2024-11-05`.
 - Tool failures return an `isError` tool result, not a JSON-RPC error object.
-- The MCP window starts a TCP listener on port 9820 (`MCPServer.start`). It serves the window's own document, kernel, and renderer. The listener must accept connections only from the local machine. It binds every interface today (#129).
+- The MCP popover (sparkles toolbar button) starts a TCP listener on port 9820 (`MCPServer.start`). It serves the window's own document, kernel, and renderer. The listener must accept connections only from the local machine. It binds every interface today (#129).
 - `--mcp-stdio` builds its own `DocumentModel` and still opens the window. The agent edits a document the window does not show, and snapshots are unavailable in that mode (#89).
 
 ## Conventions

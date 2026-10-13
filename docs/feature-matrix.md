@@ -19,7 +19,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
-- WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. The Inspector is one form without tabs, and the viewport header breadcrumb is a static label.
+- WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. Each side pane has a tab bar with one tab, and the Inspector's Properties tab is one form, and the viewport header breadcrumb is a static label.
 - UI-1, UI-11, UI-12, UI-13, UI-15, and UI-18 are Deprecated. The Copilot tab and the File and Geometry menu items were removed in #124.
 - AGENT-10, AGENT-11, AGENT-14, AGENT-15, and AGENT-16 are In progress with UI none. `InAppAgentController` has no host view since #124 (decision AGENT-10).
 
@@ -34,7 +34,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | VIEW-3 | A user gets on-demand rendering only (`isPaused = true`, `enableSetNeedsDisplay = true`), so the GPU stays idle until a redraw is requested | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-4 | A user sees the viewport redraw when workspace state changes (mesh update, hide or show, remove, transform edit, perspective change) through `invalidateViewport` (prior wording: `updateNSView` calls `setNeedsDisplay`; that call no longer exists) | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-5 | A user can trigger a tagged invalidate-and-redraw through `Coordinator.invalidate(reason:)` | done | n/a | n/a | Shipped | #94 | n/a |
-| VIEW-6 | A user can read live Metal status, render count, draw calls, last invalidate reason, active tool and snap kind in the viewport HUD | done | n/a | n/a | Shipped |  | n/a |
+| VIEW-6 | A user can read live Metal status, render count, draw calls, last invalidate reason, active tool and snap kind in the viewport status bar | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-7 | A user sees kernel meshes uploaded to `.storageModeShared` Metal buffers | done | n/a | done | Shipped |  | n/a |
 | VIEW-8 | A user sees each frame drawn into the MTKView drawable and counted by the instrumentation | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-9 | A user sees every solid drawn with depth testing and back-face culling; only the translation of each mesh transform is applied (rotation and scale are ignored, including the Inspector scale fields) | done | n/a | n/a | In progress | #71 | n/a |
@@ -49,7 +49,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | VIEW-18 | A user sees a ground grid on Z = 0 (10 mm pitch, 300 mm extent, origin lines highlighted) | done | done | n/a | Shipped | #102 | n/a |
 | VIEW-19 | A user sees a labelled XYZ axes indicator at the origin | done | done | n/a | Shipped | #103 | n/a |
 | VIEW-20 | A user can zoom in, zoom out, zoom to fit the visible solids, and reset the view from the toolbar or with =, -, F and H | done | done | n/a | Shipped |  | n/a |
-| VIEW-21 | A user can switch the camera to a Perspective, Top, Front, Right or Isometric preset from the viewport header menu | done | done | n/a | Shipped |  | n/a |
+| VIEW-21 | A user can switch the camera to a Perspective, Top, Front, Right or Isometric preset from the View Angle menu in the toolbar | done | done | n/a | Shipped |  | n/a |
 | VIEW-22 | A user sees a colored marker at the active snap point (amber vertex, cyan edge, green grid) while dragging under the Select tool | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-23 | A user sees an "Initializing Metal 4" progress view, and a "Metal Unavailable" message with the reason (no device, pipeline failed, device lost) when Metal 4 cannot start or the device is removed | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-24 | A developer can force the no-GPU path with `--force-no-gpu`, `--no-gpu`, `--disable-metal`, or `MADE_FORCE_NO_GPU` and `MADE_DISABLE_METAL` | n/a | done | n/a | Shipped |  | n/a |
@@ -104,14 +104,14 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-13 | A user can lock or unlock an object (`isLocked` flag); nothing reads the flag, so a locked object can still be edited, moved and removed | done | done | done | In progress | #127 | n/a |
 | DOC-14 | A user sees each object drawn in its material color (`MaterialAttributes.color`, default light blue); `setMaterial` has no caller, so the color cannot change | none | done | done | In progress | #137 | n/a |
 | UI-1 | A user can switch the sidebar between Inspector and AI Copilot with a segmented picker | none | n/a | n/a | Deprecated |  | n/a |
-| UI-2 | A user can choose the selected solid by clicking a row in the Scene Outline list (was a menu picker "Active Solid"; moved) | done | n/a | n/a | Shipped | #34 | n/a |
-| UI-3 | A user can set box width (X) from the inspector slider with a live mm readout | done | n/a | n/a | Shipped | #106 | n/a |
-| UI-4 | A user can set box depth (Y) from the inspector slider | done | n/a | n/a | Shipped | #106 | n/a |
-| UI-5 | A user can set box height (Z) from the inspector slider | done | n/a | n/a | Shipped | #106 | n/a |
-| UI-6 | A user can set cylinder radius from the inspector slider | done | n/a | n/a | Shipped | #106 | n/a |
-| UI-7 | A user can set cylinder height (Z) from the inspector slider | done | n/a | n/a | Shipped | #106 | n/a |
+| UI-2 | A user can choose the selected solid by clicking a row in the Navigator's Scene list (was a menu picker "Active Solid"; moved) | done | n/a | n/a | Shipped | #34 | n/a |
+| UI-3 | A user can set box width (X) from the inspector numeric field or 1-mm stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
+| UI-4 | A user can set box depth (Y) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
+| UI-5 | A user can set box height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
+| UI-6 | A user can set cylinder radius from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
+| UI-7 | A user can set cylinder height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
 | UI-8 | A user can see an imported solid's name in the inspector (read-only) | done | n/a | n/a | Shipped |  | n/a |
-| UI-9 | A user sees the changed solid re-tessellated and redrawn after a slider change, using the solid's current transform, color and visibility; a solid removed during the recompute stays removed (solids at zero position are drawn at x = -25 for `box-1` and +25 otherwise) | done | n/a | n/a | Shipped | #92, #94 | n/a |
+| UI-9 | A user sees the changed solid re-tessellated and redrawn after a dimension change, using the solid's current transform, color and visibility; a solid removed during the recompute stays removed (solids at zero position are drawn at x = -25 for `box-1` and +25 otherwise) | done | n/a | n/a | Shipped | #92, #94 | n/a |
 | UI-10 | A user sees the initial two-solid scene generated at launch | done | n/a | n/a | Shipped |  | n/a |
 | UI-11 | A user can type a prompt in the Copilot field and send it with Return or the send button (disabled when empty) | none | n/a | n/a | Deprecated | #105, #107 | n/a |
 | UI-12 | A user can read the Copilot transcript with user bubbles, assistant bubbles, a tool badge and auto-scroll | none | n/a | n/a | Deprecated |  | n/a |
@@ -121,25 +121,25 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-16 | A user can add a box from the GUI (was Geometry > Add Box with an empty action; moved to Navigator Add > Box Solid, fixed 30x30x30 mm) | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-17 | A user can add a cylinder from the GUI (was Geometry > Add Cylinder; moved to Navigator Add > Cylinder Solid, radius 12, height 35 mm) | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-18 | A user can choose Geometry > Import STEP File... (Cmd+Shift+I) | none | n/a | n/a | Deprecated | #38 | n/a |
-| UI-19 | A user can type exact dimension values in the inspector (numeric fields); dimensions are sliders only, numeric fields exist for position and scale (UI-20, UI-30) | none | n/a | n/a | Planned | #70 | n/a |
+| UI-19 | A user can type exact dimension values in the inspector (numeric fields with a 1-mm stepper, clamped to `DocumentLimits`) | done | n/a | n/a | Shipped | #446 | n/a |
 | UI-20 | A user can edit an object's X, Y and Z position in the inspector | done | n/a | n/a | Shipped | #70 | n/a |
 | UI-21 | A user sees an inline warning next to a parameter the kernel rejected | done | n/a | done | Shipped | #109 | n/a |
 | UI-22 | A user can remove a solid from the GUI | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-23 | A user can run the app on iPadOS 17 | none | n/a | n/a | Planned | #84 | n/a |
 | UI-24 | A user can show or hide the Navigator, Console and Inspector panes from toolbar toggle buttons | done | n/a | n/a | Shipped |  | n/a |
 | UI-25 | A user can toggle the sidebar and the inspector from the standard View menu commands | done | n/a | n/a | Shipped |  | n/a |
-| UI-26 | A user can filter the Scene Outline by object name or ID, with an empty-result message | done | n/a | n/a | Shipped |  | n/a |
+| UI-26 | A user can filter the Navigator's Scene list by object name or ID, with an empty-result message | done | n/a | n/a | Shipped |  | n/a |
 | UI-27 | A user can hide or show an object from the Navigator eye button or the context menu, and the viewport and snapping skip hidden objects | done | n/a | n/a | Shipped |  | n/a |
 | UI-28 | A user can lock or unlock an object from the Navigator lock button or context menu; the flag is stored and shown only (see DOC-13) | done | n/a | n/a | In progress |  | n/a |
 | UI-29 | A user can rename an object in the Inspector Identity section and read its ID and kind | done | n/a | n/a | Shipped |  | n/a |
 | UI-30 | A user can edit an object's X, Y and Z scale in the inspector (floor 0.01); the value is stored but the renderer ignores scale (see VIEW-9) | done | n/a | n/a | In progress | #136 | n/a |
-| UI-31 | A user can read a timestamped, level-colored console log (INFO, KERNEL, SNAP, AGENT, ERROR) with auto-scroll in the console drawer; entries also go to the unified log | done | n/a | n/a | Shipped |  | n/a |
+| UI-31 | A user can read a timestamped, level-colored console log (INFO, KERNEL, SNAP, AGENT, ERROR) with auto-scroll in the resizable console pane (⇧⌘Y or the status-bar button); entries also go to the unified log | done | n/a | n/a | Shipped |  | n/a |
 | UI-32 | A user can filter console entries by message, subsystem or level | done | n/a | n/a | Shipped |  | n/a |
 | UI-33 | A user can clear the console log | done | n/a | n/a | Shipped |  | n/a |
 | UI-34 | A user can open or close the Model Context Protocol window from a toolbar button that turns green while the server runs | done | n/a | n/a | Shipped |  | n/a |
-| UI-35 | A user can start or stop the in-app MCP server from the MCP window and read its address (127.0.0.1:9820) | done | n/a | n/a | Shipped |  | n/a |
-| UI-36 | A user can copy a Claude Desktop config snippet from the MCP window; the snippet launches `swift run ... --mcp-stdio`, which drives a separate document, not the window's session, and uses the process working directory | done | n/a | n/a | In progress |  | n/a |
-| UI-37 | A user can read the registered CAD tool names and the TCP address in the MCP window | done | n/a | n/a | Shipped |  | n/a |
+| UI-35 | A user can start or stop the in-app MCP server from the MCP popover switch and read its address (127.0.0.1:9820) | done | n/a | n/a | Shipped |  | n/a |
+| UI-36 | A user can copy a Claude Desktop config snippet from the MCP popover; the snippet launches `swift run ... --mcp-stdio`, which drives a separate document, not the window's session, and uses the process working directory | done | n/a | n/a | In progress |  | n/a |
+| UI-37 | A user can read the registered CAD tool names and the TCP address in the MCP popover | done | n/a | n/a | Shipped |  | n/a |
 | AGENT-1 | An agent can start an MCP server on standard input and output with a fresh document and kernel and no snapshot provider; the SwiftUI window scene is still declared and `exit(0)` runs at end of input | none | done | n/a | In progress |  | n/a |
 | AGENT-2 | An agent can list every object with ID, kind, position and parameters | n/a | done | done | Shipped |  | n/a |
 | AGENT-3 | An agent can add a box or cylinder with dimensions (clamped) and position; the object is added to the document only, no mesh is created in stdio or GUI mode | n/a | done | done | Shipped | #91, #98, #132 | n/a |
@@ -167,7 +167,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | AGENT-25 | An agent can drive the CAD session in the running GUI window from an external MCP client: the GUI registry shares the window's document, kernel and renderer (A/WorkspaceModel.swift:69), so adds, edits and removals reach the Navigator and Inspector; only removal updates the viewport, because no observer tessellates agent-made changes | done | done | n/a | In progress |  | n/a |
 | AGENT-26 | A user can give the Copilot free-form natural language (for example "Make a 50x50 plate and subtract a 10mm hole in the center") | none | n/a | n/a | Planned |  | n/a |
 | AGENT-27 | An agent receives `-32603` for a failed geometry operation | n/a | none | n/a | Planned |  | n/a |
-| AGENT-28 | An agent can connect over an IPC transport as well as stdio: a local TCP listener (`NWListener(using: .tcp, on: 9820)`) exists; it sets no loopback restriction although the MCP window states 127.0.0.1, and it has no authentication | n/a | done | n/a | In progress |  | n/a |
+| AGENT-28 | An agent can connect over an IPC transport as well as stdio: a local TCP listener (`NWListener(using: .tcp, on: 9820)`) exists; it sets no loopback restriction although the MCP popover states 127.0.0.1, and it has no authentication | n/a | done | n/a | In progress |  | n/a |
 | DSL-1 | A developer can define any shape through the `CADShape` protocol (`shapeDescription`) | n/a | done | n/a | Shipped | #331 | n/a |
 | DSL-2 | A developer can wrap a shape description as `CSGCompositeShape` | n/a | done | n/a | Shipped | #331 | n/a |
 | DSL-3 | A developer can create `Box(width:depth:height:)` or `Box(x:y:z:)` with an `offset` | n/a | done | n/a | Shipped |  | n/a |
@@ -180,6 +180,6 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DSL-10 | A developer can compose shapes with the operators `-`, `+` and `&` | n/a | done | n/a | Shipped |  | n/a |
 | DSL-11 | A developer can use `@CADShapeBuilder` to group shapes; only a single-shape `buildBlock` exists, so multi-statement hierarchies do not compile | n/a | done | n/a | In progress |  | n/a |
 | DSL-12 | An agent can author a DSL model and see it in the viewport or the document | n/a | none | n/a | Planned | #85 | n/a |
-| WORKSPACE-1 | A user can work in one unified multi-pane window: a `NavigationSplitView` with Navigator sidebar, viewport detail with a header bar and status HUD, trailing Inspector, and a collapsible bottom console. The matrix prose also names a "multi-tab inspector" and a "3D viewport jump bar"; the Inspector is one Form with three sections (no tabs) and the header breadcrumb "Scene > name" is a static label | done | n/a | n/a | In progress | #118 | n/a |
+| WORKSPACE-1 | A user can work in one unified multi-pane window: a `NavigationSplitView` with Navigator sidebar, viewport detail with a header bar and status bar, trailing Inspector, and a resizable bottom console. The matrix prose also names a "multi-tab inspector" and a "3D viewport jump bar"; the Navigator and Inspector each have a tab bar with one tab (Scene, Properties), and the Properties tab is one Form with three sections and the header breadcrumb "Scene > name" is a static label | done | n/a | n/a | In progress | #118 | n/a |
 
 Findings that map to no capability row: None.

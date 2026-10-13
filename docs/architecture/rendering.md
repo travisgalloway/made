@@ -32,7 +32,7 @@ Every render call increments telemetry tracked in [`RenderInstrumentation`](../.
 - `drawCalls`: Number of distinct mesh draw primitives issued in the last pass.
 - `lastReason`: The invalidation trigger responsible for the frame.
 
-This telemetry is exposed in the SwiftUI HUD in the viewport corner. `ViewportCoordinatorTests.testRenderCountStaysFlatAtIdle` reads `renderCount` to check the flat-at-idle behavior. The viewport records the `model`, `camera`, and `interaction` reasons.
+This telemetry is exposed in the viewport status bar (`ViewportStatusBar`) under the viewport. `ViewportCoordinatorTests.testRenderCountStaysFlatAtIdle` reads `renderCount` to check the flat-at-idle behavior. The viewport records the `model`, `camera`, and `interaction` reasons.
 
 ---
 
