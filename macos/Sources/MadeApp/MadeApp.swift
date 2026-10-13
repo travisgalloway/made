@@ -9,7 +9,9 @@ struct MadeApp: App {
         if CommandLine.arguments.contains("--mcp-stdio") {
             let doc = DocumentModel()
             let kernel = KernelClient.makeDefault()
-            let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+            // The registry holds its provider weakly; the stdio task below keeps this one alive.
+            let snapshot = HeadlessSnapshotProvider.make(document: doc, kernelClient: kernel)
+            let registry = CADToolRegistry(document: doc, kernelClient: kernel, snapshotProvider: snapshot)
             let server = MCPServer(toolRegistry: registry)
 
             // A restarted kernel service holds no solids; rebuild this document's from its parameters.
@@ -22,6 +24,7 @@ struct MadeApp: App {
             // Run headless MCP server over stdio
             Task {
                 await server.runStdio()
+                withExtendedLifetime(snapshot) {}
                 exit(0)
             }
         }

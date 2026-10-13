@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 152 capabilities with their implementation status. The matrix shows 91 Shipped, 43 In progress, 12 Planned, and 6 Deprecated rows.
+Table 1 lists 152 capabilities with their implementation status. The matrix shows 93 Shipped, 41 In progress, 12 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -39,7 +39,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | VIEW-8 | A user sees each frame drawn into the MTKView drawable and counted by the instrumentation | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-9 | A user sees every solid drawn with depth testing and back-face culling; only the translation of each mesh transform is applied (rotation and scale are ignored, including the Inspector scale fields) | done | n/a | n/a | In progress | #71 | n/a |
 | VIEW-10 | A user sees the scene from a default 3/4 view (eye along (1,-1,0.6) at 150 mm, target (0,0,10)) and can return to it with Reset View or H (prior wording said no UI changes it) | done | n/a | n/a | Shipped |  | n/a |
-| VIEW-11 | An agent can render an offscreen 800x600 PNG of the scene and receive it as base64; works through the GUI's TCP server (renderer registered as provider at A/WorkspaceModel.swift:69), unreachable from `--mcp-stdio` | n/a | done | n/a | In progress | #89 | n/a |
+| VIEW-11 | An agent can render an offscreen 800x600 PNG of the scene and receive it as base64; the GUI's TCP server uses the window renderer (provider set at A/WorkspaceModel.swift:69), and `--mcp-stdio` uses an offscreen renderer that tessellates the document before each capture | n/a | done | n/a | Shipped | #89 | n/a |
 | VIEW-12 | A user sees solids shaded with two directional lights plus ambient (diffuse only) | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-13 | A user sees a right-handed Z-up view matrix with +Z as world up | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-14 | A user sees a perspective projection with Metal 0..1 depth range | done | n/a | n/a | Shipped |  | n/a |
@@ -140,7 +140,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-35 | A user can start or stop the in-app MCP server from the MCP popover switch and read its address (127.0.0.1:9820) | done | n/a | n/a | Shipped |  | n/a |
 | UI-36 | A user can copy a Claude Desktop config snippet from the MCP popover; the snippet launches `swift run ... --mcp-stdio`, which drives a separate document, not the window's session, and uses the process working directory | done | n/a | n/a | In progress |  | n/a |
 | UI-37 | A user can read the registered CAD tool names and the TCP address in the MCP popover | done | n/a | n/a | Shipped |  | n/a |
-| AGENT-1 | An agent can start an MCP server on standard input and output with a fresh document and kernel and no snapshot provider; the SwiftUI window scene is still declared and `exit(0)` runs at end of input | none | done | n/a | In progress |  | n/a |
+| AGENT-1 | An agent can start an MCP server on standard input and output with a fresh document and kernel and an offscreen snapshot renderer (none without a Metal 4 device); the SwiftUI window scene is still declared and `exit(0)` runs at end of input | none | done | n/a | In progress |  | n/a |
 | AGENT-2 | An agent can list every object with ID, kind, position and parameters | n/a | done | done | Shipped |  | n/a |
 | AGENT-3 | An agent can add a box or cylinder with dimensions (clamped) and position; the object is added to the document only, no mesh is created in stdio or GUI mode | n/a | done | done | Shipped | #91, #98, #132 | n/a |
 | AGENT-4 | An agent can set one parameter (`width`, `depth`, `height`, `radius`) on a solid; an unknown name reports success and changes nothing; the GUI mesh is not recomputed (doc names the argument `name`, code uses `param`) | n/a | done | done | Shipped | #91, #97 | n/a |
@@ -148,7 +148,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | AGENT-6 | An agent can delete a solid by ID; the GUI drops the mesh through `syncMeshes` | n/a | done | done | Shipped | #91 | n/a |
 | AGENT-7 | An agent can measure a box or cylinder for bounds, volume and surface area from its parameters (imported solids return the name only) | n/a | done | n/a | Shipped |  | n/a |
 | AGENT-8 | An agent can run subtract, union or intersect between two solids (arguments `solidA`, `solidB`, `operation`); the kernel fails with `unknown-solid` unless both solids were tessellated earlier in the same `KernelClient` (true for `box-1` and `cylinder-1` in the GUI), and the result is recorded as `.imported(name:)` under a different ID than the kernel's `csg-` ID, so it is never drawn | n/a | done | n/a | In progress | #99, #100, #132 | n/a |
-| AGENT-9 | An agent can capture a viewport PNG as MCP image content; works in the GUI through the TCP server (provider set at A/WorkspaceModel.swift:69), returns an error over `--mcp-stdio` (no provider, #89 open) | none | done | n/a | In progress | #89 | n/a |
+| AGENT-9 | An agent can capture a viewport PNG as MCP image content; works in the GUI through the TCP server (provider set at A/WorkspaceModel.swift:69) and over `--mcp-stdio`, where `HeadlessSnapshotProvider` tessellates the document into an offscreen renderer before each capture; without a Metal 4 device the tool returns an `isError` result naming the missing device | none | done | n/a | Shipped | #89 | n/a |
 | AGENT-10 | A user can ask the Copilot to measure `box-1` or `cylinder-1` (keywords "measure", "volume", "dimensions of"); the controller has no caller since #124 | none | n/a | n/a | In progress |  | n/a |
 | AGENT-11 | A user can ask the Copilot to add a box, with up to three numbers for width, depth and height, at a random XY position | none | n/a | n/a | In progress |  | n/a |
 | AGENT-12 | A user can ask the Copilot to subtract `cylinder-1` from `box-1` (keywords "subtract", "cut", "drill"); ids are fixed and the result is not drawn | done | n/a | n/a | In progress | #35 | n/a |
