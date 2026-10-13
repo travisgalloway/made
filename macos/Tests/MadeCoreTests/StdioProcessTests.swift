@@ -69,6 +69,23 @@ import ImageIO
         #expect(ids == [1, 2])
     }
 
+    @Test(.enabled(if: binary != nil, "MadeApp executable not built"),
+          .enabled(if: canLaunchApp, "MadeApp cannot launch on GitHub-hosted runners"),
+          .timeLimit(.minutes(1)))
+    func testRequestLargerThanOneChunkOverStdio() async throws {
+        let padding = String(repeating: "x", count: 200_000)
+        let lines = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_get_scene","arguments":{"padding":"\#(padding)"}}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
+        ]
+        let output = try await Self.runLines(try #require(Self.binary), input: lines)
+        #expect(output.count == 3)
+        let objects = output.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        #expect(objects.map { $0["id"] as? Int } == [1, 2, 3])
+        #expect(objects.allSatisfy { $0["error"] == nil })
+    }
+
     /// Writes `input` as newline-delimited JSON, closes stdin, and returns the responses keyed by request ID.
     private static func run(_ binary: URL, input: [String]) async throws -> [Int: [String: Any]] {
         var responses: [Int: [String: Any]] = [:]

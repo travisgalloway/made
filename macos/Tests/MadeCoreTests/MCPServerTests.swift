@@ -1,5 +1,7 @@
 import Testing
 import Foundation
+import Network
+import Synchronization
 @testable import MadeCore
 
 @Suite @MainActor struct MCPServerTests {
@@ -215,11 +217,11 @@ import Foundation
         #expect(response.id as? Int == 4)
     }
     
-    private func makeServer(encoder: JSONEncoder = JSONEncoder()) -> MCPServer {
+    private func makeServer(encoder: JSONEncoder = JSONEncoder(), maximumLineLength: Int = MCPLineFramer.defaultMaximumLineLength) -> MCPServer {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
-        return MCPServer(toolRegistry: registry, encoder: encoder)
+        return MCPServer(toolRegistry: registry, encoder: encoder, maximumLineLength: maximumLineLength)
     }
     
     private func decodedResponse(_ server: MCPServer, _ message: String) async -> [String: Any] {
@@ -252,6 +254,116 @@ import Foundation
         
         server.stop()
         #expect(!server.isRunning)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testTCPRequestLargerThanOneChunkGetsOneResponse() async throws {
+        let server = makeServer()
+        try server.start(port: 19821)
+        defer { server.stop() }
+        
+        // A 2-byte character repeated, so the cut below lands between the bytes of one character.
+        let padding = String(repeating: "é", count: 100_000)
+        let large = Data((#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"padding":"\#(padding)"}}"# + "\n").utf8)
+        let input = large + Data((#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"# + "\n").utf8)
+        let paddingStart = try #require(large.firstIndex(of: 0xC3))
+        let cut = paddingStart + 100_001
+        let responses = try await exchangeTCP(port: 19821, parts: [input.subdata(in: 0..<cut), input.subdata(in: cut..<input.count)])
+        
+        #expect(responses.count == 2)
+        #expect(responses.map { $0["id"] as? Int } == [1, 2])
+        #expect(responses.allSatisfy { $0["error"] == nil })
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testTCPInvalidUTF8LineGetsParseError() async throws {
+        let server = makeServer()
+        try server.start(port: 19822)
+        defer { server.stop() }
+        
+        let input = Data([0xFF, 0xFE, 0x0A]) + Data((#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"# + "\n").utf8)
+        let responses = try await exchangeTCP(port: 19822, parts: [input])
+        
+        #expect(responses.count == 2)
+        #expect((responses.first?["error"] as? [String: Any])?["code"] as? Int == -32700)
+        #expect(responses.first?["id"] is NSNull)
+        #expect(responses.last?["id"] as? Int == 3)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testTCPOversizedLineGetsParseErrorAndClosesConnection() async throws {
+        let server = makeServer(maximumLineLength: 1024)
+        try server.start(port: 19823)
+        defer { server.stop() }
+        
+        let first = Data((#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"# + "\n").utf8)
+        let oversized = Data(String(repeating: "x", count: 4096).utf8)
+        let after = Data((#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"# + "\n").utf8)
+        let responses = try await exchangeTCP(port: 19823, parts: [first, oversized, after])
+        
+        // The request after the oversized line is never answered, because the server closed the connection.
+        #expect(responses.count == 2)
+        #expect(responses.first?["id"] as? Int == 1)
+        #expect((responses.last?["error"] as? [String: Any])?["code"] as? Int == -32700)
+        #expect(responses.last?["id"] is NSNull)
+    }
+    
+    /// Sends `parts` to the listener on localhost, half-closes, and returns each response line read until EOF.
+    private func exchangeTCP(port: UInt16, parts: [Data]) async throws -> [[String: Any]] {
+        let connection = try await connectTCP(port: port)
+        defer { connection.cancel() }
+        for part in parts {
+            connection.send(content: part, completion: .contentProcessed({ _ in }))
+        }
+        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
+        
+        var received = Data()
+        while true {
+            let (chunk, done) = await withCheckedContinuation { (continuation: CheckedContinuation<(Data, Bool), Never>) in
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { content, _, isComplete, error in
+                    continuation.resume(returning: (content ?? Data(), isComplete || error != nil))
+                }
+            }
+            received += chunk
+            if done { break }
+        }
+        return received.split(separator: 0x0A).compactMap {
+            try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any]
+        }
+    }
+    
+    /// Connects to localhost, retrying while the listener finishes becoming ready.
+    private func connectTCP(port: UInt16) async throws -> NWConnection {
+        let endpointPort = try #require(NWEndpoint.Port(rawValue: port))
+        for _ in 0..<50 {
+            let connection = NWConnection(host: "127.0.0.1", port: endpointPort, using: .tcp)
+            let ready = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                let once = ResumeOnce(continuation)
+                connection.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready: once.resume(true)
+                    case .waiting, .failed, .cancelled: once.resume(false)
+                    default: break
+                    }
+                }
+                connection.start(queue: .global())
+            }
+            if ready { return connection }
+            connection.cancel()
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        Issue.record("Could not connect to the MCP listener on port \(port)")
+        throw CancellationError()
+    }
+}
+
+/// Resumes a continuation once, because a connection reports several terminal states.
+private final class ResumeOnce: Sendable {
+    private let continuation: Mutex<CheckedContinuation<Bool, Never>?>
+    
+    init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = Mutex(continuation)
+    }
+    
+    func resume(_ value: Bool) {
+        continuation.withLock { $0.take() }?.resume(returning: value)
     }
 }
 

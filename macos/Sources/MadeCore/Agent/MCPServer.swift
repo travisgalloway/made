@@ -9,6 +9,7 @@ private struct IDProbe: Decodable {
 public final class MCPServer: @unchecked Sendable {
     public let toolRegistry: CADToolRegistry
     private let encoder: JSONEncoder
+    private let maximumLineLength: Int
     private let decoder = JSONDecoder()
     
     // In-app TCP server state
@@ -22,10 +23,11 @@ public final class MCPServer: @unchecked Sendable {
         self.init(toolRegistry: toolRegistry, encoder: JSONEncoder())
     }
     
-    /// Accepts an injected encoder so tests can reach the -32603 path.
-    init(toolRegistry: CADToolRegistry, encoder: JSONEncoder) {
+    /// Accepts an injected encoder so tests can reach the -32603 path, and a line limit so tests can reach the oversized path.
+    init(toolRegistry: CADToolRegistry, encoder: JSONEncoder, maximumLineLength: Int = MCPLineFramer.defaultMaximumLineLength) {
         self.toolRegistry = toolRegistry
         self.encoder = encoder
+        self.maximumLineLength = maximumLineLength
     }
     
     /// Starts the in-app MCP TCP listener on the specified local port (default: 9820).
@@ -67,33 +69,56 @@ public final class MCPServer: @unchecked Sendable {
     }
     
     private func handleConnection(_ connection: NWConnection) {
+        let (frames, continuation) = AsyncStream.makeStream(of: MCPLineFramer.Frame.self)
+        // One consumer per connection answers lines in arrival order.
+        Task {
+            for await frame in frames {
+                if let response = await self.processFrame(frame) {
+                    connection.send(content: Data((response + "\n").utf8), completion: .contentProcessed({ _ in }))
+                }
+                // An oversized line ends the connection after its -32700, so the peer cannot keep streaming.
+                if frame == .oversized { break }
+            }
+            // Sends complete in order, so the final message flushes every response before the cancel.
+            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in
+                connection.cancel()
+            }))
+        }
         connection.start(queue: queue)
-        receiveMessages(on: connection)
+        receiveMessages(on: connection, framer: MCPLineFramer(maximumLineLength: maximumLineLength), continuation: continuation)
     }
     
-    private func receiveMessages(on connection: NWConnection) {
+    /// Threads the framer through each receive by value; callbacks run serially on `queue`.
+    private func receiveMessages(on connection: NWConnection, framer: MCPLineFramer, continuation: AsyncStream<MCPLineFramer.Frame>.Continuation) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
-            guard let self = self, let data = content, !data.isEmpty else {
-                if isComplete { connection.cancel() }
-                return
-            }
-            if let string = String(data: data, encoding: .utf8) {
-                let lines = string.split(whereSeparator: \.isNewline)
-                Task {
-                    for line in lines {
-                        let trimmed = line.trimmingCharacters(in: .whitespaces)
-                        guard !trimmed.isEmpty else { continue }
-                        if let response = await self.processMessage(trimmed) {
-                            let outData = (response + "\n").data(using: .utf8)!
-                            connection.send(content: outData, completion: .contentProcessed({ _ in }))
-                        }
+            var framer = framer
+            if let content, !content.isEmpty {
+                for frame in framer.append(content) {
+                    continuation.yield(frame)
+                    if frame == .oversized {
+                        continuation.finish()
+                        return
                     }
                 }
             }
-            if !isComplete && error == nil {
-                self.receiveMessages(on: connection)
+            if isComplete {
+                for frame in framer.finish() { continuation.yield(frame) }
+                continuation.finish()
+            } else if let self, error == nil {
+                self.receiveMessages(on: connection, framer: framer, continuation: continuation)
+            } else {
+                continuation.finish()
             }
         }
+    }
+    
+    /// Returns the response to one frame. An oversized line and bytes that are not UTF-8 both get -32700.
+    private func processFrame(_ frame: MCPLineFramer.Frame) async -> String? {
+        guard case .line(let line) = frame,
+              let string = String(data: line, encoding: .utf8) else {
+            return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
+        }
+        return await processMessage(string)
     }
     
     /// Processes a single raw JSON-RPC 2.0 string and returns the response JSON string.
@@ -185,22 +210,23 @@ public final class MCPServer: @unchecked Sendable {
         let inputHandle = FileHandle.standardInput
         let outputHandle = FileHandle.standardOutput
         
+        var framer = MCPLineFramer(maximumLineLength: maximumLineLength)
+        
+        // An oversized line gets -32700 and the rest of it is skipped; stdio has one client, so it keeps serving.
+        func respond(to frames: [MCPLineFramer.Frame]) async {
+            for frame in frames {
+                if let response = await processFrame(frame) {
+                    try? outputHandle.write(contentsOf: Data((response + "\n").utf8))
+                }
+            }
+        }
+        
         while true {
             guard let data = try? inputHandle.read(upToCount: 65536), !data.isEmpty else {
                 break
             }
-            guard let inputString = String(data: data, encoding: .utf8) else { continue }
-            
-            let lines = inputString.split(whereSeparator: \.isNewline)
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard !trimmed.isEmpty else { continue }
-                
-                if let response = await processMessage(trimmed) {
-                    let outData = (response + "\n").data(using: .utf8)!
-                    try? outputHandle.write(contentsOf: outData)
-                }
-            }
+            await respond(to: framer.append(data))
         }
+        await respond(to: framer.finish())
     }
 }

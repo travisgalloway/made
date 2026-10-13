@@ -80,3 +80,9 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 
 - [2026-10-13] `macos/Sources/MadeApp/InspectorPanelView.swift:64-74`, the inspector position fields accept values outside `DocumentLimits.position`.
   Found while working on #98 transform validation. Severity, low.
+
+- [2026-10-13] `CLAUDE.md:42`, the text says tests live in 24 files under `macos/Tests/MadeCoreTests`, and the directory now holds 32.
+  Found while working on #101 MCP input framing. Severity, low (documentation).
+
+- [2026-10-13] `docs/roadmap/phase-3-native-agent.md:68-77`, the Open Issues table still lists #95 to #101 after their fixes merged.
+  Found while working on #101 MCP input framing. Severity, low (documentation).
