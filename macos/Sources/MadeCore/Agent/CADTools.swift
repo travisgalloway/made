@@ -55,7 +55,7 @@ public final class CADToolRegistry {
                 inputSchema: MCPInputSchema(
                     properties: [
                         "id": MCPProperty(type: "string", description: "The solid ID (e.g. 'box-1', 'cylinder-1')"),
-                        "param": MCPProperty(type: "string", description: "The parameter name: 'width', 'depth', 'height', or 'radius'"),
+                        "param": MCPProperty(type: "string", description: "The parameter name. Box: 'width', 'depth', 'height'. Cylinder: 'radius', 'height'. Imported solids have no editable parameters."),
                         "value": MCPProperty(type: "number", description: "The new numeric value in mm")
                     ],
                     required: ["id", "param", "value"]
@@ -216,17 +216,38 @@ public final class CADToolRegistry {
         guard let param = arguments["param"]?.stringValue else {
             return .error("Missing required argument 'param'")
         }
-        guard let val = arguments["value"]?.floatValue else {
+        guard let rawValue = arguments["value"]?.doubleValue else {
             return .error("Missing required argument 'value'")
         }
+        guard rawValue.isFinite else {
+            return .error("Parameter value must be a finite number")
+        }
+        let val = Float(rawValue)
         
         let id = SolidId(idStr)
-        guard document.paramsFor(id: id) != nil else {
+        guard let def = document.paramsFor(id: id) else {
             return .error("Solid '\(idStr)' not found in scene")
+        }
+        guard let editable = Self.editableParams(of: def) else {
+            return .error("Solid '\(idStr)' is an imported solid and has no editable parameters")
+        }
+        guard editable.contains(where: { $0.name == param }) else {
+            let names = editable.map { "'\($0.name)'" }.joined(separator: ", ")
+            return .error("Unknown parameter '\(param)' for \(def.kind) solid '\(idStr)'. Supported: \(names)")
         }
         
         document.setParam(id: id, key: param, value: val)
-        return .text("Updated parameter '\(param)' on solid '\(idStr)' to \(val)")
+        let stored = document.paramsFor(id: id).flatMap { Self.editableParams(of: $0)?.first(where: { $0.name == param })?.value } ?? val
+        return .text("Updated parameter '\(param)' on solid '\(idStr)' to \(stored)")
+    }
+    
+    /// Ordered name-and-value pairs of the parameters an agent may set, or nil for a solid with none.
+    private static func editableParams(of def: ObjectDef) -> [(name: String, value: Float)]? {
+        switch def {
+        case .box(let p): return [("width", p.width), ("depth", p.depth), ("height", p.height)]
+        case .cylinder(let p): return [("radius", p.radius), ("height", p.height)]
+        case .imported: return nil
+        }
     }
     
     private func handleSetTransform(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {

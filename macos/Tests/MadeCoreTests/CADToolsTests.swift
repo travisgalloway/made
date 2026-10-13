@@ -100,11 +100,87 @@ import Foundation
         
         let result = await registry.callTool(name: "cad_set_param", arguments: args)
         #expect(result.isError == false)
+        let text = result.content.first?.text ?? ""
+        #expect(text.contains("to 90.0"))
+        #expect(!text.contains("500"))
         
         if case .box(let p) = doc.paramsFor(id: boxSolidId) {
             #expect(p.width == 90.0) // Clamped to 90
         } else {
             Issue.record("Expected box params")
+        }
+    }
+    
+    private func setParam(_ doc: DocumentModel, _ args: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        return await CADToolRegistry(document: doc, kernelClient: kernel).callTool(name: "cad_set_param", arguments: args)
+    }
+    
+    @Test func testSetParamRejectsUnknownName() async {
+        let doc = DocumentModel()
+        let before = doc.paramsFor(id: boxSolidId)
+        let result = await setParam(doc, ["id": .string("box-1"), "param": .string("color"), "value": .double(5)])
+        #expect(result.isError == true)
+        let text = result.content.first?.text ?? ""
+        #expect(text.contains("'width', 'depth', 'height'"))
+        #expect(doc.paramsFor(id: boxSolidId) == before)
+    }
+    
+    @Test func testSetParamRejectsCylinderNameOnBox() async {
+        let doc = DocumentModel()
+        let before = doc.paramsFor(id: boxSolidId)
+        let result = await setParam(doc, ["id": .string("box-1"), "param": .string("radius"), "value": .double(10)])
+        #expect(result.isError == true)
+        #expect(doc.paramsFor(id: boxSolidId) == before)
+    }
+    
+    @Test func testSetParamRejectsBoxNameOnCylinder() async {
+        let doc = DocumentModel()
+        let cyl = SolidId("cylinder-1")
+        let before = doc.paramsFor(id: cyl)
+        let result = await setParam(doc, ["id": .string("cylinder-1"), "param": .string("width"), "value": .double(10)])
+        #expect(result.isError == true)
+        #expect(doc.paramsFor(id: cyl) == before)
+    }
+    
+    @Test func testSetParamRejectsImportedSolid() async {
+        let doc = DocumentModel()
+        let id = doc.addObject(def: .imported(name: "part"))
+        let result = await setParam(doc, ["id": .string(id.rawValue), "param": .string("height"), "value": .double(10)])
+        #expect(result.isError == true)
+        #expect(result.content.first?.text?.contains("imported") == true)
+        #expect(doc.paramsFor(id: id) == .imported(name: "part"))
+    }
+    
+    @Test func testSetParamRejectsUnknownSolid() async {
+        let result = await setParam(DocumentModel(), ["id": .string("nope"), "param": .string("width"), "value": .double(10)])
+        #expect(result.isError == true)
+        #expect(result.content.first?.text?.contains("not found") == true)
+    }
+    
+    @Test func testSetParamRejectsMissingParam() async {
+        let result = await setParam(DocumentModel(), ["id": .string("box-1"), "value": .double(10)])
+        #expect(result.isError == true)
+        #expect(result.content.first?.text?.contains("param") == true)
+    }
+    
+    @Test func testSetParamRejectsNaN() async {
+        let doc = DocumentModel()
+        let before = doc.paramsFor(id: boxSolidId)
+        let result = await setParam(doc, ["id": .string("box-1"), "param": .string("width"), "value": .double(.nan)])
+        #expect(result.isError == true)
+        #expect(doc.paramsFor(id: boxSolidId) == before)
+    }
+    
+    @Test func testSetParamClampsBelowMinimum() async {
+        let doc = DocumentModel()
+        let result = await setParam(doc, ["id": .string("cylinder-1"), "param": .string("radius"), "value": .double(1)])
+        #expect(result.isError == false)
+        #expect(result.content.first?.text?.contains("to 5.0") == true)
+        if case .cylinder(let p) = doc.paramsFor(id: SolidId("cylinder-1")) {
+            #expect(p.radius == 5.0)
+        } else {
+            Issue.record("Expected cylinder params")
         }
     }
     
