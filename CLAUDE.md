@@ -59,7 +59,7 @@ macos/
     Viewport/              MetalRenderer, Shaders.metal, Orientation, Camera, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation)
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool
     Scene/                 DocumentModel (@Observable), KernelRegeneration
-    Agent/                 MCPProtocol, MCPServer, CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
+    Agent/                 MCPProtocol, MCPServer, MCPLineFramer (input framing), CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
     Platform/              AppKit and UIKit shims
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener

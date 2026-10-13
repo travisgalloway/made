@@ -67,33 +67,47 @@ public final class MCPServer: @unchecked Sendable {
     }
     
     private func handleConnection(_ connection: NWConnection) {
-        connection.start(queue: queue)
-        receiveMessages(on: connection)
-    }
-    
-    private func receiveMessages(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
-            guard let self = self, let data = content, !data.isEmpty else {
-                if isComplete { connection.cancel() }
-                return
-            }
-            if let string = String(data: data, encoding: .utf8) {
-                let lines = string.split(whereSeparator: \.isNewline)
-                Task {
-                    for line in lines {
-                        let trimmed = line.trimmingCharacters(in: .whitespaces)
-                        guard !trimmed.isEmpty else { continue }
-                        if let response = await self.processMessage(trimmed) {
-                            let outData = (response + "\n").data(using: .utf8)!
-                            connection.send(content: outData, completion: .contentProcessed({ _ in }))
-                        }
-                    }
+        let (lines, continuation) = AsyncStream.makeStream(of: Data.self)
+        // One consumer per connection answers lines in arrival order.
+        Task {
+            for await line in lines {
+                if let response = await self.processLine(line) {
+                    connection.send(content: Data((response + "\n").utf8), completion: .contentProcessed({ _ in }))
                 }
             }
-            if !isComplete && error == nil {
-                self.receiveMessages(on: connection)
+            // Sends complete in order, so the final message flushes every response before the cancel.
+            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in
+                connection.cancel()
+            }))
+        }
+        connection.start(queue: queue)
+        receiveMessages(on: connection, framer: MCPLineFramer(), continuation: continuation)
+    }
+    
+    /// Threads the framer through each receive by value; callbacks run serially on `queue`.
+    private func receiveMessages(on connection: NWConnection, framer: MCPLineFramer, continuation: AsyncStream<Data>.Continuation) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
+            var framer = framer
+            if let content, !content.isEmpty {
+                for line in framer.append(content) { continuation.yield(line) }
+            }
+            if isComplete {
+                for line in framer.finish() { continuation.yield(line) }
+                continuation.finish()
+            } else if let self, error == nil {
+                self.receiveMessages(on: connection, framer: framer, continuation: continuation)
+            } else {
+                continuation.finish()
             }
         }
+    }
+    
+    /// Decodes one framed line and returns its response, or -32700 when the bytes are not UTF-8.
+    private func processLine(_ line: Data) async -> String? {
+        guard let string = String(data: line, encoding: .utf8) else {
+            return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
+        }
+        return await processMessage(string)
     }
     
     /// Processes a single raw JSON-RPC 2.0 string and returns the response JSON string.
@@ -185,22 +199,22 @@ public final class MCPServer: @unchecked Sendable {
         let inputHandle = FileHandle.standardInput
         let outputHandle = FileHandle.standardOutput
         
+        var framer = MCPLineFramer()
+        
+        func respond(to lines: [Data]) async {
+            for line in lines {
+                if let response = await processLine(line) {
+                    try? outputHandle.write(contentsOf: Data((response + "\n").utf8))
+                }
+            }
+        }
+        
         while true {
             guard let data = try? inputHandle.read(upToCount: 65536), !data.isEmpty else {
                 break
             }
-            guard let inputString = String(data: data, encoding: .utf8) else { continue }
-            
-            let lines = inputString.split(whereSeparator: \.isNewline)
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard !trimmed.isEmpty else { continue }
-                
-                if let response = await processMessage(trimmed) {
-                    let outData = (response + "\n").data(using: .utf8)!
-                    try? outputHandle.write(contentsOf: outData)
-                }
-            }
+            await respond(to: framer.append(data))
         }
+        await respond(to: framer.finish())
     }
 }

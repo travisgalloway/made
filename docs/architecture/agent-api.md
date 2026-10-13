@@ -53,7 +53,7 @@ swift run MadeApp --mcp-stdio
 
 This mode is not fully headless. `MadeApp.init` starts the server task, and the SwiftUI window scene still launches. The server creates a fresh `DocumentModel` and `KernelClient`, and a `HeadlessSnapshotProvider` that owns an offscreen `MetalRenderer`. Each `cad_capture_snapshot` call tessellates the document as it stands at the call, drops meshes for removed solids, and renders the frame. Without a Metal 4 device the registry has no provider, and the tool returns an `isError` result naming the missing device while the server keeps serving. The process exits when standard input closes.
 
-The server reads standard input in 64 KB chunks and splits each chunk on newlines. A message larger than one chunk is split and fails to parse (#101).
+The server reads standard input in 64 KB chunks and passes each chunk to `MCPLineFramer`, which buffers bytes until a newline completes a message. A message may be larger than one read, and a read may end inside a multi-byte character. A line that is not valid UTF-8 gets one -32700 response. Input that ends without a newline is processed as a final line. The TCP transport frames each connection the same way, answers its lines in arrival order, and closes the connection after the last response is sent.
 
 ### In-App TCP Transport
 The MCP popover (the sparkles toolbar button) starts a TCP listener inside the running GUI. `WorkspaceModel.toggleMCPServer` calls `MCPServer.start(port:)`, and the default port is 9820. The listener serves the same JSON-RPC 2.0 methods as the stdio transport.
