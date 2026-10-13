@@ -275,7 +275,7 @@ import simd
         }
     }
     
-    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testSnapshotViaCADToolsIncludesAxes() async throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) @MainActor func testSnapshotViaCADToolsIncludesAxes() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
         

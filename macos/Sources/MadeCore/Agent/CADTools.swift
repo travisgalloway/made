@@ -5,7 +5,8 @@ public protocol SnapshotProvider: AnyObject, Sendable {
     func captureSnapshotPngBase64() async -> String?
 }
 
-public final class CADToolRegistry: @unchecked Sendable {
+@MainActor
+public final class CADToolRegistry {
     private let document: DocumentModel
     private let kernelClient: KernelClientProtocol
     private weak var snapshotProvider: (any SnapshotProvider)?
@@ -24,7 +25,7 @@ public final class CADToolRegistry: @unchecked Sendable {
         self.snapshotProvider = provider
     }
     
-    public var tools: [MCPToolDefinition] {
+    public nonisolated var tools: [MCPToolDefinition] {
         return [
             MCPToolDefinition(
                 name: "cad_get_scene",

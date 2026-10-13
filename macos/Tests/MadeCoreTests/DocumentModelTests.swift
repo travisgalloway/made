@@ -1,8 +1,10 @@
 import Testing
 import Foundation
+import Observation
+import os
 @testable import MadeCore
 
-@Suite struct DocumentModelTests {
+@Suite @MainActor struct DocumentModelTests {
     @Test func testInitialDocumentHasTwoDefaultSolids() {
         let doc = DocumentModel()
         
@@ -141,5 +143,69 @@ import Foundation
         let mat = MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1))
         doc.setMaterial(id: boxSolidId, material: mat)
         #expect(doc.objects[0].material.color == (SIMD4<Float>(1, 0, 0, 1)))
+    }
+    @Test func testConcurrentAgentMutationsWhileMainActorReads() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+        let addCount = 16
+
+        var tasks: [Task<Void, Never>] = []
+        for i in 0..<addCount {
+            // The add goes through `processMessage`, the path the stdio and TCP transports share.
+            tasks.append(Task.detached {
+                let line = #"{"jsonrpc":"2.0","id":\#(i),"method":"tools/call","params":{"name":"cad_add_solid","arguments":{"type":"box","posX":\#(i)}}}"#
+                _ = await server.processMessage(line)
+            })
+            tasks.append(Task.detached {
+                _ = await registry.callTool(name: "cad_set_param", arguments: [
+                    "id": .string("box-1"), "param": .string("width"), "value": .double(Double(100 + i))
+                ])
+                _ = await registry.callTool(name: "cad_set_transform", arguments: [
+                    "id": .string("box-1"), "posX": .double(Double(i))
+                ])
+            })
+        }
+
+        for _ in 0..<200 {
+            var total: Float = 0
+            for obj in doc.objects { total += obj.transform.position.x }
+            _ = (doc.objects.count, total)
+            await Task.yield()
+        }
+        for task in tasks { await task.value }
+
+        #expect(doc.objects.count == 2 + addCount)
+        #expect(Set(doc.objects.map(\.id)).count == doc.objects.count)
+        if case .box(let params) = doc.paramsFor(id: boxSolidId) {
+            #expect(params.width == DocumentLimits.boxWidth.max)
+        } else {
+            Issue.record("Expected box params")
+        }
+    }
+
+    @Test func testToolMutationRunsOnMainActor() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+        let observedOnMain = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+
+        // SwiftUI observes the document through the same tracking, so this is the thread a view sees the change on.
+        withObservationTracking {
+            _ = doc.objects
+        } onChange: {
+            let isMain = Thread.isMainThread
+            observedOnMain.withLock { $0 = isMain }
+        }
+
+        await Task.detached {
+            let line = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cad_add_solid","arguments":{"type":"cylinder"}}}"#
+            _ = await server.processMessage(line)
+        }.value
+
+        #expect(doc.objects.count == 3)
+        #expect(observedOnMain.withLock { $0 } == true)
     }
 }
