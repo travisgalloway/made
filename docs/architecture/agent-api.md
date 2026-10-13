@@ -55,6 +55,8 @@ This mode is not fully headless. `MadeApp.init` starts the server task, and the 
 
 The server reads standard input in 64 KB chunks and passes each chunk to `MCPLineFramer`, which buffers bytes until a newline completes a message. A message may be larger than one read, and a read may end inside a multi-byte character. A line that is not valid UTF-8 gets one -32700 response. Input that ends without a newline is processed as a final line. The TCP transport frames each connection the same way, answers its lines in arrival order, and closes the connection after the last response is sent.
 
+A line may hold at most 16 MiB (`MCPLineFramer.defaultMaximumLineLength`, 16,777,216 bytes). The framer stops buffering as soon as a line passes the limit, so a peer that never sends a newline cannot grow memory without bound. The oversized line gets one -32700 response with a null `id`. Over stdio, the server skips the rest of that line and keeps serving. Over TCP, the server closes the connection after the -32700 and answers nothing sent after the oversized line.
+
 ### In-App TCP Transport
 The MCP popover (the sparkles toolbar button) starts a TCP listener inside the running GUI. `WorkspaceModel.toggleMCPServer` calls `MCPServer.start(port:)`, and the default port is 9820. The listener serves the same JSON-RPC 2.0 methods as the stdio transport.
 

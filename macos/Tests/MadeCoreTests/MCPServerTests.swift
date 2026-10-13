@@ -217,11 +217,11 @@ import Synchronization
         #expect(response.id as? Int == 4)
     }
     
-    private func makeServer(encoder: JSONEncoder = JSONEncoder()) -> MCPServer {
+    private func makeServer(encoder: JSONEncoder = JSONEncoder(), maximumLineLength: Int = MCPLineFramer.defaultMaximumLineLength) -> MCPServer {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
-        return MCPServer(toolRegistry: registry, encoder: encoder)
+        return MCPServer(toolRegistry: registry, encoder: encoder, maximumLineLength: maximumLineLength)
     }
     
     private func decodedResponse(_ server: MCPServer, _ message: String) async -> [String: Any] {
@@ -286,6 +286,23 @@ import Synchronization
         #expect((responses.first?["error"] as? [String: Any])?["code"] as? Int == -32700)
         #expect(responses.first?["id"] is NSNull)
         #expect(responses.last?["id"] as? Int == 3)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testTCPOversizedLineGetsParseErrorAndClosesConnection() async throws {
+        let server = makeServer(maximumLineLength: 1024)
+        try server.start(port: 19823)
+        defer { server.stop() }
+        
+        let first = Data((#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"# + "\n").utf8)
+        let oversized = Data(String(repeating: "x", count: 4096).utf8)
+        let after = Data((#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"# + "\n").utf8)
+        let responses = try await exchangeTCP(port: 19823, parts: [first, oversized, after])
+        
+        // The request after the oversized line is never answered, because the server closed the connection.
+        #expect(responses.count == 2)
+        #expect(responses.first?["id"] as? Int == 1)
+        #expect((responses.last?["error"] as? [String: Any])?["code"] as? Int == -32700)
+        #expect(responses.last?["id"] is NSNull)
     }
     
     /// Sends `parts` to the listener on localhost, half-closes, and returns each response line read until EOF.
