@@ -52,6 +52,7 @@ macos/
   Package.swift            MadeCore (library), MadeApp and MadeKernelService (executables), MadeCoreTests
   Support/                 Info.plist files for Made.app and the kernel XPC service
   scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle)
+                           and compiles the app icon (img/made.icon, an Icon Composer file) with actool
   Sources/MadeCore/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, Geometry
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)

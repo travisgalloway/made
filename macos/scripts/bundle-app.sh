@@ -9,6 +9,8 @@ app="$pkg_dir/.build/Made.app"
 service="$app/Contents/XPCServices/MadeKernelService.xpc"
 # Bundle.module looks in Bundle.main.resourceURL first, so the resource bundle goes in Contents/Resources.
 resources="MadeNative_MadeCore.bundle"
+# The Icon Composer source; actool compiles it to Assets.car (macOS 26 glass icon) and made.icns (earlier systems).
+icon="$pkg_dir/../img/made.icon"
 
 for product in MadeApp MadeKernelService "$resources"; do
     if [ ! -e "$bin_dir/$product" ]; then
@@ -23,6 +25,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$service/Contents/MacO
 cp "$pkg_dir/Support/MadeApp-Info.plist" "$app/Contents/Info.plist"
 cp "$bin_dir/MadeApp" "$app/Contents/MacOS/MadeApp"
 cp -R "$bin_dir/$resources" "$app/Contents/Resources/$resources"
+xcrun actool "$icon" --compile "$app/Contents/Resources" --platform macosx --minimum-deployment-target 26.0 \
+    --app-icon made --output-partial-info-plist /dev/null --output-format human-readable-text >/dev/null
 cp "$pkg_dir/Support/MadeKernelService-Info.plist" "$service/Contents/Info.plist"
 cp "$bin_dir/MadeKernelService" "$service/Contents/MacOS/MadeKernelService"
 
