@@ -42,17 +42,17 @@ struct ViewportStatusBar: View {
             .foregroundStyle(workspace.isConsoleVisible ? Color.accentColor : Color.secondary)
             .help(workspace.isConsoleVisible ? "Hide Console (⇧⌘Y)" : "Show Console (⇧⌘Y)")
         }
-        .font(.caption)
+        .font(.callout)
         .monospacedDigit()
         .foregroundStyle(.secondary)
         .barControl()
         .padding(.horizontal, 10)
-        .frame(height: 24)
+        .frame(height: BarMetrics.height)
         .background(.bar)
     }
 
     private var separator: some View {
-        Divider().frame(height: 12)
+        Divider().frame(height: 16)
     }
 
     private func color(for kind: SnapKind) -> Color {

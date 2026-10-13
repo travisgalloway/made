@@ -54,7 +54,7 @@ struct NavigatorSidebarView: View {
         }
         .barControl()
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: BarMetrics.height)
     }
 
     private var filteredObjects: [SceneObject] {

@@ -22,11 +22,11 @@ struct ViewportCanvasView: View {
                     .foregroundStyle(.secondary)
                 Text(workspace.selectedObject?.name ?? "No Selection")
             }
-            .font(.caption)
+            .font(.callout)
             Spacer()
         }
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: BarMetrics.height)
         .background(.bar)
     }
 

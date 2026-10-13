@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// Height shared by every in-content bar, matching Xcode 26's jump bar and editor status bar.
+enum BarMetrics {
+    static let height: CGFloat = 36
+}
+
 extension View {
     /// One style for every button, menu, and field in an in-content bar, so icon size and hit area match.
     func barControl() -> some View {
