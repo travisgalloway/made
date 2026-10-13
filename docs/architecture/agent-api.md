@@ -88,7 +88,7 @@ The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L8) pr
 | --------- | ---------- | ----------- |
 | `cad_get_scene` | None | Returns the full scene hierarchy, object IDs, parametric dimensions, and 3D positions in JSON format. |
 | `cad_add_solid` | `type` ("box" \| "cylinder"), dimensions (`width`, `depth`, `height`, `radius`), position (`posX`, `posY`, `posZ`) | Instantiates a new parametric solid in the document. |
-| `cad_set_param` | `id`, `param` ("width", "depth", "height", "radius"), `value` | Updates a parameter on a solid, clamped to the `DocumentLimits` ranges. An unknown `param` reports success and changes nothing (#97). |
+| `cad_set_param` | `id`, `param` (box: "width", "depth", "height"; cylinder: "radius", "height"), `value` | Updates a parameter on a solid, clamped to the `DocumentLimits` ranges. An unknown `param` for the solid kind, an imported solid, an unknown solid ID, and a non-finite `value` return an `isError` result and change nothing. The success message reports the stored (clamped) value. |
 | `cad_set_transform` | `id`, `posX`, `posY`, `posZ` | Updates the world position of a solid. The schema description mentions scale, which is not implemented (#98). |
 | `cad_remove_solid` | `id` | Deletes a solid from the document. |
 | `cad_measure` | `id` | Returns calculated volume, bounding extents, and estimated surface area. |

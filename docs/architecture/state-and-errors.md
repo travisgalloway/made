@@ -49,7 +49,7 @@ When an AI agent invokes a tool that fails (e.g., referencing a nonexistent soli
 - The tool returns an `MCPToolCallResult` with `isError: true` and a text message prefixed `Error:`. The JSON-RPC response itself is a success (`result`), not an `error` payload (`MCPServer.swift`, `MCPProtocol.swift`).
 - JSON-RPC `-32602` is returned only when `tools/call` has no `params.name`. `-32603` is returned only when encoding the result fails. `-32601` covers unknown methods and `-32700` covers unparseable input.
 - The message gives a diagnostic hint (for example, *"Solid 'x' not found in scene"*), so the agent can correct its call and retry.
-- Argument validation is partial: `cad_set_param` reports success for an unknown parameter name (#97), and transform and size arguments are not validated (#98).
+- Argument validation is partial: transform and size arguments are not validated (#98).
 
 ---
 

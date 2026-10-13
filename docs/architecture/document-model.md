@@ -95,7 +95,7 @@ The model also exposes `setName(id:name:)`, `setVisibility(id:isVisible:)`, `set
 | Cylinder radius | 5 | 50 |
 | Cylinder height | 5 | 90 |
 
-`setParam` and the `cad_add_solid` tool apply these ranges. Other paths into the model, such as `addObject(def:)` called directly, do not clamp (#104). Unknown keys and `.imported` objects are ignored without an error.
+`setParam` and the `cad_add_solid` tool apply these ranges. Other paths into the model, such as `addObject(def:)` called directly, do not clamp (#104). Unknown keys and `.imported` objects are ignored without an error by the model itself, and the `cad_set_param` handler rejects both before calling it (#97).
 
 ---
 

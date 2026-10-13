@@ -74,3 +74,6 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 - [2026-10-13] `macos/Sources/MadeCore/Kernel/XPC/XPCKernelEngine.swift:185`, when the breaker is open the third restart is never emitted, so a parameter edit rejected with `kernel-init-failed` leaves the document and the viewport out of step until the next edit after the 30-s window. Found while running the #444 manual check for #245. Severity, functional, low.
 - [2026-10-13] `macos/Sources/MadeCore/Kernel/XPC/XPCKernelEngine.swift:120`, the relaunch after a second crash inside 10 s waited about 9 s in both observed runs (consistent with the launchd respawn throttle), and the Inspector gives no sign that regeneration is pending. Found while running the #444 manual check for #245. Severity, UX, low.
 - [2026-10-13] `docs/architecture/agent-api.md:103`, the -32700 row still says structurally invalid requests "should return -32600 (#95)", which #95 already fixed. Found while working on #96. Severity, docs, low.
+
+- [2026-10-13] `macos/Sources/MadeCore/Agent/InAppAgentController.swift:137-150`, a prompt containing "cylinder" and "width" or "depth" sends a box-only name to `cylinder-1`, which `cad_set_param` now rejects with an error.
+  Found while working on #97 set-param validation. Severity, low (the controller has no caller in `MadeApp`).
