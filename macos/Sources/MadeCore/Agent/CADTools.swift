@@ -383,6 +383,13 @@ public final class CADToolRegistry {
         
         let solidA = SolidId(solidAStr)
         let solidB = SolidId(solidBStr)
+        let operands = [(solidA, solidAStr), (solidB, solidBStr)]
+        if let missing = missingOperand(operands) {
+            return .error("Solid '\(missing)' not found in scene")
+        }
+        guard solidA != solidB else {
+            return .error("Operands 'solidA' and 'solidB' must be different solids, but both are '\(solidAStr)'")
+        }
         let outputId = SolidId("csg-\(UUID().uuidString.prefix(6))")
         
         let req = KernelRequest.booleanOperation(
@@ -395,10 +402,19 @@ public final class CADToolRegistry {
         
         let result = await kernelClient.request(req)
         if case .success = result {
+            if let missing = missingOperand(operands) {
+                await kernelClient.dispose(solidId: outputId)
+                return .error("Solid '\(missing)' was removed while the boolean \(opStr) was running")
+            }
             document.addObject(def: .imported(name: "\(opStr)(\(solidAStr), \(solidBStr))"))
             return .text("Successfully executed \(opStr) between '\(solidAStr)' and '\(solidBStr)'. Output registered as '\(outputId.rawValue)'")
         } else {
             return .error("Boolean \(opStr) failed: \(result.error?.message ?? "unknown error")")
         }
+    }
+    
+    /// Returns the first operand name with no matching object in the document.
+    private func missingOperand(_ operands: [(SolidId, String)]) -> String? {
+        operands.first { id, _ in !document.objects.contains(where: { $0.id == id }) }?.1
     }
 }
