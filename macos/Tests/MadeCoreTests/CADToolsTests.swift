@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import MadeCore
 
-@Suite struct CADToolsTests {
+@Suite @MainActor struct CADToolsTests {
     @Test func testGetSceneReturnsDefaultSolids() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))

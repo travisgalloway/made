@@ -12,7 +12,7 @@ The threading model in `made` is built on the Swift 6 language mode (`swift-tool
 │   • SwiftUI View Hierarchy (Navigator, Inspector, Console)   │
 │   • AppKit Event RunLoop                               │
 │   • GestureArbiter & PointerRouter                     │
-│   • DocumentModel (@Observable, not @MainActor)        │
+│   • DocumentModel (@Observable, @MainActor)            │
 │   • MetalKit MTKView Command Encoding                  │
 └──────────────────────────┬─────────────────────────────┘
                            │ await client.request(job)
@@ -36,10 +36,10 @@ The threading model in `made` is built on the Swift 6 language mode (`swift-tool
 ## Responsibilities by Domain
 
 ### 1. Main Thread
-`@MainActor` appears only on the two `Coordinator` classes in `CADMetalViewRepresentable.swift`, plus `Task { @MainActor }` hops in `WorkspaceModel.swift` (a `@MainActor` class) and `MainActor.run` calls in `InAppAgentController.swift`. `DocumentModel`, `GestureArbiter`, and `PointerRouter` are `final class ... @unchecked Sendable` with no actor isolation. Moving them onto `@MainActor` is tracked in #91. The main thread owns these responsibilities:
+`@MainActor` appears on `DocumentModel`, `CADToolRegistry`, and the two `Coordinator` classes in `CADMetalViewRepresentable.swift`, plus `Task { @MainActor }` hops in `WorkspaceModel.swift` (a `@MainActor` class) and `MainActor.run` calls in `InAppAgentController.swift`. `GestureArbiter` and `PointerRouter` are `final class ... @unchecked Sendable` with no actor isolation. Moving them onto `@MainActor` belongs to DSN-1eb23904. The main thread owns these responsibilities:
 - **SwiftUI Views**: Renders UI components, inspector controls, and chat dialogs.
 - **Input Routing**: `PointerRouter` and `GestureArbiter` decide the gesture mode synchronously. The viewport coordinator sends them mouse and trackpad events.
-- **Document Mutations**: `@Observable class DocumentModel` updates object parameters. Agent tool calls also mutate it from the stdio task, off the main thread (#91).
+- **Document Mutations**: `@Observable class DocumentModel` updates object parameters. Agent tool calls from the stdio task and the TCP listener reach it through the `@MainActor` `CADToolRegistry`, so each call hops to the main actor and back.
 - **Metal Command Encoding**: Encodes draw primitives into `MTLCommandBuffer` on demand when invalidated.
 
 ### 2. Geometry Background Actor (`KernelClient`)
@@ -64,7 +64,7 @@ Data structures crossing actor boundaries conform to `Sendable`:
 - **`MetalMesh`**: Encapsulates `MTLBuffer` references and is marked `@unchecked Sendable`.
 
 ### Current Isolation
-Nine types opt out of compiler checking with `@unchecked Sendable`: `DocumentModel`, `GestureArbiter`, `PointerRouter`, `CADToolRegistry`, `MCPServer`, `InAppAgentController`, `RenderInstrumentation`, `MetalRenderer`, and `MetalMesh`. Each holds mutable state without a lock or actor. Removing the opt-outs is tracked in #91.
+Seven types opt out of compiler checking with `@unchecked Sendable`: `GestureArbiter`, `PointerRouter`, `MCPServer`, `InAppAgentController`, `RenderInstrumentation`, `MetalRenderer`, and `MetalMesh`. Each holds mutable state without a lock or actor. Removing the opt-outs belongs to DSN-1eb23904.
 
 ---
 

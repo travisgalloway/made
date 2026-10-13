@@ -84,7 +84,7 @@ macos/
 8. **Navigation and editing never share a gesture.** The arbiter locks the mode on first movement and holds it until release.
 9. **Precision comes from snapping and typed values, not steady fingers.**
 
-Enforcement is weaker than the doc's matrix once claimed. Check `docs/architecture/invariants.md` for the current state before you rely on a test to catch a violation. Known gaps: 15 types are `@unchecked Sendable` (invariant 7, #91).
+Enforcement is weaker than the doc's matrix once claimed. Check `docs/architecture/invariants.md` for the current state before you rely on a test to catch a violation. Known gaps: 13 types are `@unchecked Sendable` (invariant 7, DSN-1eb23904).
 
 ## The kernel boundary (`Kernel/`)
 

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import MadeCore
 
-@Suite struct MCPServerTests {
+@Suite @MainActor struct MCPServerTests {
     @Test func testInitializeReturnsServerCapabilities() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))

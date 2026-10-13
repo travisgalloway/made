@@ -105,7 +105,8 @@ public let boxSolidId = SolidId("box-1")
 public let cylinderSolidId = SolidId("cylinder-1")
 
 @Observable
-public final class DocumentModel: @unchecked Sendable {
+@MainActor
+public final class DocumentModel {
     public private(set) var objects: [SceneObject] = []
     private var seq: Int = 1
     
