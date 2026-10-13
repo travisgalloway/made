@@ -14,8 +14,8 @@
 ┌──────────────────────────▼─────────────────────────────┐
 │                       MCPServer                        │
 │   • Conforms to MCP Spec (2024-11-05)                  │
-│   • Methods: initialize, tools/list, tools/call,       │
-│     notifications/initialized                          │
+│   • Methods: initialize, tools/list, tools/call        │
+│   • Notifications (no id) receive no response          │
 └──────────────────────────┬─────────────────────────────┘
                            │ Tool Invocations
 ┌──────────────────────────▼─────────────────────────────┐
@@ -105,7 +105,7 @@ A failing tool call returns a successful JSON-RPC response whose `result` has `i
 | -32602 | `tools/call` without `params.name`. |
 | -32603 | Result encoding failure. |
 
-The `notifications/initialized` notification receives a response with a null result, where the protocol expects none (#96).
+A message with no `id` member and a string `method` is a notification and receives no response. A message with `"id":null` is a request and receives a response. A `notifications/initialized` message sent with an `id` is a request for an unserved method and returns -32601.
 
 ---
 

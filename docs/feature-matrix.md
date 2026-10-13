@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 152 capabilities with their implementation status. The matrix shows 93 Shipped, 41 In progress, 12 Planned, and 6 Deprecated rows.
+Table 1 lists 152 capabilities with their implementation status. The matrix shows 94 Shipped, 40 In progress, 12 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -162,7 +162,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | AGENT-19 | An agent can call `initialize` and receive protocol 2024-11-05, server `made-native-cad` 0.1.0 and the tools capability | n/a | done | n/a | Shipped |  | n/a |
 | AGENT-20 | An agent can discover the 8 tool schemas | n/a | done | n/a | Shipped |  | n/a |
 | AGENT-21 | An agent can invoke any registered tool by name with arguments (missing name gives `-32602`; unknown tool gives an `isError` result) | n/a | done | n/a | Shipped |  | n/a |
-| AGENT-22 | An agent can send `notifications/initialized`; the server answers with a response line although a notification expects none | n/a | done | n/a | In progress | #96 | n/a |
+| AGENT-22 | An agent can send a notification such as `notifications/initialized` and receives no response line | n/a | done | n/a | Shipped | #96 | n/a |
 | AGENT-23 | An agent can send an unknown method and receive `-32601` | n/a | done | n/a | Shipped |  | n/a |
 | AGENT-24 | An agent can drive the server over newline-delimited JSON on stdin and stdout, or over the TCP socket (both read in 64 KB chunks, so a message that crosses a chunk boundary is split) | n/a | done | n/a | In progress | #101 | n/a |
 | AGENT-25 | An agent can drive the CAD session in the running GUI window from an external MCP client: the GUI registry shares the window's document, kernel and renderer (A/WorkspaceModel.swift:69), so adds, edits and removals reach the Navigator and Inspector; the registry and the document are `@MainActor`, so each tool call runs on the main actor; only removal updates the viewport, because no observer tessellates agent-made changes | done | done | n/a | In progress |  | n/a |

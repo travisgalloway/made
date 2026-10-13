@@ -167,6 +167,54 @@ import Foundation
         #expect(json["id"] is NSNull)
     }
     
+    @Test func testInitializedNotificationReturnsNoResponse() async {
+        let response = await makeServer().processMessage(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+        #expect(response == nil)
+    }
+    
+    @Test func testNotificationWithParamsReturnsNoResponse() async {
+        let response = await makeServer().processMessage(#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#)
+        #expect(response == nil)
+    }
+    
+    @Test func testUnknownNotificationReturnsNoResponse() async {
+        let response = await makeServer().processMessage(#"{"jsonrpc":"2.0","method":"notifications/unknown"}"#)
+        #expect(response == nil)
+    }
+    
+    @Test func testNotificationWithNonObjectParamsReturnsNoResponse() async {
+        let response = await makeServer().processMessage(#"{"jsonrpc":"2.0","method":"notifications/initialized","params":[1]}"#)
+        #expect(response == nil)
+    }
+    
+    @Test func testNotificationBetweenRequestsReturnsNoResponse() async {
+        let server = makeServer()
+        let first = await decodedResponse(server, #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
+        let middle = await server.processMessage(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+        let last = await decodedResponse(server, #"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)
+        #expect(first["id"] as? Int == 1)
+        #expect(middle == nil)
+        #expect(last["id"] as? Int == 2)
+    }
+    
+    @Test func testMissingMethodWithoutIDReturnsInvalidRequest() async {
+        let response = await errorResponse(makeServer(), #"{"jsonrpc":"2.0"}"#)
+        #expect(response.code == -32600)
+        #expect(response.id is NSNull)
+    }
+    
+    @Test func testWrongTypeMethodWithoutIDReturnsInvalidRequest() async {
+        let response = await errorResponse(makeServer(), #"{"jsonrpc":"2.0","method":5}"#)
+        #expect(response.code == -32600)
+        #expect(response.id is NSNull)
+    }
+    
+    @Test func testInitializedWithIDReturnsMethodNotFound() async {
+        let response = await errorResponse(makeServer(), #"{"jsonrpc":"2.0","id":4,"method":"notifications/initialized"}"#)
+        #expect(response.code == -32601)
+        #expect(response.id as? Int == 4)
+    }
+    
     private func makeServer(encoder: JSONEncoder = JSONEncoder()) -> MCPServer {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))

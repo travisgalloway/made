@@ -52,8 +52,36 @@ import ImageIO
         #expect(responses[6] != nil)
     }
 
+    @Test(.enabled(if: binary != nil, "MadeApp executable not built"),
+          .enabled(if: canLaunchApp, "MadeApp cannot launch on GitHub-hosted runners"),
+          .timeLimit(.minutes(1)))
+    func testNotificationProducesNoOutputOverStdio() async throws {
+        let lines = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            #"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        ]
+        let output = try await Self.runLines(try #require(Self.binary), input: lines)
+        #expect(output.count == 2)
+        let ids = output.compactMap {
+            (try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])?["id"] as? Int
+        }
+        #expect(ids == [1, 2])
+    }
+
     /// Writes `input` as newline-delimited JSON, closes stdin, and returns the responses keyed by request ID.
     private static func run(_ binary: URL, input: [String]) async throws -> [Int: [String: Any]] {
+        var responses: [Int: [String: Any]] = [:]
+        for line in try await runLines(binary, input: input) {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  let id = object["id"] as? Int else { continue }
+            responses[id] = object
+        }
+        return responses
+    }
+
+    /// Writes `input` as newline-delimited JSON, closes stdin, and returns the non-empty stdout lines.
+    private static func runLines(_ binary: URL, input: [String]) async throws -> [Substring] {
         let process = Process()
         process.executableURL = binary
         process.arguments = ["--mcp-stdio"]
@@ -81,13 +109,7 @@ import ImageIO
         try stdin.fileHandleForWriting.close()
         let data = await output.value
 
-        var responses: [Int: [String: Any]] = [:]
-        for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  let id = object["id"] as? Int else { continue }
-            responses[id] = object
-        }
-        return responses
+        return String(decoding: data, as: UTF8.self).split(separator: "\n")
     }
 }
 

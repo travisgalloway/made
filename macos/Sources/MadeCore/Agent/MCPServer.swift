@@ -97,6 +97,7 @@ public final class MCPServer: @unchecked Sendable {
     }
     
     /// Processes a single raw JSON-RPC 2.0 string and returns the response JSON string.
+    /// Returns nil for a notification (an object with a string `method` and no `id` member).
     public func processMessage(_ jsonString: String) async -> String? {
         guard let data = jsonString.data(using: .utf8) else {
             return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
@@ -106,8 +107,12 @@ public final class MCPServer: @unchecked Sendable {
         guard let value = try? decoder.decode(AnyCodableValue.self, from: data) else {
             return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
         }
-        guard case .dictionary = value else {
+        guard case .dictionary(let members) = value else {
             return encodeResponse(JSONRPCResponse(id: nil, error: .invalidRequest))
+        }
+        // A JSON-RPC notification has no id member, and the server must never reply to one.
+        if members["id"] == nil, members["method"]?.stringValue != nil {
+            return nil
         }
         guard let probe = try? decoder.decode(IDProbe.self, from: data) else {
             return encodeResponse(JSONRPCResponse(id: nil, error: .invalidRequest))
@@ -161,10 +166,6 @@ public final class MCPServer: @unchecked Sendable {
                 return JSONRPCResponse(id: request.id, result: resultJSON)
             }
             return JSONRPCResponse(id: request.id, error: .internalError)
-            
-        case "notifications/initialized":
-            // Notification: no response required
-            return JSONRPCResponse(id: request.id, result: .null)
             
         default:
             return JSONRPCResponse(id: request.id, error: .methodNotFound)

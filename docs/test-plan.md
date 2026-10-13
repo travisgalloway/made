@@ -6,7 +6,7 @@ Audit run: 20261011-195134
 
 The plan covers 152 capabilities. The MadeCoreTests target holds 30 Swift Testing files and one shared support file, with 247 tests. Every file except `LayeringTests.swift`, which reads source files only, imports MadeCore. The audit did not run `swift test`, so pass and fail status is unobserved.
 
-Of the 152 capabilities, 99 have at least one unit or integration reference, and the 6 Deprecated rows are among them. Another 41 Shipped or In progress capabilities have no reference of any kind. The remaining 12 are claimed-only capabilities, which need no test until built.
+Of the 152 capabilities, 100 have at least one unit or integration reference, and the 6 Deprecated rows are among them. Another 40 Shipped or In progress capabilities have no reference of any kind. The remaining 12 are claimed-only capabilities, which need no test until built.
 
 The audit found `KernelClientTests.testRapidRequestsConflateToLatestValue` flaky and a race in `KernelClient.executePending` (DSN-efe60d18). #90 fixed both. The test now enqueues requests in a fixed order, and `testStaleDebounceDoesNotStrandNewerRequest` covers the race.
 
@@ -161,7 +161,7 @@ Table 2. Per-capability test coverage, macos/ scope, 2026-10-11. Source: closure
 | AGENT-19 | MCPServerTests.swift: testInitializeReturnsServerCapabilities | in-process | none (no UI test target) | server name and protocolVersion key present | Version value 2024-11-05 and the tools capability are not asserted. |
 | AGENT-20 | MCPServerTests.swift: testToolsListReturnsAllCADTools | in-process | none (no UI test target) | 5 of 8 names asserted | cad_set_transform, cad_remove_solid, cad_boolean_operation and the schemas are not asserted; the count of 8 is not asserted. |
 | AGENT-21 | MCPServerTests.swift: testToolsCallExecutesTool | in-process (mutates DocumentModel) | none (no UI test target) | successful call mutates document | Missing name (-32602) and unknown tool (isError) are untested. |
-| AGENT-22 | none | none | none (no UI test target) | none | No test references this capability. |
+| AGENT-22 | `MCPServerTests.swift`: `testInitializedNotificationReturnsNoResponse`, `testNotificationWithParamsReturnsNoResponse`, `testUnknownNotificationReturnsNoResponse`, `testNotificationWithNonObjectParamsReturnsNoResponse`, `testNotificationBetweenRequestsReturnsNoResponse`, `testMissingMethodWithoutIDReturnsInvalidRequest`, `testWrongTypeMethodWithoutIDReturnsInvalidRequest`, `testInitializedWithIDReturnsMethodNotFound` | `StdioProcessTests.swift`: `testNotificationProducesNoOutputOverStdio` (local only, skipped on GitHub runners) | none (no UI test target) | `testNullIDRequestEchoesNullID` (explicit null id), params, unknown method, between requests, missing method without id | The TCP transport is exercised only through the shared `processMessage`. |
 | AGENT-23 | MCPServerTests.swift: testUnknownMethodReturnsError | in-process | none (no UI test target) | -32601 | None. |
 | AGENT-24 | MCPServerTests.swift: testStartAndStopTCPServer (start and stop only) | none | StdioProcessTests.swift: testCaptureSnapshotOverStdio (newline-delimited requests over stdio) | a response larger than 64 KB (the snapshot) | No test connects to the TCP listener. A request split across 64 KB chunks is untested. |
 | AGENT-25 | none | none | none (no UI test target) | none | No test references this capability. |
