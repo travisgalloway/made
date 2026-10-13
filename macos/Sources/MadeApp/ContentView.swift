@@ -24,7 +24,8 @@ struct ContentView: View {
                         .frame(minHeight: 80, idealHeight: 160)
                 }
             }
-            .frame(minWidth: 400)
+            // A .frame(minWidth:) here loops AppKit's constraint pass beside the inspector and crashes windows under 1300 pt (#457).
+            .navigationSplitViewColumnWidth(min: 400, ideal: 800)
             .toolbar { workspaceToolbar }
         }
         .inspector(isPresented: $workspace.isInspectorPresented) {
