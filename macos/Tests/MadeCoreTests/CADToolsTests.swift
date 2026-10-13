@@ -515,7 +515,131 @@ import Foundation
         // remove_solid also disposes the kernel mesh, so the kernel may fail first; either message leaves the document unchanged.
         let text = result.content.first?.text ?? ""
         #expect(text.contains("removed") || text.contains("failed"))
-        #expect(!doc.objects.contains(where: { if case .imported = $0.def { return true } else { return false } }))
+        #expect(!doc.objects.contains(where: { if case .boolean = $0.def { return true } else { return false } }))
+    }
+    
+    // MARK: - cad_boolean_operation result ID (#100)
+    
+    /// Runs a boolean and returns the ID parsed from "Output registered as '…'", or nil on failure.
+    private func runBoolean(_ registry: CADToolRegistry, _ a: String = "box-1", _ b: String = "cylinder-1", op: String = "subtract") async -> ObjectId? {
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: booleanArgs(a, b, op))
+        guard result.isError == false, let text = result.content.first?.text,
+              let range = text.range(of: "Output registered as '") else {
+            Issue.record("Expected a successful boolean, got \(result.content.first?.text ?? "nothing")")
+            return nil
+        }
+        return ObjectId(String(text[range.upperBound...].dropLast()))
+    }
+    
+    private func isBoolean(_ object: SceneObject) -> Bool {
+        if case .boolean = object.def { return true } else { return false }
+    }
+    
+    @Test func testBooleanResultIdChainsIntoMeasureTransformAndRemove() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+        guard let id = await runBoolean(registry) else { return }
+        #expect(id == doc.objects.last?.id)
+        #expect(id.rawValue.hasPrefix("boolean-"))
+        #expect(doc.paramsFor(id: id) == .boolean(op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId))
+        
+        let measure = await registry.callTool(name: "cad_measure", arguments: ["id": .string(id.rawValue)])
+        #expect(measure.isError == false)
+        let measured = measure.content.first?.text ?? ""
+        #expect(measured.contains("boolean") && measured.contains("box-1") && measured.contains("cylinder-1"))
+        
+        let move = await registry.callTool(name: "cad_set_transform", arguments: ["id": .string(id.rawValue), "posX": .double(12)])
+        #expect(move.isError == false)
+        #expect(doc.objects.first(where: { $0.id == id })?.transform.position.x == 12)
+        
+        let remove = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(id.rawValue)])
+        #expect(remove.isError == false)
+        #expect(!doc.objects.contains(where: { $0.id == id }))
+    }
+    
+    @Test func testBooleanResultRemovalReleasesKernelCache() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+        guard let id = await runBoolean(registry) else { return }
+        let before = await kernel.request(.booleanOperation(jobId: JobId("probe-1"), solidId: SolidId("probe"), op: .union, solidA: id, solidB: cylinderSolidId))
+        #expect(before.isSuccess)
+        
+        _ = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(id.rawValue)])
+        let after = await kernel.request(.booleanOperation(jobId: JobId("probe-2"), solidId: SolidId("probe"), op: .union, solidA: id, solidB: cylinderSolidId))
+        #expect(after.error?.code == .unknownSolid)
+    }
+    
+    @Test func testTwoBooleanOperationsProduceDistinctIds() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+        guard let first = await runBoolean(registry), let second = await runBoolean(registry, op: "union") else { return }
+        #expect(first != second)
+        for id in [first, second] {
+            #expect(await registry.callTool(name: "cad_measure", arguments: ["id": .string(id.rawValue)]).isError == false)
+        }
+    }
+    
+    @Test func testRemovedBooleanIdIsNotReused() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+        guard let removed = await runBoolean(registry) else { return }
+        _ = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(removed.rawValue)])
+        let measure = await registry.callTool(name: "cad_measure", arguments: ["id": .string(removed.rawValue)])
+        #expect(measure.isError == true)
+        #expect(measure.content.first?.text?.contains("not found") == true)
+        guard let next = await runBoolean(registry) else { return }
+        #expect(next != removed)
+    }
+    
+    @Test func testBooleanKernelFailureReportsNoId() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        await seedKernel(kernel)
+        let faulty = FaultInjectingKernelClient(wrapping: kernel)
+        let registry = CADToolRegistry(document: doc, kernelClient: faulty)
+        await faulty.failNextRequest(with: .geometryFailed)
+        let count = doc.objects.count
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: booleanArgs("box-1", "cylinder-1"))
+        #expect(result.isError == true)
+        #expect(doc.objects.count == count)
+        #expect(!doc.objects.contains(where: isBoolean))
+        #expect(result.content.first?.text?.contains("boolean-") == false)
+    }
+    
+    @Test func testGetSceneReportsBooleanOperationAndOperands() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+        guard let id = await runBoolean(registry, op: "intersect") else { return }
+        let scene = await registry.callTool(name: "cad_get_scene", arguments: [:])
+        guard let data = scene.content.first?.text?.data(using: .utf8),
+              let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let item = items.first(where: { $0["id"] as? String == id.rawValue }) else {
+            Issue.record("Expected the boolean result in cad_get_scene")
+            return
+        }
+        #expect(item["kind"] as? String == "boolean")
+        #expect(item["operation"] as? String == "intersect")
+        #expect(item["operands"] as? [String] == ["box-1", "cylinder-1"])
+    }
+    
+    @Test func testSetParamRejectsBooleanSolid() async {
+        let doc = DocumentModel()
+        let def = ObjectDef.boolean(op: .union, solidA: boxSolidId, solidB: cylinderSolidId)
+        let id = doc.addObject(def: def)
+        let result = await setParam(doc, ["id": .string(id.rawValue), "param": .string("height"), "value": .double(10)])
+        #expect(result.isError == true)
+        #expect(result.content.first?.text?.contains("is a boolean solid and has no editable parameters") == true)
+        #expect(doc.paramsFor(id: id) == def)
     }
     
     @Test func testSetTransformSchemaOmitsScale() {

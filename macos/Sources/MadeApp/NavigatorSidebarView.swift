@@ -116,6 +116,7 @@ private struct NavigatorRow: View {
         case .box: return "shippingbox.fill"
         case .cylinder: return "cylinder.fill"
         case .imported: return "cube.transparent"
+        case .boolean: return "square.on.circle"
         }
     }
 
@@ -124,6 +125,7 @@ private struct NavigatorRow: View {
         case .box: return .blue
         case .cylinder: return .orange
         case .imported: return .purple
+        case .boolean: return .green
         }
     }
 }

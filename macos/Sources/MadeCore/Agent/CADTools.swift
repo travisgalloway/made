@@ -96,7 +96,7 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_boolean_operation",
-                description: "Performs a Constructive Solid Geometry (CSG) boolean operation (subtract, union, or intersect) between two solids in the scene.",
+                description: "Performs a Constructive Solid Geometry (CSG) boolean operation (subtract, union, or intersect) between two solids in the scene. Returns the new solid's ID, usable with the other tools.",
                 inputSchema: MCPInputSchema(
                     properties: [
                         "solidA": MCPProperty(type: "string", description: "Target solid ID (e.g. 'box-1')"),
@@ -162,6 +162,9 @@ public final class CADToolRegistry {
                 item["params"] = ["radius": p.radius, "height": p.height]
             case .imported(let name):
                 item["importedName"] = name
+            case .boolean(let op, let solidA, let solidB):
+                item["operation"] = op.rawValue
+                item["operands"] = [solidA.rawValue, solidB.rawValue]
             }
             summary.append(item)
         }
@@ -235,7 +238,8 @@ public final class CADToolRegistry {
             return .error("Solid '\(idStr)' not found in scene")
         }
         guard let editable = Self.editableParams(of: def) else {
-            return .error("Solid '\(idStr)' is an imported solid and has no editable parameters")
+            let article = def.kind.first.map { "aeiou".contains($0) } == true ? "an" : "a"
+            return .error("Solid '\(idStr)' is \(article) \(def.kind) solid and has no editable parameters")
         }
         guard editable.contains(where: { $0.name == param }) else {
             let names = editable.map { "'\($0.name)'" }.joined(separator: ", ")
@@ -277,7 +281,7 @@ public final class CADToolRegistry {
         switch def {
         case .box(let p): return [("width", p.width), ("depth", p.depth), ("height", p.height)]
         case .cylinder(let p): return [("radius", p.radius), ("height", p.height)]
-        case .imported: return nil
+        case .imported, .boolean: return nil
         }
     }
     
@@ -350,6 +354,11 @@ public final class CADToolRegistry {
         case .imported(let name):
             resultDict["type"] = "imported"
             resultDict["name"] = name
+            
+        case .boolean(let op, let solidA, let solidB):
+            resultDict["type"] = "boolean"
+            resultDict["operation"] = op.rawValue
+            resultDict["operands"] = [solidA.rawValue, solidB.rawValue]
         }
         
         if let data = try? JSONSerialization.data(withJSONObject: resultDict, options: .prettyPrinted),
@@ -390,7 +399,8 @@ public final class CADToolRegistry {
         guard solidA != solidB else {
             return .error("Operands 'solidA' and 'solidB' must be different solids, but both are '\(solidAStr)'")
         }
-        let outputId = SolidId("csg-\(UUID().uuidString.prefix(6))")
+        let def = ObjectDef.boolean(op: op, solidA: solidA, solidB: solidB)
+        let outputId = document.reserveId(for: def)
         
         let req = KernelRequest.booleanOperation(
             jobId: JobId("job-\(UUID().uuidString)"),
@@ -406,7 +416,7 @@ public final class CADToolRegistry {
                 await kernelClient.dispose(solidId: outputId)
                 return .error("Solid '\(missing)' was removed while the boolean \(opStr) was running")
             }
-            document.addObject(def: .imported(name: "\(opStr)(\(solidAStr), \(solidBStr))"))
+            document.addObject(outputId, def: def)
             return .text("Successfully executed \(opStr) between '\(solidAStr)' and '\(solidBStr)'. Output registered as '\(outputId.rawValue)'")
         } else {
             return .error("Boolean \(opStr) failed: \(result.error?.message ?? "unknown error")")

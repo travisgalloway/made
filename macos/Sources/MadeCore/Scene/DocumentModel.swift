@@ -8,12 +8,15 @@ public enum ObjectDef: Sendable, Equatable {
     case box(BoxParams)
     case cylinder(CylinderParams)
     case imported(name: String)
+    /// A boolean result: the operation and its operand IDs, with no replay (#35) and no drawing (#132).
+    case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
     
     public var kind: String {
         switch self {
         case .box: return "box"
         case .cylinder: return "cylinder"
         case .imported: return "imported"
+        case .boolean: return "boolean"
         }
     }
 }
@@ -98,7 +101,7 @@ public enum DocumentLimits {
             return .box(BoxParams(width: boxWidth.clamp(p.width), depth: boxDepth.clamp(p.depth), height: boxHeight.clamp(p.height)))
         case .cylinder(let p):
             return .cylinder(CylinderParams(radius: cylinderRadius.clamp(p.radius), height: cylinderHeight.clamp(p.height)))
-        case .imported:
+        case .imported, .boolean:
             return def
         }
     }
@@ -135,8 +138,18 @@ public final class DocumentModel {
     
     @discardableResult
     public func addObject(def: ObjectDef, transform: Transform = .identity) -> ObjectId {
+        addObject(reserveId(for: def), def: def, transform: transform)
+    }
+    
+    /// Advances the sequence and returns an ID no object has used; the caller may never add it.
+    public func reserveId(for def: ObjectDef) -> ObjectId {
         seq += 1
-        let id = ObjectId("\(def.kind)-\(seq)")
+        return ObjectId("\(def.kind)-\(seq)")
+    }
+    
+    /// Adds an object under an ID from `reserveId(for:)`, so a kernel call can use the ID before the object exists.
+    @discardableResult
+    public func addObject(_ id: ObjectId, def: ObjectDef, transform: Transform = .identity) -> ObjectId {
         let obj = SceneObject(id: id, def: DocumentLimits.clamp(def), transform: transform)
         objects.append(obj)
         return id
@@ -166,7 +179,7 @@ public final class DocumentModel {
             }
             objects[index].def = .cylinder(params)
             
-        case .imported:
+        case .imported, .boolean:
             break
         }
     }

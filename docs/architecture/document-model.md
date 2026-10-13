@@ -38,7 +38,7 @@ Every entity in the scene graph is represented by a `SceneObject`:
 public struct SceneObject: Identifiable, Sendable, Equatable {
     public let id: ObjectId              // typealias for SolidId
     public var name: String
-    public var def: ObjectDef            // .box, .cylinder, .imported(name:)
+    public var def: ObjectDef            // .box, .cylinder, .imported(name:), .boolean(op:solidA:solidB:)
     public var transform: Transform      // position, rotation, scale
     public var isVisible: Bool
     public var isLocked: Bool
@@ -49,15 +49,17 @@ public enum ObjectDef: Sendable, Equatable {
     case box(BoxParams)                  // width, depth, height
     case cylinder(CylinderParams)        // radius, height
     case imported(name: String)
+    case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
 }
 ```
 
-Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model stores an object name, a visibility flag, a lock flag, and material attributes, but it has no boolean-result type. Selection is `WorkspaceModel.selectedId` in `MadeApp`, not part of the model (#69).
+Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model stores an object name, a visibility flag, a lock flag, and material attributes. Selection is `WorkspaceModel.selectedId` in `MadeApp`, not part of the model (#69).
 
 ### Supported Object Types
 1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).
-2. **Imported Placeholder**: `.imported(name:)` carries a name only. The `cad_boolean_operation` tool records its result as an `.imported` object under a different ID than the kernel result (#99, #100).
-3. **Planned**: CSG composites that reference parent operations (#35), and B-Rep solids loaded from STEP or IGES files (#38, #82).
+2. **Imported Placeholder**: `.imported(name:)` carries a name only.
+3. **Boolean Result**: `.boolean(op:solidA:solidB:)` records the operation and both operand IDs of a `cad_boolean_operation` result. `DocumentModel.reserveId(for:)` mints its `boolean-<seq>` ID before the kernel call, so the document and the kernel cache share it, and `addObject(_:def:)` adds it on success. The entry is not replayed (#35) and not drawn (#132).
+4. **Planned**: CSG composites that reference parent operations (#35), and B-Rep solids loaded from STEP or IGES files (#38, #82).
 
 ---
 
