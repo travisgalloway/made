@@ -6,6 +6,21 @@ struct InspectorPanelView: View {
     @Environment(WorkspaceModel.self) private var workspace
 
     var body: some View {
+        @Bindable var workspace = workspace
+
+        VStack(spacing: 0) {
+            PaneTabBar(label: "Inspector", selection: $workspace.inspectorTab, fillsWidth: true)
+            Divider()
+            switch workspace.inspectorTab {
+            case .properties:
+                properties
+                    .frame(maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var properties: some View {
         if let selected = workspace.selectedObject {
             ScrollView {
                 Form {

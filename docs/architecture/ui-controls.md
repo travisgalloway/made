@@ -32,6 +32,7 @@ The window uses system primitives for its chrome, and one button style per conte
 - **Toolbar.** `.navigationTitle` draws the title. The system sidebar toggle sits beside the window controls. Related buttons form one `ToolbarItemGroup`, which the system draws as one glass capsule, and `ToolbarSpacer(.fixed)` separates the groups. The toolbar is declared on the detail column, because spacers declared on the split view itself are ignored. The viewport tool picker is the only segmented control.
 - **Bars inside content.** The viewport header, status bar, console footer, and Navigator footer use `barControl()` from [`BarControls.swift`](../../macos/Sources/MadeApp/BarControls.swift). It applies small, borderless, icon-only buttons. `BarFilterField` is the shared filter field.
 - **Forms.** The Inspector uses `.formStyle(.columns)` with small controls. The MCP popover uses `.formStyle(.grouped)`. Neither uses glass button styles.
+- **Pane tabs.** Each side pane opens with an icon tab bar from [`PaneTabs.swift`](../../macos/Sources/MadeApp/PaneTabs.swift). It wraps `NSSegmentedControl`, because SwiftUI's segmented `Picker` cannot stretch its segments. Navigator tabs are left-aligned, and Inspector tabs fill the pane width, as in Xcode. `NavigatorTab` and `InspectorTab` each have one case today (Scene and Properties). A new pane view is a new case.
 - Every icon-only button keeps a text title and a `.help` string, for VoiceOver and tooltips.
 
 ---
@@ -44,12 +45,12 @@ The window uses system primitives for its chrome, and one button style per conte
 - **Status bar**: [`ViewportStatusBar`](../../macos/Sources/MadeApp/ViewportStatusBar.swift) sits under the viewport. It shows Metal 4 status, render count, draw calls, the last invalidation cause, the active tool, and the snap kind. Its trailing button shows or hides the console.
 
 ### 2. Navigator
-- [`NavigatorSidebarView`](../../macos/Sources/MadeApp/NavigatorSidebarView.swift) lists the scene objects, one line per row. The list selection is `WorkspaceModel.selectedId`.
+- [`NavigatorSidebarView`](../../macos/Sources/MadeApp/NavigatorSidebarView.swift) opens with its tab bar (Scene only). The Scene tab lists the scene objects, one line per row. The list selection is `WorkspaceModel.selectedId`.
 - Visibility and lock buttons appear on hover. They stay visible while an object is hidden or locked.
 - The footer holds the Add menu (box or cylinder) and the filter field. A context-menu Delete removes the selected object.
 
 ### 3. Parametric Inspector
-- [`InspectorPanelView`](../../macos/Sources/MadeApp/InspectorPanelView.swift) is a single columns-style form with Identity, Transform, and Dimensions sections.
+- [`InspectorPanelView`](../../macos/Sources/MadeApp/InspectorPanelView.swift) opens with its tab bar (Properties only). The Properties tab is a columns-style form with Identity, Transform, and Dimensions sections.
 - Position and scale have three numeric fields each, with X, Y, and Z captions.
 - Each dimension has a numeric millimeter field and a 1-mm stepper, with accessibility names and values in millimeters. Both call `DocumentModel.setParam(id:key:value:)`, which clamps to the `DocumentLimits` ranges, then requests tessellation from `KernelClient`, which debounces it.
 

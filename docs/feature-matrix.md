@@ -19,7 +19,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
-- WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. The Inspector is one form without tabs, and the viewport header breadcrumb is a static label.
+- WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. Each side pane has a tab bar with one tab, and the Inspector's Properties tab is one form, and the viewport header breadcrumb is a static label.
 - UI-1, UI-11, UI-12, UI-13, UI-15, and UI-18 are Deprecated. The Copilot tab and the File and Geometry menu items were removed in #124.
 - AGENT-10, AGENT-11, AGENT-14, AGENT-15, and AGENT-16 are In progress with UI none. `InAppAgentController` has no host view since #124 (decision AGENT-10).
 
@@ -180,6 +180,6 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DSL-10 | A developer can compose shapes with the operators `-`, `+` and `&` | n/a | done | n/a | Shipped |  | n/a |
 | DSL-11 | A developer can use `@CADShapeBuilder` to group shapes; only a single-shape `buildBlock` exists, so multi-statement hierarchies do not compile | n/a | done | n/a | In progress |  | n/a |
 | DSL-12 | An agent can author a DSL model and see it in the viewport or the document | n/a | none | n/a | Planned | #85 | n/a |
-| WORKSPACE-1 | A user can work in one unified multi-pane window: a `NavigationSplitView` with Navigator sidebar, viewport detail with a header bar and status bar, trailing Inspector, and a resizable bottom console. The matrix prose also names a "multi-tab inspector" and a "3D viewport jump bar"; the Inspector is one Form with three sections (no tabs) and the header breadcrumb "Scene > name" is a static label | done | n/a | n/a | In progress | #118 | n/a |
+| WORKSPACE-1 | A user can work in one unified multi-pane window: a `NavigationSplitView` with Navigator sidebar, viewport detail with a header bar and status bar, trailing Inspector, and a resizable bottom console. The matrix prose also names a "multi-tab inspector" and a "3D viewport jump bar"; the Navigator and Inspector each have a tab bar with one tab (Scene, Properties), and the Properties tab is one Form with three sections and the header breadcrumb "Scene > name" is a static label | done | n/a | n/a | In progress | #118 | n/a |
 
 Findings that map to no capability row: None.

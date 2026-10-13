@@ -29,6 +29,9 @@ struct NavigatorSidebarView: View {
                 Button("Delete", role: .destructive) { workspace.removeObject(id) }
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            PaneTabBar(label: "Navigator", selection: $workspace.navigatorTab)
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             footer
         }

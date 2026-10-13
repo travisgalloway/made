@@ -26,6 +26,8 @@ final class WorkspaceModel {
     var columnVisibility: NavigationSplitViewVisibility = .all
     var isInspectorPresented = true
     var isConsoleVisible = false
+    var navigatorTab: NavigatorTab = .scene
+    var inspectorTab: InspectorTab = .properties
 
     // Viewport
     private(set) var perspective: ViewportPerspective = .perspective
