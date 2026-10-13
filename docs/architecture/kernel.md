@@ -136,7 +136,7 @@ A request that arrives while an earlier request for the same solid is still wait
 
 XPC can relaunch an idle service behind a live session without reporting it. A reply from a new engine instance ID also emits `.crashed`.
 
-**Regeneration.** A restart empties the service cache. `WorkspaceModel` and the `--mcp-stdio` server consume `restarts()` and resubmit every box and cylinder in their document through `KernelRegeneration`, except the excluded solid. The excluded solid keeps its previous mesh and shows its `worker-crashed` message in the Inspector; editing it retries. Boolean (`csg-`) cache entries are not in the document, so a restart loses them, and a later boolean that names one returns `unknown-solid`.
+**Regeneration.** A restart empties the service cache. `WorkspaceModel` and the `--mcp-stdio` server consume `restarts()` and resubmit every box and cylinder in their document through `KernelRegeneration`, except the excluded solid. The excluded solid keeps its previous mesh and shows its `worker-crashed` message in the Inspector; editing it retries. Boolean results are document objects under their kernel ID, but `KernelRegeneration` does not resubmit them, so a restart loses their cache entry, and a later boolean that names one returns `unknown-solid`.
 
 **Breaker.** Three restarts inside 30 s open a breaker. While it is open, `execute` returns `kernel-init-failed` without contacting the service and emits no restart events. It closes 30 s after the last restart. Terminations do not count. A session that cannot be created also returns `kernel-init-failed`.
 

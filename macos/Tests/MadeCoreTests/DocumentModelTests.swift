@@ -79,6 +79,28 @@ import os
         }
     }
 
+    @Test func testReserveIdIsNeverReused() {
+        let doc = DocumentModel()
+        let def = ObjectDef.boolean(op: .union, solidA: boxSolidId, solidB: cylinderSolidId)
+        let first = doc.addObject(doc.reserveId(for: def), def: def)
+        doc.removeObject(id: first)
+        let second = doc.reserveId(for: def)
+        #expect(first != second)
+        #expect(second.rawValue.hasPrefix("boolean-"))
+        #expect(Int(second.rawValue.dropFirst("boolean-".count))! > Int(first.rawValue.dropFirst("boolean-".count))!)
+    }
+
+    @Test func testAddObjectWithReservedIdKeepsId() {
+        let doc = DocumentModel()
+        let def = ObjectDef.boolean(op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId)
+        let reserved = doc.reserveId(for: def)
+        #expect(doc.paramsFor(id: reserved) == nil)
+        let added = doc.addObject(reserved, def: def)
+        #expect(added == reserved)
+        #expect(doc.objects.last?.id == reserved)
+        #expect(doc.paramsFor(id: reserved) == def)
+    }
+
     @Test func testSetParamClampsCylinderAndNaN() {
         let doc = DocumentModel()
         doc.setParam(id: ObjectId(cylinderSolidId.rawValue), key: "radius", value: 0)

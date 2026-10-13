@@ -8,7 +8,7 @@ public enum KernelRegeneration {
         switch object.def {
         case .box(let params): return .makeBox(jobId: jobId, solidId: object.id, params: params)
         case .cylinder(let params): return .makeCylinder(jobId: jobId, solidId: object.id, params: params)
-        case .imported: return nil
+        case .imported, .boolean: return nil
         }
     }
     

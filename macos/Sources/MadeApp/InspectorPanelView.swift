@@ -92,6 +92,8 @@ struct InspectorPanelView: View {
                 paramField("Height (Z)", params.height, DocumentLimits.cylinderHeight) { workspace.setParam(obj.id, "height", $0) }
             case .imported(let name):
                 LabeledContent("Imported Mesh", value: name)
+            case .boolean(let op, let solidA, let solidB):
+                LabeledContent("Boolean", value: "\(op.rawValue)(\(solidA.rawValue), \(solidB.rawValue))")
             }
             if let message = workspace.recomputeFailures.message(for: obj.id) {
                 Label(message, systemImage: "exclamationmark.triangle.fill")

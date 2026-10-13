@@ -18,6 +18,11 @@ import Foundation
         #expect(KernelRegeneration.request(for: object(SolidId("i"), .imported(name: "part.step")), jobId: JobId("j")) == nil)
     }
     
+    @Test func testBooleanObjectsAreSkipped() {
+        let def = ObjectDef.boolean(op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId)
+        #expect(KernelRegeneration.request(for: object(SolidId("boolean-3"), def), jobId: JobId("j")) == nil)
+    }
+    
     @Test func testRegenerateExcludesSolidAndRepopulatesCache() async {
         let document = DocumentModel()
         let kept = document.addObject(def: .cylinder(CylinderParams(radius: 3, height: 4)))
