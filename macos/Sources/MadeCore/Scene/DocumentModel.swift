@@ -72,6 +72,9 @@ public enum DocumentLimits {
     public static let cylinderRadius = ParamRange(min: 5, max: 50)
     public static let cylinderHeight = ParamRange(min: 5, max: 90)
     
+    /// World position bound per axis in mm, enforced on agent tool arguments.
+    public static let position = ParamRange(min: -10_000, max: 10_000)
+    
     public static func clampBox(key: String, value: Float) -> Float {
         switch key {
         case "width": return boxWidth.clamp(value)
