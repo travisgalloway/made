@@ -1,0 +1,62 @@
+2026-10-13 04:55:03.479 I  MadeApp[76345:1b2e5ff] [com.made.app:MCP] Started MCP server on port 9820
+2026-10-13 04:56:50.377 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-2
+2026-10-13 04:57:33.127 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-2
+2026-10-13 04:57:42.935 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-3
+2026-10-13 04:57:44.635 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-3
+2026-10-13 04:57:46.228 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-4
+2026-10-13 04:57:48.005 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-4
+2026-10-13 04:57:49.701 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-5
+2026-10-13 04:57:51.497 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-5
+2026-10-13 04:57:53.211 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-6
+2026-10-13 04:57:54.944 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-6
+2026-10-13 04:57:56.486 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-7
+2026-10-13 04:57:58.161 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-7
+2026-10-13 04:57:59.697 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-8
+2026-10-13 04:58:01.411 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-8
+2026-10-13 04:58:02.977 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-9
+2026-10-13 04:58:04.748 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-9
+2026-10-13 04:58:06.392 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-10
+2026-10-13 04:58:08.198 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-10
+2026-10-13 04:58:09.801 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-11
+2026-10-13 04:58:11.586 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-11
+2026-10-13 04:58:13.222 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-12
+2026-10-13 04:58:15.035 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-12
+2026-10-13 04:58:16.643 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-13
+2026-10-13 04:58:18.562 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-13
+2026-10-13 04:58:20.218 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-14
+2026-10-13 04:58:22.055 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-14
+2026-10-13 04:58:23.768 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-15
+2026-10-13 04:58:25.624 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-15
+2026-10-13 04:58:27.201 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-16
+2026-10-13 04:58:29.000 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-16
+2026-10-13 04:58:30.656 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-17
+2026-10-13 04:58:32.483 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-17
+2026-10-13 04:58:34.133 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-18
+2026-10-13 04:58:35.865 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-18
+2026-10-13 04:58:37.407 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-19
+2026-10-13 04:58:39.120 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-19
+2026-10-13 04:58:40.636 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-20
+2026-10-13 04:58:42.346 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-20
+2026-10-13 04:58:43.937 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-21
+2026-10-13 04:58:45.661 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-21
+2026-10-13 04:58:47.189 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-22
+2026-10-13 04:58:48.852 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-22
+2026-10-13 04:58:56.092 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Added object box-23
+2026-10-13 04:59:11.518 I  MadeApp[76345:1b2e5ff] [com.made.app:Scene] Removed object box-23
+2026-10-13 05:00:26.571 I  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Next recompute will fail with invalid-params
+2026-10-13 05:00:27.826 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] box-1 failed to recompute (invalid-params): Forced failure
+2026-10-13 05:00:45.073 Df MadeApp[76345:1b31d02] [com.made.app:Kernel] Kernel service session ended: Underlying connection interrupted
+2026-10-13 05:00:45.073 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Kernel service restarted (crashed); regenerating solids
+2026-10-13 05:01:37.959 Df MadeApp[76345:1b32ad2] [com.made.app:Kernel] Kernel service session ended: Underlying connection interrupted
+2026-10-13 05:01:37.959 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Kernel service restarted (crashed); regenerating solids
+2026-10-13 05:02:21.461 Df MadeApp[76345:1b32ad6] [com.made.app:Kernel] Kernel service session ended: Underlying connection interrupted
+2026-10-13 05:02:21.461 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Kernel service restarted (crashed); regenerating solids
+2026-10-13 05:02:22.553 Df MadeApp[76345:1b32ad2] [com.made.app:Kernel] Kernel service session ended: Underlying connection interrupted
+2026-10-13 05:02:22.553 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Kernel service restarted (crashed); regenerating solids
+2026-10-13 05:03:01.450 Df MadeApp[76345:1b32ad2] [com.made.app:Kernel] Kernel service session ended: Underlying connection interrupted
+2026-10-13 05:03:01.451 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Kernel service restarted (crashed); regenerating solids
+2026-10-13 05:03:02.574 Df MadeApp[76345:1b353eb] [com.made.app:Kernel] Kernel service session ended: Underlying connection interrupted
+2026-10-13 05:03:02.574 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Kernel service restarted (crashed); regenerating solids
+2026-10-13 05:03:12.611 Df MadeApp[76345:1b353ec] [com.made.app:Kernel] Kernel service session ended: Underlying connection interrupted
+2026-10-13 05:03:15.239 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] box-1 failed to recompute (kernel-init-failed): Kernel service restarted too often; retrying after 30 s
+2026-10-13 05:03:54.394 E  MadeApp[76345:1b2e5ff] [com.made.app:Kernel] Kernel service restarted (crashed); regenerating solids
