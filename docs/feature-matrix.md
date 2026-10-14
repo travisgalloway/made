@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 152 capabilities with their implementation status. The matrix shows 94 Shipped, 40 In progress, 12 Planned, and 6 Deprecated rows.
+Table 1 lists 153 capabilities with their implementation status. The matrix shows 95 Shipped, 40 In progress, 12 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -141,6 +141,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-35 | A user can start or stop the in-app MCP server from the MCP popover switch and read its address (127.0.0.1:9820) | done | n/a | n/a | Shipped |  | n/a |
 | UI-36 | A user can copy a Claude Desktop config snippet from the MCP popover; the snippet launches `swift run ... --mcp-stdio`, which drives a separate document, not the window's session, and uses the process working directory | done | n/a | n/a | In progress |  | n/a |
 | UI-37 | A user can read the registered CAD tool names and the TCP address in the MCP popover | done | n/a | n/a | Shipped |  | n/a |
+| UI-38 | A user can open an Open Source Licenses window from the app menu or the Help menu and read the `made` MPL-2.0 text, each bundled library or helper's name, version, copyright and exact license text from bundled resource files, and links to the source repository and build-from-source guide | done | done | done | Shipped | #425 | n/a |
 | AGENT-1 | An agent can start an MCP server on standard input and output with a fresh document and kernel and an offscreen snapshot renderer (none without a Metal 4 device); the SwiftUI window scene is still declared and `exit(0)` runs at end of input | none | done | n/a | In progress |  | n/a |
 | AGENT-2 | An agent can list every object with ID, kind, position and parameters | n/a | done | done | Shipped |  | n/a |
 | AGENT-3 | An agent can add a box or cylinder with dimensions (clamped) and position; a wrong-typed or non-finite argument or an out-of-bound position returns an error; the object is added to the document only, no mesh is created in stdio or GUI mode | n/a | done | done | Shipped | #132 | n/a |
