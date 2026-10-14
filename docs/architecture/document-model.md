@@ -6,11 +6,14 @@ The document model in `made` is the single source of truth for all 3D scene obje
 
 ## Scene Architecture
 
+Today, `DocumentModel` represents scenes through a flat array of `SceneObject` instances. Under ADR-D2 ([ADR-D2](./adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150), `made` transitions to a hybrid history-based modeling paradigm: an ordered linear feature list (`features: [Feature]`) serving as the single source of truth, recording direct manipulation edits as discrete features, with multi-body parts by default. During transition (#150), evaluated output bodies project stable `SolidId` identifiers into `SceneObject` representations so existing MCP tools and UI inspectors continue operating without disruption.
+
 ```
 ┌────────────────────────────────────────────────────────┐
 │              DocumentModel (@Observable)               │
-│   • objects: [SceneObject] (ordered array)             │
-│   (no selection set, no UndoManager yet)               │
+│   • Current: objects: [SceneObject] (ordered array)    │
+│   • Target (ADR-D2, #150): features: [Feature]         │
+│     (multi-body parts, rollback, undo/redo integration)│
 └──────────────────────────┬─────────────────────────────┘
                            │ Dispatches Command Mutations
 ┌──────────────────────────▼─────────────────────────────┐
@@ -20,11 +23,13 @@ The document model in `made` is the single source of truth for all 3D scene obje
 │   • setParam(id:key:value:)                            │
 │   • setTransform(id:transform:)                        │
 │   • setName / setVisibility / setLocked / setMaterial  │
+│   • Target: addFeature / editFeature / rollbackTo      │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Reactive Bindings        │ Async Invalidation
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
 │     SwiftUI Inspector      │ │      KernelClient       │
-│   (Dimensions, Transforms) │ │  (Tessellates Geometries│
+│   (Dimensions, Transforms, │ │  (Tessellates Geometries│
+│    Feature Tree #34)       │ │   and Features off-main)│
 └────────────────────────────┘ └─────────────────────────┘
 ```
 
@@ -117,20 +122,20 @@ Planned (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model integ
 
 ## Open Decisions
 
-These questions have no decision yet. Each links to an architecture decision record (ADR) by issue number.
-
-- #143: Feature list paradigm. Options include a parametric feature history, direct modeling, or a hybrid of both.
+None at this time.
 
 ---
 
 ## Decided
 
+- ADR-D2 (#143) is decided. A history-based feature list with direct edits recorded as features and multi-body parts by default replaces the flat object array (BL-FND-01 / #150). Features evaluate sequentially in `KernelClient` off the main thread (invariant 1), while `DocumentModel` remains on `@MainActor` (invariant 7) ([ADR-D2](./adr/ADR-D2-modeling-paradigm-and-document-model.md)).
 - ADR-D7 (#149) is decided. A `.made` document is a directory package (`com.made.cad.document`) containing canonical JSON (`manifest.json`, `document.json`), plain-text part sources (`parts/*.part.ts`), imported assets (`assets/`), and a regenerable, Git-ignored binary cache directory (`cache/`) ([ADR-D7](./adr/ADR-D7-made-encoding.md), #83, #427, #376).
 
 ---
 
 ## Related Documentation
 
+- [ADR-D2: Modeling Paradigm and Document Model](./adr/ADR-D2-modeling-paradigm-and-document-model.md)
 - [`invariants.md`](./invariants.md): Invariant 3 (imperative viewport state)
 - [`kernel.md`](./kernel.md): How document mutations dispatch kernel requests
 - [`ui-controls.md`](./ui-controls.md): SwiftUI inspector bindings

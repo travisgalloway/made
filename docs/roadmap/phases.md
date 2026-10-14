@@ -86,7 +86,7 @@ See [`phase-3-native-agent.md`](./phase-3-native-agent.md).
 ---
 
 ## Phase 4.0: Architecture Decisions (In progress)
-Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list the remaining open decisions under "Open decisions": topological naming (#144) and the fate of Euclid (#247). The canonical geometry kernel is decided as OpenCASCADE Technology (OCCT) via OCCTSwift, with a clean-room Swift B-rep fallback ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142). The scripting runtime is decided as TypeScript on JavaScriptCore ([ADR-D6](../architecture/adr/ADR-D6-scripting-runtime.md), #148), the `.made` encoding is decided as a directory package of JSON metadata, plain-text part sources, assets, and regenerable binary caches ([ADR-D7](../architecture/adr/ADR-D7-made-encoding.md), #149), and the project license is decided as `MPL-2.0` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
+Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list the remaining open decisions under "Open decisions": topological naming (#144) and the fate of Euclid (#247). The canonical geometry kernel is decided as OpenCASCADE Technology (OCCT) via OCCTSwift, with a clean-room Swift B-rep fallback ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142). The modeling paradigm and document model is decided as a hybrid history-based feature list recording direct edits as features with multi-body parts by default ([ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150). The scripting runtime is decided as TypeScript on JavaScriptCore ([ADR-D6](../architecture/adr/ADR-D6-scripting-runtime.md), #148), the `.made` encoding is decided as a directory package of JSON metadata, plain-text part sources, assets, and regenerable binary caches ([ADR-D7](../architecture/adr/ADR-D7-made-encoding.md), #149), and the project license is decided as `MPL-2.0` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
 
 ## Phase 4A: Native Scene & Interaction Foundation (In progress)
 Generalizes the scene and the interaction model so that selection, gizmos, and the inspector have a base. Scope covers the multi-object scene, selection, the inspector, gizmos, and add and remove objects.
@@ -123,13 +123,13 @@ The second major version targets the macOS 27 and iPadOS 27 frameworks (#430). I
 ## Existing Phase 4 Issues
 No Phase 4 issue is closed. Each item below cites its GitHub issue. GitHub issue titles use a different "Phase 4.N" numbering, so the issue number is the key. The milestones hold the authoritative issue lists. [`phase-4-cad-depth.md`](./phase-4-cad-depth.md) groups the same issues by theme.
 
-- Feature tree UI (#34).
-- Boolean operations and fillets through the kernel (#35).
+- Feature tree UI (#34, ADR-D2).
+- Boolean operations and fillets through the kernel (#35, ADR-D2).
 - 2D sketching layer (#36) and constraint solver (#37).
 - STEP import and export (#38), with the OCCTSwift B-Rep bridge (#82, ADR-D1).
-- Undo and redo on the document model (#39).
+- Undo and redo on the document model (#39, ADR-D2).
 - Selection outline (#40), predictive commands (#41), radial menu (#42), constrained transforms (#43), dimension by selection (#44), view snapping (#45).
 - Scene generalization and inspector (#66, #67, #69, #70), gizmos (#71, #72), add and remove objects (#73).
-- `.made` file format (#83), Apple Pencil channel (#84), Cadova scripting REPL (#85).
+- `.made` file format (#83, ADR-D2, ADR-D7), Apple Pencil channel (#84), Cadova scripting REPL (#85).
 
 See [`phase-4-cad-depth.md`](./phase-4-cad-depth.md).

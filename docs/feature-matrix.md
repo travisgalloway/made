@@ -89,7 +89,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-20 | A user keeps the window and document when the geometry kernel crashes; the kernel runs in an XPC service, meshes return as shared memory, and the app relaunches the service and regenerates every solid from the document | done | done | done | Shipped | #245 | n/a |
 | KERN-21 | A developer can evaluate a shape-description tree (box, cylinder, sphere, cone, extrude, revolve, translate, rotate, scale, boolean) in one kernel request, validated against depth, node, slice and profile limits, on the kernel actor | n/a | done | n/a | Shipped | #331, #435 | n/a |
 | KERN-19 | A user can export or import STEP and IGES files, and apply B-Rep fillets, chamfers and draft angles (OCCTSwift Tier 2, ADR-D1) | none | none | none | Planned | #82, #142 | n/a |
-| DOC-1 | A user can have scene objects of kind box, cylinder, imported (name only), boolean (operation and operand IDs), or part (`.part.ts` / `.part.js` file URL and last good `ShapeNode`) | done | done | done | Shipped | #427 | n/a |
+| DOC-1 | A user can have scene objects of kind box, cylinder, imported (name only), boolean (operation and operand IDs), or part (`.part.ts` / `.part.js` file URL and last good `ShapeNode`); target hybrid feature list and multi-body parts decided in ADR-D2 | done | done | done | Shipped | #427, #143, #150 | n/a |
 | DOC-2 | A user gets parameter values clamped to fixed ranges when an object is added and when a parameter is set (box 5 to 90 mm, cylinder radius 5 to 50 mm, cylinder height 5 to 90 mm; NaN becomes the minimum) | done | done | done | Shipped | #104 | n/a |
 | DOC-3 | A user sees UI panels update when the document changes (`@Observable` model) | done | n/a | done | Shipped |  | n/a |
 | DOC-4 | A user starts with a default scene of `box-1` (40x30x20 mm) and `cylinder-1` (radius 15, height 40 mm) | done | n/a | done | Shipped |  | n/a |
@@ -99,7 +99,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-8 | An agent can set an object's world position; the Inspector also writes scale; `rotation` has no writer and the renderer applies only translation | none | done | done | In progress | #71 | n/a |
 | DOC-9 | A user can give objects a name and a visibility flag | done | done | done | Shipped |  | n/a |
 | DOC-10 | A user can hold a multi-object selection in the document (`selection: Set<ObjectId>`) | none | none | none | Planned | #69 | n/a |
-| DOC-11 | An agent can create CSG composite objects that reference their parent operations | none | none | none | Planned | #35 | n/a |
+| DOC-11 | An agent can create CSG composite objects that reference their parent operations (multi-body boolean operations, ADR-D2) | none | none | none | Planned | #35, #143 | n/a |
 | DOC-12 | A user can load imported B-Rep solids from STEP or IGES into the scene | none | none | none | Planned | #38, #82 | n/a |
 | DOC-13 | A user can lock or unlock an object (`isLocked` flag); nothing reads the flag, so a locked object can still be edited, moved and removed | done | done | done | In progress | #127 | n/a |
 | DOC-14 | A user sees each object drawn in its material color (`MaterialAttributes.color`, default light blue); `setMaterial` has no caller, so the color cannot change | none | done | done | In progress | #137 | n/a |
