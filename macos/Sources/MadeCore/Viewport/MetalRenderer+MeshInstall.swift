@@ -14,4 +14,21 @@ extension MetalRenderer {
         }
         return true
     }
+
+    /// Updates an installed mesh's transform in place without rebuilding GPU buffers.
+    @MainActor
+    public func updateTransform(_ transform: Transform, for id: SolidId) -> Bool {
+        guard var mesh = meshes[id] else { return false }
+        mesh.transform = transform
+        mesh.candidateMesh.transform = transform
+        meshes[id] = mesh
+        return true
+    }
+
+    /// Removes the mesh and hidden flag for `id`.
+    @MainActor
+    public func removeMesh(for id: SolidId) -> Bool {
+        hiddenSolidIds.remove(id)
+        return meshes.removeValue(forKey: id) != nil
+    }
 }

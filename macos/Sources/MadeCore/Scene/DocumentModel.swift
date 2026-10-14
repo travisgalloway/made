@@ -8,7 +8,7 @@ public enum ObjectDef: Sendable, Equatable {
     case box(BoxParams)
     case cylinder(CylinderParams)
     case imported(name: String)
-    /// A boolean result: the operation and its operand IDs, with no replay (#35) and no drawing (#132).
+    /// A boolean result: the operation and its operand IDs, with no replay (#35).
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
     
     public var kind: String {

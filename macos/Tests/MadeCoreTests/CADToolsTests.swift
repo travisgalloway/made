@@ -653,6 +653,229 @@ import Foundation
             #expect(tool.inputSchema.properties[key]?.description?.contains("10000") == true)
         }
     }
+    
+    // MARK: - Window-bound viewport recompute (#132)
+    
+    private func makeWindowBoundFixture(debounceDuration: Duration = .milliseconds(5)) -> (
+        DocumentModel,
+        KernelClient,
+        RecordingMeshSink,
+        CADToolRegistry
+    ) {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: debounceDuration)
+        let sink = RecordingMeshSink()
+        let registry = CADToolRegistry(
+            document: doc,
+            kernelClient: kernel,
+            meshSink: sink,
+            onViewportInvalidated: { sink.invalidations += 1 },
+            onRecomputeResult: { result, id in
+                _ = sink.failures.record(result, for: id)
+            }
+        )
+        return (doc, kernel, sink, registry)
+    }
+    
+    private func extentX(_ payload: MeshPayload) -> Float {
+        let xs = stride(from: 0, to: payload.positions.count, by: 3).map { payload.positions[$0] }
+        return (xs.max() ?? 0) - (xs.min() ?? 0)
+    }
+    
+    @Test func testWindowBoundAddSolidInstallsMeshAndRegistersWithKernel() async throws {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture()
+        await seedKernel(kernel)
+        
+        let result = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("box"),
+            "width": .double(50),
+            "depth": .double(30),
+            "height": .double(20),
+            "posX": .double(15)
+        ])
+        #expect(result.isError == false)
+        let newId = try #require(doc.objects.last?.id)
+        await registry.settleRecomputes(for: [newId])
+        
+        #expect(sink.meshes[newId] != nil)
+        #expect(sink.meshes[newId]?.transform.position.x == 15)
+        #expect(sink.invalidations == 1)
+        
+        let boolean = await registry.callTool(name: "cad_boolean_operation", arguments: booleanArgs(newId.rawValue, "cylinder-1", "union"))
+        #expect(boolean.isError == false)
+    }
+    
+    @Test func testWindowBoundSetParamAndSetTransformRedrawSolid() async throws {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture()
+        registry.scheduleRecompute(id: boxSolidId)
+        await registry.settleRecomputes(for: [boxSolidId])
+        #expect(sink.invalidations == 1)
+        
+        let paramResult = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string("box-1"),
+            "param": .string("width"),
+            "value": .double(70)
+        ])
+        #expect(paramResult.isError == false)
+        await registry.settleRecomputes(for: [boxSolidId])
+        
+        let payload = try #require(sink.meshes[boxSolidId]?.payload)
+        #expect(abs(extentX(payload) - 70) <= 1e-3)
+        #expect(sink.invalidations == 2)
+        
+        let moveResult = await registry.callTool(name: "cad_set_transform", arguments: [
+            "id": .string("box-1"),
+            "posX": .double(33),
+            "posY": .double(-12)
+        ])
+        #expect(moveResult.isError == false)
+        #expect(sink.meshes[boxSolidId]?.transform.position == SIMD3<Float>(33, -12, 0))
+        #expect(sink.invalidations == 3)
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.transform.position == SIMD3<Float>(33, -12, 0))
+    }
+    
+    @Test func testWindowBoundBooleanInstallsResultMesh() async throws {
+        let (_, kernel, sink, registry) = makeWindowBoundFixture()
+        await seedKernel(kernel)
+        
+        let booleanId = try #require(await runBoolean(registry, "box-1", "cylinder-1", op: "subtract"))
+        #expect(sink.meshes[booleanId] != nil)
+        #expect((sink.meshes[booleanId]?.payload.triangleCount ?? 0) > 0)
+        #expect(sink.invalidations == 1)
+    }
+    
+    @Test func testBooleanImmediatelyAfterAddSolidAwaitsFirstTessellation() async throws {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture(debounceDuration: .milliseconds(30))
+        await seedKernel(kernel)
+        
+        let added = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("cylinder"),
+            "radius": .double(10),
+            "height": .double(30)
+        ])
+        #expect(added.isError == false)
+        let addedId = try #require(doc.objects.last?.id)
+        // Before debounce expires, the mesh is not yet installed in the sink.
+        #expect(sink.meshes[addedId] == nil)
+        
+        let booleanId = try #require(await runBoolean(registry, "box-1", addedId.rawValue, op: "subtract"))
+        #expect(sink.meshes[addedId] != nil)
+        #expect(sink.meshes[booleanId] != nil)
+    }
+    
+    @Test func testAddAndRemoveBeforeRecomputeFinishesInstallsNothingAndDisposesKernel() async throws {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture(debounceDuration: .milliseconds(40))
+        
+        let added = await registry.callTool(name: "cad_add_solid", arguments: ["type": .string("box")])
+        #expect(added.isError == false)
+        let addedId = try #require(doc.objects.last?.id)
+        
+        let removed = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(addedId.rawValue)])
+        #expect(removed.isError == false)
+        try await Task.sleep(for: .milliseconds(70))
+        
+        #expect(sink.meshes[addedId] == nil)
+        let probe = await kernel.request(.tessellate(jobId: JobId("probe"), solidId: addedId))
+        #expect(probe.error?.code == .unknownSolid)
+    }
+    
+    @Test func testImportedObjectRequestsNoMesh() async {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture()
+        let before = await kernel.getStats().dispatched
+        let id = doc.addObject(def: .imported(name: "fixture.step"))
+        
+        #expect(registry.scheduleRecompute(id: id) == nil)
+        #expect(sink.meshes[id] == nil)
+        #expect(await kernel.getStats().dispatched == before)
+    }
+    
+    @Test func testRecomputeFailureKeepsPreviousMeshAndRecordsError() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let faulty = FaultInjectingKernelClient(wrapping: kernel)
+        let sink = RecordingMeshSink()
+        let registry = CADToolRegistry(
+            document: doc,
+            kernelClient: faulty,
+            meshSink: sink,
+            onViewportInvalidated: { sink.invalidations += 1 },
+            onRecomputeResult: { result, id in
+                _ = sink.failures.record(result, for: id)
+            }
+        )
+        registry.scheduleRecompute(id: boxSolidId)
+        await registry.settleRecomputes(for: [boxSolidId])
+        let initialPayload = try #require(sink.meshes[boxSolidId]?.payload)
+        #expect(abs(extentX(initialPayload) - 40) <= 1e-3)
+        let invalidationsBefore = sink.invalidations
+        
+        await faulty.failNextRequest(with: .invalidParams)
+        let edit = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string("box-1"),
+            "param": .string("width"),
+            "value": .double(80)
+        ])
+        #expect(edit.isError == false)
+        await registry.settleRecomputes(for: [boxSolidId])
+        
+        let preserved = try #require(sink.meshes[boxSolidId]?.payload)
+        #expect(abs(extentX(preserved) - 40) <= 1e-3)
+        #expect(sink.invalidations == invalidationsBefore)
+        #expect(sink.failures.message(for: boxSolidId)?.contains("invalid-params") == true)
+    }
+    
+    @Test func testTwoEditsInDebounceWindowConflateToOneResult() async throws {
+        let (_, kernel, sink, registry) = makeWindowBoundFixture(debounceDuration: .milliseconds(40))
+        
+        _ = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string("box-1"),
+            "param": .string("width"),
+            "value": .double(55)
+        ])
+        _ = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string("box-1"),
+            "param": .string("width"),
+            "value": .double(85)
+        ])
+        await registry.settleRecomputes(for: [boxSolidId])
+        
+        let stats = await kernel.getStats()
+        #expect(stats.conflated == 1)
+        #expect(stats.dispatched == 1)
+        let payload = try #require(sink.meshes[boxSolidId]?.payload)
+        #expect(abs(extentX(payload) - 85) <= 1e-3)
+        #expect(sink.invalidations == 1)
+        #expect(sink.failures.message(for: boxSolidId) == nil)
+    }
+}
+
+@MainActor
+private final class RecordingMeshSink: SolidMeshSink {
+    struct Entry {
+        var payload: MeshPayload
+        var transform: Transform
+        var color: SIMD4<Float>
+        var isHidden: Bool
+    }
+    var meshes: [SolidId: Entry] = [:]
+    var invalidations = 0
+    var failures = RecomputeFailures()
+
+    func installMesh(_ payload: MeshPayload, for id: SolidId, transform: Transform, color: SIMD4<Float>, isHidden: Bool) -> Bool {
+        meshes[id] = Entry(payload: payload, transform: transform, color: color, isHidden: isHidden)
+        return true
+    }
+
+    func updateTransform(_ transform: Transform, for id: SolidId) -> Bool {
+        guard var entry = meshes[id] else { return false }
+        entry.transform = transform
+        meshes[id] = entry
+        return true
+    }
+
+    func removeMesh(for id: SolidId) -> Bool {
+        meshes.removeValue(forKey: id) != nil
+    }
 }
 
 private final class FailingSnapshotProvider: SnapshotProvider {

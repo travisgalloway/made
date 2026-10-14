@@ -12,11 +12,23 @@ private final class StubSink: SolidMeshSink {
         let isHidden: Bool
     }
     var calls: [Call] = []
+    var installed: [SolidId: Transform] = [:]
     var succeeds = true
 
     func installMesh(_ payload: MeshPayload, for id: SolidId, transform: Transform, color: SIMD4<Float>, isHidden: Bool) -> Bool {
         calls.append(Call(id: id, transform: transform, color: color, isHidden: isHidden))
+        if succeeds { installed[id] = transform }
         return succeeds
+    }
+
+    func updateTransform(_ transform: Transform, for id: SolidId) -> Bool {
+        guard installed[id] != nil else { return false }
+        installed[id] = transform
+        return true
+    }
+
+    func removeMesh(for id: SolidId) -> Bool {
+        installed.removeValue(forKey: id) != nil
     }
 }
 
@@ -115,5 +127,26 @@ private final class StubSink: SolidMeshSink {
         sink.succeeds = false
 
         #expect(!SolidMeshApplier.apply(success, to: boxSolidId, document: doc, sink: sink))
+    }
+
+    @Test func testApplyTransformUpdatesInstalledMesh() {
+        let doc = DocumentModel()
+        let sink = StubSink()
+        _ = SolidMeshApplier.apply(success, to: boxSolidId, document: doc, sink: sink)
+        doc.setTransform(id: boxSolidId, transform: moved(14))
+
+        #expect(SolidMeshApplier.applyTransform(to: boxSolidId, document: doc, sink: sink))
+        #expect(sink.installed[boxSolidId]?.position == moved(14).position)
+        #expect(!SolidMeshApplier.applyTransform(to: SolidId("missing"), document: doc, sink: sink))
+    }
+
+    @Test func testRemoveDropsInstalledMesh() {
+        let doc = DocumentModel()
+        let sink = StubSink()
+        _ = SolidMeshApplier.apply(success, to: boxSolidId, document: doc, sink: sink)
+
+        #expect(SolidMeshApplier.remove(id: boxSolidId, from: sink))
+        #expect(sink.installed[boxSolidId] == nil)
+        #expect(!SolidMeshApplier.remove(id: boxSolidId, from: sink))
     }
 }
