@@ -3,12 +3,20 @@ import simd
 
 public protocol SnapshotProvider: AnyObject, Sendable {
     func captureSnapshotPngBase64() async -> String?
+    func captureSnapshotPngBase64(view: ViewportPerspective?) async -> String?
+}
+
+public extension SnapshotProvider {
+    func captureSnapshotPngBase64(view: ViewportPerspective?) async -> String? {
+        await captureSnapshotPngBase64()
+    }
 }
 
 @MainActor
 public final class CADToolRegistry {
     private let document: DocumentModel
     private let kernelClient: KernelClientProtocol
+    public private(set) var partReloadController: PartReloadController
     private weak var snapshotProvider: (any SnapshotProvider)?
     private weak var meshSink: (any SolidMeshSink)?
     private let onViewportInvalidated: (@MainActor () -> Void)?
@@ -18,6 +26,7 @@ public final class CADToolRegistry {
     public init(
         document: DocumentModel,
         kernelClient: KernelClientProtocol,
+        partReloadController: PartReloadController? = nil,
         snapshotProvider: (any SnapshotProvider)? = nil,
         meshSink: (any SolidMeshSink)? = nil,
         onViewportInvalidated: (@MainActor () -> Void)? = nil,
@@ -29,6 +38,16 @@ public final class CADToolRegistry {
         self.meshSink = meshSink
         self.onViewportInvalidated = onViewportInvalidated
         self.onRecomputeResult = onRecomputeResult
+        self.partReloadController = partReloadController ?? PartReloadController(
+            document: document,
+            kernelClient: kernelClient,
+            meshSink: meshSink,
+            onViewportInvalidated: onViewportInvalidated
+        )
+    }
+    
+    public func setPartReloadController(_ controller: PartReloadController) {
+        self.partReloadController = controller
     }
     
     public func setSnapshotProvider(_ provider: any SnapshotProvider) {
@@ -37,6 +56,7 @@ public final class CADToolRegistry {
     
     public func setMeshSink(_ sink: (any SolidMeshSink)?) {
         self.meshSink = sink
+        self.partReloadController.setMeshSink(sink)
     }
     
     public nonisolated var tools: [MCPToolDefinition] {
@@ -121,9 +141,46 @@ public final class CADToolRegistry {
                 )
             ),
             MCPToolDefinition(
+                name: "cad_reload",
+                description: "Re-evaluates a `.part.ts` or `.part.js` part file immediately (or opens and evaluates a part file path) and returns structured evaluation metadata or `file:line:column` diagnostics on failure.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "id": MCPProperty(type: "string", description: "Optional solid ID of an open part in the scene (e.g. 'part-1')."),
+                        "file": MCPProperty(type: "string", description: "Optional path to a `.part.ts` or `.part.js` file on disk. Opens the part if it is not already in the scene.")
+                    ]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_get_diagnostics",
+                description: "Returns the last evaluation errors and warnings for open part files, each with `file`, `line`, `column`, and `message`.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "id": MCPProperty(type: "string", description: "Optional solid ID to filter diagnostics to a single part."),
+                        "file": MCPProperty(type: "string", description: "Optional file path to filter diagnostics to a single part file.")
+                    ]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_verify",
+                description: "Checks that each solid in the scene (or a specific solid) is a valid closed, manifold, positive-volume mesh and compares measured `volume`, `area`, and `bounds` against any `export const expected` block in a part file within tolerance.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "id": MCPProperty(type: "string", description: "Optional solid ID to verify (e.g. 'part-1', 'box-1'). When omitted, verifies all solids in the scene.")
+                    ]
+                )
+            ),
+            MCPToolDefinition(
                 name: "cad_capture_snapshot",
-                description: "Captures a rendered image of the current 3D viewport for multimodal visual verification.",
-                inputSchema: MCPInputSchema(properties: [:])
+                description: "Captures a rendered image of the current 3D viewport for multimodal visual verification. Optionally renders from a named camera view preset (`front`, `top`, `right`, `isometric`, `perspective`).",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "view": MCPProperty(
+                            type: "string",
+                            description: "Optional named camera view preset: 'front', 'top', 'right', 'isometric', or 'perspective'. When omitted, captures the current viewport camera.",
+                            enum: ["front", "top", "right", "isometric", "perspective"]
+                        )
+                    ]
+                )
             )
         ]
     }
@@ -149,10 +206,19 @@ public final class CADToolRegistry {
             return await handleRemoveSolid(arguments: arguments)
             
         case "cad_measure":
-            return handleMeasure(arguments: arguments)
+            return await handleMeasure(arguments: arguments)
+            
+        case "cad_reload":
+            return await handleReload(arguments: arguments)
+            
+        case "cad_get_diagnostics":
+            return await handleGetDiagnostics(arguments: arguments)
+            
+        case "cad_verify":
+            return await handleVerify(arguments: arguments)
             
         case "cad_capture_snapshot":
-            return await handleCaptureSnapshot()
+            return await handleCaptureSnapshot(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -341,6 +407,7 @@ public final class CADToolRegistry {
         }
         
         let inFlight = inFlightRecomputes.removeValue(forKey: id)
+        partReloadController.stopWatching(id: id)
         document.removeObject(id: id)
         if let sink = meshSink, SolidMeshApplier.remove(id: id, from: sink) {
             onViewportInvalidated?()
@@ -350,7 +417,7 @@ public final class CADToolRegistry {
         return .text("Removed solid '\(idStr)' from scene")
     }
     
-    private func handleMeasure(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+    private func handleMeasure(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
         guard let idStr = arguments["id"]?.stringValue else {
             return .error("Missing required argument 'id'")
         }
@@ -385,10 +452,24 @@ public final class CADToolRegistry {
             resultDict["type"] = "boolean"
             resultDict["operation"] = op.rawValue
             resultDict["operands"] = [solidA.rawValue, solidB.rawValue]
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
 
         case .part(let url, _):
             resultDict["type"] = "part"
             resultDict["file"] = url.path
+            await partReloadController.syncAndSettle(for: id, reloadIfDiskChanged: false)
+            if let payload = partReloadController.lastOutputs[id]?.payload,
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
         }
         
         if let data = try? JSONSerialization.data(withJSONObject: resultDict, options: .prettyPrinted),
@@ -398,11 +479,425 @@ public final class CADToolRegistry {
         return .error("Failed to measure solid '\(idStr)'")
     }
     
-    private func handleCaptureSnapshot() async -> MCPToolCallResult {
+    private func handleReload(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        let idStr: String?
+        if let rawId = arguments["id"] {
+            guard let parsed = rawId.stringValue, !parsed.isEmpty else {
+                return .error("Argument 'id' must be a non-empty string")
+            }
+            idStr = parsed
+        } else {
+            idStr = nil
+        }
+
+        let fileStr: String?
+        if let rawFile = arguments["file"] {
+            guard let parsed = rawFile.stringValue, !parsed.isEmpty else {
+                return .error("Argument 'file' must be a non-empty string")
+            }
+            fileStr = parsed
+        } else {
+            fileStr = nil
+        }
+
+        var targetIds: [SolidId] = []
+        if let idStr {
+            let id = SolidId(idStr)
+            guard let obj = document.objects.first(where: { $0.id == id }) else {
+                return .error("Solid '\(idStr)' not found in scene")
+            }
+            guard case .part(let partURL, _) = obj.def else {
+                return .error("Solid '\(idStr)' is a \(obj.def.kind) solid, not a reloadable part file")
+            }
+            if let fileStr {
+                let requestedURL = URL(fileURLWithPath: fileStr).standardizedFileURL
+                if requestedURL != partURL.standardizedFileURL {
+                    return .error("Solid '\(idStr)' is bound to '\(partURL.path)', which does not match file '\(fileStr)'")
+                }
+            }
+            partReloadController.syncWithDocument()
+            _ = partReloadController.reloadNow(id: id)
+            targetIds = [id]
+        } else if let fileStr {
+            let url = URL(fileURLWithPath: fileStr).standardizedFileURL
+            let id = partReloadController.openPartFile(at: url)
+            targetIds = [id]
+        } else {
+            partReloadController.syncWithDocument()
+            let partObjects = document.objects.filter {
+                if case .part = $0.def { return true }
+                return false
+            }
+            guard !partObjects.isEmpty else {
+                return .error("No part files are currently open in the scene. Pass a 'file' path to open and evaluate a part script.")
+            }
+            for obj in partObjects {
+                _ = partReloadController.reloadNow(id: obj.id)
+                targetIds.append(obj.id)
+            }
+        }
+
+        var partEntries: [[String: Any]] = []
+        var allErrors: [[String: Any]] = []
+        var allWarnings: [[String: Any]] = []
+        var anyFailed = false
+
+        for id in targetIds {
+            let result = await partReloadController.settle(for: id)
+            let partURL: URL? = document.objects.first(where: { $0.id == id }).flatMap {
+                if case .part(let url, _) = $0.def { return url }
+                return nil
+            }
+            let filePath = partURL?.path ?? ""
+
+            if let result {
+                switch result {
+                case .success(_, let output):
+                    let warningItems = output.warnings.map { w -> [String: Any] in
+                        [
+                            "id": id.rawValue,
+                            "severity": "warning",
+                            "file": w.file,
+                            "line": w.line,
+                            "column": w.column,
+                            "message": w.message
+                        ]
+                    }
+                    allWarnings.append(contentsOf: warningItems)
+                    partEntries.append([
+                        "id": id.rawValue,
+                        "file": filePath,
+                        "status": "ok",
+                        "triangleCount": output.payload.triangleCount,
+                        "hasExpected": output.expected != nil,
+                        "errors": [] as [[String: Any]],
+                        "warnings": warningItems
+                    ])
+
+                case .failure(_, let error):
+                    anyFailed = true
+                    let diagDict: [String: Any] = [
+                        "id": id.rawValue,
+                        "severity": "error",
+                        "code": error.code.rawValue,
+                        "file": error.diagnostic.file,
+                        "line": error.diagnostic.line,
+                        "column": error.diagnostic.column,
+                        "message": error.diagnostic.message
+                    ]
+                    allErrors.append(diagDict)
+                    partEntries.append([
+                        "id": id.rawValue,
+                        "file": filePath,
+                        "status": "error",
+                        "code": error.code.rawValue,
+                        "diagnostic": diagDict,
+                        "errors": [diagDict],
+                        "warnings": [] as [[String: Any]]
+                    ])
+                }
+            } else if let error = partReloadController.lastErrors[id] {
+                anyFailed = true
+                let diagDict: [String: Any] = [
+                    "id": id.rawValue,
+                    "severity": "error",
+                    "code": error.code.rawValue,
+                    "file": error.diagnostic.file,
+                    "line": error.diagnostic.line,
+                    "column": error.diagnostic.column,
+                    "message": error.diagnostic.message
+                ]
+                allErrors.append(diagDict)
+                partEntries.append([
+                    "id": id.rawValue,
+                    "file": filePath,
+                    "status": "error",
+                    "code": error.code.rawValue,
+                    "diagnostic": diagDict,
+                    "errors": [diagDict],
+                    "warnings": [] as [[String: Any]]
+                ])
+            } else if let output = partReloadController.lastOutputs[id] {
+                let warningItems = output.warnings.map { w -> [String: Any] in
+                    [
+                        "id": id.rawValue,
+                        "severity": "warning",
+                        "file": w.file,
+                        "line": w.line,
+                        "column": w.column,
+                        "message": w.message
+                    ]
+                }
+                allWarnings.append(contentsOf: warningItems)
+                partEntries.append([
+                    "id": id.rawValue,
+                    "file": filePath,
+                    "status": "ok",
+                    "triangleCount": output.payload.triangleCount,
+                    "hasExpected": output.expected != nil,
+                    "errors": [] as [[String: Any]],
+                    "warnings": warningItems
+                ])
+            }
+        }
+
+        var response: [String: Any] = [
+            "passed": !anyFailed,
+            "parts": partEntries,
+            "errors": allErrors,
+            "warnings": allWarnings,
+            "diagnostics": allErrors + allWarnings
+        ]
+        if partEntries.count == 1, let single = partEntries.first {
+            for (k, v) in single where response[k] == nil {
+                response[k] = v
+            }
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: response, options: .prettyPrinted),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            return .error("Failed to serialize reload result")
+        }
+        return MCPToolCallResult(content: [.text(jsonString)], isError: anyFailed)
+    }
+
+    private func handleGetDiagnostics(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        let idStr: String?
+        if let rawId = arguments["id"] {
+            guard let parsed = rawId.stringValue, !parsed.isEmpty else {
+                return .error("Argument 'id' must be a non-empty string")
+            }
+            idStr = parsed
+        } else {
+            idStr = nil
+        }
+
+        let fileStr: String?
+        if let rawFile = arguments["file"] {
+            guard let parsed = rawFile.stringValue, !parsed.isEmpty else {
+                return .error("Argument 'file' must be a non-empty string")
+            }
+            fileStr = parsed
+        } else {
+            fileStr = nil
+        }
+
+        await partReloadController.syncAndSettle(reloadIfDiskChanged: false)
+
+        let targetObjects: [SceneObject]
+        if let idStr {
+            let id = SolidId(idStr)
+            guard let obj = document.objects.first(where: { $0.id == id }) else {
+                return .error("Solid '\(idStr)' not found in scene")
+            }
+            targetObjects = [obj]
+        } else if let fileStr {
+            let canonical = URL(fileURLWithPath: fileStr).standardizedFileURL
+            let matched = document.objects.filter { obj in
+                if case .part(let url, _) = obj.def, url.standardizedFileURL == canonical {
+                    return true
+                }
+                if let err = partReloadController.lastErrors[obj.id],
+                   URL(fileURLWithPath: err.diagnostic.file).standardizedFileURL == canonical {
+                    return true
+                }
+                if let out = partReloadController.lastOutputs[obj.id],
+                   out.loadedFiles.contains(where: { URL(fileURLWithPath: $0).standardizedFileURL == canonical }) {
+                    return true
+                }
+                return false
+            }
+            guard !matched.isEmpty else {
+                return .error("Part file '\(fileStr)' is not open in the scene")
+            }
+            targetObjects = matched
+        } else {
+            targetObjects = document.objects
+        }
+
+        var errors: [[String: Any]] = []
+        var warnings: [[String: Any]] = []
+
+        for obj in targetObjects {
+            if let error = partReloadController.lastErrors[obj.id] {
+                errors.append([
+                    "id": obj.id.rawValue,
+                    "severity": "error",
+                    "code": error.code.rawValue,
+                    "file": error.diagnostic.file,
+                    "line": error.diagnostic.line,
+                    "column": error.diagnostic.column,
+                    "message": error.diagnostic.message
+                ])
+            }
+            if let output = partReloadController.lastOutputs[obj.id] {
+                for warning in output.warnings {
+                    warnings.append([
+                        "id": obj.id.rawValue,
+                        "severity": "warning",
+                        "file": warning.file,
+                        "line": warning.line,
+                        "column": warning.column,
+                        "message": warning.message
+                    ])
+                }
+            }
+        }
+
+        let response: [String: Any] = [
+            "errors": errors,
+            "warnings": warnings,
+            "diagnostics": errors + warnings
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: response, options: .prettyPrinted),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            return .error("Failed to serialize diagnostics")
+        }
+        return .text(jsonString)
+    }
+
+    private func handleVerify(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        let targetObjects: [SceneObject]
+        if let rawId = arguments["id"] {
+            guard let idStr = rawId.stringValue, !idStr.isEmpty else {
+                return .error("Argument 'id' must be a non-empty string")
+            }
+            let id = SolidId(idStr)
+            guard let obj = document.objects.first(where: { $0.id == id }) else {
+                return .error("Solid '\(idStr)' not found in scene")
+            }
+            targetObjects = [obj]
+        } else {
+            targetObjects = document.objects
+            guard !targetObjects.isEmpty else {
+                return .error("No solids in scene to verify")
+            }
+        }
+
+        await settleRecomputes(for: targetObjects.map(\.id))
+        await partReloadController.syncAndSettle(reloadIfDiskChanged: false)
+
+        var reports: [SolidVerificationReport] = []
+        for obj in targetObjects {
+            let report = await verifySceneObject(obj)
+            reports.append(report)
+        }
+
+        let allValid = !reports.isEmpty && reports.allSatisfy(\.valid)
+        let allFailures = reports.flatMap(\.failures)
+
+        var response: [String: Any] = [
+            "valid": allValid,
+            "passed": allValid,
+            "solids": reports.map { $0.toDictionary() },
+            "failures": allFailures
+        ]
+        if reports.count == 1, let single = reports.first?.toDictionary() {
+            for (k, v) in single where response[k] == nil {
+                response[k] = v
+            }
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: response, options: .prettyPrinted),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            return .error("Failed to serialize verification report")
+        }
+        return MCPToolCallResult(content: [.text(jsonString)], isError: !allValid)
+    }
+
+    private func verifySceneObject(_ obj: SceneObject) async -> SolidVerificationReport {
+        switch obj.def {
+        case .part:
+            if let err = partReloadController.lastErrors[obj.id] {
+                return SolidVerifier.verify(
+                    object: obj,
+                    payload: nil,
+                    expected: partReloadController.lastOutputs[obj.id]?.expected,
+                    diagnostic: err.diagnostic
+                )
+            }
+            let output = partReloadController.lastOutputs[obj.id]
+            let payload: MeshPayload?
+            if let existingPayload = output?.payload {
+                payload = existingPayload
+            } else {
+                payload = await meshForObject(obj)
+            }
+            return SolidVerifier.verify(
+                object: obj,
+                payload: payload,
+                expected: output?.expected,
+                diagnostic: nil
+            )
+
+        case .box, .cylinder, .boolean:
+            let payload = await meshForObject(obj)
+            return SolidVerifier.verify(
+                object: obj,
+                payload: payload,
+                expected: nil,
+                diagnostic: nil
+            )
+
+        case .imported:
+            return SolidVerifier.verify(
+                object: obj,
+                payload: nil,
+                expected: nil,
+                diagnostic: nil
+            )
+        }
+    }
+
+    private func meshForObject(_ obj: SceneObject) async -> MeshPayload? {
+        let firstJob = JobId("verify-\(UUID().uuidString)")
+        let retryJob = JobId("verify-\(UUID().uuidString)")
+        guard let first = KernelRegeneration.request(for: obj, jobId: firstJob),
+              let retry = KernelRegeneration.request(for: obj, jobId: retryJob) else {
+            return nil
+        }
+        let result = await kernelClient.request(first)
+        if case .success(_, let payload) = result {
+            return payload
+        }
+        if case .failure(_, let err) = result, err.code == .cancelled {
+            let retryResult = await kernelClient.request(retry)
+            if case .success(_, let payload) = retryResult {
+                return payload
+            }
+        }
+        return nil
+    }
+    
+    private func handleCaptureSnapshot(arguments: [String: AnyCodableValue] = [:]) async -> MCPToolCallResult {
+        var perspective: ViewportPerspective? = nil
+        if let rawView = arguments["view"] {
+            guard let viewName = rawView.stringValue else {
+                return .error("Argument 'view' must be a string")
+            }
+            switch viewName.lowercased() {
+            case "front":
+                perspective = .front
+            case "top":
+                perspective = .top
+            case "right":
+                perspective = .right
+            case "isometric":
+                perspective = .isometric
+            case "perspective":
+                perspective = .perspective
+            default:
+                return .error("Invalid 'view' value '\(viewName)'. Supported views: 'front', 'top', 'right', 'isometric', 'perspective'")
+            }
+        }
+
+        await settleRecomputes(for: document.objects.map(\.id))
+        await partReloadController.syncAndSettle(reloadIfDiskChanged: false)
+
         guard let provider = snapshotProvider else {
             return .error("Snapshot unavailable: no Metal 4 device is available to render the viewport")
         }
-        guard let base64 = await provider.captureSnapshotPngBase64() else {
+        guard let base64 = await provider.captureSnapshotPngBase64(view: perspective) else {
             return .error("Snapshot capture failed: the viewport frame could not be rendered or encoded")
         }
         return MCPToolCallResult(content: [.image(base64: base64, mimeType: "image/png")], isError: false)

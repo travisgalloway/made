@@ -376,7 +376,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     }
 
     @discardableResult
-    private func renderScene(_ ctx: EncodeContext, aspect: Float) -> Int {
+    private func renderScene(_ ctx: EncodeContext, aspect: Float, cameraOverride: Camera? = nil) -> Int {
         let encoder = ctx.encoder
         encoder.setArgumentTable(ctx.table, stages: [.vertex, .fragment])
         encoder.setRenderPipelineState(solidPipeline)
@@ -385,10 +385,12 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         encoder.setFrontFacing(.counterClockwise)
         encoder.setCullMode(.back)
 
-        let viewMatrix = Orientation.makeLookAt(eye: cameraPosition, target: cameraTarget, up: Orientation.worldUp)
+        let eye = cameraOverride?.position ?? cameraPosition
+        let target = cameraOverride?.target ?? cameraTarget
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: target, up: Orientation.worldUp)
         let projMatrix: simd_float4x4
         if projectionMode == .orthographic {
-            let dist = max(10.0, simd_length(cameraPosition - cameraTarget))
+            let dist = max(10.0, simd_length(eye - target))
             let halfH = dist * 0.4
             let halfW = halfH * aspect
             projMatrix = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
@@ -572,6 +574,10 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     // MARK: - Snapshot
 
     public func captureSnapshotPngBase64() async -> String? {
+        await captureSnapshotPngBase64(view: nil)
+    }
+
+    public func captureSnapshotPngBase64(view: ViewportPerspective?) async -> String? {
         let width = 800
         let height = 600
         let colorDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: Self.colorFormat, width: width, height: height, mipmapped: false)
@@ -598,6 +604,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         pass.depthAttachment.clearDepth = 1.0
         pass.depthAttachment.storeAction = .dontCare
 
+        let cameraOverride = view.map { Camera.preset($0) }
         let encoded: Bool = snapshotLock.withLock {
             snapshotAllocator.reset()
             commandBuffer.beginCommandBuffer(allocator: snapshotAllocator)
@@ -606,7 +613,11 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
                 commandBuffer.endCommandBuffer()
                 return false
             }
-            renderScene(EncodeContext(encoder: encoder, table: snapshotTable, arena: arena), aspect: Float(width) / Float(height))
+            renderScene(
+                EncodeContext(encoder: encoder, table: snapshotTable, arena: arena),
+                aspect: Float(width) / Float(height),
+                cameraOverride: cameraOverride
+            )
             encoder.endEncoding()
             commandBuffer.endCommandBuffer()
             return true

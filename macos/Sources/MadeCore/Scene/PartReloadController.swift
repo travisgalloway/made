@@ -258,6 +258,35 @@ public final class PartReloadController {
         }
     }
 
+    /// Synchronizes watched parts with `document.objects`, starts an initial evaluation for any watched part
+    /// that has not yet been evaluated (or flushes an active debounce / disk modification when requested),
+    /// and awaits completion.
+    public func syncAndSettle(for id: SolidId? = nil, reloadIfDiskChanged: Bool = false) async {
+        syncWithDocument()
+        let targetIds: [SolidId]
+        if let id {
+            targetIds = watchedParts[id] != nil ? [id] : []
+        } else {
+            targetIds = Array(watchedParts.keys)
+        }
+        for partId in targetIds {
+            guard let state = watchedParts[partId] else { continue }
+            let neverEvaluated = lastOutputs[partId] == nil && lastErrors[partId] == nil && state.inFlightTask == nil
+            var diskChanged = false
+            if reloadIfDiskChanged {
+                let latest = PartDependencySnapshot.capture(
+                    rootFileURL: state.url,
+                    additionalFilePaths: state.knownLoadedFiles
+                )
+                diskChanged = (latest != state.lastSubmittedSnapshot)
+            }
+            if neverEvaluated || state.isDebouncing || diskChanged {
+                _ = reloadNow(id: partId)
+            }
+            _ = await settle(for: partId)
+        }
+    }
+
     // MARK: - File-System Event Coalescing & Execution
 
     private func handleFileSystemEvent(for id: SolidId) {

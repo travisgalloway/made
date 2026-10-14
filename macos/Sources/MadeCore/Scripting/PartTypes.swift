@@ -137,6 +137,7 @@ public struct PartScriptEvaluation: Sendable, Codable, Equatable {
     public let shape: ShapeNode
     public let expected: PartExpected?
     public let parameters: [PartParameterSpec]
+    public let warnings: [PartDiagnostic]
     public let evaluatedOnMainThread: Bool
     public let loadedFiles: [String]
 
@@ -146,6 +147,7 @@ public struct PartScriptEvaluation: Sendable, Codable, Equatable {
         shape: ShapeNode,
         expected: PartExpected? = nil,
         parameters: [PartParameterSpec] = [],
+        warnings: [PartDiagnostic] = [],
         evaluatedOnMainThread: Bool = false,
         loadedFiles: [String] = []
     ) {
@@ -154,6 +156,7 @@ public struct PartScriptEvaluation: Sendable, Codable, Equatable {
         self.shape = shape
         self.expected = expected
         self.parameters = parameters
+        self.warnings = warnings
         self.evaluatedOnMainThread = evaluatedOnMainThread
         self.loadedFiles = loadedFiles
     }
@@ -167,6 +170,7 @@ public struct PartEvaluationOutput: Sendable {
     public let payload: MeshPayload
     public let expected: PartExpected?
     public let parameters: [PartParameterSpec]
+    public let warnings: [PartDiagnostic]
     public let evaluatedOnMainThread: Bool
     public let loadedFiles: [String]
 
@@ -177,6 +181,7 @@ public struct PartEvaluationOutput: Sendable {
         payload: MeshPayload,
         expected: PartExpected? = nil,
         parameters: [PartParameterSpec] = [],
+        warnings: [PartDiagnostic] = [],
         evaluatedOnMainThread: Bool = false,
         loadedFiles: [String] = []
     ) {
@@ -186,6 +191,7 @@ public struct PartEvaluationOutput: Sendable {
         self.payload = payload
         self.expected = expected
         self.parameters = parameters
+        self.warnings = warnings
         self.evaluatedOnMainThread = evaluatedOnMainThread
         self.loadedFiles = loadedFiles
     }
