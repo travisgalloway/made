@@ -40,6 +40,7 @@ Then navigate based on your task:
 | **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) |
 | **Geometry Kernel (Tier 2)** | Canonical B-rep kernel ([ADR-D1](./architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142), planned in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) with Swift fallback (#418) |
 | **Modeling Paradigm** | Hybrid history-based feature list recording direct edits as features; multi-body parts by default ([ADR-D2](./architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150) |
+| **Topological Naming** | Query-based references from generation history (`BRepTools_History`) with fallback geometric signatures; index prohibition ([ADR-D3](./architecture/adr/ADR-D3-topological-naming.md), #144, #152) |
 | **Agent Interface** | Model Context Protocol (JSON-RPC 2.0 over stdio and local TCP on port 9820) |
 | **CAD Scripting DSL** | Cadova-inspired declarative Swift (`@resultBuilder`) |
 | **Testing** | Swift Package Manager (`swift test`), Swift Testing (`@Test`) |

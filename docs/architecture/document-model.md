@@ -129,6 +129,7 @@ None at this time.
 ## Decided
 
 - ADR-D2 (#143) is decided. A history-based feature list with direct edits recorded as features and multi-body parts by default replaces the flat object array (BL-FND-01 / #150). Features evaluate sequentially in `KernelClient` off the main thread (invariant 1), while `DocumentModel` remains on `@MainActor` (invariant 7) ([ADR-D2](./adr/ADR-D2-modeling-paradigm-and-document-model.md)).
+- ADR-D3 (#144) is decided. Topological naming references in the feature list use query-based generation history rather than unstable integer indices, preserving references across upstream dimension edits ([ADR-D3](./adr/ADR-D3-topological-naming.md), #152, #170).
 - ADR-D7 (#149) is decided. A `.made` document is a directory package (`com.made.cad.document`) containing canonical JSON (`manifest.json`, `document.json`), plain-text part sources (`parts/*.part.ts`), imported assets (`assets/`), and a regenerable, Git-ignored binary cache directory (`cache/`) ([ADR-D7](./adr/ADR-D7-made-encoding.md), #83, #427, #376).
 
 ---
@@ -136,6 +137,7 @@ None at this time.
 ## Related Documentation
 
 - [ADR-D2: Modeling Paradigm and Document Model](./adr/ADR-D2-modeling-paradigm-and-document-model.md)
+- [ADR-D3: Topological Naming Strategy](./adr/ADR-D3-topological-naming.md)
 - [`invariants.md`](./invariants.md): Invariant 3 (imperative viewport state)
 - [`kernel.md`](./kernel.md): How document mutations dispatch kernel requests
 - [`ui-controls.md`](./ui-controls.md): SwiftUI inspector bindings
