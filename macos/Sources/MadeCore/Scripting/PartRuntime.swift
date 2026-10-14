@@ -23,7 +23,7 @@ public final class PartRuntime: @unchecked Sendable {
     ) {
         self.kernelClient = kernelClient
         self.maxLoopTicks = max(1, maxLoopTicks)
-        self.worker = JSCWorkerThread()
+        self.worker = JSCWorkerThread.shared
     }
 
     /// URL of the bundled `made.d.ts` TypeScript declarations inside `MadeCore`'s resource bundle or app bundle.
@@ -277,7 +277,8 @@ public final class PartRuntime: @unchecked Sendable {
                 payload: payload,
                 expected: scriptEval.expected,
                 parameters: scriptEval.parameters,
-                evaluatedOnMainThread: scriptEval.evaluatedOnMainThread
+                evaluatedOnMainThread: scriptEval.evaluatedOnMainThread,
+                loadedFiles: scriptEval.loadedFiles
             )
             return .success(jobId: jobId, value: output)
         case .failure(_, let kErr):
@@ -290,7 +291,8 @@ public final class PartRuntime: @unchecked Sendable {
                     column: 1,
                     message: kErr.message
                 ),
-                kernelError: kErr
+                kernelError: kErr,
+                loadedFiles: scriptEval.loadedFiles
             )
             return .failure(jobId: jobId, error: err)
         }
@@ -313,8 +315,10 @@ public final class PartRuntime: @unchecked Sendable {
 
 /// Runs all `JSVirtualMachine` and `JSContext` operations on a single non-main OS thread (`pthread_main_np() == 0`).
 private final class JSCWorkerThread: @unchecked Sendable {
+    static let shared = JSCWorkerThread()
+    private static let stripperSource: String? = loadBundledScript(named: "ts-stripper.js")
+
     private let cond = NSCondition()
-    private var isInitialized = false
     private var queue: [() -> Void] = []
     private var vm: JSVirtualMachine!
     private var transformContext: JSContext!
@@ -323,33 +327,23 @@ private final class JSCWorkerThread: @unchecked Sendable {
     init() {
         let thread = Thread { [weak self] in
             guard let self else { return }
-            let machine = JSVirtualMachine()!
-            let ctx = JSContext(virtualMachine: machine)!
-            ctx.name = "made.ts-stripper"
-            if let stripperSource = Self.loadBundledScript(named: "ts-stripper.js") {
-                ctx.evaluateScript(stripperSource, withSourceURL: URL(string: "made://internal/ts-stripper.js"))
+            autoreleasepool {
+                let machine = JSVirtualMachine()!
+                let ctx = JSContext(virtualMachine: machine)!
+                ctx.name = "made.ts-stripper"
+                if let stripperSource = Self.stripperSource {
+                    ctx.evaluateScript(stripperSource, withSourceURL: URL(string: "made://internal/ts-stripper.js"))
+                }
+                let fn = ctx.objectForKeyedSubscript("__made_transformSource")!
+                self.vm = machine
+                self.transformContext = ctx
+                self.transformFn = fn
             }
-            let fn = ctx.objectForKeyedSubscript("__made_transformSource")!
-
-            self.cond.lock()
-            self.vm = machine
-            self.transformContext = ctx
-            self.transformFn = fn
-            self.isInitialized = true
-            self.cond.signal()
-            self.cond.unlock()
-
             self.runLoop()
         }
         thread.name = "made.part-runtime.jsc"
         thread.qualityOfService = .userInitiated
         thread.start()
-
-        cond.lock()
-        while !isInitialized {
-            cond.wait()
-        }
-        cond.unlock()
     }
 
     func perform<T: Sendable>(_ work: @escaping @Sendable (JSVirtualMachine, JSValue) -> T) async -> T {
@@ -538,14 +532,15 @@ private final class JSCPartEvaluator {
         case .success(let exportsVal):
             rootExports = exportsVal
         case .failure(let err):
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         }
 
         if isCancelled() {
             return .failure(
                 PartRuntimeError(
                     code: .cancelled,
-                    diagnostic: PartDiagnostic(file: filePath, line: 1, column: 1, message: "Evaluation superseded or cancelled")
+                    diagnostic: PartDiagnostic(file: filePath, line: 1, column: 1, message: "Evaluation superseded or cancelled"),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -557,7 +552,7 @@ private final class JSCPartEvaluator {
         case .success(let v):
             shapeJSValue = v
         case .failure(let err):
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         }
 
         // Decode ShapeNode from shapeJSValue.node
@@ -570,7 +565,8 @@ private final class JSCPartEvaluator {
                         line: 1,
                         column: 1,
                         message: "Part script must export a Shape created with the 'made' module"
-                    )
+                    ),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -579,7 +575,7 @@ private final class JSCPartEvaluator {
         do {
             shapeNode = try decodeShapeNode(from: nodeJSValue)
         } catch let err as PartRuntimeError {
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         } catch {
             return .failure(
                 PartRuntimeError(
@@ -589,7 +585,8 @@ private final class JSCPartEvaluator {
                         line: 1,
                         column: 1,
                         message: "Invalid shape tree exported by part script: \(error.localizedDescription)"
-                    )
+                    ),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -605,7 +602,8 @@ private final class JSCPartEvaluator {
                         column: 1,
                         message: validationErr.message
                     ),
-                    kernelError: validationErr
+                    kernelError: validationErr,
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -615,7 +613,7 @@ private final class JSCPartEvaluator {
         do {
             expectedBlock = try decodeExpected(from: rootExports, filePath: filePath)
         } catch let err as PartRuntimeError {
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         } catch {
             return .failure(
                 PartRuntimeError(
@@ -625,7 +623,8 @@ private final class JSCPartEvaluator {
                         line: 1,
                         column: 1,
                         message: "Invalid 'expected' export: \(error.localizedDescription)"
-                    )
+                    ),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -639,9 +638,16 @@ private final class JSCPartEvaluator {
             shape: shapeNode,
             expected: expectedBlock,
             parameters: parameters,
-            evaluatedOnMainThread: onMainThread
+            evaluatedOnMainThread: onMainThread,
+            loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
         )
         return .success(evaluation)
+    }
+
+    private func currentLoadedFiles(defaultFilePath: String) -> [String] {
+        var files = Set(modulesByPath.keys)
+        files.insert(defaultFilePath)
+        return files.sorted()
     }
 
     // MARK: Module Loading & Execution

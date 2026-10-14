@@ -38,19 +38,32 @@ public struct PartRuntimeError: Error, Sendable, Codable, Equatable, CustomStrin
     public let code: PartRuntimeErrorCode
     public let diagnostic: PartDiagnostic
     public let kernelError: KernelError?
+    public let loadedFiles: [String]
 
     public init(
         code: PartRuntimeErrorCode,
         diagnostic: PartDiagnostic,
-        kernelError: KernelError? = nil
+        kernelError: KernelError? = nil,
+        loadedFiles: [String] = []
     ) {
         self.code = code
         self.diagnostic = diagnostic
         self.kernelError = kernelError
+        self.loadedFiles = loadedFiles
     }
 
     public var description: String {
         diagnostic.description
+    }
+
+    public func withLoadedFiles(_ files: [String]) -> PartRuntimeError {
+        guard loadedFiles.isEmpty && !files.isEmpty else { return self }
+        return PartRuntimeError(
+            code: code,
+            diagnostic: diagnostic,
+            kernelError: kernelError,
+            loadedFiles: files
+        )
     }
 }
 
@@ -125,6 +138,7 @@ public struct PartScriptEvaluation: Sendable, Codable, Equatable {
     public let expected: PartExpected?
     public let parameters: [PartParameterSpec]
     public let evaluatedOnMainThread: Bool
+    public let loadedFiles: [String]
 
     public init(
         jobId: JobId,
@@ -132,7 +146,8 @@ public struct PartScriptEvaluation: Sendable, Codable, Equatable {
         shape: ShapeNode,
         expected: PartExpected? = nil,
         parameters: [PartParameterSpec] = [],
-        evaluatedOnMainThread: Bool = false
+        evaluatedOnMainThread: Bool = false,
+        loadedFiles: [String] = []
     ) {
         self.jobId = jobId
         self.solidId = solidId
@@ -140,6 +155,7 @@ public struct PartScriptEvaluation: Sendable, Codable, Equatable {
         self.expected = expected
         self.parameters = parameters
         self.evaluatedOnMainThread = evaluatedOnMainThread
+        self.loadedFiles = loadedFiles
     }
 }
 
@@ -152,6 +168,7 @@ public struct PartEvaluationOutput: Sendable {
     public let expected: PartExpected?
     public let parameters: [PartParameterSpec]
     public let evaluatedOnMainThread: Bool
+    public let loadedFiles: [String]
 
     public init(
         jobId: JobId,
@@ -160,7 +177,8 @@ public struct PartEvaluationOutput: Sendable {
         payload: MeshPayload,
         expected: PartExpected? = nil,
         parameters: [PartParameterSpec] = [],
-        evaluatedOnMainThread: Bool = false
+        evaluatedOnMainThread: Bool = false,
+        loadedFiles: [String] = []
     ) {
         self.jobId = jobId
         self.solidId = solidId
@@ -169,6 +187,7 @@ public struct PartEvaluationOutput: Sendable {
         self.expected = expected
         self.parameters = parameters
         self.evaluatedOnMainThread = evaluatedOnMainThread
+        self.loadedFiles = loadedFiles
     }
 }
 

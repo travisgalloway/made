@@ -94,11 +94,24 @@ struct InspectorPanelView: View {
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):
                 LabeledContent("Boolean", value: "\(op.rawValue)(\(solidA.rawValue), \(solidB.rawValue))")
+            case .part(let url, _):
+                LabeledContent("Source File") {
+                    Text(url.lastPathComponent)
+                        .monospaced()
+                        .textSelection(.enabled)
+                        .help(url.path)
+                }
+                LabeledContent("Live Reload") {
+                    Button("Reload Now") {
+                        workspace.reloadPart(obj.id)
+                    }
+                }
             }
             if let message = workspace.recomputeFailures.message(for: obj.id) {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .font(.caption)
+                    .textSelection(.enabled)
             }
         } header: {
             sectionHeader("Dimensions")

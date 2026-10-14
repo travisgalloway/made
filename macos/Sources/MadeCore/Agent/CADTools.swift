@@ -179,6 +179,8 @@ public final class CADToolRegistry {
             case .boolean(let op, let solidA, let solidB):
                 item["operation"] = op.rawValue
                 item["operands"] = [solidA.rawValue, solidB.rawValue]
+            case .part(let url, _):
+                item["file"] = url.path
             }
             summary.append(item)
         }
@@ -297,7 +299,7 @@ public final class CADToolRegistry {
         switch def {
         case .box(let p): return [("width", p.width), ("depth", p.depth), ("height", p.height)]
         case .cylinder(let p): return [("radius", p.radius), ("height", p.height)]
-        case .imported, .boolean: return nil
+        case .imported, .boolean, .part: return nil
         }
     }
     
@@ -383,6 +385,10 @@ public final class CADToolRegistry {
             resultDict["type"] = "boolean"
             resultDict["operation"] = op.rawValue
             resultDict["operands"] = [solidA.rawValue, solidB.rawValue]
+
+        case .part(let url, _):
+            resultDict["type"] = "part"
+            resultDict["file"] = url.path
         }
         
         if let data = try? JSONSerialization.data(withJSONObject: resultDict, options: .prettyPrinted),

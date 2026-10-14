@@ -10,6 +10,8 @@ public enum ObjectDef: Sendable, Equatable {
     case imported(name: String)
     /// A boolean result: the operation and its operand IDs, with no replay (#35).
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
+    /// A scripted `.part.ts` or `.part.js` source file on disk, with its last evaluated shape tree (#427).
+    case part(url: URL, shape: ShapeNode? = nil)
     
     public var kind: String {
         switch self {
@@ -17,6 +19,7 @@ public enum ObjectDef: Sendable, Equatable {
         case .cylinder: return "cylinder"
         case .imported: return "imported"
         case .boolean: return "boolean"
+        case .part: return "part"
         }
     }
 }
@@ -101,6 +104,8 @@ public enum DocumentLimits {
             return .box(BoxParams(width: boxWidth.clamp(p.width), depth: boxDepth.clamp(p.depth), height: boxHeight.clamp(p.height)))
         case .cylinder(let p):
             return .cylinder(CylinderParams(radius: cylinderRadius.clamp(p.radius), height: cylinderHeight.clamp(p.height)))
+        case .part(let url, let shape):
+            return .part(url: url.standardizedFileURL, shape: shape)
         case .imported, .boolean:
             return def
         }
@@ -150,9 +155,36 @@ public final class DocumentModel {
     /// Adds an object under an ID from `reserveId(for:)`, so a kernel call can use the ID before the object exists.
     @discardableResult
     public func addObject(_ id: ObjectId, def: ObjectDef, transform: Transform = .identity) -> ObjectId {
-        let obj = SceneObject(id: id, def: DocumentLimits.clamp(def), transform: transform)
+        let clamped = DocumentLimits.clamp(def)
+        let defaultName: String?
+        if case .part(let url, _) = clamped, !url.lastPathComponent.isEmpty {
+            defaultName = url.lastPathComponent
+        } else {
+            defaultName = nil
+        }
+        let obj = SceneObject(id: id, name: defaultName, def: clamped, transform: transform)
         objects.append(obj)
         return id
+    }
+
+    /// Adds a scripted `.part.ts` or `.part.js` source file to the document under a fresh `part-<seq>` ID.
+    @discardableResult
+    public func addPart(url: URL, name: String? = nil, transform: Transform = .identity) -> ObjectId {
+        let canonical = url.standardizedFileURL
+        let def = ObjectDef.part(url: canonical, shape: nil)
+        let id = reserveId(for: def)
+        let displayName = name ?? (canonical.lastPathComponent.isEmpty ? id.rawValue : canonical.lastPathComponent)
+        let obj = SceneObject(id: id, name: displayName, def: def, transform: transform)
+        objects.append(obj)
+        return id
+    }
+
+    /// Records the latest successfully evaluated `ShapeNode` for a scripted part object (#427).
+    public func setPartShape(id: ObjectId, shape: ShapeNode) {
+        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
+        if case .part(let url, _) = objects[index].def {
+            objects[index].def = .part(url: url, shape: shape)
+        }
     }
     
     public func removeObject(id: ObjectId) {
@@ -179,7 +211,7 @@ public final class DocumentModel {
             }
             objects[index].def = .cylinder(params)
             
-        case .imported, .boolean:
+        case .imported, .boolean, .part:
             break
         }
     }
