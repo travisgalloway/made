@@ -146,7 +146,7 @@ public final class PartReloadController {
             url: canonical,
             watcher: watcher,
             knownLoadedFiles: Set(initialSnapshot.watchedFileURLs.map(\.path)),
-            lastSubmittedSnapshot: evaluateImmediately ? nil : initialSnapshot,
+            lastSubmittedSnapshot: initialSnapshot,
             pendingDebounceSnapshot: nil,
             activeJobId: nil,
             inFlightTask: nil,
@@ -202,6 +202,10 @@ public final class PartReloadController {
         state.activeJobId = jobId
         state.isDebouncing = false
         state.pendingDebounceSnapshot = nil
+        state.lastSubmittedSnapshot = PartDependencySnapshot.capture(
+            rootFileURL: state.url,
+            additionalFilePaths: state.knownLoadedFiles
+        )
 
         let url = state.url
         let task = Task { @MainActor [weak self] () -> PartRuntimeResult<PartEvaluationOutput> in

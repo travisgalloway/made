@@ -23,7 +23,7 @@ public final class PartRuntime: @unchecked Sendable {
     ) {
         self.kernelClient = kernelClient
         self.maxLoopTicks = max(1, maxLoopTicks)
-        self.worker = JSCWorkerThread()
+        self.worker = JSCWorkerThread.shared
     }
 
     /// URL of the bundled `made.d.ts` TypeScript declarations inside `MadeCore`'s resource bundle or app bundle.
@@ -315,8 +315,10 @@ public final class PartRuntime: @unchecked Sendable {
 
 /// Runs all `JSVirtualMachine` and `JSContext` operations on a single non-main OS thread (`pthread_main_np() == 0`).
 private final class JSCWorkerThread: @unchecked Sendable {
+    static let shared = JSCWorkerThread()
+    private static let stripperSource: String? = loadBundledScript(named: "ts-stripper.js")
+
     private let cond = NSCondition()
-    private var isInitialized = false
     private var queue: [() -> Void] = []
     private var vm: JSVirtualMachine!
     private var transformContext: JSContext!
@@ -325,33 +327,23 @@ private final class JSCWorkerThread: @unchecked Sendable {
     init() {
         let thread = Thread { [weak self] in
             guard let self else { return }
-            let machine = JSVirtualMachine()!
-            let ctx = JSContext(virtualMachine: machine)!
-            ctx.name = "made.ts-stripper"
-            if let stripperSource = Self.loadBundledScript(named: "ts-stripper.js") {
-                ctx.evaluateScript(stripperSource, withSourceURL: URL(string: "made://internal/ts-stripper.js"))
+            autoreleasepool {
+                let machine = JSVirtualMachine()!
+                let ctx = JSContext(virtualMachine: machine)!
+                ctx.name = "made.ts-stripper"
+                if let stripperSource = Self.stripperSource {
+                    ctx.evaluateScript(stripperSource, withSourceURL: URL(string: "made://internal/ts-stripper.js"))
+                }
+                let fn = ctx.objectForKeyedSubscript("__made_transformSource")!
+                self.vm = machine
+                self.transformContext = ctx
+                self.transformFn = fn
             }
-            let fn = ctx.objectForKeyedSubscript("__made_transformSource")!
-
-            self.cond.lock()
-            self.vm = machine
-            self.transformContext = ctx
-            self.transformFn = fn
-            self.isInitialized = true
-            self.cond.signal()
-            self.cond.unlock()
-
             self.runLoop()
         }
         thread.name = "made.part-runtime.jsc"
         thread.qualityOfService = .userInitiated
         thread.start()
-
-        cond.lock()
-        while !isInitialized {
-            cond.wait()
-        }
-        cond.unlock()
     }
 
     func perform<T: Sendable>(_ work: @escaping @Sendable (JSVirtualMachine, JSValue) -> T) async -> T {

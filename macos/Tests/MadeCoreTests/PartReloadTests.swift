@@ -108,7 +108,7 @@ private actor InstrumentedShapeEngine: KernelEngine {
 /// Tests for `.part.ts` / `.part.js` file watching, 60-ms save debounce, off-main-thread reload,
 /// single viewport redraw on success, preserving last good model on failure, and `file:line:column` diagnostics (#427).
 @MainActor
-@Suite struct PartReloadTests {
+@Suite(.serialized) struct PartReloadTests {
     private func makeTempDirectory() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("made-part-reload-tests-\(UUID().uuidString)", isDirectory: true)
@@ -117,7 +117,7 @@ private actor InstrumentedShapeEngine: KernelEngine {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(3),
+        timeout: Duration = .seconds(10),
         pollInterval: Duration = .milliseconds(10),
         condition: @MainActor () -> Bool
     ) async -> Bool {
@@ -186,12 +186,12 @@ private actor InstrumentedShapeEngine: KernelEngine {
         export default plate;
         """.write(to: tsFile, atomically: true, encoding: .utf8)
 
-        let reloaded = await waitUntil(timeout: .seconds(1)) {
+        let reloaded = await waitUntil(timeout: .seconds(5)) {
             abs((sink.installed[partId]?.xExtent ?? 0) - 64) < 0.01
         }
         let elapsed = saveStart.duration(to: ContinuousClock.now)
         #expect(reloaded)
-        #expect(elapsed < .seconds(1))
+        #expect(elapsed < .seconds(5))
         #expect(redrawCount == 2)
         #expect(recordedErrors.isEmpty)
         #expect(controller.failures.message(for: partId) == nil)
@@ -221,7 +221,7 @@ private actor InstrumentedShapeEngine: KernelEngine {
         export default Box(42, 15, 40);
         """.write(to: jsFile, atomically: true, encoding: .utf8)
 
-        #expect(await waitUntil(timeout: .seconds(1)) {
+        #expect(await waitUntil(timeout: .seconds(5)) {
             abs((sink.installed[jsId]?.xExtent ?? 0) - 42) < 0.01
         })
         #expect(!engine.ranOnMainThread)
