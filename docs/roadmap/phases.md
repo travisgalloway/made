@@ -15,7 +15,7 @@ Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). T
 | Phase | Description | Status | Milestone | Open gaps |
 | ----- | ----------- | ------ | --------- | --------- |
 | **0** | Native Foundation | Complete | None | None. |
-| **1** | Metal 4 Viewport & Input | Complete | Phase 1: Metal 3 Viewport & Input (closed; milestone title predates Metal 4) | None. |
+| **1** | Metal 4 Viewport & Input | Complete | Phase 1: Metal 3 Viewport & Input | None. |
 | **2** | Native CSG Kernel | In progress | Phase 2: Native CSG Kernel | Kernel cache not freed on removal (#93); recompute overwrites a transform (#92); parameter clamping (#104); recompute failure message (#109). |
 | **3** | Agentic Subsystem | In progress | Phase 3: Agentic Subsystem & MCP | Actor isolation (#91); protocol and argument validation (#95 to #101); the file-edit agent workflow (#427 to #429). |
 | **4.0** | Architecture Decisions | In progress | Phase 4.0: Architecture Decisions | Open decisions listed in the architecture documents. |
@@ -42,7 +42,7 @@ Established the Swift 6 package hierarchy for `MadeNative`:
 
 ## Phase 1: Metal 4 Viewport & Input (Complete)
 Built:
-- Direct Metal 4 pipeline with Metal Shading Language shaders compiled at build time (originally Metal 3).
+- Direct Metal 4 pipeline with Metal Shading Language shaders compiled at build time.
 - On-demand invalidation loop (`MTKView.isPaused = true`, `enableSetNeedsDisplay = true`).
 - Telemetry HUD showing render count and draw calls (#94).
 - `GestureArbiter` and `PointerRouter` modules, unit tested (Invariant 8).

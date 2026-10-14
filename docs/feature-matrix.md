@@ -51,7 +51,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | VIEW-20 | A user can zoom in, zoom out, zoom to fit the visible solids, and reset the view from the toolbar or with =, -, F and H | done | done | n/a | Shipped |  | n/a |
 | VIEW-21 | A user can switch the camera to a Perspective, Top, Front, Right or Isometric preset from the View Angle menu in the toolbar | done | done | n/a | Shipped |  | n/a |
 | VIEW-22 | A user sees a colored marker at the active snap point (amber vertex, cyan edge, green grid) while dragging under the Select tool | done | n/a | n/a | Shipped |  | n/a |
-| VIEW-23 | A user sees an "Initializing Metal 4" progress view, and a "Metal Unavailable" message with the reason (no device, pipeline failed, device lost) when Metal 4 cannot start or the device is removed | done | n/a | n/a | Shipped |  | n/a |
+| VIEW-23 | A user sees an "Initializing Metal 4" progress view, and a "Metal Unavailable" message with the reason (no device, pipeline failed, device lost) when Metal 4 cannot start or the device is removed | done | n/a | n/a | Shipped | #255 | n/a |
 | VIEW-24 | A developer can force the no-GPU path with `--force-no-gpu`, `--no-gpu`, `--disable-metal`, or `MADE_FORCE_NO_GPU` and `MADE_DISABLE_METAL` | n/a | done | n/a | Shipped |  | n/a |
 | VIEW-25 | A developer can switch the renderer to an orthographic projection with `MetalRenderer.projectionMode`; no caller sets it and no UI control existss | none | done | n/a | In progress | #128 | n/a |
 | VIEW-26 | A maintainer gets a failing swift test run when a Viewport file references an Agent or Scene type | n/a | n/a | n/a | Shipped | #317 | n/a |
