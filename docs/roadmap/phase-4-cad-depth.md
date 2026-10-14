@@ -57,8 +57,8 @@ The document model currently holds an ordered array of objects with `addObject`,
   - Allows selecting any planar solid face or standard datum plane ($XY$, $XZ$, $YZ$) as an active sketch plane.
   - Interactive drawing of lines, arcs, circles, and Bézier curves.
   - Extrudes closed 2D profiles into 3D solids using pure-Swift path math in Euclid.
-- **4.6 2D Geometric Constraint Solver** (#37):
-  - Solves 2D geometric constraints: coincident, horizontal/vertical, parallel, perpendicular, tangent, concentric, and dimensional distance.
+- **4.6 2D Geometric Constraint Solver** (#37, [ADR-D4](../architecture/adr/ADR-D4-2d-constraint-solver.md), #146):
+  - Solves 2D geometric constraints: coincident, horizontal/vertical, parallel, perpendicular, tangent, concentric, and dimensional distance using FreeCAD `planegcs` (LGPL-2.1) with a clean-room Swift fallback in `libs/` (#415).
   - Predictive constraint inference during interactive sketch drawing.
 
 ---
