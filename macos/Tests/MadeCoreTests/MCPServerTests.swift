@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import Network
 import Synchronization
+import Darwin
 @testable import MadeCore
 
 @Suite @MainActor struct MCPServerTests {
@@ -346,9 +347,71 @@ import Synchronization
         #expect(sink.invalidations >= 2)
     }
     
-    /// Sends `parts` to the listener on localhost, half-closes, and returns each response line read until EOF.
-    private func exchangeTCP(port: UInt16, parts: [Data]) async throws -> [[String: Any]] {
-        let connection = try await connectTCP(port: port)
+    @Test func testLoopbackRestrictionConfiguredOnListener() throws {
+        let server = makeServer()
+        try server.start(port: 19825)
+        defer { server.stop() }
+        
+        #expect(server.isRunning)
+        #expect(server.listener?.parameters.requiredInterfaceType == .loopback)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testIPv6LoopbackConnectionSucceeds() async throws {
+        let server = makeServer()
+        try server.start(port: 19826)
+        defer { server.stop() }
+        
+        let initRequest = Data((#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"# + "\n").utf8)
+        let responses = try await exchangeTCP(host: "::1", port: 19826, parts: [initRequest])
+        
+        #expect(responses.count == 1)
+        #expect(responses.first?["id"] as? Int == 1)
+        let result = responses.first?["result"] as? [String: Any]
+        #expect(result?["protocolVersion"] as? String == "2024-11-05")
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testNonLoopbackConnectionRefused() async throws {
+        let server = makeServer()
+        try server.start(port: 19827)
+        defer { server.stop() }
+        
+        #expect(server.listener?.parameters.requiredInterfaceType == .loopback)
+        if let nonLoopbackIP = findLocalNonLoopbackIPv4Address() {
+            let reachedReady = await connectTCPHost(nonLoopbackIP, port: 19827)
+            #expect(!reachedReady)
+        } else {
+            #expect(server.listener?.parameters.requiredInterfaceType == .loopback)
+        }
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testServerStopAndRestartOnSamePort() async throws {
+        let server = makeServer()
+        try server.start(port: 19828)
+        #expect(server.isRunning)
+        #expect(server.listener?.parameters.requiredInterfaceType == .loopback)
+        
+        let initRequest = Data((#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"# + "\n").utf8)
+        let responses1 = try await exchangeTCP(port: 19828, parts: [initRequest])
+        #expect(responses1.count == 1)
+        #expect(responses1.first?["id"] as? Int == 1)
+        
+        server.stop()
+        #expect(!server.isRunning)
+        #expect(server.listener == nil)
+        
+        try server.start(port: 19828)
+        defer { server.stop() }
+        #expect(server.isRunning)
+        #expect(server.listener?.parameters.requiredInterfaceType == .loopback)
+        
+        let responses2 = try await exchangeTCP(port: 19828, parts: [initRequest])
+        #expect(responses2.count == 1)
+        #expect(responses2.first?["id"] as? Int == 1)
+    }
+    
+    /// Sends `parts` to the listener on host, half-closes, and returns each response line read until EOF.
+    private func exchangeTCP(host: String = "127.0.0.1", port: UInt16, parts: [Data]) async throws -> [[String: Any]] {
+        let connection = try await connectTCP(host: host, port: port)
         defer { connection.cancel() }
         for part in parts {
             connection.send(content: part, completion: .contentProcessed({ _ in }))
@@ -370,11 +433,12 @@ import Synchronization
         }
     }
     
-    /// Connects to localhost, retrying while the listener finishes becoming ready.
-    private func connectTCP(port: UInt16) async throws -> NWConnection {
+    /// Connects to host, retrying while the listener finishes becoming ready.
+    private func connectTCP(host: String = "127.0.0.1", port: UInt16) async throws -> NWConnection {
         let endpointPort = try #require(NWEndpoint.Port(rawValue: port))
+        let endpointHost = NWEndpoint.Host(host)
         for _ in 0..<50 {
-            let connection = NWConnection(host: "127.0.0.1", port: endpointPort, using: .tcp)
+            let connection = NWConnection(host: endpointHost, port: endpointPort, using: .tcp)
             let ready = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 let once = ResumeOnce(continuation)
                 connection.stateUpdateHandler = { state in
@@ -390,8 +454,80 @@ import Synchronization
             connection.cancel()
             try await Task.sleep(for: .milliseconds(50))
         }
-        Issue.record("Could not connect to the MCP listener on port \(port)")
+        Issue.record("Could not connect to the MCP listener on \(host):\(port)")
         throw CancellationError()
+    }
+    
+    /// Attempts a connection to `host:port` and waits up to `timeout` for `.ready`.
+    private func connectTCPHost(_ host: String, port: UInt16, timeout: Duration = .milliseconds(500)) async -> Bool {
+        guard let endpointPort = NWEndpoint.Port(rawValue: port) else { return false }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
+        defer { connection.cancel() }
+        
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    let once = ResumeOnce(continuation)
+                    connection.stateUpdateHandler = { state in
+                        switch state {
+                        case .ready:
+                            once.resume(true)
+                        case .failed, .cancelled:
+                            once.resume(false)
+                        case .waiting(let error):
+                            if case .posix(let code) = error, code == .ECONNREFUSED {
+                                once.resume(false)
+                            }
+                        default:
+                            break
+                        }
+                    }
+                    connection.start(queue: .global())
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+    
+    /// Returns the first non-loopback active IPv4 address on the machine, if any.
+    private func findLocalNonLoopbackIPv4Address() -> String? {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
+        defer { freeifaddrs(ifaddr) }
+
+        var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
+        while let current = ptr {
+            let flags = Int32(current.pointee.ifa_flags)
+            let isUp = (flags & IFF_UP) != 0
+            let isLoopback = (flags & IFF_LOOPBACK) != 0
+            if isUp && !isLoopback, let addr = current.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
+                var hostBuffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                if getnameinfo(
+                    addr,
+                    socklen_t(addr.pointee.sa_len),
+                    &hostBuffer,
+                    socklen_t(hostBuffer.count),
+                    nil,
+                    0,
+                    NI_NUMERICHOST
+                ) == 0 {
+                    let ip = hostBuffer.withUnsafeBufferPointer { ptr in
+                        ptr.baseAddress.map { String(cString: $0) } ?? ""
+                    }
+                    if !ip.isEmpty && ip != "0.0.0.0" {
+                        return ip
+                    }
+                }
+            }
+            ptr = current.pointee.ifa_next
+        }
+        return nil
     }
 }
 
