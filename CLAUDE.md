@@ -57,7 +57,7 @@ macos/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, Geometry
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
     Viewport/              MetalRenderer, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation)
-    Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool
+    Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking
     Scene/                 DocumentModel (@Observable), SolidMeshApplier, KernelRegeneration
     Agent/                 MCPProtocol, MCPServer, MCPLineFramer (input framing), CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
@@ -99,7 +99,7 @@ Enforcement is weaker than the doc's matrix once claimed. Check `docs/architectu
 
 - `MetalRenderer` owns the pipeline and the per-solid `meshes` dictionary. `CADMetalViewRepresentable` hosts the `MTKView`.
 - `RenderInstrumentation.shared` records `renderCount`, `drawCalls`, and the last `InvalidateReason`. Tests and the viewport status bar read it. Publish new viewport telemetry there.
-- The ground grid (#102), axes indicator (#103), and orbit, pan, and zoom navigation (#87) are built. Object picking is not.
+- The ground grid (#102), axes indicator (#103), orbit, pan, and zoom navigation (#87), and viewport object picking (#69) are built.
 
 ## Coordinate convention: right-handed Z-up
 
@@ -110,8 +110,9 @@ Enforcement is weaker than the doc's matrix once claimed. Check `docs/architectu
 - `PointerRouter` chooses the channel. A pen always manipulates. A mouse decides click or drag at `mouseClickThresholdPx` (6 px).
 - `GestureArbiter` locks navigate or manipulate on the first move.
 - `Snapping` resolves vertex, then edge, then grid, by strict priority.
+- `Picking` tests rays against candidate mesh bounds for nearest-hit solid selection.
 
-All three are pure and unit-tested. `CADMetalViewRepresentable` calls them for mouse and trackpad input. The touch path and object picking remain unwired.
+All four are pure and unit-tested. `CADMetalViewRepresentable` calls them for mouse and pen input and object picking. The touch path remains unwired.
 
 ## Document model and agent API
 

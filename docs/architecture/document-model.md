@@ -58,7 +58,7 @@ public enum ObjectDef: Sendable, Equatable {
 }
 ```
 
-Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model stores an object name, a visibility flag, a lock flag, and material attributes. Selection is `WorkspaceModel.selectedId` in `MadeApp`, not part of the model (#69).
+Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model stores an object name, a visibility flag, a lock flag, and material attributes. Selection is stored in `DocumentModel.selectedId` in `MadeCore` with a no-op on unchanged values (invariant 2), and delegated to by `WorkspaceModel.selectedId` (#69).
 
 ### Supported Object Types
 1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).

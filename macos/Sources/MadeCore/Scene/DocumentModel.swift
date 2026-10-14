@@ -120,6 +120,20 @@ public let cylinderSolidId = SolidId("cylinder-1")
 public final class DocumentModel {
     public private(set) var objects: [SceneObject] = []
     private var seq: Int = 1
+    @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
+
+    public var selectedId: ObjectId? {
+        get {
+            access(keyPath: \.selectedId)
+            return _selectedId
+        }
+        set {
+            guard _selectedId != newValue else { return }
+            withMutation(keyPath: \.selectedId) {
+                _selectedId = newValue
+            }
+        }
+    }
     
     public init() {
         // Initialize with default box and cylinder matching document.svelte.ts
@@ -189,6 +203,9 @@ public final class DocumentModel {
     
     public func removeObject(id: ObjectId) {
         objects.removeAll(where: { $0.id == id })
+        if selectedId == id {
+            selectedId = nil
+        }
     }
     
     public func setParam(id: ObjectId, key: String, value: Float) {

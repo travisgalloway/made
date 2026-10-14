@@ -18,7 +18,10 @@ final class WorkspaceModel {
     let partRuntime = PartRuntime()
     let viewportManager = ViewportStateManager()
 
-    var selectedId: ObjectId? = boxSolidId
+    var selectedId: ObjectId? {
+        get { document.selectedId }
+        set { document.selectedId = newValue }
+    }
     var coordinator: CADMetalViewRepresentable.Coordinator?
     private(set) var renderStats = RenderStats()
     var activeSnapKind: SnapKind?
@@ -242,7 +245,6 @@ final class WorkspaceModel {
         if let renderer = viewportManager.renderer {
             _ = SolidMeshApplier.remove(id: id, from: renderer)
         }
-        if selectedId == id { selectedId = document.objects.first?.id }
         log(.info, "Scene", "Removed object \(id.rawValue)")
         invalidateViewport(.model)
     }
