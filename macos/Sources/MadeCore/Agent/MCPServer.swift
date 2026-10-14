@@ -13,11 +13,40 @@ public final class MCPServer: @unchecked Sendable {
     private let decoder = JSONDecoder()
     
     // In-app TCP server state
-    internal private(set) var listener: NWListener?
+    private struct TrackedConnection: Sendable {
+        let connection: NWConnection
+        let task: Task<Void, Never>
+        let continuation: AsyncStream<MCPLineFramer.Frame>.Continuation
+    }
+    
+    private let lock = NSLock()
+    private var _listener: NWListener?
+    private var _isRunning: Bool = false
+    private var _port: UInt16 = 9820
+    private var _onStateChange: (@Sendable (Bool) -> Void)? = nil
+    private var activeConnections: [ObjectIdentifier: TrackedConnection] = [:]
     private let queue = DispatchQueue(label: "com.made.mcp.server", qos: .userInitiated)
-    public private(set) var isRunning: Bool = false
-    public private(set) var port: UInt16 = 9820
-    public var onStateChange: (@Sendable (Bool) -> Void)? = nil
+    
+    internal var listener: NWListener? {
+        lock.withLock { _listener }
+    }
+    
+    public var isRunning: Bool {
+        lock.withLock { _isRunning }
+    }
+    
+    public var port: UInt16 {
+        lock.withLock { _port }
+    }
+    
+    public var onStateChange: (@Sendable (Bool) -> Void)? {
+        get { lock.withLock { _onStateChange } }
+        set { lock.withLock { _onStateChange = newValue } }
+    }
+    
+    internal var activeConnectionCount: Int {
+        lock.withLock { activeConnections.count }
+    }
     
     public convenience init(toolRegistry: CADToolRegistry) {
         self.init(toolRegistry: toolRegistry, encoder: JSONEncoder())
@@ -38,74 +67,159 @@ public final class MCPServer: @unchecked Sendable {
         parameters.requiredInterfaceType = .loopback
         parameters.allowLocalEndpointReuse = true
         let listener = try NWListener(using: parameters, on: nwPort)
-        self.port = port
-        self.listener = listener
+        
+        lock.withLock {
+            self._port = port
+            self._listener = listener
+            self._isRunning = true
+        }
         
         listener.newConnectionHandler = { [weak self] connection in
             self?.handleConnection(connection)
         }
         
         listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
             switch state {
             case .ready:
-                self?.isRunning = true
-                self?.onStateChange?(true)
+                let notify = self.lock.withLock { () -> Bool in
+                    if !self._isRunning {
+                        self._isRunning = true
+                        return true
+                    }
+                    return false
+                }
+                if notify {
+                    let cb = self.lock.withLock { self._onStateChange }
+                    cb?(true)
+                }
             case .failed, .cancelled:
-                self?.isRunning = false
-                self?.onStateChange?(false)
+                let (notify, conns) = self.lock.withLock { () -> (Bool, [TrackedConnection]) in
+                    let wasRunning = self._isRunning
+                    self._isRunning = false
+                    let conns = Array(self.activeConnections.values)
+                    self.activeConnections.removeAll()
+                    return (wasRunning, conns)
+                }
+                for entry in conns {
+                    entry.task.cancel()
+                    entry.continuation.finish()
+                    entry.connection.cancel()
+                }
+                if notify {
+                    let cb = self.lock.withLock { self._onStateChange }
+                    cb?(false)
+                }
             default:
                 break
             }
         }
         
         listener.start(queue: queue)
-        self.isRunning = true
-        self.onStateChange?(true)
+        let cb = lock.withLock { _onStateChange }
+        cb?(true)
     }
     
     /// Stops the in-app MCP TCP listener and terminates active connections.
     public func stop() {
-        guard let oldListener = self.listener else {
-            isRunning = false
-            onStateChange?(false)
-            return
+        let (oldListener, connectionsToCancel) = lock.withLock { () -> (NWListener?, [TrackedConnection]) in
+            let l = _listener
+            _listener = nil
+            let conns = Array(activeConnections.values)
+            activeConnections.removeAll()
+            return (l, conns)
         }
-        self.listener = nil
-        if case .cancelled = oldListener.state {
-            isRunning = false
-            onStateChange?(false)
-            return
+        
+        for entry in connectionsToCancel {
+            entry.task.cancel()
+            entry.continuation.finish()
+            entry.connection.cancel()
         }
-        let semaphore = DispatchSemaphore(value: 0)
-        oldListener.stateUpdateHandler = { state in
-            if case .cancelled = state {
-                semaphore.signal()
+        
+        if let oldListener {
+            if case .cancelled = oldListener.state {
+                // already cancelled
+            } else {
+                let semaphore = DispatchSemaphore(value: 0)
+                oldListener.stateUpdateHandler = { state in
+                    if case .cancelled = state {
+                        semaphore.signal()
+                    }
+                }
+                oldListener.cancel()
+                _ = semaphore.wait(timeout: .now() + .milliseconds(500))
             }
         }
-        oldListener.cancel()
-        _ = semaphore.wait(timeout: .now() + .milliseconds(500))
-        isRunning = false
-        onStateChange?(false)
+        
+        lock.withLock {
+            _isRunning = false
+        }
+        let callback = lock.withLock { _onStateChange }
+        callback?(false)
     }
     
     private func handleConnection(_ connection: NWConnection) {
         let (frames, continuation) = AsyncStream.makeStream(of: MCPLineFramer.Frame.self)
-        // One consumer per connection answers lines in arrival order.
-        Task {
+        let connectionId = ObjectIdentifier(connection)
+        
+        let task = Task { [weak self] in
             for await frame in frames {
+                guard !Task.isCancelled, let self, self.isRunning else { break }
                 if let response = await self.processFrame(frame) {
+                    guard !Task.isCancelled, self.isRunning else { break }
                     connection.send(content: Data((response + "\n").utf8), completion: .contentProcessed({ _ in }))
                 }
-                // An oversized line ends the connection after its -32700, so the peer cannot keep streaming.
                 if frame == .oversized { break }
             }
-            // Sends complete in order, so the final message flushes every response before the cancel.
-            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in
+            if !Task.isCancelled {
+                connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ [weak self] _ in
+                    connection.cancel()
+                    self?.removeConnection(connection)
+                }))
+            } else {
                 connection.cancel()
-            }))
+                self?.removeConnection(connection)
+            }
         }
+        
+        let entry = TrackedConnection(connection: connection, task: task, continuation: continuation)
+        
+        let accepted = lock.withLock { () -> Bool in
+            guard _isRunning, _listener != nil else { return false }
+            activeConnections[connectionId] = entry
+            return true
+        }
+        
+        guard accepted else {
+            task.cancel()
+            continuation.finish()
+            connection.cancel()
+            return
+        }
+        
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .cancelled, .failed:
+                self?.removeConnection(connection)
+            default:
+                break
+            }
+        }
+        
         connection.start(queue: queue)
         receiveMessages(on: connection, framer: MCPLineFramer(maximumLineLength: maximumLineLength), continuation: continuation)
+    }
+    
+    private func removeConnection(_ connection: NWConnection) {
+        let id = ObjectIdentifier(connection)
+        let entry = lock.withLock {
+            activeConnections.removeValue(forKey: id)
+        }
+        if let entry {
+            entry.task.cancel()
+            entry.continuation.finish()
+            entry.connection.cancel()
+        }
     }
     
     /// Threads the framer through each receive by value; callbacks run serially on `queue`.
@@ -124,7 +238,7 @@ public final class MCPServer: @unchecked Sendable {
             if isComplete {
                 for frame in framer.finish() { continuation.yield(frame) }
                 continuation.finish()
-            } else if let self, error == nil {
+            } else if let self, self.isRunning, error == nil {
                 self.receiveMessages(on: connection, framer: framer, continuation: continuation)
             } else {
                 continuation.finish()

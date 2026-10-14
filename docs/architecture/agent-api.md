@@ -66,6 +66,8 @@ The listener shares the window's own `DocumentModel`, `KernelClient`, `PartReloa
 
 **Interface restriction (user decision, 2026-10-11).** The listener accepts connections only from the local machine (loopback). `MCPServer.start` configures `NWParameters.tcp` with `requiredInterfaceType = .loopback`, restricting listener interfaces to `127.0.0.1` and `::1`. Any connection attempt targeting a non-loopback network address is refused (#129). The MCP popover displays the address as `127.0.0.1:9820`.
 
+**Connection tracking and stop lifecycle (user decision, 2026-10-14).** Every accepted `NWConnection` is tracked in `MCPServer.activeConnections` under an `NSLock`. Stopping the server (`MCPServer.stop()`) atomically drains and cancels all tracked connections, cancels their per-connection consumer tasks and stream continuations, and closes the TCP sockets. In-flight tool responses are suppressed upon stop so cancelled connections emit no response data. Sockets closed or failed by the remote peer are automatically removed from the tracking table. Server state `isRunning` transitions to `false` and triggers `onStateChange?(false)` after listener and connection cancellation complete, ensuring disconnected clients cannot mutate the document after the GUI stops the server (#130).
+
 ### Configuration for Claude Desktop / Cursor
 Add `made` to your `claude_desktop_config.json`:
 
