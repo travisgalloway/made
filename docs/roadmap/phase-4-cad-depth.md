@@ -30,9 +30,9 @@ The document model holds an ordered array of objects with `addObject`, `removeOb
 
 - Open scene work: generalize the scene and inspector (#66, #67), selection (#69, #70), add and remove objects (#73), feature tree (#34).
 
-- **4.1 Native `.made` Document Package** (#83):
+- **4.1 Native `.made` Document Package** (#83, [ADR-D7](../architecture/adr/ADR-D7-made-encoding.md)):
   - Conforms to Apple's `FileDocument` / `ReferenceFileDocument` protocols with exported UTType `com.made.cad.document`.
-  - Serializes scene graphs, parametric feature histories, and embedded STEP assets.
+  - Directory package containing canonical JSON (`manifest.json`, `document.json`), plain-text `.part.ts` sources (`parts/`), embedded STEP/IGES assets (`assets/`), and a Git-ignored binary cache (`cache/`).
 - **4.2 Undo/Redo Engine (Command Pattern)** (#39):
   - Integrates system `UndoManager` with `DocumentModel`'s command API (`addObject`, `removeObject`, `setParam`, `setTransform`).
   - Restoring a previous state issues a command that invalidates only the affected solid.
