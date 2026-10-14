@@ -22,6 +22,7 @@ public struct KernelRestart: Sendable, Equatable {
 /// Cache entry counts held by an engine. Lets tests prove dispose leaves nothing behind.
 public struct KernelEngineCounts: Equatable, Sendable {
     public var solids = 0
+    /// Number of cached Euclid meshes held in the Tier 1 fast CSG engine cache (ADR-D9 #247).
     public var euclidMeshes = 0
     
     public init(solids: Int = 0, euclidMeshes: Int = 0) {

@@ -2,6 +2,16 @@ import Foundation
 import Euclid
 import simd
 
+/// Pure-Swift Constructive Solid Geometry (CSG) engine powered by `nicklockwood/Euclid` (0.9.6).
+///
+/// **Tier 1 Fast CSG Engine (ADR-D1, ADR-D9 #247)**:
+/// Euclid is permanently retained as `made`'s Tier 1 pure-Swift fast CSG preview engine and unit test backend.
+/// It provides zero-C++ build times, sub-millisecond interactive parameter scrubbing in the Inspector,
+/// instant procedural shape tree evaluation (`ShapeEvaluator`), and an in-process test fixture backend,
+/// while OpenCASCADE Technology (OCCT) serves as the Tier 2 canonical B-Rep kernel (ADR-D1).
+///
+/// Adheres strictly to Invariant 4 (engine-neutral wire contract via `MeshPayload`) and
+/// Invariant 1 (off-main-thread kernel execution).
 public enum EuclidEngine {
     /// Converts a Euclid.Mesh into a GPU-ready indexed MeshPayload in right-handed Z-up coordinates.
     /// Counts triangles first so the vertices are written once, straight into shared storage.

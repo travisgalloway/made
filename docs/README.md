@@ -37,7 +37,7 @@ Then navigate based on your task:
 | **UI Framework** | SwiftUI (macOS 26+; iPadOS is planned, #84) |
 | **3D Rendering** | Metal 4, MetalKit (`MTKView`), MSL shaders compiled at build time |
 | **Memory Architecture** | Metal buffers allocated with `.storageModeShared`; mesh arrays are copied in at upload |
-| **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) |
+| **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) permanently retained for fast preview and tests ([ADR-D9](./architecture/adr/ADR-D9-fate-of-euclid-mesh-path.md), #247) |
 | **Geometry Kernel (Tier 2)** | Canonical B-rep kernel ([ADR-D1](./architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142), planned in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) with Swift fallback (#418) |
 | **Modeling Paradigm** | Hybrid history-based feature list recording direct edits as features; multi-body parts by default ([ADR-D2](./architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150) |
 | **Topological Naming** | Query-based references from generation history (`BRepTools_History`) with fallback geometric signatures; index prohibition ([ADR-D3](./architecture/adr/ADR-D3-topological-naming.md), #144, #152) |

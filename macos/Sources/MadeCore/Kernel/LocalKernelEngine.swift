@@ -1,7 +1,11 @@
 import Foundation
 import Euclid
 
-/// Runs Euclid geometry in the calling process. The kernel service hosts one; unbundled runs and tests use it directly.
+/// Runs Tier 1 Euclid CSG geometry in the calling process (ADR-D1, ADR-D9 #247).
+///
+/// Serves as the in-process execution engine for unbundled development runs, interactive procedural previews,
+/// and unit test suites, providing instant test execution and sub-millisecond shape evaluation without XPC overhead.
+/// The `MadeKernelService` XPC service hosts an instance in production (Invariants 1 & 7).
 public actor LocalKernelEngine: KernelEngine {
     private var solids: [SolidId: MeshPayload] = [:]
     private var euclidMeshes: [SolidId: Euclid.Mesh] = [:]

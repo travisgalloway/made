@@ -2,7 +2,11 @@ import Foundation
 import Euclid
 import simd
 
-/// Turns a validated shape tree into a Euclid mesh. Only `LocalKernelEngine` calls it, on the engine actor (invariant 1).
+/// Evaluates a validated DSL shape tree into a Tier 1 Euclid mesh (ADR-D1, ADR-D9 #247).
+///
+/// Executes pure-Swift procedural geometry evaluation for Cadova-style scripting and procedural primitives.
+/// Only `LocalKernelEngine` calls it, on the engine actor (Invariant 1). Euclid types do not escape past
+/// the kernel boundary (Invariant 4).
 enum ShapeEvaluator {
     static func mesh(for node: ShapeNode) -> Euclid.Mesh {
         switch node {
