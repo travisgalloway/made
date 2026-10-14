@@ -409,6 +409,205 @@ import Darwin
         #expect(responses2.first?["id"] as? Int == 1)
     }
     
+    @Test(.timeLimit(.minutes(1))) func testStopClosesConnectedClientAndSubsequentToolsCallReceivesNoResponse() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+        
+        try server.start(port: 19829)
+        defer { server.stop() }
+        #expect(server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+        
+        let client = try await connectTCP(port: 19829)
+        defer { client.cancel() }
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 1)
+        
+        // Verify initial communication works over the connected socket
+        let initRequest = Data((#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"# + "\n").utf8)
+        client.send(content: initRequest, completion: .contentProcessed({ _ in }))
+        let (initResp, _) = await receiveChunk(from: client)
+        #expect(!initResp.isEmpty)
+        let initRespStr = String(data: initResp, encoding: .utf8) ?? ""
+        #expect(initRespStr.contains("made-native-cad"))
+        
+        // Stop the server
+        server.stop()
+        #expect(!server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+        
+        // Subsequent tools/call from the disconnected client receives no response and does not mutate the document
+        let mutateMsg = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_set_param","arguments":{"id":"box-1","param":"height","value":99.0}}}"# + "\n"
+        client.send(content: Data(mutateMsg.utf8), completion: .contentProcessed({ _ in }))
+        
+        let (subsequentData, isDone) = await receiveChunk(from: client)
+        #expect(subsequentData.isEmpty)
+        #expect(isDone)
+        
+        // Assert the document was not mutated
+        if case .box(let p) = doc.paramsFor(id: boxSolidId) {
+            #expect(p.height == 20.0)
+        } else {
+            Issue.record("Expected initial box parameters to remain unchanged")
+        }
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testStopWithNoConnectedClient() throws {
+        let server = makeServer()
+        #expect(!server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+        
+        try server.start(port: 19830)
+        #expect(server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+        
+        server.stop()
+        #expect(!server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+        
+        // Repeated stop is a safe no-op
+        server.stop()
+        #expect(!server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testClientDisconnectsBeforeServerStop() async throws {
+        let server = makeServer()
+        try server.start(port: 19831)
+        defer { server.stop() }
+        #expect(server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+        
+        let client = try await connectTCP(port: 19831)
+        defer { client.cancel() }
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 1)
+        
+        // Client cancels connection on its own
+        client.cancel()
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 0)
+        
+        server.stop()
+        #expect(!server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testStopWhileRequestIsInFlightDropsResponseAndClosesSocket() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let blocker = BlockingSnapshotProvider()
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel, snapshotProvider: blocker)
+        let server = MCPServer(toolRegistry: registry)
+        try server.start(port: 19832)
+        defer {
+            blocker.unblock()
+            server.stop()
+        }
+        
+        let client = try await connectTCP(port: 19832)
+        defer { client.cancel() }
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 1)
+        
+        let snapshotReq = #"{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"cad_capture_snapshot","arguments":{}}}"# + "\n"
+        client.send(content: Data(snapshotReq.utf8), completion: .contentProcessed({ _ in }))
+        
+        // Await snapshot provider being entered (request is in flight)
+        await blocker.waitForEntry()
+        
+        // Stop server while request is in flight
+        server.stop()
+        #expect(!server.isRunning)
+        
+        // Release snapshot provider
+        blocker.unblock()
+        
+        // Client receives connection closure and zero response data
+        let (data, isDone) = await receiveChunk(from: client)
+        #expect(data.isEmpty)
+        #expect(isDone)
+        #expect(server.activeConnectionCount == 0)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testStopFollowedByImmediateStartOnSamePortDisconnectsOldClientAndAllowsNewClient() async throws {
+        let server = makeServer()
+        try server.start(port: 19833)
+        #expect(server.isRunning)
+        
+        let oldClient = try await connectTCP(port: 19833)
+        defer { oldClient.cancel() }
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 1)
+        
+        // Stop server immediately
+        server.stop()
+        #expect(!server.isRunning)
+        #expect(server.activeConnectionCount == 0)
+        
+        // Immediately start server on same port
+        try server.start(port: 19833)
+        defer { server.stop() }
+        #expect(server.isRunning)
+        
+        // Connect new client
+        let newClient = try await connectTCP(port: 19833)
+        defer { newClient.cancel() }
+        
+        // New client communicates successfully
+        let initRequest = Data((#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"# + "\n").utf8)
+        newClient.send(content: initRequest, completion: .contentProcessed({ _ in }))
+        let (newResp, _) = await receiveChunk(from: newClient)
+        #expect(!newResp.isEmpty)
+        let newRespStr = String(data: newResp, encoding: .utf8) ?? ""
+        #expect(newRespStr.contains("made-native-cad"))
+        
+        // Old client receives closure and cannot communicate
+        let (oldData, oldDone) = await receiveChunk(from: oldClient)
+        #expect(oldData.isEmpty)
+        #expect(oldDone)
+    }
+    
+    private func receiveChunk(from connection: NWConnection, timeout: Duration = .seconds(2)) async -> (data: Data, isDone: Bool) {
+        await withTaskGroup(of: (Data, Bool).self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { content, _, isComplete, error in
+                        continuation.resume(returning: (content ?? Data(), isComplete || error != nil))
+                    }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return (Data(), true)
+            }
+            let result = await group.next() ?? (Data(), true)
+            group.cancelAll()
+            return result
+        }
+    }
+    
     /// Sends `parts` to the listener on host, half-closes, and returns each response line read until EOF.
     private func exchangeTCP(host: String = "127.0.0.1", port: UInt16, parts: [Data]) async throws -> [[String: Any]] {
         let connection = try await connectTCP(host: host, port: port)
@@ -578,5 +777,36 @@ private final class WindowStubSink: SolidMeshSink {
 
     func removeMesh(for id: SolidId) -> Bool {
         meshes.removeValue(forKey: id) != nil
+    }
+}
+
+private final class BlockingSnapshotProvider: SnapshotProvider, Sendable {
+    private let enteredContinuation: Mutex<CheckedContinuation<Void, Never>?> = Mutex(nil)
+    private let unblockContinuation: Mutex<CheckedContinuation<Void, Never>?> = Mutex(nil)
+    private let enteredOnce: Mutex<Bool> = Mutex(false)
+    
+    func waitForEntry() async {
+        let alreadyEntered = enteredOnce.withLock { $0 }
+        if alreadyEntered { return }
+        await withCheckedContinuation { continuation in
+            enteredContinuation.withLock { $0 = continuation }
+        }
+    }
+    
+    func unblock() {
+        unblockContinuation.withLock { $0.take() }?.resume()
+    }
+    
+    func captureSnapshotPngBase64() async -> String? {
+        enteredOnce.withLock { $0 = true }
+        enteredContinuation.withLock { $0.take() }?.resume()
+        await withCheckedContinuation { continuation in
+            unblockContinuation.withLock { $0 = continuation }
+        }
+        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+    }
+    
+    func captureSnapshotPngBase64(view: ViewportPerspective?) async -> String? {
+        await captureSnapshotPngBase64()
     }
 }
