@@ -91,7 +91,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-19 | A user can export or import STEP and IGES files, apply B-Rep fillets, chamfers and draft angles, reference sub-elements via persistent topological naming, solve 2D sketch constraints, and run out-of-process CAE simulation and meshing (OCCTSwift Tier 2, ADR-D1, ADR-D3, ADR-D4, ADR-D5) | none | none | none | Planned | #82, #142, #144, #146, #147, #152, #37, #187, #188 | n/a |
 | DOC-1 | A user can have scene objects of kind box, cylinder, imported (name only), boolean (operation and operand IDs), or part (`.part.ts` / `.part.js` file URL and last good `ShapeNode`); target hybrid feature list and multi-body parts decided in ADR-D2 | done | done | done | Shipped | #427, #143, #150 | n/a |
 | DOC-2 | A user gets parameter values clamped to fixed ranges when an object is added and when a parameter is set (box 5 to 90 mm, cylinder radius 5 to 50 mm, cylinder height 5 to 90 mm; NaN becomes the minimum) | done | done | done | Shipped | #104 | n/a |
-| DOC-3 | A user sees UI panels update when the document changes (`@Observable` model) | done | n/a | done | Shipped |  | n/a |
+| DOC-3 | A user sees UI panels update when the document changes (`@Observable` model) | done | n/a | done | Shipped | #67 | n/a |
 | DOC-4 | A user starts with a default scene of `box-1` (40x30x20 mm) and `cylinder-1` (radius 15, height 40 mm) | done | n/a | done | Shipped |  | n/a |
 | DOC-5 | An agent can add a box, cylinder or imported object and get an ID of the form `<kind>-<seq>` (first new ID is `-2`); a boolean result gets `boolean-<seq>` from the same sequence, and an ID is never reused after removal | none | done | done | Shipped |  | n/a |
 | DOC-6 | An agent can remove an object by ID; removal through the Navigator, `syncMeshes`, or `cad_remove_solid` frees the kernel cache and prunes the renderer mesh | none | done | done | Shipped | #66, #93, #73 | n/a |
@@ -106,11 +106,11 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-15 | An agent tool call changes the document on the main actor, so it cannot race a SwiftUI read of the same document; the stdio and TCP transports both hop through the `@MainActor` registry | none | done | done | Shipped | #91 | n/a |
 | UI-1 | A user can switch the sidebar between Inspector and AI Copilot with a segmented picker | none | n/a | n/a | Deprecated |  | n/a |
 | UI-2 | A user can choose the selected solid by clicking a row in the Navigator's Scene list (was a menu picker "Active Solid"; moved) | done | n/a | n/a | Shipped | #34 | n/a |
-| UI-3 | A user can set box width (X) from the inspector numeric field or 1-mm stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
-| UI-4 | A user can set box depth (Y) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
-| UI-5 | A user can set box height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
-| UI-6 | A user can set cylinder radius from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
-| UI-7 | A user can set cylinder height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
+| UI-3 | A user can set box width (X) from the inspector numeric field or 1-mm stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
+| UI-4 | A user can set box depth (Y) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
+| UI-5 | A user can set box height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
+| UI-6 | A user can set cylinder radius from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
+| UI-7 | A user can set cylinder height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
 | UI-8 | A user can see an imported solid's name in the inspector (read-only) | done | n/a | n/a | Shipped |  | n/a |
 | UI-9 | A user sees the changed solid re-tessellated and redrawn after a dimension change, using the solid's current transform, color and visibility directly; a solid removed during the recompute stays removed | done | n/a | n/a | Shipped | #66, #92, #94 | n/a |
 | UI-10 | A user sees the initial two-solid scene generated at launch | done | n/a | n/a | Shipped |  | n/a |

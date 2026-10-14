@@ -103,7 +103,7 @@ The model also exposes `setName(id:name:)`, `setVisibility(id:isVisible:)`, `set
 | Cylinder height | 5 | 90 |
 | World position, per axis (`DocumentLimits.position`) | -10000 | 10000 |
 
-`setParam` and the `cad_add_solid` tool apply the size ranges. The position range is enforced only by `cad_add_solid` and `cad_set_transform`, which reject an out-of-bound position instead of clamping it (#98). Other paths into the model, such as `addObject(def:)` called directly, do not clamp (#104). Unknown keys and `.imported` objects are ignored without an error by the model itself, and the `cad_set_param` handler rejects both before calling it (#97).
+Both `setParam` and `addObject` apply the size ranges via `DocumentLimits`. The position range is enforced only by `cad_add_solid` and `cad_set_transform`, which reject an out-of-bound position instead of clamping it (#98). Unknown keys and `.imported` objects are ignored without an error by the model itself, and the `cad_set_param` handler rejects both before calling it (#97).
 
 ---
 
