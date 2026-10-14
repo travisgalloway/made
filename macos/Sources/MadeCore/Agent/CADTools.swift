@@ -10,19 +10,33 @@ public final class CADToolRegistry {
     private let document: DocumentModel
     private let kernelClient: KernelClientProtocol
     private weak var snapshotProvider: (any SnapshotProvider)?
+    private weak var meshSink: (any SolidMeshSink)?
+    private let onViewportInvalidated: (@MainActor () -> Void)?
+    private let onRecomputeResult: (@MainActor (KernelResult<MeshPayload>, SolidId) -> Void)?
+    private var inFlightRecomputes: [SolidId: (jobId: JobId, task: Task<KernelResult<MeshPayload>, Never>)] = [:]
     
     public init(
         document: DocumentModel,
         kernelClient: KernelClientProtocol,
-        snapshotProvider: (any SnapshotProvider)? = nil
+        snapshotProvider: (any SnapshotProvider)? = nil,
+        meshSink: (any SolidMeshSink)? = nil,
+        onViewportInvalidated: (@MainActor () -> Void)? = nil,
+        onRecomputeResult: (@MainActor (KernelResult<MeshPayload>, SolidId) -> Void)? = nil
     ) {
         self.document = document
         self.kernelClient = kernelClient
         self.snapshotProvider = snapshotProvider
+        self.meshSink = meshSink
+        self.onViewportInvalidated = onViewportInvalidated
+        self.onRecomputeResult = onRecomputeResult
     }
     
     public func setSnapshotProvider(_ provider: any SnapshotProvider) {
         self.snapshotProvider = provider
+    }
+    
+    public func setMeshSink(_ sink: (any SolidMeshSink)?) {
+        self.meshSink = sink
     }
     
     public nonisolated var tools: [MCPToolDefinition] {
@@ -214,6 +228,7 @@ public final class CADToolRegistry {
         }
         
         let id = document.addObject(def: def, transform: transform)
+        scheduleRecompute(id: id)
         
         return .text("Successfully added solid with ID: \(id.rawValue)")
     }
@@ -247,6 +262,7 @@ public final class CADToolRegistry {
         }
         
         document.setParam(id: id, key: param, value: val)
+        scheduleRecompute(id: id)
         let stored = document.paramsFor(id: id).flatMap { Self.editableParams(of: $0)?.first(where: { $0.name == param })?.value } ?? val
         return .text("Updated parameter '\(param)' on solid '\(idStr)' to \(stored)")
     }
@@ -307,6 +323,9 @@ public final class CADToolRegistry {
         }
         
         document.setTransform(id: id, transform: transform)
+        if let sink = meshSink, SolidMeshApplier.applyTransform(to: id, document: document, sink: sink) {
+            onViewportInvalidated?()
+        }
         return .text("Updated transform for solid '\(idStr)' to position (\(transform.position.x), \(transform.position.y), \(transform.position.z))")
     }
     
@@ -319,8 +338,13 @@ public final class CADToolRegistry {
             return .error("Solid '\(idStr)' not found in scene")
         }
         
+        let inFlight = inFlightRecomputes.removeValue(forKey: id)
         document.removeObject(id: id)
+        if let sink = meshSink, SolidMeshApplier.remove(id: id, from: sink) {
+            onViewportInvalidated?()
+        }
         await kernelClient.dispose(solidId: id)
+        _ = await inFlight?.task.value
         return .text("Removed solid '\(idStr)' from scene")
     }
     
@@ -399,6 +423,7 @@ public final class CADToolRegistry {
         guard solidA != solidB else {
             return .error("Operands 'solidA' and 'solidB' must be different solids, but both are '\(solidAStr)'")
         }
+        await settleRecomputes(for: [solidA, solidB])
         let def = ObjectDef.boolean(op: op, solidA: solidA, solidB: solidB)
         let outputId = document.reserveId(for: def)
         
@@ -417,6 +442,9 @@ public final class CADToolRegistry {
                 return .error("Solid '\(missing)' was removed while the boolean \(opStr) was running")
             }
             document.addObject(outputId, def: def)
+            if let sink = meshSink, SolidMeshApplier.apply(result, to: outputId, document: document, sink: sink) {
+                onViewportInvalidated?()
+            }
             return .text("Successfully executed \(opStr) between '\(solidAStr)' and '\(solidBStr)'. Output registered as '\(outputId.rawValue)'")
         } else {
             return .error("Boolean \(opStr) failed: \(result.error?.message ?? "unknown error")")
@@ -426,5 +454,60 @@ public final class CADToolRegistry {
     /// Returns the first operand name with no matching object in the document.
     private func missingOperand(_ operands: [(SolidId, String)]) -> String? {
         operands.first { id, _ in !document.objects.contains(where: { $0.id == id }) }?.1
+    }
+    
+    // MARK: - Recompute & Viewport Synchronization
+    
+    /// Runs the kernel recompute path for `id` in the background, keeping `KernelClient`'s 60 ms conflation.
+    /// When `meshSink` is bound, installs the resulting mesh using the live document state and invalidates the viewport.
+    @discardableResult
+    public func scheduleRecompute(id: SolidId) -> Task<KernelResult<MeshPayload>, Never>? {
+        let jobId = JobId("job-\(UUID().uuidString)")
+        guard let obj = document.objects.first(where: { $0.id == id }),
+              let request = KernelRegeneration.request(for: obj, jobId: jobId) else {
+            return nil
+        }
+        let client = kernelClient
+        let task = Task { @MainActor [weak self] () -> KernelResult<MeshPayload> in
+            guard let self, self.document.objects.contains(where: { $0.id == id }) else {
+                return .failure(jobId: jobId, error: KernelError(code: .cancelled, message: "Solid removed before recompute started"))
+            }
+            let result = await client.request(request)
+            if self.inFlightRecomputes[id]?.jobId == jobId {
+                self.inFlightRecomputes.removeValue(forKey: id)
+            }
+            await self.finishRecompute(result, for: id)
+            return result
+        }
+        inFlightRecomputes[id] = (jobId, task)
+        return task
+    }
+    
+    /// Awaits any in-flight recomputes for `ids`, continuing if a newer edit replaced a conflated request.
+    public func settleRecomputes(for ids: [SolidId]) async {
+        for id in ids {
+            while let entry = inFlightRecomputes[id] {
+                _ = await entry.task.value
+                if inFlightRecomputes[id]?.jobId == entry.jobId {
+                    inFlightRecomputes.removeValue(forKey: id)
+                    break
+                }
+            }
+        }
+    }
+    
+    private func finishRecompute(_ result: KernelResult<MeshPayload>, for id: SolidId) async {
+        // The solid was removed while the request was in flight; release what it repopulated.
+        guard document.objects.contains(where: { $0.id == id }) else {
+            if case .success = result {
+                await kernelClient.dispose(solidId: id)
+            }
+            return
+        }
+        // A failure leaves the previous mesh installed; only the message changes.
+        onRecomputeResult?(result, id)
+        guard let sink = meshSink,
+              SolidMeshApplier.apply(result, to: id, document: document, sink: sink) else { return }
+        onViewportInvalidated?()
     }
 }

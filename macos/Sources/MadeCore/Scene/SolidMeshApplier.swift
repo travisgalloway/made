@@ -6,6 +6,15 @@ import simd
 public protocol SolidMeshSink: AnyObject {
     /// Returns false when the mesh could not be built (buffer allocation failed).
     func installMesh(_ payload: MeshPayload, for id: SolidId, transform: Transform, color: SIMD4<Float>, isHidden: Bool) -> Bool
+    /// Updates an installed mesh's transform in place. Returns false when no mesh is installed for `id`.
+    func updateTransform(_ transform: Transform, for id: SolidId) -> Bool
+    /// Removes the mesh for `id`, if any. Returns true when a mesh was present.
+    func removeMesh(for id: SolidId) -> Bool
+}
+
+extension SolidMeshSink {
+    public func updateTransform(_ transform: Transform, for id: SolidId) -> Bool { false }
+    public func removeMesh(for id: SolidId) -> Bool { false }
 }
 
 @MainActor
@@ -28,6 +37,22 @@ public enum SolidMeshApplier {
             color: object.material.color,
             isHidden: !object.isVisible
         )
+    }
+
+    /// Updates an installed mesh's transform from the document's live state.
+    /// Returns true when the mesh was updated and the viewport needs a redraw.
+    public static func applyTransform(
+        to id: SolidId,
+        document: DocumentModel,
+        sink: SolidMeshSink
+    ) -> Bool {
+        guard let object = document.objects.first(where: { $0.id == id }) else { return false }
+        return sink.updateTransform(displayTransform(for: id, object.transform), for: id)
+    }
+
+    /// Drops an installed mesh for a removed solid. Returns true when a mesh was removed.
+    public static func remove(id: SolidId, from sink: SolidMeshSink) -> Bool {
+        sink.removeMesh(for: id)
     }
 
     static func displayTransform(for id: SolidId, _ transform: Transform) -> Transform {

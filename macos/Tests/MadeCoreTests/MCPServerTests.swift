@@ -305,6 +305,47 @@ import Synchronization
         #expect(responses.last?["id"] is NSNull)
     }
     
+    @Test(.timeLimit(.minutes(1))) func testWindowBoundTCPClientAddsEditsMovesAndCombinesSolids() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let sink = WindowStubSink()
+        let registry = CADToolRegistry(
+            document: doc,
+            kernelClient: kernel,
+            meshSink: sink,
+            onViewportInvalidated: { sink.invalidations += 1 }
+        )
+        registry.scheduleRecompute(id: boxSolidId)
+        registry.scheduleRecompute(id: cylinderSolidId)
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+        sink.invalidations = 0
+        
+        let server = MCPServer(toolRegistry: registry)
+        try server.start(port: 19824)
+        defer { server.stop() }
+        
+        let lines = [
+            #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cad_add_solid","arguments":{"type":"box","width":30,"depth":30,"height":30,"posX":10}}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_set_param","arguments":{"id":"box-2","param":"width","value":60}}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_set_transform","arguments":{"id":"box-2","posX":20}}}"#,
+            #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"cad_boolean_operation","arguments":{"solidA":"box-2","solidB":"cylinder-1","operation":"union"}}}"#
+        ]
+        let payload = Data((lines.joined(separator: "\n") + "\n").utf8)
+        let responses = try await exchangeTCP(port: 19824, parts: [payload])
+        
+        #expect(responses.count == 4)
+        for response in responses {
+            let result = response["result"] as? [String: Any]
+            #expect(result?["isError"] as? Bool == false)
+        }
+        let addedId = SolidId("box-2")
+        let booleanId = try #require(doc.objects.last?.id)
+        #expect(booleanId.rawValue.hasPrefix("boolean-"))
+        #expect(sink.meshes[addedId]?.transform.position.x == 20)
+        #expect(sink.meshes[booleanId] != nil)
+        #expect(sink.invalidations >= 2)
+    }
+    
     /// Sends `parts` to the listener on localhost, half-closes, and returns each response line read until EOF.
     private func exchangeTCP(port: UInt16, parts: [Data]) async throws -> [[String: Any]] {
         let connection = try await connectTCP(port: port)
@@ -375,5 +416,31 @@ private final class ResponseOnlyEncoder: JSONEncoder, @unchecked Sendable {
             throw EncodingError.invalidValue(value, EncodingError.Context(codingPath: [], debugDescription: "Injected failure"))
         }
         return try super.encode(value)
+    }
+}
+
+@MainActor
+private final class WindowStubSink: SolidMeshSink {
+    struct Entry {
+        var payload: MeshPayload
+        var transform: Transform
+    }
+    var meshes: [SolidId: Entry] = [:]
+    var invalidations = 0
+
+    func installMesh(_ payload: MeshPayload, for id: SolidId, transform: Transform, color: SIMD4<Float>, isHidden: Bool) -> Bool {
+        meshes[id] = Entry(payload: payload, transform: transform)
+        return true
+    }
+
+    func updateTransform(_ transform: Transform, for id: SolidId) -> Bool {
+        guard var entry = meshes[id] else { return false }
+        entry.transform = transform
+        meshes[id] = entry
+        return true
+    }
+
+    func removeMesh(for id: SolidId) -> Bool {
+        meshes.removeValue(forKey: id) != nil
     }
 }

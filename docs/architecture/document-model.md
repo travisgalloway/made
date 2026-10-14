@@ -58,7 +58,7 @@ Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model st
 ### Supported Object Types
 1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).
 2. **Imported Placeholder**: `.imported(name:)` carries a name only.
-3. **Boolean Result**: `.boolean(op:solidA:solidB:)` records the operation and both operand IDs of a `cad_boolean_operation` result. `DocumentModel.reserveId(for:)` mints its `boolean-<seq>` ID before the kernel call, so the document and the kernel cache share it, and `addObject(_:def:)` adds it on success. The entry is not replayed (#35) and not drawn (#132).
+3. **Boolean Result**: `.boolean(op:solidA:solidB:)` records the operation and both operand IDs of a `cad_boolean_operation` result. `DocumentModel.reserveId(for:)` mints its `boolean-<seq>` ID before the kernel call, so the document and the kernel cache share it, and `addObject(_:def:)` adds it on success and installs its mesh in the viewport (#132). The entry is not replayed on kernel regeneration (#35).
 4. **Planned**: CSG composites that reference parent operations (#35), and B-Rep solids loaded from STEP or IGES files (#38, #82).
 
 ---

@@ -72,7 +72,19 @@ final class WorkspaceModel {
             Task { @MainActor in viewportManager?.handleDeviceLost() }
         }
 
-        let registry = CADToolRegistry(document: document, kernelClient: kernelClient, snapshotProvider: viewportManager.renderer)
+        let registry = CADToolRegistry(
+            document: document,
+            kernelClient: kernelClient,
+            snapshotProvider: viewportManager.renderer,
+            meshSink: viewportManager.renderer,
+            onViewportInvalidated: { [weak self] in self?.invalidateViewport(.model) },
+            onRecomputeResult: { [weak self] result, id in
+                guard let self else { return }
+                if let message = self.recomputeFailures.record(result, for: id) {
+                    self.log(.error, "Kernel", message)
+                }
+            }
+        )
         toolRegistry = registry
         let server = MCPServer(toolRegistry: registry)
         server.onStateChange = { @Sendable [weak self] running in
@@ -112,7 +124,9 @@ final class WorkspaceModel {
         document.removeObject(id: id)
         Task { await kernelClient.dispose(solidId: id) }
         recomputeFailures.clear(id)
-        viewportManager.renderer?.meshes.removeValue(forKey: id)
+        if let renderer = viewportManager.renderer {
+            _ = SolidMeshApplier.remove(id: id, from: renderer)
+        }
         if selectedId == id { selectedId = document.objects.first?.id }
         log(.info, "Scene", "Removed object \(id.rawValue)")
         invalidateViewport(.model)
@@ -139,10 +153,8 @@ final class WorkspaceModel {
 
     func setTransform(_ id: ObjectId, _ transform: Transform) {
         document.setTransform(id: id, transform: transform)
-        if var mesh = viewportManager.renderer?.meshes[id] {
-            mesh.transform = transform
-            mesh.candidateMesh.transform = transform
-            viewportManager.renderer?.meshes[id] = mesh
+        if let renderer = viewportManager.renderer {
+            _ = SolidMeshApplier.applyTransform(to: id, document: document, sink: renderer)
         }
         invalidateViewport(.model)
     }
@@ -157,13 +169,18 @@ final class WorkspaceModel {
     func syncMeshes(removedFrom old: [SceneObject], to new: [SceneObject]) {
         let remaining = Set(new.map(\.id))
         for obj in old where !remaining.contains(obj.id) {
-            viewportManager.renderer?.meshes.removeValue(forKey: obj.id)
+            if let renderer = viewportManager.renderer, SolidMeshApplier.remove(id: obj.id, from: renderer) {
+                invalidateViewport(.model)
+            }
             recomputeFailures.clear(obj.id)
-            invalidateViewport(.model)
         }
     }
 
-    private func recomputeSolid(id: ObjectId) {
+    func recomputeSolid(id: ObjectId) {
+        if let registry = toolRegistry {
+            registry.scheduleRecompute(id: id)
+            return
+        }
         guard let obj = document.objects.first(where: { $0.id == id }) else { return }
         guard let request = KernelRegeneration.request(for: obj, jobId: JobId("job-\(UUID().uuidString)")) else { return }
 
