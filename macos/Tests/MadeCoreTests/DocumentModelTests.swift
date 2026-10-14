@@ -10,7 +10,9 @@ import os
         
         #expect(doc.objects.count == 2)
         #expect(doc.objects[0].id == boxSolidId)
+        #expect(doc.objects[0].transform.position == SIMD3<Float>(-25, 0, 0))
         #expect(doc.objects[1].id == cylinderSolidId)
+        #expect(doc.objects[1].transform.position == SIMD3<Float>(25, 0, 0))
     }
     
     @Test func testAddAndRemoveObject() {

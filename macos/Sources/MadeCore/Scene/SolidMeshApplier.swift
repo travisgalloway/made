@@ -33,7 +33,7 @@ public enum SolidMeshApplier {
         return sink.installMesh(
             payload,
             for: id,
-            transform: displayTransform(for: id, object.transform),
+            transform: object.transform,
             color: object.material.color,
             isHidden: !object.isVisible
         )
@@ -47,20 +47,11 @@ public enum SolidMeshApplier {
         sink: SolidMeshSink
     ) -> Bool {
         guard let object = document.objects.first(where: { $0.id == id }) else { return false }
-        return sink.updateTransform(displayTransform(for: id, object.transform), for: id)
+        return sink.updateTransform(object.transform, for: id)
     }
 
     /// Drops an installed mesh for a removed solid. Returns true when a mesh was removed.
     public static func remove(id: SolidId, from sink: SolidMeshSink) -> Bool {
         sink.removeMesh(for: id)
-    }
-
-    static func displayTransform(for id: SolidId, _ transform: Transform) -> Transform {
-        var transform = transform
-        if transform.position == .zero {
-            // Spreads the two demo solids apart until the document stores real positions.
-            transform.position = id == boxSolidId ? SIMD3<Float>(-25, 0, 0) : SIMD3<Float>(25, 0, 0)
-        }
-        return transform
     }
 }

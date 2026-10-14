@@ -285,6 +285,7 @@ final class WorkspaceModel {
         let remaining = Set(new.map(\.id))
         for obj in old where !remaining.contains(obj.id) {
             partReloadController?.stopWatching(id: obj.id)
+            Task { await kernelClient.dispose(solidId: obj.id) }
             if let renderer = viewportManager.renderer, SolidMeshApplier.remove(id: obj.id, from: renderer) {
                 invalidateViewport(.model)
             }

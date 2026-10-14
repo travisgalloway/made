@@ -810,7 +810,7 @@ import Foundation
     }
     
     @Test func testWindowBoundSetParamAndSetTransformRedrawSolid() async throws {
-        let (doc, kernel, sink, registry) = makeWindowBoundFixture()
+        let (doc, _, sink, registry) = makeWindowBoundFixture()
         registry.scheduleRecompute(id: boxSolidId)
         await registry.settleRecomputes(for: [boxSolidId])
         #expect(sink.invalidations == 1)
@@ -900,6 +900,28 @@ import Foundation
         #expect(registry.scheduleRecompute(id: id) == nil)
         #expect(sink.meshes[id] == nil)
         #expect(await kernel.getStats().dispatched == before)
+    }
+
+    @Test func testRemoveThenReaddSolidCreatesNewIdAndFreshMesh() async throws {
+        let (doc, _, sink, registry) = makeWindowBoundFixture()
+        let add1 = await registry.callTool(name: "cad_add_solid", arguments: ["type": .string("box")])
+        #expect(add1.isError == false)
+        let id1 = SolidId("box-2")
+        await registry.settleRecomputes(for: [id1])
+        #expect(sink.meshes[id1] != nil)
+
+        let rem = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(id1.rawValue)])
+        #expect(rem.isError == false)
+        #expect(sink.meshes[id1] == nil)
+        #expect(!doc.objects.contains(where: { $0.id == id1 }))
+
+        let add2 = await registry.callTool(name: "cad_add_solid", arguments: ["type": .string("box")])
+        #expect(add2.isError == false)
+        let id2 = SolidId("box-3")
+        #expect(id1 != id2)
+        await registry.settleRecomputes(for: [id2])
+        #expect(sink.meshes[id1] == nil)
+        #expect(sink.meshes[id2] != nil)
     }
     
     @Test func testRecomputeFailureKeepsPreviousMeshAndRecordsError() async throws {

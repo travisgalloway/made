@@ -26,4 +26,25 @@ public struct Transform: Sendable, Equatable {
         let rotated = rotation.act(scaled)
         return rotated + position
     }
+
+    public var matrix: simd_float4x4 {
+        var m = simd_float4x4(rotation)
+        m.columns.0 *= scale.x
+        m.columns.1 *= scale.y
+        m.columns.2 *= scale.z
+        m.columns.3 = SIMD4<Float>(position, 1.0)
+        return m
+    }
+
+    public var normalMatrix: simd_float3x3 {
+        guard abs(scale.x) > 1e-6, abs(scale.y) > 1e-6, abs(scale.z) > 1e-6,
+              abs(scale.x * scale.y * scale.z) >= 1e-6 else {
+            return simd_float3x3(rotation)
+        }
+        var m = simd_float3x3(rotation)
+        m.columns.0 *= (1.0 / scale.x)
+        m.columns.1 *= (1.0 / scale.y)
+        m.columns.2 *= (1.0 / scale.z)
+        return m
+    }
 }

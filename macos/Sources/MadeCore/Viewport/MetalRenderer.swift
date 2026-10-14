@@ -400,13 +400,11 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
         var drawCalls = 0
         for (id, mesh) in meshes where !hiddenSolidIds.contains(id) {
-            var modelMatrix = matrix_identity_float4x4
-            modelMatrix.columns.3 = SIMD4<Float>(mesh.transform.position, 1.0)
             let uniforms = RenderUniforms(
-                modelMatrix: modelMatrix,
+                modelMatrix: mesh.transform.matrix,
                 viewMatrix: viewMatrix,
                 projectionMatrix: projMatrix,
-                normalMatrix: matrix_identity_float3x3,  // translation-only model matrix
+                normalMatrix: mesh.transform.normalMatrix,
                 color: mesh.color
             )
             guard ctx.bindUniforms(uniforms, at: 2) else { break }

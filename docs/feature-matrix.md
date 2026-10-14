@@ -37,7 +37,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | VIEW-6 | A user can read live Metal status, render count, draw calls, last invalidate reason, active tool and snap kind in the viewport status bar | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-7 | A user sees kernel meshes uploaded to `.storageModeShared` Metal buffers | done | n/a | done | Shipped |  | n/a |
 | VIEW-8 | A user sees each frame drawn into the MTKView drawable and counted by the instrumentation | done | n/a | n/a | Shipped |  | n/a |
-| VIEW-9 | A user sees every solid drawn with depth testing and back-face culling; only the translation of each mesh transform is applied (rotation and scale are ignored, including the Inspector scale fields) | done | n/a | n/a | In progress | #71 | n/a |
+| VIEW-9 | A user sees every solid drawn with depth testing and back-face culling, with full model matrix and normal matrix (position, rotation, scale) applied | done | n/a | n/a | Shipped | #66, #71 | n/a |
 | VIEW-10 | A user sees the scene from a default 3/4 view (eye along (1,-1,0.6) at 150 mm, target (0,0,10)) and can return to it with Reset View or H (prior wording said no UI changes it) | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-11 | An agent can render an offscreen 800x600 PNG of the scene and receive it as base64; the GUI's TCP server uses the window renderer (provider set at A/WorkspaceModel.swift:69), and `--mcp-stdio` uses an offscreen renderer that tessellates the document before each capture | n/a | done | n/a | Shipped | #89 | n/a |
 | VIEW-12 | A user sees solids shaded with two directional lights plus ambient (diffuse only) | done | n/a | n/a | Shipped |  | n/a |
@@ -94,9 +94,9 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-3 | A user sees UI panels update when the document changes (`@Observable` model) | done | n/a | done | Shipped |  | n/a |
 | DOC-4 | A user starts with a default scene of `box-1` (40x30x20 mm) and `cylinder-1` (radius 15, height 40 mm) | done | n/a | done | Shipped |  | n/a |
 | DOC-5 | An agent can add a box, cylinder or imported object and get an ID of the form `<kind>-<seq>` (first new ID is `-2`); a boolean result gets `boolean-<seq>` from the same sequence, and an ID is never reused after removal | none | done | done | Shipped |  | n/a |
-| DOC-6 | An agent can remove an object by ID; removal through the Navigator or `cad_remove_solid` frees the kernel cache; renderer mesh pruning is tracked in #73 | none | done | done | In progress | #93, #73 | n/a |
+| DOC-6 | An agent can remove an object by ID; removal through the Navigator, `syncMeshes`, or `cad_remove_solid` frees the kernel cache and prunes the renderer mesh | none | done | done | Shipped | #66, #93, #73 | n/a |
 | DOC-7 | A user or agent can set a named parameter on a box or cylinder (unknown keys and imported objects are ignored silently) | done | done | done | Shipped |  | n/a |
-| DOC-8 | An agent can set an object's world position; the Inspector also writes scale; `rotation` has no writer and the renderer applies only translation | none | done | done | In progress | #71 | n/a |
+| DOC-8 | An agent or user can set an object's world transform; the renderer applies full model and normal matrix (position, rotation, scale) | none | done | done | Shipped | #66, #71 | n/a |
 | DOC-9 | A user can give objects a name and a visibility flag | done | done | done | Shipped |  | n/a |
 | DOC-10 | A user can hold a multi-object selection in the document (`selection: Set<ObjectId>`) | none | none | none | Planned | #69 | n/a |
 | DOC-11 | An agent can create CSG composite objects that reference their parent operations (multi-body boolean operations, ADR-D2) | none | none | none | Planned | #35, #143 | n/a |
@@ -112,7 +112,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-6 | A user can set cylinder radius from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
 | UI-7 | A user can set cylinder height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #106, #446 | n/a |
 | UI-8 | A user can see an imported solid's name in the inspector (read-only) | done | n/a | n/a | Shipped |  | n/a |
-| UI-9 | A user sees the changed solid re-tessellated and redrawn after a dimension change, using the solid's current transform, color and visibility; a solid removed during the recompute stays removed (solids at zero position are drawn at x = -25 for `box-1` and +25 otherwise) | done | n/a | n/a | Shipped | #92, #94 | n/a |
+| UI-9 | A user sees the changed solid re-tessellated and redrawn after a dimension change, using the solid's current transform, color and visibility directly; a solid removed during the recompute stays removed | done | n/a | n/a | Shipped | #66, #92, #94 | n/a |
 | UI-10 | A user sees the initial two-solid scene generated at launch | done | n/a | n/a | Shipped |  | n/a |
 | UI-11 | A user can type a prompt in the Copilot field and send it with Return or the send button (disabled when empty) | none | n/a | n/a | Deprecated | #105, #107 | n/a |
 | UI-12 | A user can read the Copilot transcript with user bubbles, assistant bubbles, a tool badge and auto-scroll | none | n/a | n/a | Deprecated |  | n/a |
@@ -133,7 +133,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-27 | A user can hide or show an object from the Navigator eye button or the context menu, and the viewport and snapping skip hidden objects | done | n/a | n/a | Shipped |  | n/a |
 | UI-28 | A user can lock or unlock an object from the Navigator lock button or context menu; the flag is stored and shown only (see DOC-13) | done | n/a | n/a | In progress |  | n/a |
 | UI-29 | A user can rename an object in the Inspector Identity section and read its ID and kind | done | n/a | n/a | Shipped |  | n/a |
-| UI-30 | A user can edit an object's X, Y and Z scale in the inspector (floor 0.01); the value is stored but the renderer ignores scale (see VIEW-9) | done | n/a | n/a | In progress | #136 | n/a |
+| UI-30 | A user can edit an object's X, Y and Z scale in the inspector (floor 0.01); the renderer applies scale through the model and normal matrix | done | n/a | n/a | Shipped | #66, #136 | n/a |
 | UI-31 | A user can read a timestamped, level-colored console log (INFO, KERNEL, SNAP, AGENT, ERROR) with auto-scroll in the resizable console pane (⇧⌘Y or the status-bar button); entries also go to the unified log | done | n/a | n/a | Shipped |  | n/a |
 | UI-32 | A user can filter console entries by message, subsystem or level | done | n/a | n/a | Shipped |  | n/a |
 | UI-33 | A user can clear the console log | done | n/a | n/a | Shipped |  | n/a |

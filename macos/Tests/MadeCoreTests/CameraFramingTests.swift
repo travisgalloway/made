@@ -17,6 +17,35 @@ import simd
         #expect(bounds.center == SIMD3(0, 0, 0))
     }
 
+    @Test func testBoundsIncludeRotatedAndScaledMesh() throws {
+        var pts: [SIMD3<Float>] = []
+        for x: Float in [-10, 10] {
+            for y: Float in [-5, 5] {
+                for z: Float in [-2, 2] {
+                    pts.append(SIMD3(x, y, z))
+                }
+            }
+        }
+        let rot = simd_quatf(angle: Float.pi / 2, axis: SIMD3<Float>(0, 0, 1))
+        let transform = Transform(
+            position: SIMD3<Float>(100, 200, 300),
+            rotation: rot,
+            scale: SIMD3<Float>(2, 3, 4)
+        )
+        let mesh = CandidateMesh(id: SolidId("transformed"), positions: pts, edges: [], transform: transform)
+        let bounds = try #require(SceneBounds.of([mesh]))
+
+        #expect(abs(bounds.min.x - 85) <= 1e-4)
+        #expect(abs(bounds.max.x - 115) <= 1e-4)
+        #expect(abs(bounds.min.y - 180) <= 1e-4)
+        #expect(abs(bounds.max.y - 220) <= 1e-4)
+        #expect(abs(bounds.min.z - 292) <= 1e-4)
+        #expect(abs(bounds.max.z - 308) <= 1e-4)
+        #expect(abs(bounds.center.x - 100) <= 1e-4)
+        #expect(abs(bounds.center.y - 200) <= 1e-4)
+        #expect(abs(bounds.center.z - 300) <= 1e-4)
+    }
+
     @Test func testBoundsOfAnEmptySceneAreNil() {
         #expect(SceneBounds.of([]) == nil)
         #expect(SceneBounds.of([CandidateMesh(id: SolidId("e"), positions: [], edges: [])]) == nil)

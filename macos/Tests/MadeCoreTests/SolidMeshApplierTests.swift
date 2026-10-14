@@ -109,16 +109,15 @@ private final class StubSink: SolidMeshSink {
         #expect(sink.calls[0].color == color)
     }
 
-    @Test func testZeroPositionGetsDemoOffset() {
+    @Test func testDirectTransformPassthrough() {
         let doc = DocumentModel()
         let sink = StubSink()
 
         _ = SolidMeshApplier.apply(success, to: boxSolidId, document: doc, sink: sink)
         _ = SolidMeshApplier.apply(success, to: cylinderSolidId, document: doc, sink: sink)
 
-        #expect(sink.calls[0].transform.position.x == -25)
-        #expect(sink.calls[1].transform.position.x == 25)
-        #expect(doc.objects.allSatisfy { $0.transform.position == .zero })
+        #expect(sink.calls[0].transform == doc.objects.first(where: { $0.id == boxSolidId })?.transform)
+        #expect(sink.calls[1].transform == doc.objects.first(where: { $0.id == cylinderSolidId })?.transform)
     }
 
     @Test func testSinkFailureReturnsFalse() {
