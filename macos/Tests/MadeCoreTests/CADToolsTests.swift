@@ -764,19 +764,28 @@ import Foundation
     }
     
     @Test func testAddAndRemoveBeforeRecomputeFinishesInstallsNothingAndDisposesKernel() async throws {
-        let (doc, kernel, sink, registry) = makeWindowBoundFixture(debounceDuration: .milliseconds(40))
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture(debounceDuration: .milliseconds(200))
         
-        let added = await registry.callTool(name: "cad_add_solid", arguments: ["type": .string("box")])
-        #expect(added.isError == false)
-        let addedId = try #require(doc.objects.last?.id)
+        // Case 1: removed immediately on the next tool call before the recompute task starts.
+        let added1 = await registry.callTool(name: "cad_add_solid", arguments: ["type": .string("box")])
+        #expect(added1.isError == false)
+        let addedId1 = try #require(doc.objects.last?.id)
+        let removed1 = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(addedId1.rawValue)])
+        #expect(removed1.isError == false)
+        #expect(sink.meshes[addedId1] == nil)
+        let probe1 = await kernel.request(.tessellate(jobId: JobId("probe-1"), solidId: addedId1))
+        #expect(probe1.error?.code == .unknownSolid)
         
-        let removed = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(addedId.rawValue)])
-        #expect(removed.isError == false)
-        try await Task.sleep(for: .milliseconds(70))
-        
-        #expect(sink.meshes[addedId] == nil)
-        let probe = await kernel.request(.tessellate(jobId: JobId("probe"), solidId: addedId))
-        #expect(probe.error?.code == .unknownSolid)
+        // Case 2: removed while the recompute request is waiting inside the kernel debounce window.
+        let added2 = await registry.callTool(name: "cad_add_solid", arguments: ["type": .string("cylinder")])
+        #expect(added2.isError == false)
+        let addedId2 = try #require(doc.objects.last?.id)
+        try await Task.sleep(for: .milliseconds(5))
+        let removed2 = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string(addedId2.rawValue)])
+        #expect(removed2.isError == false)
+        #expect(sink.meshes[addedId2] == nil)
+        let probe2 = await kernel.request(.tessellate(jobId: JobId("probe-2"), solidId: addedId2))
+        #expect(probe2.error?.code == .unknownSolid)
     }
     
     @Test func testImportedObjectRequestsNoMesh() async {
@@ -825,7 +834,7 @@ import Foundation
     }
     
     @Test func testTwoEditsInDebounceWindowConflateToOneResult() async throws {
-        let (_, kernel, sink, registry) = makeWindowBoundFixture(debounceDuration: .milliseconds(40))
+        let (_, kernel, sink, registry) = makeWindowBoundFixture(debounceDuration: .milliseconds(120))
         
         _ = await registry.callTool(name: "cad_set_param", arguments: [
             "id": .string("box-1"),

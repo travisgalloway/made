@@ -338,12 +338,13 @@ public final class CADToolRegistry {
             return .error("Solid '\(idStr)' not found in scene")
         }
         
+        let inFlight = inFlightRecomputes.removeValue(forKey: id)
         document.removeObject(id: id)
-        inFlightRecomputes.removeValue(forKey: id)
         if let sink = meshSink, SolidMeshApplier.remove(id: id, from: sink) {
             onViewportInvalidated?()
         }
         await kernelClient.dispose(solidId: id)
+        _ = await inFlight?.task.value
         return .text("Removed solid '\(idStr)' from scene")
     }
     
@@ -468,8 +469,10 @@ public final class CADToolRegistry {
         }
         let client = kernelClient
         let task = Task { @MainActor [weak self] () -> KernelResult<MeshPayload> in
+            guard let self, self.document.objects.contains(where: { $0.id == id }) else {
+                return .failure(jobId: jobId, error: KernelError(code: .cancelled, message: "Solid removed before recompute started"))
+            }
             let result = await client.request(request)
-            guard let self else { return result }
             if self.inFlightRecomputes[id]?.jobId == jobId {
                 self.inFlightRecomputes.removeValue(forKey: id)
             }
@@ -496,7 +499,9 @@ public final class CADToolRegistry {
     private func finishRecompute(_ result: KernelResult<MeshPayload>, for id: SolidId) async {
         // The solid was removed while the request was in flight; release what it repopulated.
         guard document.objects.contains(where: { $0.id == id }) else {
-            await kernelClient.dispose(solidId: id)
+            if case .success = result {
+                await kernelClient.dispose(solidId: id)
+            }
             return
         }
         // A failure leaves the previous mesh installed; only the message changes.
