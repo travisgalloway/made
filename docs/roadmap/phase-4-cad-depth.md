@@ -41,8 +41,8 @@ The document model holds an ordered array of objects with `addObject`, `removeOb
 
 ## 2. Geometry Engine Expansion
 
-- **4.3 OCCTSwift B-Rep & STEP Exchange (Tier 2)** (#82, #38):
-  - Integrates `SecondMouseAU/OCCTSwift` via pre-built `OCCT.xcframework`.
+- **4.3 OCCTSwift B-Rep & STEP Exchange (Tier 2)** (#82, #38, [ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md)):
+  - Integrates `SecondMouseAU/OCCTSwift` via pre-built `OCCT.xcframework` as the canonical B-rep kernel ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142).
   - Imports and exports ISO 10303 STEP (AP203/AP214) and IGES boundary representation files.
   - Adds true topological fillets, chamfers, and draft angles.
 - **4.4 Multi-Body CSG Boolean Operations** (#35):

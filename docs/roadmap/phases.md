@@ -18,7 +18,7 @@ Per-capability status lives in [`../feature-matrix.md`](../feature-matrix.md). T
 | **1** | Metal 4 Viewport & Input | Complete | Phase 1: Metal 3 Viewport & Input (closed; milestone title predates Metal 4) | None. |
 | **2** | Native CSG Kernel | In progress | Phase 2: Native CSG Kernel | Kernel cache not freed on removal (#93); recompute overwrites a transform (#92); parameter clamping (#104); recompute failure message (#109). |
 | **3** | Agentic Subsystem | In progress | Phase 3: Agentic Subsystem & MCP | Actor isolation (#91); protocol and argument validation (#95 to #101); the file-edit agent workflow (#427 to #429). |
-| **4.0** | Architecture Decisions | Not started | Phase 4.0: Architecture Decisions | Open decisions listed in the architecture documents. |
+| **4.0** | Architecture Decisions | In progress | Phase 4.0: Architecture Decisions | Open decisions listed in the architecture documents. |
 | **4A** | Native Scene & Interaction Foundation | In progress | Phase 4A | Issues #66, #67, #69 to #73. |
 | **4B** | B-Rep Engine, STEP Exchange & Document Persistence | Not started | Phase 4B | Held in the milestone. |
 | **4C** | 2D Sketching & Constraint Solver | Not started | Phase 4C | Held in the milestone. |
@@ -86,7 +86,7 @@ See [`phase-3-native-agent.md`](./phase-3-native-agent.md).
 ---
 
 ## Phase 4.0: Architecture Decisions (In progress)
-Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list each open decision under "Open decisions": the canonical kernel, topological naming, and the feature list paradigm. The scripting runtime is decided as TypeScript on JavaScriptCore ([ADR-D6](../architecture/adr/ADR-D6-scripting-runtime.md), #148), the `.made` encoding is decided as a directory package of JSON metadata, plain-text part sources, assets, and regenerable binary caches ([ADR-D7](../architecture/adr/ADR-D7-made-encoding.md), #149), and the project license is decided as `MPL-2.0` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
+Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list the remaining open decisions under "Open decisions": topological naming (#144) and the fate of Euclid (#247). The canonical geometry kernel is decided as OpenCASCADE Technology (OCCT) via OCCTSwift, with a clean-room Swift B-rep fallback ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142). The scripting runtime is decided as TypeScript on JavaScriptCore ([ADR-D6](../architecture/adr/ADR-D6-scripting-runtime.md), #148), the `.made` encoding is decided as a directory package of JSON metadata, plain-text part sources, assets, and regenerable binary caches ([ADR-D7](../architecture/adr/ADR-D7-made-encoding.md), #149), and the project license is decided as `MPL-2.0` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
 
 ## Phase 4A: Native Scene & Interaction Foundation (In progress)
 Generalizes the scene and the interaction model so that selection, gizmos, and the inspector have a base. Scope covers the multi-object scene, selection, the inspector, gizmos, and add and remove objects.
@@ -126,7 +126,7 @@ No Phase 4 issue is closed. Each item below cites its GitHub issue. GitHub issue
 - Feature tree UI (#34).
 - Boolean operations and fillets through the kernel (#35).
 - 2D sketching layer (#36) and constraint solver (#37).
-- STEP import and export (#38), with the OCCTSwift B-Rep bridge (#82).
+- STEP import and export (#38), with the OCCTSwift B-Rep bridge (#82, ADR-D1).
 - Undo and redo on the document model (#39).
 - Selection outline (#40), predictive commands (#41), radial menu (#42), constrained transforms (#43), dimension by selection (#44), view snapping (#45).
 - Scene generalization and inspector (#66, #67, #69, #70), gizmos (#71, #72), add and remove objects (#73).
