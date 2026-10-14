@@ -23,7 +23,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - UI-1, UI-11, UI-12, UI-13, UI-15, and UI-18 are Deprecated. The Copilot tab and the File and Geometry menu items were removed in #124.
 - AGENT-10, AGENT-11, AGENT-14, AGENT-15, and AGENT-16 are In progress with UI none. `InAppAgentController` has no host view since #124 (decision AGENT-10).
 
-Persistence note. No capability persists a document. The .made file format is planned under #83.
+Persistence and simulation note. No capability persists a document (the .made package format is planned under #83 and ADR-D7). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
 
 Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabilities.md of audit run 20261011-195134.
 
@@ -88,7 +88,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-18 | A user can keep the previous valid mesh on screen when a kernel job fails | done | done | n/a | Shipped | #109 | n/a |
 | KERN-20 | A user keeps the window and document when the geometry kernel crashes; the kernel runs in an XPC service, meshes return as shared memory, and the app relaunches the service and regenerates every solid from the document | done | done | done | Shipped | #245 | n/a |
 | KERN-21 | A developer can evaluate a shape-description tree (box, cylinder, sphere, cone, extrude, revolve, translate, rotate, scale, boolean) in one kernel request, validated against depth, node, slice and profile limits, on the kernel actor | n/a | done | n/a | Shipped | #331, #435 | n/a |
-| KERN-19 | A user can export or import STEP and IGES files, apply B-Rep fillets, chamfers and draft angles, reference sub-elements via persistent topological naming, and solve 2D sketch constraints (OCCTSwift Tier 2, ADR-D1, ADR-D3, ADR-D4) | none | none | none | Planned | #82, #142, #144, #146, #152, #37 | n/a |
+| KERN-19 | A user can export or import STEP and IGES files, apply B-Rep fillets, chamfers and draft angles, reference sub-elements via persistent topological naming, solve 2D sketch constraints, and run out-of-process CAE simulation and meshing (OCCTSwift Tier 2, ADR-D1, ADR-D3, ADR-D4, ADR-D5) | none | none | none | Planned | #82, #142, #144, #146, #147, #152, #37, #187, #188 | n/a |
 | DOC-1 | A user can have scene objects of kind box, cylinder, imported (name only), boolean (operation and operand IDs), or part (`.part.ts` / `.part.js` file URL and last good `ShapeNode`); target hybrid feature list and multi-body parts decided in ADR-D2 | done | done | done | Shipped | #427, #143, #150 | n/a |
 | DOC-2 | A user gets parameter values clamped to fixed ranges when an object is added and when a parameter is set (box 5 to 90 mm, cylinder radius 5 to 50 mm, cylinder height 5 to 90 mm; NaN becomes the minimum) | done | done | done | Shipped | #104 | n/a |
 | DOC-3 | A user sees UI panels update when the document changes (`@Observable` model) | done | n/a | done | Shipped |  | n/a |
