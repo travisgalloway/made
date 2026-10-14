@@ -50,6 +50,7 @@ final class WorkspaceModel {
     private(set) var partReloadController: PartReloadController?
     private(set) var mcpServer: MCPServer?
     private(set) var isMCPServerRunning = false
+    private(set) var mcpServerError: String? = nil
     let mcpPort: UInt16 = 9820
 
     private var isSetUp = false
@@ -113,7 +114,23 @@ final class WorkspaceModel {
 
         let server = MCPServer(toolRegistry: registry)
         server.onStateChange = { @Sendable [weak self] running in
-            Task { @MainActor in self?.isMCPServerRunning = running }
+            Task { @MainActor in
+                guard let self else { return }
+                self.isMCPServerRunning = running
+                if running {
+                    self.mcpServerError = nil
+                    self.log(.info, "MCP", "Started MCP server on port \(self.mcpPort)")
+                }
+            }
+        }
+        server.onError = { @Sendable [weak self] error in
+            Task { @MainActor in
+                guard let self else { return }
+                let message = error.localizedDescription
+                self.mcpServerError = message
+                self.isMCPServerRunning = false
+                self.log(.error, "MCP", "Failed to start MCP server: \(message)")
+            }
         }
         mcpServer = server
 
@@ -358,14 +375,16 @@ final class WorkspaceModel {
         if isMCPServerRunning {
             server.stop()
             isMCPServerRunning = false
+            mcpServerError = nil
             log(.info, "MCP", "Stopped MCP server")
         } else {
+            mcpServerError = nil
             do {
                 try server.start(port: mcpPort)
-                isMCPServerRunning = true
-                log(.info, "MCP", "Started MCP server on port \(mcpPort)")
             } catch {
-                log(.error, "MCP", "Failed to start MCP server: \(error.localizedDescription)")
+                let message = error.localizedDescription
+                mcpServerError = message
+                log(.error, "MCP", "Failed to start MCP server: \(message)")
             }
         }
     }

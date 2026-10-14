@@ -23,6 +23,7 @@ struct MCPServerPopover: View {
 
     var body: some View {
         let running = workspace.isMCPServerRunning
+        let error = workspace.mcpServerError
         let toolNames = workspace.toolRegistry?.tools.map(\.name) ?? []
         let address = "127.0.0.1:\(workspace.mcpPort)"
 
@@ -34,7 +35,14 @@ struct MCPServerPopover: View {
                 )) {
                     Label {
                         Text("MCP Server")
-                        Text(running ? "Listening on \(address)" : "Off")
+                        if running {
+                            Text("Listening on \(address)")
+                        } else if let error {
+                            Text("Off — \(error)")
+                                .foregroundStyle(.red)
+                        } else {
+                            Text("Off")
+                        }
                     } icon: {
                         Image(systemName: "sparkles")
                             .foregroundStyle(running ? Color.green : Color.secondary)
