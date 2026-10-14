@@ -25,6 +25,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$service/Contents/MacO
 cp "$pkg_dir/Support/MadeApp-Info.plist" "$app/Contents/Info.plist"
 cp "$bin_dir/MadeApp" "$app/Contents/MacOS/MadeApp"
 cp -R "$bin_dir/$resources" "$app/Contents/Resources/$resources"
+cp "$pkg_dir/Sources/MadeCore/Scripting/ScriptingResources/made.d.ts" "$app/Contents/Resources/made.d.ts"
 # actool can exit 0 without writing anything, so success is both outputs existing.
 actool_log=$(xcrun actool "$icon" --compile "$app/Contents/Resources" --platform macosx \
     --minimum-deployment-target 26.0 --app-icon made --output-partial-info-plist /dev/null \

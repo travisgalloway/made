@@ -42,6 +42,26 @@ public struct CylinderParams: Hashable, Equatable, Sendable, Codable {
     }
 }
 
+public struct SphereParams: Hashable, Equatable, Sendable, Codable {
+    public var radius: Float
+    
+    public init(radius: Float) {
+        self.radius = radius
+    }
+}
+
+public struct ConeParams: Hashable, Equatable, Sendable, Codable {
+    public var bottomRadius: Float
+    public var topRadius: Float
+    public var height: Float
+    
+    public init(bottomRadius: Float, topRadius: Float = 0, height: Float) {
+        self.bottomRadius = bottomRadius
+        self.topRadius = topRadius
+        self.height = height
+    }
+}
+
 /// A triangle mesh held in one page-aligned shared-memory region, so it can cross XPC without a copy (invariant 6).
 public struct MeshPayload: Sendable {
     public let storage: MeshStorage

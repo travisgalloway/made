@@ -53,6 +53,38 @@ public enum EuclidEngine {
         return cyl.rotated(by: .pitch(.halfPi))
     }
     
+    /// Generates a sphere mesh centered at the origin with poles along the Z axis using Euclid.
+    public static func makeSphere(radius: Float, slices: Int = 32) -> Mesh {
+        let sph = Mesh.sphere(
+            radius: Double(radius),
+            slices: max(8, slices)
+        )
+        return sph.rotated(by: .pitch(.halfPi))
+    }
+    
+    /// Generates a cone or frustum mesh aligned along the +Z axis using Euclid.
+    public static func makeCone(bottomRadius: Float, topRadius: Float = 0, height: Float, slices: Int = 32) -> Mesh {
+        let segs = max(8, slices)
+        if topRadius <= 0 {
+            let cone = Mesh.cone(
+                radius: Double(bottomRadius),
+                height: Double(height),
+                slices: segs
+            )
+            return cone.rotated(by: .pitch(-.halfPi))
+        }
+        let h2 = Double(height) / 2.0
+        let rBot = Double(bottomRadius)
+        let rTop = Double(topRadius)
+        let profile = Path([
+            .point(0, h2),
+            .point(-rTop, h2),
+            .point(-rBot, -h2),
+            .point(0, -h2),
+        ])
+        return Mesh.lathe(profile, slices: segs).rotated(by: .pitch(-.halfPi))
+    }
+    
     /// Performs a Constructive Solid Geometry (CSG) boolean difference: meshA - meshB
     public static func subtract(_ meshA: Mesh, _ meshB: Mesh) -> Mesh {
         return meshA.subtracting(meshB)
