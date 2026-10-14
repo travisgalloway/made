@@ -1,0 +1,13 @@
+{
+  "name": "made-cad",
+  "version": "0.1.0",
+  "description": "Author, reload, inspect, and verify parametric 3D CAD parts (.part.ts / .part.js) in made over MCP",
+  "author": {
+    "name": "Travis Galloway",
+    "url": "https://github.com/travisgalloway/made"
+  },
+  "repository": "https://github.com/travisgalloway/made",
+  "license": "MIT",
+  "keywords": ["cad", "3d-modeling", "parametric", "csg", "mcp", "typescript", "made"],
+  "skills": "./plugins/made-cad/skills"
+}

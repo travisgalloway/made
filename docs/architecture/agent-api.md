@@ -166,6 +166,18 @@ let result = await mountingBracket.evaluate(on: kernel, solidId: SolidId("bracke
 
 ---
 
+## 5. Claude Code Plugin and `made-cad` Skill
+
+Repository-level Claude Code plugin manifests ([`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json), [`.claude-plugin/plugin.json`](../../.claude-plugin/plugin.json), and [`plugins/made-cad/.claude-plugin/plugin.json`](../../plugins/made-cad/.claude-plugin/plugin.json)) package the `made-cad` skill ([`plugins/made-cad/skills/made-cad/SKILL.md`](../../plugins/made-cad/skills/made-cad/SKILL.md)) (#429).
+
+The skill provides external agents with:
+- Documentation of the `.part.ts` and `.part.js` part format, coordinate system, centering rules, 2D sketches, sweeps, CSG booleans, transforms, `param` / `defineParams`, and the `export const expected` verification contract.
+- A synchronized copy of the TypeScript declaration file at [`plugins/made-cad/skills/made-cad/references/made.d.ts`](../../plugins/made-cad/skills/made-cad/references/made.d.ts) for `tsc --noEmit` pre-flight validation.
+- Connection instructions for `127.0.0.1:9820` (TCP) and `--mcp-stdio`, reference tables for all 11 MCP tools, and the step-by-step edit -> `cad_reload` -> `cad_get_diagnostics` -> `cad_verify` -> `cad_capture_snapshot` -> repair loop.
+- A gallery of six verified `.part.ts` example parts under [`plugins/made-cad/skills/made-cad/examples/`](../../plugins/made-cad/skills/made-cad/examples/) and a five-case evaluation benchmark set under [`plugins/made-cad/skills/made-cad/eval/`](../../plugins/made-cad/skills/made-cad/eval/), validated in CI by [`PluginSkillTests.swift`](../../macos/Tests/MadeCoreTests/PluginSkillTests.swift).
+
+---
+
 ## Open Decisions
 
 These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by issue number.
@@ -177,7 +189,7 @@ These questions have no decision yet. Each links to an architecture decision rec
 
 ## Decided
 
-- ADR-D6 (#148) is decided. Part files are TypeScript with a brepjs-style API, run by JavaScriptCore inside the app ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #435). External agents edit the files, and the app reloads them (#427). Agents inspect the result over MCP (#428).
+- ADR-D6 (#148) is decided. Part files are TypeScript with a brepjs-style API, run by JavaScriptCore inside the app ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #435). External agents edit the files, and the app reloads them (#427). Agents inspect the result over MCP (#428) using the `made-cad` Claude Code plugin skill (#429).
 
 ---
 
@@ -186,3 +198,4 @@ These questions have no decision yet. Each links to an architecture decision rec
 - [`rendering.md`](./rendering.md): Snapshot generation pipeline
 - [`kernel.md`](./kernel.md): CSG boolean execution
 - [`document-model.md`](./document-model.md): Scene mutation APIs
+
