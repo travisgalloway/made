@@ -25,11 +25,13 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private let solidPipeline: MTLRenderPipelineState
     private let linePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
+    private let outlinePipeline: MTLRenderPipelineState
     private let solidDepthState: MTLDepthStencilState
     private let gridDepthState: MTLDepthStencilState
     private let axesDepthState: MTLDepthStencilState
     private let billboardDepthState: MTLDepthStencilState
     private let snapDepthState: MTLDepthStencilState
+    private let outlineDepthState: MTLDepthStencilState
     private let billboardSampler: MTLSamplerState
     private let billboardTexture: MTLTexture?
 
@@ -68,6 +70,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private var snapIndexCount = 0
 
     public var activeSnap: SnapResult? = nil
+    public var selectedId: SolidId? = nil
+    public private(set) var lastDrawCalls: Int = 0
     public var camera: Camera = Camera()
     public var cameraPosition: SIMD3<Float> {
         get { camera.position }
@@ -103,7 +107,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
         var allocators: [MTL4CommandAllocator] = []
         var arenas: [UniformArena] = []
-        let initialCapacity = UniformArena.capacity(forDraws: 64, blockSize: MemoryLayout<RenderUniforms>.stride)
+        let initialCapacity = UniformArena.capacity(forDraws: 64, blockSize: MemoryLayout<OutlineUniforms>.stride)
         for _ in 0..<Self.framesInFlight {
             guard let allocator = device.makeCommandAllocator(),
                   let arena = UniformArena(device: device, capacity: initialCapacity) else { return nil }
@@ -131,6 +135,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             self.solidPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "cadFragmentShader")
             self.linePipeline = try Self.makePipeline(compiler, library, vertex: "gridVertexShader", fragment: "gridFragmentShader")
             self.billboardPipeline = try Self.makePipeline(compiler, library, vertex: "billboardVertexShader", fragment: "billboardFragmentShader", alphaBlend: true)
+            self.outlinePipeline = try Self.makePipeline(compiler, library, vertex: "outlineVertexShader", fragment: "outlineFragmentShader")
         } catch {
             Self.log.error("Failed to build Metal 4 pipelines: \(error.localizedDescription, privacy: .public)")
             return nil
@@ -141,12 +146,14 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
               // .lessEqual so the axes pass the depth test where they are coplanar with the Z = 0 grid
               let axesDepth = Self.makeDepthState(device, .lessEqual, write: true),
               let billboardDepth = Self.makeDepthState(device, .lessEqual, write: false),
-              let snapDepth = Self.makeDepthState(device, .always, write: false) else { return nil }
+              let snapDepth = Self.makeDepthState(device, .always, write: false),
+              let outlineDepth = Self.makeDepthState(device, .lessEqual, write: false) else { return nil }
         self.solidDepthState = solidDepth
         self.gridDepthState = gridDepth
         self.axesDepthState = axesDepth
         self.billboardDepthState = billboardDepth
         self.snapDepthState = snapDepth
+        self.outlineDepthState = outlineDepth
 
         let samplerDescriptor = MTLSamplerDescriptor()
         samplerDescriptor.minFilter = .linear
@@ -170,7 +177,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public static let shaderFunctionNames = [
         "cadVertexShader", "cadFragmentShader",
         "gridVertexShader", "gridFragmentShader",
-        "billboardVertexShader", "billboardFragmentShader"
+        "billboardVertexShader", "billboardFragmentShader",
+        "outlineVertexShader", "outlineFragmentShader"
     ]
 
     /// Loads the build-time `default.metallib` from the MadeCore resource bundle. Works on any Metal device.
@@ -392,8 +400,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     }
 
     private func requiredArenaCapacity() -> Int {
-        // One block per visible solid, plus grid, axes, labels, and snap marker.
-        UniformArena.capacity(forDraws: meshes.count + 4, blockSize: MemoryLayout<RenderUniforms>.stride)
+        // One block per visible solid, plus outline, grid, axes, labels, and snap marker.
+        UniformArena.capacity(forDraws: meshes.count + 5, blockSize: MemoryLayout<OutlineUniforms>.stride)
     }
 
     @discardableResult
@@ -430,6 +438,35 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
                 indexBufferLength: mesh.indexBuffer.length
             )
             drawCalls += 1
+        }
+
+        // Selection outline pass for the selected solid (cull .front, depth test .lessEqual, write: false)
+        if let selectedId,
+           let mesh = meshes[selectedId],
+           !hiddenSolidIds.contains(selectedId) {
+            let outlineUniforms = OutlineUniforms(
+                modelMatrix: mesh.transform.matrix,
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix,
+                normalMatrix: mesh.transform.normalMatrix,
+                color: SIMD4<Float>(1.0, 0.65, 0.0, 1.0),
+                outlineWidth: 0.008
+            )
+            if ctx.bindUniforms(outlineUniforms, at: 2) {
+                encoder.setRenderPipelineState(outlinePipeline)
+                encoder.setDepthStencilState(outlineDepthState)
+                encoder.setCullMode(.front)
+                ctx.bind(mesh.positionBuffer, at: 0)
+                ctx.bind(mesh.normalBuffer, at: 1)
+                encoder.drawIndexedPrimitives(
+                    primitiveType: .triangle,
+                    indexCount: mesh.indexCount,
+                    indexType: .uint32,
+                    indexBuffer: mesh.indexBuffer.gpuAddress,
+                    indexBufferLength: mesh.indexBuffer.length
+                )
+                drawCalls += 1
+            }
         }
 
         let lineUniforms = GridUniforms(viewProjectionMatrix: projMatrix * viewMatrix)
@@ -577,6 +614,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         commandQueue.signalEvent(frameEvent, value: frameNumber)
         drawable.present()
 
+        lastDrawCalls = drawCalls
         RenderInstrumentation.shared.recordRender(drawCalls: drawCalls)
         onFrameRendered?()
     }
@@ -614,6 +652,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         pass.depthAttachment.clearDepth = 1.0
         pass.depthAttachment.storeAction = .dontCare
 
+        var drawCalls = 0
         let cameraOverride = view.map { Camera.preset($0) }
         let encoded: Bool = snapshotLock.withLock {
             snapshotAllocator.reset()
@@ -623,7 +662,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
                 commandBuffer.endCommandBuffer()
                 return false
             }
-            renderScene(
+            drawCalls = renderScene(
                 EncodeContext(encoder: encoder, table: snapshotTable, arena: arena),
                 aspect: Float(width) / Float(height),
                 cameraOverride: cameraOverride
@@ -641,6 +680,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             Self.log.error("Snapshot render failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+
+        lastDrawCalls = drawCalls
 
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         colorTexture.getBytes(&bytes, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)

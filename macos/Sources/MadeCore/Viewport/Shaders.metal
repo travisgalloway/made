@@ -122,3 +122,57 @@ fragment float4 billboardFragmentShader(
     float4 texColor = labelTexture.sample(labelSampler, in.texCoord);
     return float4(in.color.rgb, in.color.a * texColor.a);
 }
+
+struct OutlineUniforms {
+    float4x4 modelMatrix;
+    float4x4 viewMatrix;
+    float4x4 projectionMatrix;
+    float3x3 normalMatrix;
+    float4 color;
+    float outlineWidth;
+    float3 _padding;
+};
+
+struct OutlineVertexOut {
+    float4 position [[position]];
+    float4 color;
+};
+
+vertex OutlineVertexOut outlineVertexShader(
+    uint vertexID [[vertex_id]],
+    constant packed_float3 *positions [[buffer(0)]],
+    constant packed_float3 *normals [[buffer(1)]],
+    constant OutlineUniforms &uniforms [[buffer(2)]]
+) {
+    OutlineVertexOut out;
+    float3 pos = float3(positions[vertexID]);
+    float3 norm = float3(normals[vertexID]);
+
+    float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+    float3 worldNormal = float3(0.0);
+    if (length_squared(norm) > 1e-6) {
+        worldNormal = normalize(uniforms.normalMatrix * norm);
+    }
+
+    float4 viewPos = uniforms.viewMatrix * worldPos;
+    float3 viewNormal = float3(0.0);
+    if (length_squared(worldNormal) > 1e-6) {
+        viewNormal = normalize((uniforms.viewMatrix * float4(worldNormal, 0.0)).xyz);
+    }
+
+    float4 clipPos = uniforms.projectionMatrix * viewPos;
+    float4 clipNormal = uniforms.projectionMatrix * float4(viewNormal, 0.0);
+
+    float2 normalDir = clipNormal.xy;
+    if (length_squared(normalDir) > 1e-6) {
+        clipPos.xy += normalize(normalDir) * uniforms.outlineWidth * clipPos.w;
+    }
+
+    out.position = clipPos;
+    out.color = uniforms.color;
+    return out;
+}
+
+fragment float4 outlineFragmentShader(OutlineVertexOut in [[stage_in]]) {
+    return in.color;
+}

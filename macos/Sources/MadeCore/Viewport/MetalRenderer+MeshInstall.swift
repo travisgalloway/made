@@ -29,6 +29,9 @@ extension MetalRenderer {
     @MainActor
     public func removeMesh(for id: SolidId) -> Bool {
         hiddenSolidIds.remove(id)
+        if selectedId == id {
+            selectedId = nil
+        }
         return meshes.removeValue(forKey: id) != nil
     }
 }

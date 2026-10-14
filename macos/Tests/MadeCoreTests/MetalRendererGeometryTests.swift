@@ -6,7 +6,7 @@ import CoreGraphics
 import ImageIO
 @testable import MadeCore
 
-@Suite struct MetalRendererGeometryTests {
+@Suite(.serialized) struct MetalRendererGeometryTests {
     private let width = 800
     private let height = 600
 
@@ -68,6 +68,143 @@ import ImageIO
         let topCenter = project(SIMD3<Float>(0, 0, 10), renderer: renderer)
         let i = (Int(topCenter.y) * width + Int(topCenter.x)) * 4
         #expect(pixels[i + 2] > 210, "front faces are culled, so the box renders inside-out")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testSelectionOutlineIncrementsDrawCallsAndRendersFringe() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let boxId = SolidId("box")
+        let mesh = try #require(renderer.createMesh(from: payload, solidId: boxId, color: SIMD4<Float>(0.2, 0.4, 0.8, 1.0)))
+        renderer.meshes[boxId] = mesh
+
+        // When unselected: exactly 1 draw call (the solid itself)
+        renderer.selectedId = nil
+        let unselectedSnapshot = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 1)
+        let unselectedPixels = try decodeRGBA(unselectedSnapshot)
+
+        // When selected: exactly 2 draw calls (solid + outline)
+        renderer.selectedId = boxId
+        let selectedSnapshot = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 2)
+        let selectedPixels = try decodeRGBA(selectedSnapshot)
+
+        let background = mostCommonPixel(unselectedPixels)
+
+        // Find pixels in selected snapshot that are amber outline (high red, medium green, low blue)
+        var amberOutlinePixelCount = 0
+        var fringePixelCount = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                let r = selectedPixels[i]
+                let g = selectedPixels[i + 1]
+                let b = selectedPixels[i + 2]
+
+                let isAmber = r > 180 && g > 100 && b < 60
+                if isAmber {
+                    amberOutlinePixelCount += 1
+                }
+
+                // Check if this pixel was background in unselectedPixels but became amber in selectedPixels
+                let unselectedP = (unselectedPixels[i], unselectedPixels[i + 1], unselectedPixels[i + 2])
+                let wasBackground = abs(Int(unselectedP.0) - Int(background.0)) <= 4
+                    && abs(Int(unselectedP.1) - Int(background.1)) <= 4
+                    && abs(Int(unselectedP.2) - Int(background.2)) <= 4
+                if wasBackground && isAmber {
+                    fringePixelCount += 1
+                }
+            }
+        }
+
+        #expect(amberOutlinePixelCount > 50, "Selection outline should render amber pixels")
+        #expect(fringePixelCount > 20, "Selection outline should render fringe pixels extending outside the solid")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testNoSelectionIssuesNoOutlineDrawCalls() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let boxPayload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 30, depth: 30, height: 20))
+        let cylPayload = EuclidEngine.toMeshPayload(EuclidEngine.makeCylinder(radius: 10, height: 30))
+        let boxMesh = try #require(renderer.createMesh(from: boxPayload, solidId: SolidId("box"), color: SIMD4<Float>(0.5, 0.5, 0.5, 1.0)))
+        let cylMesh = try #require(renderer.createMesh(from: cylPayload, solidId: SolidId("cyl"), color: SIMD4<Float>(0.6, 0.6, 0.6, 1.0)))
+        renderer.meshes[SolidId("box")] = boxMesh
+        renderer.meshes[SolidId("cyl")] = cylMesh
+
+        renderer.selectedId = nil
+        _ = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 2, "No outline draw calls should be issued when selectedId is nil")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testRemovedOrHiddenSolidIssuesNoOutline() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let boxId = SolidId("box")
+        let boxMesh = try #require(renderer.createMesh(from: payload, solidId: boxId, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[boxId] = boxMesh
+
+        // Nonexistent solid ID
+        renderer.selectedId = SolidId("uninstalled")
+        _ = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 1, "Uninstalled solid selection should produce 0 outline draw calls")
+
+        // Hidden solid
+        renderer.selectedId = boxId
+        renderer.hiddenSolidIds.insert(boxId)
+        _ = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 0, "Hidden solid selection should produce 0 draw calls total")
+
+        // Unhide and removeMesh
+        renderer.hiddenSolidIds.remove(boxId)
+        #expect(renderer.selectedId == boxId)
+        let removed = await renderer.removeMesh(for: boxId)
+        #expect(removed)
+        #expect(renderer.selectedId == nil, "removeMesh should clear selectedId if matching")
+        _ = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 0, "Empty scene should produce 0 draw calls")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testOccludedSolidOutlineOccludedByForegroundSolid() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        // Background box at origin (0, 0, 0)
+        let bgId = SolidId("bgBox")
+        let bgPayload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 40, height: 40))
+        let bgMesh = try #require(renderer.createMesh(from: bgPayload, solidId: bgId, color: SIMD4<Float>(0.1, 0.1, 0.1, 1.0)))
+        renderer.meshes[bgId] = bgMesh
+
+        // Foreground solid closer to default camera (eye is at (150, -150, 90), target is (0, 0, 10))
+        let fgId = SolidId("fgBox")
+        let fgTransform = Transform(position: SIMD3<Float>(50, -50, 30))
+        let fgMesh = try #require(renderer.createMesh(from: bgPayload, solidId: fgId, transform: fgTransform, color: SIMD4<Float>(0.0, 1.0, 0.0, 1.0)))
+        renderer.meshes[fgId] = fgMesh
+
+        // Select the background solid
+        renderer.selectedId = bgId
+        let snapshot = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 3, "2 solids + 1 outline = 3 draw calls")
+
+        let pixels = try decodeRGBA(snapshot)
+        // Foreground solid center should be green (R low, G high, B low) and NOT amber outline
+        let fgCenter = project(fgTransform.position, renderer: renderer)
+        let i = (Int(fgCenter.y) * width + Int(fgCenter.x)) * 4
+        let g = pixels[i + 1]
+        let r = pixels[i]
+        #expect(g > 150 && r < 50, "Foreground solid face must occlude background solid outline")
     }
 
     private func viewProjection(_ renderer: MetalRenderer) -> simd_float4x4 {
