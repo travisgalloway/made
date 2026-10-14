@@ -76,21 +76,6 @@ final class WorkspaceModel {
             Task { @MainActor in viewportManager?.handleDeviceLost() }
         }
 
-        let registry = CADToolRegistry(
-            document: document,
-            kernelClient: kernelClient,
-            snapshotProvider: viewportManager.renderer,
-            meshSink: viewportManager.renderer,
-            onViewportInvalidated: { [weak self] in self?.invalidateViewport(.model) },
-            onRecomputeResult: { [weak self] result, id in
-                guard let self else { return }
-                if let message = self.recomputeFailures.record(result, for: id) {
-                    self.log(.error, "Kernel", message)
-                }
-            }
-        )
-        toolRegistry = registry
-
         let reloadController = PartReloadController(
             document: document,
             partRuntime: partRuntime,
@@ -109,6 +94,22 @@ final class WorkspaceModel {
             }
         )
         partReloadController = reloadController
+
+        let registry = CADToolRegistry(
+            document: document,
+            kernelClient: kernelClient,
+            partReloadController: reloadController,
+            snapshotProvider: viewportManager.renderer,
+            meshSink: viewportManager.renderer,
+            onViewportInvalidated: { [weak self] in self?.invalidateViewport(.model) },
+            onRecomputeResult: { [weak self] result, id in
+                guard let self else { return }
+                if let message = self.recomputeFailures.record(result, for: id) {
+                    self.log(.error, "Kernel", message)
+                }
+            }
+        )
+        toolRegistry = registry
 
         let server = MCPServer(toolRegistry: registry)
         server.onStateChange = { @Sendable [weak self] running in

@@ -26,6 +26,10 @@ public final class HeadlessSnapshotProvider: SnapshotProvider {
     }
 
     public func captureSnapshotPngBase64() async -> String? {
+        await captureSnapshotPngBase64(view: nil)
+    }
+
+    public func captureSnapshotPngBase64(view: ViewportPerspective?) async -> String? {
         // The frame shows the document as it was when the capture was requested.
         let objects = document.objects
         target.removeMeshes(notIn: Set(objects.map(\.id)))
@@ -49,7 +53,7 @@ public final class HeadlessSnapshotProvider: SnapshotProvider {
             // A failed solid keeps its previous mesh, as the window viewport does.
             _ = SolidMeshApplier.apply(result, to: id, document: document, sink: target)
         }
-        return await target.captureSnapshotPngBase64()
+        return await target.captureSnapshotPngBase64(view: view)
     }
 
     /// A concurrent edit to the same solid conflates this request into `.cancelled`; one resubmission recovers a mesh.

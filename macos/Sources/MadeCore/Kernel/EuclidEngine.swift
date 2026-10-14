@@ -6,7 +6,7 @@ public enum EuclidEngine {
     /// Converts a Euclid.Mesh into a GPU-ready indexed MeshPayload in right-handed Z-up coordinates.
     /// Counts triangles first so the vertices are written once, straight into shared storage.
     public static func toMeshPayload(_ mesh: Mesh) -> MeshPayload {
-        let polygons = mesh.triangulate().polygons.filter { $0.vertices.count >= 3 }
+        let polygons = mesh.makeWatertight().triangulate().polygons.filter { $0.vertices.count >= 3 }
         let triangleCount = polygons.reduce(0) { $0 + $1.vertices.count - 2 }
         let floatCount = triangleCount * 9
         

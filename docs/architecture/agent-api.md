@@ -20,10 +20,12 @@
                            │ Tool Invocations
 ┌──────────────────────────▼─────────────────────────────┐
 │                    CADToolRegistry                     │
-│   • cad_get_scene            • cad_remove_solid        │
-│   • cad_add_solid            • cad_measure             │
-│   • cad_set_param            • cad_boolean_operation  │
-│   • cad_set_transform        • cad_capture_snapshot    │
+│   • cad_get_scene            • cad_boolean_operation  │
+│   • cad_add_solid            • cad_reload             │
+│   • cad_set_param            • cad_get_diagnostics    │
+│   • cad_set_transform        • cad_verify             │
+│   • cad_remove_solid         • cad_capture_snapshot    │
+│   • cad_measure                                        │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Live Mutation            │ Snapshot Request
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
@@ -60,7 +62,7 @@ A line may hold at most 16 MiB (`MCPLineFramer.defaultMaximumLineLength`, 16,777
 ### In-App TCP Transport
 The MCP popover (the sparkles toolbar button) starts a TCP listener inside the running GUI. `WorkspaceModel.toggleMCPServer` calls `MCPServer.start(port:)`, and the default port is 9820. The listener serves the same JSON-RPC 2.0 methods as the stdio transport.
 
-The listener shares the window's own `DocumentModel`, `KernelClient`, and `MetalRenderer`. An agent connected over TCP therefore edits the document that the window shows, and `cad_capture_snapshot` works. Tool calls change the document on `@MainActor`, so the Navigator and Inspector update through `@Observable`, and `CADToolRegistry` installs meshes, updates transforms, removes meshes, and invalidates the viewport through the shared `SolidMeshSink` (AGENT-25, #132).
+The listener shares the window's own `DocumentModel`, `KernelClient`, `PartReloadController`, and `MetalRenderer`. An agent connected over TCP therefore edits the document that the window shows, and `cad_capture_snapshot` works. Tool calls change the document on `@MainActor`, so the Navigator and Inspector update through `@Observable`, and `CADToolRegistry` installs meshes, updates transforms, removes meshes, and invalidates the viewport through the shared `SolidMeshSink` (AGENT-25, #132).
 
 **Requirement (user decision, 2026-10-11).** The listener must accept connections only from the local machine (loopback). The MCP popover already displays the address as `127.0.0.1:9820`.
 
@@ -84,7 +86,7 @@ Add `made` to your `claude_desktop_config.json`:
 
 ## 2. Core CAD Tools
 
-The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L8) provides 8 tools. Argument names below match the input schemas in `CADTools.swift`:
+The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) provides 11 tools. Argument names below match the input schemas in `CADTools.swift`:
 
 | Tool Name | Parameters | Description |
 | --------- | ---------- | ----------- |
@@ -92,13 +94,16 @@ The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L8) pr
 | `cad_add_solid` | `type` ("box" \| "cylinder"), dimensions (`width`, `depth`, `height`, `radius`), position (`posX`, `posY`, `posZ`) | Instantiates a new parametric solid in the document, schedules its 60 ms debounced kernel tessellation, and installs the resulting mesh in the viewport when a mesh sink is attached. Positions must be finite numbers from -10000 to 10000 mm (`DocumentLimits.position`) and default to 0 when omitted. Sizes must be finite numbers and are clamped to `DocumentLimits`. A wrong-typed (including `null`) or non-finite argument, or an out-of-bound position, returns an `isError` result and adds nothing. |
 | `cad_set_param` | `id`, `param` (box: "width", "depth", "height"; cylinder: "radius", "height"), `value` | Updates a parameter on a solid, clamped to the `DocumentLimits` ranges, and schedules a debounced recompute and viewport redraw. An unknown `param` for the solid kind, an imported or boolean solid, an unknown solid ID, and a non-finite `value` return an `isError` result and change nothing. The success message reports the stored (clamped) value. |
 | `cad_set_transform` | `id`, `posX`, `posY`, `posZ` | Updates the world position of a solid and updates its viewport mesh transform. Positions must be finite numbers from -10000 to 10000 mm (`DocumentLimits.position`), and omitted coordinates are unchanged. A wrong-typed (including `null`) or non-finite argument, an out-of-bound position, or an unknown solid ID returns an `isError` result and changes nothing. |
-| `cad_remove_solid` | `id` | Deletes a solid from the document, removes its mesh from the viewport, and disposes its kernel cache entry. |
-| `cad_measure` | `id` | Returns calculated volume, bounding extents, and estimated surface area. |
+| `cad_remove_solid` | `id` | Deletes a solid from the document, stops any active part file watcher, removes its mesh from the viewport, and disposes its kernel cache entry. |
+| `cad_measure` | `id` | Returns calculated volume, bounding extents, and surface area. |
 | `cad_boolean_operation` | `solidA` (target), `solidB` (cutter), `operation` ("subtract" \| "union" \| "intersect") | Runs a CSG boolean in the kernel after settling any in-flight recomputes for `solidA` and `solidB`. An operand ID not in the document, or the same ID for both operands, returns an `isError` result that names the ID and changes nothing, before the kernel is called. An operand removed while the kernel runs also returns `isError` and adds nothing. The kernel returns `unknown-solid` for a solid in the document with no kernel mesh, such as an imported solid. On success the result is recorded as a `.boolean(op:solidA:solidB:)` object and installed as a mesh in the viewport. The reply reports its ID, `boolean-<seq>`, which the kernel also stores, so `cad_measure`, `cad_set_transform`, `cad_remove_solid` and `cad_get_scene` accept it. A kernel failure adds nothing and reports no ID. |
-| `cad_capture_snapshot` | None | Renders an offscreen 800x600 Metal frame and returns it as MCP `image` content: raw base64 PNG with MIME type `image/png`, not a data URI. Over `--mcp-stdio` the document is tessellated before the render. |
+| `cad_reload` | `id` (optional), `file` (optional) | Re-evaluates an open `.part.ts` or `.part.js` part file immediately (or opens and evaluates a part file path when `file` is given, or reloads all open parts when both arguments are omitted). Returns structured evaluation metadata on success or an `isError` tool result containing the `file`, `line`, `column`, and `message` diagnostics on failure (#428). |
+| `cad_get_diagnostics` | `id` (optional), `file` (optional) | Returns the last evaluation `errors` and `warnings` for open part files (or filtered by `id` or `file`), each with `file`, `line`, `column`, and `message` (#428). |
+| `cad_verify` | `id` (optional) | Checks that each solid in the scene (or the solid matching `id`) is a valid `closed`, `manifold`, `positiveVolume` mesh, and compares measured `volume`, `area`, and `bounds` against any `export const expected` block in a part file within tolerance. Returns a structured verification report with `isError: true` when topological verification or any `expected` check fails (#428). |
+| `cad_capture_snapshot` | `view` (optional: "front" \| "top" \| "right" \| "isometric" \| "perspective") | Renders an offscreen 800x600 Metal frame and returns it as MCP `image` content (raw base64 PNG with MIME type `image/png`). When `view` is specified, renders from that camera preset without modifying the interactive viewport camera (#89, #428). |
 
 ### Error Behavior
-A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` and a text message beginning `Error:`. JSON-RPC error payloads are limited to the following cases:
+A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` (never a JSON-RPC error payload). JSON-RPC error payloads are limited to the following protocol cases:
 
 | Code | Condition |
 | ---- | --------- |

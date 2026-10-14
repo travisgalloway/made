@@ -277,6 +277,7 @@ public final class PartRuntime: @unchecked Sendable {
                 payload: payload,
                 expected: scriptEval.expected,
                 parameters: scriptEval.parameters,
+                warnings: scriptEval.warnings,
                 evaluatedOnMainThread: scriptEval.evaluatedOnMainThread,
                 loadedFiles: scriptEval.loadedFiles
             )
@@ -418,6 +419,7 @@ private final class JSCPartEvaluator {
     private var moduleExportsByPath: [String: JSValue] = [:]
     private var loadingStack: [String] = []
     private var activeError: PartRuntimeError?
+    private var warnings: [PartDiagnostic] = []
     private var tickCount: Int = 0
 
     init(
@@ -517,6 +519,40 @@ private final class JSCPartEvaluator {
             }
         }
         context.setObject(tickBlock, forKeyedSubscript: "__made_tick" as NSString)
+
+        // Install console.warn / console.error collector (__made_warn)
+        let warnBlock: @convention(block) (String, String) -> Void = { [weak self] message, stack in
+            guard let self else { return }
+            let fallbackFile = self.loadingStack.last ?? filePath
+            if let frame = self.parseTopUserFrame(from: stack) {
+                let record = self.modulesByPath[frame.filePath]
+                let totalLines = max(1, record?.originalLines.count ?? 1)
+                let origLine = min(totalLines, max(1, frame.jscLine - 1))
+                let origCol = self.mapColumnToOriginal(
+                    jscColumn: frame.jscColumn,
+                    origLine: origLine,
+                    moduleRecord: record
+                )
+                self.warnings.append(
+                    PartDiagnostic(
+                        file: frame.filePath,
+                        line: origLine,
+                        column: origCol,
+                        message: message
+                    )
+                )
+            } else {
+                self.warnings.append(
+                    PartDiagnostic(
+                        file: fallbackFile,
+                        line: 1,
+                        column: 1,
+                        message: message
+                    )
+                )
+            }
+        }
+        context.setObject(warnBlock, forKeyedSubscript: "__made_warn" as NSString)
 
         // Execute root module
         let rootExportsResult = executeModule(
@@ -638,6 +674,7 @@ private final class JSCPartEvaluator {
             shape: shapeNode,
             expected: expectedBlock,
             parameters: parameters,
+            warnings: warnings,
             evaluatedOnMainThread: onMainThread,
             loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
         )
@@ -1382,8 +1419,20 @@ private final class JSCPartEvaluator {
             )
         }
 
+        let knownKeys: Set<String> = ["volume", "area", "surfaceArea", "bounds", "tolerance"]
+        for key in raw.keys.sorted() where !knownKeys.contains(key) {
+            warnings.append(
+                PartDiagnostic(
+                    file: filePath,
+                    line: 1,
+                    column: 1,
+                    message: "Unrecognized key '\(key)' in 'export const expected' (supported: volume, area, bounds, tolerance)"
+                )
+            )
+        }
+
         let volume = try parseOptionalDouble(raw["volume"], name: "expected.volume")
-        let area = try parseOptionalDouble(raw["area"], name: "expected.area")
+        let area = try parseOptionalDouble(raw["area"] ?? raw["surfaceArea"], name: "expected.area")
         let tolerance = try parseOptionalDouble(raw["tolerance"], name: "expected.tolerance")
 
         var bounds: PartExpectedBounds? = nil

@@ -70,6 +70,49 @@
     return recordedParams;
   };
 
+  function formatConsoleArgs(args) {
+    var parts = [];
+    for (var i = 0; i < args.length; i++) {
+      var v = args[i];
+      if (typeof v === 'string') {
+        parts.push(v);
+      } else {
+        try {
+          parts.push(JSON.stringify(v));
+        } catch (_) {
+          parts.push(String(v));
+        }
+      }
+    }
+    return parts.join(' ');
+  }
+
+  global.console = Object.freeze({
+    log: function () {},
+    info: function () {},
+    debug: function () {},
+    warn: function () {
+      var msg = formatConsoleArgs(arguments);
+      var stack = '';
+      try {
+        stack = (new Error()).stack || '';
+      } catch (_) {}
+      if (typeof global.__made_warn === 'function') {
+        global.__made_warn(msg, stack);
+      }
+    },
+    error: function () {
+      var msg = formatConsoleArgs(arguments);
+      var stack = '';
+      try {
+        stack = (new Error()).stack || '';
+      } catch (_) {}
+      if (typeof global.__made_warn === 'function') {
+        global.__made_warn(msg, stack);
+      }
+    }
+  });
+
   function toVec2(val, fallbackX, fallbackY) {
     if (Array.isArray(val)) {
       if (val.length < 2) {
