@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import os
 
-/// The state of the Metal 3D viewport.
+/// The state of the 3D Metal 4 viewport.
 public enum ViewportState: Equatable, Sendable {
     case initializing
     case ready
