@@ -12,11 +12,7 @@ import ImageIO
         return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
     }()
 
-    /// The app segfaults at launch on the GitHub macOS runner (no window server session), so this runs locally and in the pre-push hook only.
-    static let canLaunchApp = ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == nil
-
     @Test(.enabled(if: binary != nil, "MadeApp executable not built"),
-          .enabled(if: canLaunchApp, "MadeApp cannot launch on GitHub-hosted runners"),
           .timeLimit(.minutes(1)))
     func testCaptureSnapshotOverStdio() async throws {
         let lines = [
@@ -53,7 +49,6 @@ import ImageIO
     }
 
     @Test(.enabled(if: binary != nil, "MadeApp executable not built"),
-          .enabled(if: canLaunchApp, "MadeApp cannot launch on GitHub-hosted runners"),
           .timeLimit(.minutes(1)))
     func testNotificationProducesNoOutputOverStdio() async throws {
         let lines = [
@@ -70,7 +65,6 @@ import ImageIO
     }
 
     @Test(.enabled(if: binary != nil, "MadeApp executable not built"),
-          .enabled(if: canLaunchApp, "MadeApp cannot launch on GitHub-hosted runners"),
           .timeLimit(.minutes(1)))
     func testRequestLargerThanOneChunkOverStdio() async throws {
         let padding = String(repeating: "x", count: 200_000)
