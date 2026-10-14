@@ -50,6 +50,33 @@ public struct BillboardUniforms: BitwiseCopyable {
     }
 }
 
+public struct OutlineUniforms: BitwiseCopyable {
+    public var modelMatrix: simd_float4x4
+    public var viewMatrix: simd_float4x4
+    public var projectionMatrix: simd_float4x4
+    public var normalMatrix: simd_float3x3
+    public var color: SIMD4<Float>
+    public var outlineWidth: Float
+    private var _padding: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
+
+    public init(
+        modelMatrix: simd_float4x4 = matrix_identity_float4x4,
+        viewMatrix: simd_float4x4 = matrix_identity_float4x4,
+        projectionMatrix: simd_float4x4 = matrix_identity_float4x4,
+        normalMatrix: simd_float3x3 = matrix_identity_float3x3,
+        color: SIMD4<Float> = SIMD4<Float>(1.0, 0.65, 0.0, 1.0),
+        outlineWidth: Float = 0.008
+    ) {
+        self.modelMatrix = modelMatrix
+        self.viewMatrix = viewMatrix
+        self.projectionMatrix = projectionMatrix
+        self.normalMatrix = normalMatrix
+        self.color = color
+        self.outlineWidth = outlineWidth
+        self._padding = SIMD3<Float>(0, 0, 0)
+    }
+}
+
 public struct MetalMesh: @unchecked Sendable {
     public let positionBuffer: MTLBuffer
     public let normalBuffer: MTLBuffer

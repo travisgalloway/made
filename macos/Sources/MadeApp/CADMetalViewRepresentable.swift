@@ -176,7 +176,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 coordinator?.handleFrameRendered()
             }
         }
-        
+        renderer.selectedId = document.selectedId
         return view
     }
     
@@ -184,6 +184,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         // The coordinator outlives this struct, so refresh its copy to pick up the current tool and callbacks.
         context.coordinator.parent = self
         (nsView as? CADMTKView)?.tool = tool
+        if renderer.selectedId != document.selectedId {
+            renderer.selectedId = document.selectedId
+            context.coordinator.invalidate(reason: .interaction)
+        }
         if coordinatorBinding?.wrappedValue !== context.coordinator {
             DispatchQueue.main.async {
                 coordinatorBinding?.wrappedValue = context.coordinator
@@ -382,6 +386,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         candidateMeshes: parent.renderer.candidateMeshes()
                     )
                     parent.document.selectedId = hitId
+                    if parent.renderer.selectedId != hitId {
+                        parent.renderer.selectedId = hitId
+                        invalidate(reason: .interaction)
+                    }
                 }
             }
         }
@@ -512,11 +520,15 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
                 coordinator?.handleFrameRendered()
             }
         }
-        
+        renderer.selectedId = document.selectedId
         return view
     }
     
     public func updateUIView(_ uiView: MTKView, context: Context) {
+        if renderer.selectedId != document.selectedId {
+            renderer.selectedId = document.selectedId
+            context.coordinator.invalidate(reason: .interaction)
+        }
         if coordinatorBinding?.wrappedValue !== context.coordinator {
             DispatchQueue.main.async {
                 coordinatorBinding?.wrappedValue = context.coordinator
