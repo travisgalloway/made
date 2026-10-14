@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import OSLog
 
 /// Recovers a request's id before the full decode, so an invalid request can echo it.
 private struct IDProbe: Decodable {
@@ -18,6 +19,8 @@ public enum MCPServerError: Error, LocalizedError, Equatable, Sendable {
 }
 
 public final class MCPServer: @unchecked Sendable {
+    private static let logger = Logger(subsystem: "com.made.app", category: "MCP")
+
     public let toolRegistry: CADToolRegistry
     private let encoder: JSONEncoder
     private let maximumLineLength: Int
@@ -37,6 +40,10 @@ public final class MCPServer: @unchecked Sendable {
     private var _lastError: String? = nil
     private var _onStateChange: (@Sendable (Bool) -> Void)? = nil
     private var _onError: (@Sendable (NWError) -> Void)? = nil
+    #if DEBUG
+    private var _onSendFailure: (@Sendable (ObjectIdentifier, NWError) -> Void)? = nil
+    private var _simulateSendFailure: NWError? = nil
+    #endif
     private var activeConnections: [ObjectIdentifier: TrackedConnection] = [:]
     private let queue = DispatchQueue(label: "com.made.mcp.server", qos: .userInitiated)
     
@@ -65,6 +72,22 @@ public final class MCPServer: @unchecked Sendable {
         get { lock.withLock { _onError } }
         set { lock.withLock { _onError = newValue } }
     }
+    
+    #if DEBUG
+    public var onSendFailure: (@Sendable (ObjectIdentifier, NWError) -> Void)? {
+        get { lock.withLock { _onSendFailure } }
+        set { lock.withLock { _onSendFailure = newValue } }
+    }
+    
+    public var simulateSendFailure: NWError? {
+        get { lock.withLock { _simulateSendFailure } }
+        set { lock.withLock { _simulateSendFailure = newValue } }
+    }
+    
+    internal var activeConnectionIdentifiers: [ObjectIdentifier] {
+        lock.withLock { Array(activeConnections.keys) }
+    }
+    #endif
     
     internal var activeConnectionCount: Int {
         lock.withLock { activeConnections.count }
@@ -228,6 +251,15 @@ public final class MCPServer: @unchecked Sendable {
     }
     #endif
     
+    private func handleSendFailure(connection: NWConnection, connectionId: ObjectIdentifier, error: NWError) {
+        Self.logger.error("MCP send failed on connection \(String(describing: connectionId), privacy: .public): \(error.localizedDescription, privacy: .public)")
+        #if DEBUG
+        let callback = lock.withLock { _onSendFailure }
+        callback?(connectionId, error)
+        #endif
+        removeConnection(connection)
+    }
+    
     private func handleConnection(_ connection: NWConnection) {
         let (frames, continuation) = AsyncStream.makeStream(of: MCPLineFramer.Frame.self)
         let connectionId = ObjectIdentifier(connection)
@@ -235,17 +267,42 @@ public final class MCPServer: @unchecked Sendable {
         let task = Task { [weak self] in
             for await frame in frames {
                 guard !Task.isCancelled, let self, self.isRunning else { break }
+                let isAlive = self.lock.withLock { self.activeConnections[connectionId] != nil }
+                guard isAlive else { break }
                 if let response = await self.processFrame(frame) {
                     guard !Task.isCancelled, self.isRunning else { break }
-                    connection.send(content: Data((response + "\n").utf8), completion: .contentProcessed({ _ in }))
+                    let stillAlive = self.lock.withLock { self.activeConnections[connectionId] != nil }
+                    guard stillAlive else { break }
+                    #if DEBUG
+                    if let forcedError = self.lock.withLock({ self._simulateSendFailure }) {
+                        self.handleSendFailure(connection: connection, connectionId: connectionId, error: forcedError)
+                        break
+                    }
+                    #endif
+                    let sendError: NWError? = await withCheckedContinuation { continuation in
+                        connection.send(content: Data((response + "\n").utf8), completion: .contentProcessed({ [weak self] error in
+                            if let error {
+                                self?.handleSendFailure(connection: connection, connectionId: connectionId, error: error)
+                            }
+                            continuation.resume(returning: error)
+                        }))
+                    }
+                    if sendError != nil { break }
+                    try? await Task.sleep(for: .milliseconds(10))
                 }
                 if frame == .oversized { break }
             }
             if !Task.isCancelled {
-                connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ [weak self] _ in
-                    connection.cancel()
-                    self?.removeConnection(connection)
-                }))
+                await withCheckedContinuation { continuation in
+                    connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ [weak self] error in
+                        if let error {
+                            self?.handleSendFailure(connection: connection, connectionId: connectionId, error: error)
+                        }
+                        connection.cancel()
+                        self?.removeConnection(connection)
+                        continuation.resume()
+                    }))
+                }
             } else {
                 connection.cancel()
                 self?.removeConnection(connection)
@@ -295,6 +352,11 @@ public final class MCPServer: @unchecked Sendable {
     /// Threads the framer through each receive by value; callbacks run serially on `queue`.
     private func receiveMessages(on connection: NWConnection, framer: MCPLineFramer, continuation: AsyncStream<MCPLineFramer.Frame>.Continuation) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
+            if error != nil {
+                continuation.finish()
+                self?.removeConnection(connection)
+                return
+            }
             var framer = framer
             if let content, !content.isEmpty {
                 for frame in framer.append(content) {
@@ -308,7 +370,7 @@ public final class MCPServer: @unchecked Sendable {
             if isComplete {
                 for frame in framer.finish() { continuation.yield(frame) }
                 continuation.finish()
-            } else if let self, self.isRunning, error == nil {
+            } else if let self, self.isRunning {
                 self.receiveMessages(on: connection, framer: framer, continuation: continuation)
             } else {
                 continuation.finish()
@@ -318,6 +380,7 @@ public final class MCPServer: @unchecked Sendable {
     
     /// Returns the response to one frame. An oversized line and bytes that are not UTF-8 both get -32700.
     private func processFrame(_ frame: MCPLineFramer.Frame) async -> String? {
+        guard !Task.isCancelled else { return nil }
         guard case .line(let line) = frame,
               let string = String(data: line, encoding: .utf8) else {
             return encodeResponse(JSONRPCResponse(id: nil, error: .parseError))
