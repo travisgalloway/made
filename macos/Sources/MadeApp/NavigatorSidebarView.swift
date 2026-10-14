@@ -23,6 +23,10 @@ struct NavigatorSidebarView: View {
         }
         .contextMenu(forSelectionType: ObjectId.self) { ids in
             if let id = ids.first, let obj = workspace.document.objects.first(where: { $0.id == id }) {
+                if case .part = obj.def {
+                    Button("Reload Part") { workspace.reloadPart(id) }
+                    Divider()
+                }
                 Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
                 Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
                 Divider()
@@ -45,6 +49,10 @@ struct NavigatorSidebarView: View {
                 }
                 Button("Cylinder Solid", systemImage: "cylinder") {
                     workspace.addObject(.cylinder(CylinderParams(radius: 12, height: 35)))
+                }
+                Divider()
+                Button("Part Script File…", systemImage: "curlybraces") {
+                    workspace.promptOpenPartFile()
                 }
             }
             .menuIndicator(.hidden)
@@ -117,6 +125,7 @@ private struct NavigatorRow: View {
         case .cylinder: return "cylinder.fill"
         case .imported: return "cube.transparent"
         case .boolean: return "square.on.circle"
+        case .part: return "curlybraces.square.fill"
         }
     }
 
@@ -126,6 +135,7 @@ private struct NavigatorRow: View {
         case .cylinder: return .orange
         case .imported: return .purple
         case .boolean: return .green
+        case .part: return .teal
         }
     }
 }

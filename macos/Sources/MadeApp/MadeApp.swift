@@ -40,6 +40,12 @@ struct MadeApp: App {
         .commands {
             SidebarCommands()
             InspectorCommands()
+            CommandGroup(after: .newItem) {
+                Button("Open Part Script…") { workspace.promptOpenPartFile() }
+                    .keyboardShortcut("o", modifiers: [.command])
+                Button("Reload Part Scripts") { workspace.reloadAllParts() }
+                    .keyboardShortcut("r", modifiers: [.command])
+            }
             CommandGroup(after: .appInfo) {
                 OpenSourceLicensesMenuButton()
             }

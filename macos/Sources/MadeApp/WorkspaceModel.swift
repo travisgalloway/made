@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 import MadeCore
 import os
 
@@ -13,6 +15,7 @@ final class WorkspaceModel {
     #else
     let kernelClient: any KernelClientProtocol = KernelClient.makeDefault()
     #endif
+    let partRuntime = PartRuntime()
     let viewportManager = ViewportStateManager()
 
     var selectedId: ObjectId? = boxSolidId
@@ -42,8 +45,9 @@ final class WorkspaceModel {
         ConsoleLogEntry(level: .info, subsystem: "App", message: "made macOS workspace initialized")
     ]
 
-    // MCP
+    // MCP & Part Reload
     private(set) var toolRegistry: CADToolRegistry?
+    private(set) var partReloadController: PartReloadController?
     private(set) var mcpServer: MCPServer?
     private(set) var isMCPServerRunning = false
     let mcpPort: UInt16 = 9820
@@ -86,6 +90,26 @@ final class WorkspaceModel {
             }
         )
         toolRegistry = registry
+
+        let reloadController = PartReloadController(
+            document: document,
+            partRuntime: partRuntime,
+            kernelClient: kernelClient,
+            meshSink: viewportManager.renderer,
+            onViewportInvalidated: { [weak self] in self?.invalidateViewport(.model) },
+            onReloadResult: { [weak self] result, id in
+                guard let self else { return }
+                if let message = self.recomputeFailures.record(result, for: id) {
+                    self.log(.error, "Part", message)
+                    self.isConsoleVisible = true
+                } else if case .success(_, let output) = result {
+                    let name = self.document.objects.first(where: { $0.id == id })?.name ?? id.rawValue
+                    self.log(.info, "Part", "Reloaded \(name) (\(output.payload.triangleCount) triangles)")
+                }
+            }
+        )
+        partReloadController = reloadController
+
         let server = MCPServer(toolRegistry: registry)
         server.onStateChange = { @Sendable [weak self] running in
             Task { @MainActor in self?.isMCPServerRunning = running }
@@ -93,8 +117,21 @@ final class WorkspaceModel {
         mcpServer = server
 
         for obj in document.objects { recomputeSolid(id: obj.id) }
+        openInitialPartFilesFromEnvironmentOrArguments()
         log(.info, "Metal", "Metal 4 pipeline initialized")
         watchKernelRestarts()
+    }
+
+    private func openInitialPartFilesFromEnvironmentOrArguments() {
+        if let envPath = ProcessInfo.processInfo.environment["MADE_PART_FILE"], !envPath.isEmpty {
+            openPartFile(at: URL(fileURLWithPath: envPath))
+        }
+        for arg in CommandLine.arguments.dropFirst() where !arg.hasPrefix("-") {
+            let lower = arg.lowercased()
+            if lower.hasSuffix(".part.ts") || lower.hasSuffix(".part.js") || lower.hasSuffix(".made") {
+                openPartFile(at: URL(fileURLWithPath: arg))
+            }
+        }
     }
 
     /// A restarted kernel service holds no solids; resubmit each one, except the solid whose job stopped it.
@@ -120,7 +157,67 @@ final class WorkspaceModel {
         recomputeSolid(id: id)
     }
 
+    /// Opens and watches a standalone `.part.ts` / `.part.js` file or all part files inside a `.made` directory package (#427).
+    @discardableResult
+    func openPartFile(at url: URL) -> ObjectId? {
+        let canonical = url.standardizedFileURL
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: canonical.path, isDirectory: &isDir), isDir.boolValue {
+            let partsDir = canonical.appendingPathComponent("parts", isDirectory: true)
+            let scanDir = FileManager.default.fileExists(atPath: partsDir.path) ? partsDir : canonical
+            let contents = (try? FileManager.default.contentsOfDirectory(at: scanDir, includingPropertiesForKeys: nil)) ?? []
+            let partFiles = contents
+                .filter {
+                    let name = $0.lastPathComponent.lowercased()
+                    return name.hasSuffix(".part.ts") || name.hasSuffix(".part.js")
+                }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            var lastOpened: ObjectId? = nil
+            for file in partFiles {
+                lastOpened = openSinglePartFile(at: file)
+            }
+            return lastOpened
+        }
+        return openSinglePartFile(at: canonical)
+    }
+
+    private func openSinglePartFile(at url: URL) -> ObjectId {
+        if let controller = partReloadController {
+            let id = controller.openPartFile(at: url)
+            selectedId = id
+            log(.info, "Part", "Watching \(url.lastPathComponent) (\(id.rawValue))")
+            return id
+        } else {
+            let id = document.addPart(url: url)
+            selectedId = id
+            log(.info, "Part", "Added part \(url.lastPathComponent) (\(id.rawValue))")
+            return id
+        }
+    }
+
+    func reloadPart(_ id: ObjectId) {
+        partReloadController?.reloadNow(id: id)
+    }
+
+    func reloadAllParts() {
+        partReloadController?.reloadAll()
+    }
+
+    func promptOpenPartFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Open Part Script"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.sourceCode, .javaScript, .data, .package, .folder]
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            openPartFile(at: url)
+        }
+    }
+
     func removeObject(_ id: ObjectId) {
+        partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
         Task { await kernelClient.dispose(solidId: id) }
         recomputeFailures.clear(id)
@@ -169,19 +266,25 @@ final class WorkspaceModel {
     func syncMeshes(removedFrom old: [SceneObject], to new: [SceneObject]) {
         let remaining = Set(new.map(\.id))
         for obj in old where !remaining.contains(obj.id) {
+            partReloadController?.stopWatching(id: obj.id)
             if let renderer = viewportManager.renderer, SolidMeshApplier.remove(id: obj.id, from: renderer) {
                 invalidateViewport(.model)
             }
             recomputeFailures.clear(obj.id)
         }
+        partReloadController?.syncWithDocument()
     }
 
     func recomputeSolid(id: ObjectId) {
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return }
+        if case .part(let url, _) = obj.def {
+            partReloadController?.watchPart(id: id, url: url, evaluateImmediately: true)
+            return
+        }
         if let registry = toolRegistry {
             registry.scheduleRecompute(id: id)
             return
         }
-        guard let obj = document.objects.first(where: { $0.id == id }) else { return }
         guard let request = KernelRegeneration.request(for: obj, jobId: JobId("job-\(UUID().uuidString)")) else { return }
 
         Task {

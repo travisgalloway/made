@@ -277,7 +277,8 @@ public final class PartRuntime: @unchecked Sendable {
                 payload: payload,
                 expected: scriptEval.expected,
                 parameters: scriptEval.parameters,
-                evaluatedOnMainThread: scriptEval.evaluatedOnMainThread
+                evaluatedOnMainThread: scriptEval.evaluatedOnMainThread,
+                loadedFiles: scriptEval.loadedFiles
             )
             return .success(jobId: jobId, value: output)
         case .failure(_, let kErr):
@@ -290,7 +291,8 @@ public final class PartRuntime: @unchecked Sendable {
                     column: 1,
                     message: kErr.message
                 ),
-                kernelError: kErr
+                kernelError: kErr,
+                loadedFiles: scriptEval.loadedFiles
             )
             return .failure(jobId: jobId, error: err)
         }
@@ -538,14 +540,15 @@ private final class JSCPartEvaluator {
         case .success(let exportsVal):
             rootExports = exportsVal
         case .failure(let err):
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         }
 
         if isCancelled() {
             return .failure(
                 PartRuntimeError(
                     code: .cancelled,
-                    diagnostic: PartDiagnostic(file: filePath, line: 1, column: 1, message: "Evaluation superseded or cancelled")
+                    diagnostic: PartDiagnostic(file: filePath, line: 1, column: 1, message: "Evaluation superseded or cancelled"),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -557,7 +560,7 @@ private final class JSCPartEvaluator {
         case .success(let v):
             shapeJSValue = v
         case .failure(let err):
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         }
 
         // Decode ShapeNode from shapeJSValue.node
@@ -570,7 +573,8 @@ private final class JSCPartEvaluator {
                         line: 1,
                         column: 1,
                         message: "Part script must export a Shape created with the 'made' module"
-                    )
+                    ),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -579,7 +583,7 @@ private final class JSCPartEvaluator {
         do {
             shapeNode = try decodeShapeNode(from: nodeJSValue)
         } catch let err as PartRuntimeError {
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         } catch {
             return .failure(
                 PartRuntimeError(
@@ -589,7 +593,8 @@ private final class JSCPartEvaluator {
                         line: 1,
                         column: 1,
                         message: "Invalid shape tree exported by part script: \(error.localizedDescription)"
-                    )
+                    ),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -605,7 +610,8 @@ private final class JSCPartEvaluator {
                         column: 1,
                         message: validationErr.message
                     ),
-                    kernelError: validationErr
+                    kernelError: validationErr,
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -615,7 +621,7 @@ private final class JSCPartEvaluator {
         do {
             expectedBlock = try decodeExpected(from: rootExports, filePath: filePath)
         } catch let err as PartRuntimeError {
-            return .failure(err)
+            return .failure(err.withLoadedFiles(currentLoadedFiles(defaultFilePath: filePath)))
         } catch {
             return .failure(
                 PartRuntimeError(
@@ -625,7 +631,8 @@ private final class JSCPartEvaluator {
                         line: 1,
                         column: 1,
                         message: "Invalid 'expected' export: \(error.localizedDescription)"
-                    )
+                    ),
+                    loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
                 )
             )
         }
@@ -639,9 +646,16 @@ private final class JSCPartEvaluator {
             shape: shapeNode,
             expected: expectedBlock,
             parameters: parameters,
-            evaluatedOnMainThread: onMainThread
+            evaluatedOnMainThread: onMainThread,
+            loadedFiles: currentLoadedFiles(defaultFilePath: filePath)
         )
         return .success(evaluation)
+    }
+
+    private func currentLoadedFiles(defaultFilePath: String) -> [String] {
+        var files = Set(modulesByPath.keys)
+        files.insert(defaultFilePath)
+        return files.sorted()
     }
 
     // MARK: Module Loading & Execution
