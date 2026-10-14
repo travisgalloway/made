@@ -6,6 +6,17 @@ private struct IDProbe: Decodable {
     let id: JSONRPCID?
 }
 
+public enum MCPServerError: Error, LocalizedError, Equatable, Sendable {
+    case invalidPort(UInt16)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidPort(let port):
+            return "Invalid port: \(port). Port must be between 1 and 65535."
+        }
+    }
+}
+
 public final class MCPServer: @unchecked Sendable {
     public let toolRegistry: CADToolRegistry
     private let encoder: JSONEncoder
@@ -23,7 +34,9 @@ public final class MCPServer: @unchecked Sendable {
     private var _listener: NWListener?
     private var _isRunning: Bool = false
     private var _port: UInt16 = 9820
+    private var _lastError: String? = nil
     private var _onStateChange: (@Sendable (Bool) -> Void)? = nil
+    private var _onError: (@Sendable (NWError) -> Void)? = nil
     private var activeConnections: [ObjectIdentifier: TrackedConnection] = [:]
     private let queue = DispatchQueue(label: "com.made.mcp.server", qos: .userInitiated)
     
@@ -39,9 +52,18 @@ public final class MCPServer: @unchecked Sendable {
         lock.withLock { _port }
     }
     
+    public var lastError: String? {
+        lock.withLock { _lastError }
+    }
+    
     public var onStateChange: (@Sendable (Bool) -> Void)? {
         get { lock.withLock { _onStateChange } }
         set { lock.withLock { _onStateChange = newValue } }
+    }
+    
+    public var onError: (@Sendable (NWError) -> Void)? {
+        get { lock.withLock { _onError } }
+        set { lock.withLock { _onError = newValue } }
     }
     
     internal var activeConnectionCount: Int {
@@ -62,7 +84,11 @@ public final class MCPServer: @unchecked Sendable {
     /// Starts the in-app MCP TCP listener on the specified local port (default: 9820).
     public func start(port: UInt16 = 9820) throws {
         stop()
-        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
+        guard port > 0, let nwPort = NWEndpoint.Port(rawValue: port) else {
+            let error = MCPServerError.invalidPort(port)
+            lock.withLock { self._lastError = error.localizedDescription }
+            throw error
+        }
         let parameters = NWParameters.tcp
         parameters.requiredInterfaceType = .loopback
         parameters.allowLocalEndpointReuse = true
@@ -71,18 +97,30 @@ public final class MCPServer: @unchecked Sendable {
         lock.withLock {
             self._port = port
             self._listener = listener
-            self._isRunning = true
+            self._lastError = nil
+            self._isRunning = false
         }
         
-        listener.newConnectionHandler = { [weak self] connection in
-            self?.handleConnection(connection)
+        listener.newConnectionHandler = { [weak self, weak listener] connection in
+            guard let self, let listener else { return }
+            let isCurrent = self.lock.withLock { self._listener === listener }
+            guard isCurrent else {
+                connection.cancel()
+                return
+            }
+            self.handleConnection(connection)
         }
         
-        listener.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+        let semaphore = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
+            guard let self, let listener else { return }
+            let isCurrent = self.lock.withLock { self._listener === listener }
+            guard isCurrent else { return }
+            
             switch state {
             case .ready:
                 let notify = self.lock.withLock { () -> Bool in
+                    self._lastError = nil
                     if !self._isRunning {
                         self._isRunning = true
                         return true
@@ -93,7 +131,29 @@ public final class MCPServer: @unchecked Sendable {
                     let cb = self.lock.withLock { self._onStateChange }
                     cb?(true)
                 }
-            case .failed, .cancelled:
+                semaphore.signal()
+            case .failed(let error):
+                let (notify, conns) = self.lock.withLock { () -> (Bool, [TrackedConnection]) in
+                    self._lastError = error.localizedDescription
+                    let wasRunning = self._isRunning
+                    self._isRunning = false
+                    let conns = Array(self.activeConnections.values)
+                    self.activeConnections.removeAll()
+                    return (wasRunning, conns)
+                }
+                for entry in conns {
+                    entry.task.cancel()
+                    entry.continuation.finish()
+                    entry.connection.cancel()
+                }
+                let errCb = self.lock.withLock { self._onError }
+                errCb?(error)
+                if notify {
+                    let cb = self.lock.withLock { self._onStateChange }
+                    cb?(false)
+                }
+                semaphore.signal()
+            case .cancelled:
                 let (notify, conns) = self.lock.withLock { () -> (Bool, [TrackedConnection]) in
                     let wasRunning = self._isRunning
                     self._isRunning = false
@@ -116,18 +176,20 @@ public final class MCPServer: @unchecked Sendable {
         }
         
         listener.start(queue: queue)
-        let cb = lock.withLock { _onStateChange }
-        cb?(true)
+        _ = semaphore.wait(timeout: .now() + .milliseconds(500))
     }
     
     /// Stops the in-app MCP TCP listener and terminates active connections.
     public func stop() {
-        let (oldListener, connectionsToCancel) = lock.withLock { () -> (NWListener?, [TrackedConnection]) in
+        let (oldListener, connectionsToCancel, wasRunning) = lock.withLock { () -> (NWListener?, [TrackedConnection], Bool) in
+            self._lastError = nil
             let l = _listener
             _listener = nil
             let conns = Array(activeConnections.values)
             activeConnections.removeAll()
-            return (l, conns)
+            let was = _isRunning
+            _isRunning = false
+            return (l, conns, was)
         }
         
         for entry in connectionsToCancel {
@@ -151,12 +213,20 @@ public final class MCPServer: @unchecked Sendable {
             }
         }
         
-        lock.withLock {
-            _isRunning = false
+        if wasRunning {
+            let callback = lock.withLock { _onStateChange }
+            callback?(false)
         }
-        let callback = lock.withLock { _onStateChange }
-        callback?(false)
     }
+    
+    #if DEBUG
+    internal func simulateListenerFailure(_ error: NWError) {
+        let (handler, listener) = lock.withLock { (_listener?.stateUpdateHandler, _listener) }
+        if let handler, let _ = listener {
+            handler(.failed(error))
+        }
+    }
+    #endif
     
     private func handleConnection(_ connection: NWConnection) {
         let (frames, continuation) = AsyncStream.makeStream(of: MCPLineFramer.Frame.self)

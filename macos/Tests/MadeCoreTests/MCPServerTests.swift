@@ -589,6 +589,112 @@ import Darwin
         #expect(oldDone)
     }
     
+    @Test func testInvalidPortThrowsError() {
+        let server = makeServer()
+        #expect(throws: MCPServerError.invalidPort(0)) {
+            try server.start(port: 0)
+        }
+        #expect(!server.isRunning)
+        #expect(server.lastError != nil)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testOccupiedPortFailsToStartAndSurfacesError() throws {
+        let port: UInt16 = 19835
+        let occupyingParams = NWParameters.tcp
+        occupyingParams.requiredInterfaceType = .loopback
+        occupyingParams.allowLocalEndpointReuse = false
+        guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+            Issue.record("Invalid port \(port)")
+            return
+        }
+        let occupyingListener = try NWListener(using: occupyingParams, on: endpointPort)
+        occupyingListener.newConnectionHandler = { _ in }
+        let occupyingSemaphore = DispatchSemaphore(value: 0)
+        occupyingListener.stateUpdateHandler = { state in
+            if case .ready = state {
+                occupyingSemaphore.signal()
+            }
+        }
+        let occupierQueue = DispatchQueue(label: "test.occupier", qos: .userInitiated)
+        occupyingListener.start(queue: occupierQueue)
+        _ = occupyingSemaphore.wait(timeout: .now() + .seconds(2))
+        defer {
+            occupyingListener.cancel()
+        }
+        
+        let server = makeServer()
+        let model = TestMCPModel()
+        model.attach(to: server)
+        
+        try server.start(port: port)
+        #expect(!server.isRunning)
+        #expect(!model.isRunning)
+        #expect(!model.logs.contains(where: { $0.contains("Started") }))
+        #expect(server.lastError != nil)
+        #expect(model.errorText != nil)
+        if let err = model.errorText {
+            #expect(err.contains("Address already in use") || err.contains("48"))
+        }
+        
+        // Free the port and retry
+        let cancelSemaphore = DispatchSemaphore(value: 0)
+        occupyingListener.stateUpdateHandler = { state in
+            if case .cancelled = state {
+                cancelSemaphore.signal()
+            }
+        }
+        occupyingListener.cancel()
+        _ = cancelSemaphore.wait(timeout: .now() + .seconds(2))
+        
+        try server.start(port: port)
+        defer { server.stop() }
+        #expect(server.isRunning)
+        #expect(model.isRunning)
+        #expect(server.lastError == nil)
+        #expect(model.errorText == nil)
+        #expect(model.logs.contains(where: { $0.contains("Started MCP server on port \(port)") }))
+    }
+    
+    @Test func testListenerFailsAfterReadyTransitionsToStoppedAndReportsError() throws {
+        let server = makeServer()
+        let model = TestMCPModel()
+        model.attach(to: server)
+        
+        try server.start(port: 19836)
+        defer { server.stop() }
+        #expect(server.isRunning)
+        #expect(model.isRunning)
+        #expect(server.lastError == nil)
+        #expect(model.errorText == nil)
+        
+        let testError = NWError.posix(.ECONNABORTED)
+        server.simulateListenerFailure(testError)
+        
+        #expect(!server.isRunning)
+        #expect(!model.isRunning)
+        #expect(server.lastError != nil)
+        #expect(model.errorText != nil)
+        #expect(model.logs.contains(where: { $0.contains("Failed to start MCP server") }))
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testRapidDoubleStartOnSamePort() async throws {
+        let server = makeServer()
+        let port: UInt16 = 19837
+        
+        try server.start(port: port)
+        try server.start(port: port)
+        defer { server.stop() }
+        
+        #expect(server.isRunning)
+        #expect(server.lastError == nil)
+        #expect(server.listener?.parameters.requiredInterfaceType == .loopback)
+        
+        let initRequest = Data((#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"# + "\n").utf8)
+        let responses = try await exchangeTCP(port: port, parts: [initRequest])
+        #expect(responses.count == 1)
+        #expect(responses.first?["id"] as? Int == 1)
+    }
+    
     private func receiveChunk(from connection: NWConnection, timeout: Duration = .seconds(2)) async -> (data: Data, isDone: Bool) {
         await withTaskGroup(of: (Data, Bool).self) { group in
             group.addTask {
@@ -808,5 +914,45 @@ private final class BlockingSnapshotProvider: SnapshotProvider, Sendable {
     
     func captureSnapshotPngBase64(view: ViewportPerspective?) async -> String? {
         await captureSnapshotPngBase64()
+    }
+}
+
+private final class TestMCPModel: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _isRunning = false
+    private var _errorText: String? = nil
+    private var _logs: [String] = []
+
+    var isRunning: Bool {
+        lock.withLock { _isRunning }
+    }
+
+    var errorText: String? {
+        lock.withLock { _errorText }
+    }
+
+    var logs: [String] {
+        lock.withLock { _logs }
+    }
+
+    func attach(to server: MCPServer) {
+        server.onStateChange = { [weak self] running in
+            guard let self else { return }
+            self.lock.withLock {
+                self._isRunning = running
+                if running {
+                    self._errorText = nil
+                    self._logs.append("Started MCP server on port \(server.port)")
+                }
+            }
+        }
+        server.onError = { [weak self] error in
+            guard let self else { return }
+            self.lock.withLock {
+                self._isRunning = false
+                self._errorText = error.localizedDescription
+                self._logs.append("Failed to start MCP server: \(error.localizedDescription)")
+            }
+        }
     }
 }
