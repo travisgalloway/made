@@ -104,12 +104,14 @@ The model also exposes `setName(id:name:)`, `setVisibility(id:isVisible:)`, `set
 
 ## Native Document Persistence (`.made`)
 
-Planned (#83): the document model integrates with Apple's `FileDocument` protocol. No persistence exists today:
-- **Uniform Type Identifier**: `com.made.cad.document` (extension: `.made`).
-- **Package Bundle Architecture**:
-  - `document.json`: Serialized scene graph hierarchy, parameters, and transforms.
-  - `history.json`: Parametric feature tree and undo/redo operations.
-  - `assets/`: Embedded STEP/IGES binary data for imported components.
+Planned (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model integrates with Apple's `FileDocument` / `ReferenceFileDocument` protocols as a directory package (`FileWrapper`). No persistence exists today:
+- **Uniform Type Identifier**: `com.made.cad.document` (extension: `.made`, conforming to `com.apple.package` and `public.composite-content`).
+- **Package Bundle Architecture** ([ADR-D7](./adr/ADR-D7-made-encoding.md), #376):
+  - `manifest.json`: Schema version (#237), document settings (#238), and custom metadata (#172).
+  - `document.json`: Serialized scene graph, feature list, parameter table (#174), and assembly instances (#161), formatted with sorted keys and 2-space indentation.
+  - `parts/`: Plain-text `.part.ts` and `.part.js` part source files that external agents edit directly ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #435, #427).
+  - `assets/`: Embedded STEP/IGES binary data (#38) and external reference descriptors (#160).
+  - `cache/`: Regenerable B-rep caches, display meshes, simulation results, and `thumbnail.png` (#248), ignored by Git (#376).
 
 ---
 
@@ -118,7 +120,12 @@ Planned (#83): the document model integrates with Apple's `FileDocument` protoco
 These questions have no decision yet. Each links to an architecture decision record (ADR) by issue number.
 
 - #143: Feature list paradigm. Options include a parametric feature history, direct modeling, or a hybrid of both.
-- #149: Encoding of the `.made` document. Options include a JSON package bundle, a binary container, or another format. Part source files must stay readable text that agents edit directly ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #427).
+
+---
+
+## Decided
+
+- ADR-D7 (#149) is decided. A `.made` document is a directory package (`com.made.cad.document`) containing canonical JSON (`manifest.json`, `document.json`), plain-text part sources (`parts/*.part.ts`), imported assets (`assets/`), and a regenerable, Git-ignored binary cache directory (`cache/`) ([ADR-D7](./adr/ADR-D7-made-encoding.md), #83, #427, #376).
 
 ---
 

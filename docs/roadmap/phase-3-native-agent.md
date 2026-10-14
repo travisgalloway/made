@@ -61,7 +61,7 @@ Not covered by `swift test`:
 
 ## Planned: File-Edit Agent Workflow (Mac MVP)
 
-In the Mac MVP, external agents edit part source files directly, in the style of [brepjs](https://brepjs.dev/agent/overview). The running app reloads each saved file (#427). Agents then inspect app state over MCP on the loopback listener: diagnostics with file and line, an explicit reload, verification against an `expected` block, and snapshots from named views (#428). A Claude Code plugin skill teaches the edit, reload, verify, and repair loop (#429). Part files are TypeScript with a brepjs-style API, run by JavaScriptCore ([ADR-D6](../architecture/adr/ADR-D6-scripting-runtime.md), #435). The file layout (#149) still gates this work. In-app agents on Apple's models wait for V2.
+In the Mac MVP, external agents edit part source files directly, in the style of [brepjs](https://brepjs.dev/agent/overview). The running app reloads each saved file (#427). Agents then inspect app state over MCP on the loopback listener: diagnostics with file and line, an explicit reload, verification against an `expected` block, and snapshots from named views (#428). A Claude Code plugin skill teaches the edit, reload, verify, and repair loop (#429). Part files are TypeScript with a brepjs-style API, run by JavaScriptCore ([ADR-D6](../architecture/adr/ADR-D6-scripting-runtime.md), #435), and live as plain-text `.part.ts` files inside the `.made` package directory or beside it ([ADR-D7](../architecture/adr/ADR-D7-made-encoding.md), #149). In-app agents on Apple's models wait for V2.
 
 ## Open Issues
 

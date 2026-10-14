@@ -85,8 +85,8 @@ See [`phase-3-native-agent.md`](./phase-3-native-agent.md).
 
 ---
 
-## Phase 4.0: Architecture Decisions (Not started)
-Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list each open decision under "Open decisions": the canonical kernel, topological naming, the feature list paradigm, the `.made` encoding, and the scripting approach. The project license is decided as `MPL-2.0` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
+## Phase 4.0: Architecture Decisions (In progress)
+Phase 4.0 records the decisions that gate the CAD depth work. The architecture documents list each open decision under "Open decisions": the canonical kernel, topological naming, and the feature list paradigm. The scripting runtime is decided as TypeScript on JavaScriptCore ([ADR-D6](../architecture/adr/ADR-D6-scripting-runtime.md), #148), the `.made` encoding is decided as a directory package of JSON metadata, plain-text part sources, assets, and regenerable binary caches ([ADR-D7](../architecture/adr/ADR-D7-made-encoding.md), #149), and the project license is decided as `MPL-2.0` ([ADR-D8](../architecture/adr/ADR-D8-project-license.md), #145). Each decision becomes an architecture decision record (ADR) before dependent implementation starts.
 
 ## Phase 4A: Native Scene & Interaction Foundation (In progress)
 Generalizes the scene and the interaction model so that selection, gizmos, and the inspector have a base. Scope covers the multi-object scene, selection, the inspector, gizmos, and add and remove objects.
