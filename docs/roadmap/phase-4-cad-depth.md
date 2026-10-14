@@ -45,6 +45,7 @@ The document model currently holds an ordered array of objects with `addObject`,
   - Integrates `SecondMouseAU/OCCTSwift` via pre-built `OCCT.xcframework` as the canonical B-rep kernel ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142).
   - Imports and exports ISO 10303 STEP (AP203/AP214) and IGES boundary representation files.
   - Adds true topological fillets, chamfers, and draft angles.
+  - Persistent topological naming using query-based references from generation history (`BRepTools_History`) with fallback geometric signatures and raw index prohibition ([ADR-D3](../architecture/adr/ADR-D3-topological-naming.md), #144, #152).
 - **4.4 Multi-Body CSG Boolean Operations** (#35, [ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md)):
   - Builds on `EuclidEngine.subtract/union/intersect` (and canonical OCCT booleans under #82) to allow complex tree-based boolean operations across arbitrary solids within multi-body parts (ADR-D2).
 
