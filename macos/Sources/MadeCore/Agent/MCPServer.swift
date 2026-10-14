@@ -288,7 +288,12 @@ public final class MCPServer: @unchecked Sendable {
                         }))
                     }
                     if sendError != nil { break }
-                    try? await Task.sleep(for: .milliseconds(10))
+                    try? await Task.sleep(for: .milliseconds(25))
+                    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                        self.queue.async {
+                            cont.resume()
+                        }
+                    }
                 }
                 if frame == .oversized { break }
             }
