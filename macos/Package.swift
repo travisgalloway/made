@@ -32,7 +32,8 @@ let package = Package(
             path: "Sources/MadeCore",
             resources: [
                 .process("Viewport/Shaders.metal"),
-                .copy("Licenses/Resources")
+                .copy("Licenses/Resources"),
+                .copy("Scripting/ScriptingResources")
             ]
         ),
         .executableTarget(

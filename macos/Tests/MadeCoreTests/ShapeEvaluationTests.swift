@@ -185,4 +185,66 @@ import Synchronization
         }
         Issue.record("Job \(jobId) never became pending")
     }
+
+    @Test func testSphereConeExtrudeRevolveRotateScaleEvaluate() async throws {
+        let kernel = client()
+        let rectProfile = SketchProfile(
+            plane: SketchPlane.xy.offset(5),
+            points: [SIMD2(-10, -5), SIMD2(10, -5), SIMD2(10, 5), SIMD2(-10, 5)]
+        )
+        let revolveProfile = SketchProfile(
+            plane: .xz,
+            points: [SIMD2(4, -5), SIMD2(8, -5), SIMD2(8, 5), SIMD2(4, 5)]
+        )
+        let complex = ShapeNode.boolean(
+            .union,
+            .rotate(
+                .scale(.extrude(profile: rectProfile, distance: 12, centered: false), factor: SIMD3(1, 1, 1.5)),
+                axis: SIMD3(0, 0, 1),
+                angleDegrees: 45
+            ),
+            .boolean(
+                .union,
+                .sphere(SphereParams(radius: 6), slices: 24),
+                .boolean(
+                    .union,
+                    .cone(ConeParams(bottomRadius: 6, topRadius: 2, height: 10), slices: 24),
+                    .revolve(profile: revolveProfile, angleDegrees: 360, slices: 24)
+                )
+            )
+        )
+        let payload = try #require(await evaluate(complex, on: kernel).value)
+        #expect(payload.triangleCount > 0)
+    }
+
+    @Test func testNewShapeNodeValidationRejectsInvalidInputs() async {
+        let kernel = client()
+        let validProfile = SketchProfile(
+            plane: .xy,
+            points: [SIMD2(2, 0), SIMD2(6, 0), SIMD2(6, 4), SIMD2(2, 4)]
+        )
+        let crossingProfile = SketchProfile(
+            plane: .xy,
+            points: [SIMD2(-2, 0), SIMD2(4, 0), SIMD2(4, 4), SIMD2(-2, 4)]
+        )
+        let degenerateProfile = SketchProfile(
+            plane: .xy,
+            points: [SIMD2(0, 0), SIMD2(5, 0), SIMD2(10, 0)]
+        )
+        let invalidCases: [ShapeNode] = [
+            .sphere(SphereParams(radius: 0), slices: 16),
+            .cone(ConeParams(bottomRadius: 0, topRadius: 0, height: 10), slices: 16),
+            .cone(ConeParams(bottomRadius: -1, topRadius: 2, height: 10), slices: 16),
+            .extrude(profile: validProfile, distance: 0, centered: false),
+            .extrude(profile: degenerateProfile, distance: 10, centered: false),
+            .revolve(profile: crossingProfile, angleDegrees: 360, slices: 16),
+            .revolve(profile: validProfile, angleDegrees: 0, slices: 16),
+            .revolve(profile: validProfile, angleDegrees: 400, slices: 16),
+            .rotate(.box(unit), axis: .zero, angleDegrees: 90),
+            .scale(.box(unit), factor: SIMD3(1, 0, 1))
+        ]
+        for node in invalidCases {
+            #expect(await evaluate(node, on: kernel).error?.code == .invalidParams)
+        }
+    }
 }
