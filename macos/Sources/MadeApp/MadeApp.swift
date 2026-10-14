@@ -40,9 +40,15 @@ struct MadeApp: App {
         .commands {
             SidebarCommands()
             InspectorCommands()
+            CommandGroup(after: .appInfo) {
+                OpenSourceLicensesMenuButton()
+            }
             CommandGroup(after: .sidebar) {
                 Button(workspace.isConsoleVisible ? "Hide Console" : "Show Console") { workspace.toggleConsole() }
                     .keyboardShortcut("y", modifiers: [.command, .shift])
+            }
+            CommandGroup(after: .help) {
+                OpenSourceLicensesMenuButton()
             }
             #if DEBUG
             CommandMenu("Debug") {
@@ -50,5 +56,21 @@ struct MadeApp: App {
             }
             #endif
         }
+
+        Window("Open Source Licenses", id: OpenSourceLicensesView.windowID) {
+            OpenSourceLicensesView()
+        }
+        .defaultSize(width: 760, height: 520)
     }
 }
+
+private struct OpenSourceLicensesMenuButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Open Source Licenses…") {
+            openWindow(id: OpenSourceLicensesView.windowID)
+        }
+    }
+}
+

@@ -1,0 +1,26 @@
+{
+  "sourceURL": "https://github.com/travisgalloway/made",
+  "buildFromSourceGuideURL": "https://github.com/travisgalloway/made/blob/main/docs/guides/building-from-source.md",
+  "entries": [
+    {
+      "id": "made",
+      "name": "made",
+      "version": "0.1.0",
+      "spdxIdentifier": "MPL-2.0",
+      "copyright": "Copyright (C) 2026 Travis Galloway",
+      "homepageURL": "https://github.com/travisgalloway/made",
+      "licenseFile": "made-MPL-2.0.txt",
+      "kind": "application"
+    },
+    {
+      "id": "euclid",
+      "name": "Euclid",
+      "version": "0.9.6",
+      "spdxIdentifier": "MIT",
+      "copyright": "Copyright (c) 2018 Nick Lockwood",
+      "homepageURL": "https://github.com/nicklockwood/Euclid",
+      "licenseFile": "Euclid-MIT.txt",
+      "kind": "package"
+    }
+  ]
+}

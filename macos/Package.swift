@@ -30,7 +30,10 @@ let package = Package(
                 .product(name: "Euclid", package: "Euclid")
             ],
             path: "Sources/MadeCore",
-            resources: [.process("Viewport/Shaders.metal")]
+            resources: [
+                .process("Viewport/Shaders.metal"),
+                .copy("Licenses/Resources")
+            ]
         ),
         .executableTarget(
             name: "MadeApp",
