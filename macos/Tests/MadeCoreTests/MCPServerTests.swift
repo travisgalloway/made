@@ -695,6 +695,221 @@ import Darwin
         #expect(responses.first?["id"] as? Int == 1)
     }
     
+    @Test(.timeLimit(.minutes(1))) func testE2EAddSolidThenGetSceneSeparateWritesArriveInOrder() async throws {
+        let server = makeServer()
+        let port: UInt16 = 19838
+        try server.start(port: port)
+        defer { server.stop() }
+        
+        let addSolidReq = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cad_add_solid","arguments":{"type":"box","width":20,"depth":20,"height":20}}}"# + "\n"
+        let getSceneReq = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}"# + "\n"
+        
+        let responses = try await exchangeTCP(port: port, parts: [Data(addSolidReq.utf8), Data(getSceneReq.utf8)])
+        #expect(responses.count == 2)
+        #expect(responses[0]["id"] as? Int == 1)
+        #expect(responses[1]["id"] as? Int == 2)
+        
+        let result = responses[1]["result"] as? [String: Any]
+        let content = result?["content"] as? [[String: Any]]
+        let text = content?.first?["text"] as? String ?? ""
+        #expect(text.contains("box-1"))
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testPipelinedFiftyRequestsArriveInSendOrder() async throws {
+        let server = makeServer()
+        let port: UInt16 = 19839
+        try server.start(port: port)
+        defer { server.stop() }
+        
+        var requests: [String] = []
+        for i in 1...50 {
+            requests.append(#"{"jsonrpc":"2.0","id":\#(i),"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}"#)
+        }
+        let payload = Data((requests.joined(separator: "\n") + "\n").utf8)
+        let responses = try await exchangeTCP(port: port, parts: [payload])
+        
+        #expect(responses.count == 50)
+        let ids = responses.compactMap { $0["id"] as? Int }
+        #expect(ids == Array(1...50))
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testSendCompletionFailureLogsConnectionIdentityAndCancelsConsumer() async throws {
+        let server = makeServer()
+        let port: UInt16 = 19840
+        try server.start(port: port)
+        defer { server.stop() }
+        
+        let failureRecorded = Mutex<(ObjectIdentifier?, NWError?)>((nil, nil))
+        server.onSendFailure = { connId, error in
+            failureRecorded.withLock { $0 = (connId, error) }
+        }
+        
+        let client = try await connectTCP(port: port)
+        defer { client.cancel() }
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 1)
+        let expectedId = try #require(server.activeConnectionIdentifiers.first)
+        
+        server.simulateSendFailure = NWError.posix(.EPIPE)
+        let listReq = #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"# + "\n"
+        client.send(content: Data(listReq.utf8), completion: .contentProcessed({ _ in }))
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 0)
+        
+        let (recordedId, recordedError) = failureRecorded.withLock { $0 }
+        #expect(recordedId == expectedId)
+        #expect(recordedError == NWError.posix(.EPIPE))
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testSlowRequestAheadOfFastRequestDeliversInOrder() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let blocker = BlockingSnapshotProvider()
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel, snapshotProvider: blocker)
+        let server = MCPServer(toolRegistry: registry)
+        let port: UInt16 = 19841
+        try server.start(port: port)
+        defer {
+            blocker.unblock()
+            server.stop()
+        }
+        
+        let client = try await connectTCP(port: port)
+        defer { client.cancel() }
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 1)
+        
+        let snapshotReq = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cad_capture_snapshot","arguments":{}}}"# + "\n"
+        client.send(content: Data(snapshotReq.utf8), completion: .contentProcessed({ _ in }))
+        
+        await blocker.waitForEntry()
+        
+        let sceneReq = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}"# + "\n"
+        client.send(content: Data(sceneReq.utf8), completion: .contentProcessed({ _ in }))
+        
+        // Fast request should not deliver prematurely while slow request is pending
+        let (preData, _) = await receiveChunk(from: client, timeout: .milliseconds(150))
+        #expect(preData.isEmpty)
+        
+        blocker.unblock()
+        client.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
+        
+        let responses = await readAllResponses(from: client)
+        #expect(responses.count == 2)
+        #expect(responses[0]["id"] as? Int == 1)
+        #expect(responses[1]["id"] as? Int == 2)
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testTwoConcurrentConnectionsPreserveIndependentOrder() async throws {
+        let server = makeServer()
+        let port: UInt16 = 19842
+        try server.start(port: port)
+        defer { server.stop() }
+        
+        let client1 = try await connectTCP(port: port)
+        defer { client1.cancel() }
+        let client2 = try await connectTCP(port: port)
+        defer { client2.cancel() }
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 2)
+        
+        for i in 1...10 {
+            let req1 = #"{"jsonrpc":"2.0","id":\#(100 + i),"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}"# + "\n"
+            let req2 = #"{"jsonrpc":"2.0","id":\#(200 + i),"method":"tools/call","params":{"name":"cad_get_scene","arguments":{}}}"# + "\n"
+            client1.send(content: Data(req1.utf8), completion: .contentProcessed({ _ in }))
+            client2.send(content: Data(req2.utf8), completion: .contentProcessed({ _ in }))
+        }
+        
+        client1.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
+        client2.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
+        
+        let res1 = await readAllResponses(from: client1)
+        let res2 = await readAllResponses(from: client2)
+        
+        #expect(res1.compactMap { $0["id"] as? Int } == Array(101...110))
+        #expect(res2.compactMap { $0["id"] as? Int } == Array(201...210))
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testClientCloseWithPendingRequestsCancelsConsumerWithoutExecutingQueued() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let blocker = BlockingSnapshotProvider()
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel, snapshotProvider: blocker)
+        let server = MCPServer(toolRegistry: registry)
+        let port: UInt16 = 19843
+        try server.start(port: port)
+        defer {
+            blocker.unblock()
+            server.stop()
+        }
+        
+        let client = try await connectTCP(port: port)
+        defer { client.cancel() }
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 1)
+        
+        let snapshotReq = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cad_capture_snapshot","arguments":{}}}"# + "\n"
+        let addSolidReq = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_add_solid","arguments":{"type":"box","width":20,"depth":20,"height":20}}}"# + "\n"
+        
+        client.send(content: Data(snapshotReq.utf8), completion: .contentProcessed({ _ in }))
+        client.send(content: Data(addSolidReq.utf8), completion: .contentProcessed({ _ in }))
+        
+        await blocker.waitForEntry()
+        
+        // Remote client cancels while snapshot is in flight and addSolid is queued
+        client.cancel()
+        
+        blocker.unblock()
+        
+        for _ in 0..<50 {
+            if server.activeConnectionCount == 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activeConnectionCount == 0)
+        
+        #expect(doc.objects.count == 2)
+        #expect(!doc.objects.contains(where: { $0.id == SolidId("box-2") }))
+    }
+    
+    @Test(.timeLimit(.minutes(1))) func testInterleavedNotificationProducesNoResponseAndDoesNotDisruptOrderOverTCP() async throws {
+        let server = makeServer()
+        let port: UInt16 = 19844
+        try server.start(port: port)
+        defer { server.stop() }
+        
+        let lines = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            #"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#
+        ]
+        let payload = Data((lines.joined(separator: "\n") + "\n").utf8)
+        let responses = try await exchangeTCP(port: port, parts: [payload])
+        
+        #expect(responses.count == 2)
+        #expect(responses[0]["id"] as? Int == 1)
+        #expect(responses[1]["id"] as? Int == 2)
+    }
+    
     private func receiveChunk(from connection: NWConnection, timeout: Duration = .seconds(2)) async -> (data: Data, isDone: Bool) {
         await withTaskGroup(of: (Data, Bool).self) { group in
             group.addTask {
@@ -714,15 +929,7 @@ import Darwin
         }
     }
     
-    /// Sends `parts` to the listener on host, half-closes, and returns each response line read until EOF.
-    private func exchangeTCP(host: String = "127.0.0.1", port: UInt16, parts: [Data]) async throws -> [[String: Any]] {
-        let connection = try await connectTCP(host: host, port: port)
-        defer { connection.cancel() }
-        for part in parts {
-            connection.send(content: part, completion: .contentProcessed({ _ in }))
-        }
-        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
-        
+    private func readAllResponses(from connection: NWConnection) async -> [[String: Any]] {
         var received = Data()
         while true {
             let (chunk, done) = await withCheckedContinuation { (continuation: CheckedContinuation<(Data, Bool), Never>) in
@@ -736,6 +943,17 @@ import Darwin
         return received.split(separator: 0x0A).compactMap {
             try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any]
         }
+    }
+    
+    /// Sends `parts` to the listener on host, half-closes, and returns each response line read until EOF.
+    private func exchangeTCP(host: String = "127.0.0.1", port: UInt16, parts: [Data]) async throws -> [[String: Any]] {
+        let connection = try await connectTCP(host: host, port: port)
+        defer { connection.cancel() }
+        for part in parts {
+            connection.send(content: part, completion: .contentProcessed({ _ in }))
+        }
+        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
+        return await readAllResponses(from: connection)
     }
     
     /// Connects to host, retrying while the listener finishes becoming ready.
