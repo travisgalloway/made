@@ -20,7 +20,7 @@ Phase 4 splits into six milestones. [`phases.md`](./phases.md) gives the goal of
 | Phase 4D | Pencil Precision, Contextual UI & Agent REPL |
 | Phase 4E | Part Features & MVP Exchange |
 
-Phase 4.0 records the open decisions that gate the milestones after it.
+Phase 4.0 records the architecture decisions that gate the milestones after it and downstream phases, including the canonical B-rep kernel ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142), modeling paradigm ([ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143), topological naming ([ADR-D3](../architecture/adr/ADR-D3-topological-naming.md), #144), 2D constraint solver ([ADR-D4](../architecture/adr/ADR-D4-2d-constraint-solver.md), #146), and CAE solver and mesher integration ([ADR-D5](../architecture/adr/ADR-D5-cae-solver-and-mesher-integration.md), #147).
 
 ---
 

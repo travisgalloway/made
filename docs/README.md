@@ -42,6 +42,7 @@ Then navigate based on your task:
 | **Modeling Paradigm** | Hybrid history-based feature list recording direct edits as features; multi-body parts by default ([ADR-D2](./architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150) |
 | **Topological Naming** | Query-based references from generation history (`BRepTools_History`) with fallback geometric signatures; index prohibition ([ADR-D3](./architecture/adr/ADR-D3-topological-naming.md), #144, #152) |
 | **2D Constraint Solver** | FreeCAD `planegcs` (LGPL-2.1) with clean-room Swift fallback in `libs/` ([ADR-D4](./architecture/adr/ADR-D4-2d-constraint-solver.md), #146, #37, #415) |
+| **CAE Solver & Mesher** | CalculiX `ccx` (structural/thermal) and Gmsh (volume mesher) out-of-process via bundled helpers (#413) with clean-room Swift fallback in `libs/` ([ADR-D5](./architecture/adr/ADR-D5-cae-solver-and-mesher-integration.md), #147, #415-#417) |
 | **Agent Interface** | Model Context Protocol (JSON-RPC 2.0 over stdio and local TCP on port 9820) |
 | **CAD Scripting DSL** | Cadova-inspired declarative Swift (`@resultBuilder`) |
 | **Testing** | Swift Package Manager (`swift test`), Swift Testing (`@Test`) |
