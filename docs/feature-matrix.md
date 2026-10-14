@@ -68,7 +68,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | INPUT-11 | A user can two-finger tap to trigger context actions | none | none | n/a | Planned | #42 | n/a |
 | INPUT-12 | A user can pick a Select, Orbit, Pan or Zoom tool from the toolbar or with V, O, P and Z, and a plain left-drag follows the tool while modifier navigation keeps working | done | done | n/a | Shipped |  | n/a |
 | INPUT-13 | A user sees the viewport cursor follow the active tool (arrow, crosshair, open hand, resize) and a closed hand during a pan drag | done | n/a | n/a | Shipped |  | n/a |
-| KERN-1 | A user or agent can convert a Euclid mesh into an indexed triangle `MeshPayload` in Z-up coordinates | n/a | done | done | Shipped |  | n/a |
+| KERN-1 | A user or agent can convert a Euclid mesh into an indexed triangle `MeshPayload` in right-handed Z-up coordinates; Euclid is permanently retained as Tier 1 fast CSG preview engine and test backend (ADR-D1, ADR-D9) | n/a | done | done | Shipped | #247 | n/a |
 | KERN-2 | A user can generate a parametric box mesh (X width, Y depth, Z height) | done | done | n/a | Shipped |  | n/a |
 | KERN-3 | A user can generate a parametric cylinder mesh along +Z (32 slices) | done | done | n/a | Shipped |  | n/a |
 | KERN-4 | An agent can subtract one solid mesh from another | none | done | n/a | In progress | #35 | n/a |
