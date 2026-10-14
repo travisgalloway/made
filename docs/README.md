@@ -38,7 +38,7 @@ Then navigate based on your task:
 | **3D Rendering** | Metal 4, MetalKit (`MTKView`), MSL shaders compiled at build time |
 | **Memory Architecture** | Metal buffers allocated with `.storageModeShared`; mesh arrays are copied in at upload |
 | **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) |
-| **Geometry Kernel (Tier 2)** | Planned, not in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) |
+| **Geometry Kernel (Tier 2)** | Canonical B-rep kernel ([ADR-D1](./architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142), planned in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) with Swift fallback (#418) |
 | **Agent Interface** | Model Context Protocol (JSON-RPC 2.0 over stdio and local TCP on port 9820) |
 | **CAD Scripting DSL** | Cadova-inspired declarative Swift (`@resultBuilder`) |
 | **Testing** | Swift Package Manager (`swift test`), Swift Testing (`@Test`) |

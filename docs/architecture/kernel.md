@@ -41,8 +41,8 @@ The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the c
 - **Capabilities**: Zero C++ compilation dependencies, memory-safe execution, parametric box/cylinder generators, BSP-tree CSG booleans (`subtract`, `union`, `intersect`), and conversion into indexed vertex arrays (`MeshPayload`).
 - **Use Case**: Real-time parameter scrubbing in the Inspector, interactive modeling, and unit testing without heavy framework dependencies.
 
-### Tier 2: Exact Boundary Representation (OCCTSwift), Planned (#82)
-Not built. `macos/Package.swift` declares only the Euclid dependency, and `KernelClient` answers `importStep` with `geometryFailed` ("STEP import pending OpenCASCADE bridge"). STEP import and export is tracked in #38.
+### Tier 2: Exact Boundary Representation (OCCTSwift), Planned (#82, ADR-D1)
+Not built. OpenCASCADE Technology via `SecondMouseAU/OCCTSwift` is adopted as the canonical B-rep kernel ([ADR-D1](./adr/ADR-D1-canonical-geometry-kernel.md), #142). Today, `macos/Package.swift` declares only the Euclid dependency, and `KernelClient` answers `importStep` with `geometryFailed` ("STEP import pending OpenCASCADE bridge"). STEP import and export is tracked in #38.
 - **Planned architecture**: Integration via `SecondMouseAU/OCCTSwift` using a pre-built universal `OCCT.xcframework`.
 - **Planned capabilities**: True analytic curves and surfaces (NURBS, B-splines), topological data structures (`TopoDS_Shape`, `TopoDS_Face`, `TopoDS_Edge`), advanced manufacturing operations (fillet, chamfer, draft), and industrial format exchange (STEP, IGES).
 - **Planned use case**: High-precision engineering exchange, production part export, and complex B-Rep fillets.
@@ -146,11 +146,16 @@ XPC can relaunch an idle service behind a live session without reporting it. A r
 
 ---
 
+## Decided
+
+- ADR-D1 (#142) is decided. OpenCASCADE Technology (OCCT) via OCCTSwift (#82) is the canonical B-rep engine for parts, with a clean-room Swift B-rep engine (#420 to #424) as the App Store fallback (#418). The kernel interface remains engine-neutral (invariant 4), and all OCCT calls execute on a single serial executor inside the MadeKernelService XPC service ([ADR-D1](./adr/ADR-D1-canonical-geometry-kernel.md)).
+
+---
+
 ## Open Decisions
 
 These questions have no decision yet. Each links to an architecture decision record (ADR) or backlog item by issue number.
 
-- #142: Canonical kernel. Options include OpenCASCADE through OCCTSwift and other B-Rep kernels. The interface must stay engine-neutral, because App Store builds may need a Swift B-rep engine as a fallback (#418).
 - #144: Topological naming. Options include persistent identifiers on faces and edges, geometric matching, or a kernel-native scheme.
 - #247: Fate of Euclid once a canonical kernel exists. Options are to keep it as a lightweight tier, to demote it to tests, or to remove it.
 
@@ -162,3 +167,4 @@ These questions have no decision yet. Each links to an architecture decision rec
 - [`threading-model.md`](./threading-model.md): Swift 6 actor scheduling
 - [`rendering.md`](./rendering.md): How `MeshPayload` translates into Metal buffers
 - [`agent-api.md`](./agent-api.md): Declarative scripting with `CADDSL`
+- [ADR-D1: Canonical Geometry Kernel](./adr/ADR-D1-canonical-geometry-kernel.md)
