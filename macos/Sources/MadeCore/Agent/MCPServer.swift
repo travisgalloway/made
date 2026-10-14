@@ -13,7 +13,7 @@ public final class MCPServer: @unchecked Sendable {
     private let decoder = JSONDecoder()
     
     // In-app TCP server state
-    private var listener: NWListener?
+    internal private(set) var listener: NWListener?
     private let queue = DispatchQueue(label: "com.made.mcp.server", qos: .userInitiated)
     public private(set) var isRunning: Bool = false
     public private(set) var port: UInt16 = 9820
@@ -34,7 +34,10 @@ public final class MCPServer: @unchecked Sendable {
     public func start(port: UInt16 = 9820) throws {
         stop()
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
-        let listener = try NWListener(using: .tcp, on: nwPort)
+        let parameters = NWParameters.tcp
+        parameters.requiredInterfaceType = .loopback
+        parameters.allowLocalEndpointReuse = true
+        let listener = try NWListener(using: parameters, on: nwPort)
         self.port = port
         self.listener = listener
         
@@ -62,8 +65,25 @@ public final class MCPServer: @unchecked Sendable {
     
     /// Stops the in-app MCP TCP listener and terminates active connections.
     public func stop() {
-        listener?.cancel()
-        listener = nil
+        guard let oldListener = self.listener else {
+            isRunning = false
+            onStateChange?(false)
+            return
+        }
+        self.listener = nil
+        if case .cancelled = oldListener.state {
+            isRunning = false
+            onStateChange?(false)
+            return
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        oldListener.stateUpdateHandler = { state in
+            if case .cancelled = state {
+                semaphore.signal()
+            }
+        }
+        oldListener.cancel()
+        _ = semaphore.wait(timeout: .now() + .milliseconds(500))
         isRunning = false
         onStateChange?(false)
     }

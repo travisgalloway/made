@@ -86,3 +86,7 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 
 - [2026-10-13] `docs/roadmap/phase-3-native-agent.md:68-77`, the Open Issues table still lists #95 to #101 after their fixes merged.
   Found while working on #101 MCP input framing. Severity, low (documentation).
+
+- [2026-10-14] `macos/Tests/MadeCoreTests/CADToolsTests.swift:709`, `testWindowBoundSetParamAndSetTransformRedrawSolid` binds unused variable `kernel` triggering compiler warning `#NoUsage`.
+  Found while working on #129. Severity, low (compiler warning).
+

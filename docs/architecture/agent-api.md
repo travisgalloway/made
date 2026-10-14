@@ -64,9 +64,7 @@ The MCP popover (the sparkles toolbar button) starts a TCP listener inside the r
 
 The listener shares the window's own `DocumentModel`, `KernelClient`, `PartReloadController`, and `MetalRenderer`. An agent connected over TCP therefore edits the document that the window shows, and `cad_capture_snapshot` works. Tool calls change the document on `@MainActor`, so the Navigator and Inspector update through `@Observable`, and `CADToolRegistry` installs meshes, updates transforms, removes meshes, and invalidates the viewport through the shared `SolidMeshSink` (AGENT-25, #132).
 
-**Requirement (user decision, 2026-10-11).** The listener must accept connections only from the local machine (loopback). The MCP popover already displays the address as `127.0.0.1:9820`.
-
-**Known gap.** `MCPServer.start` creates `NWListener(using: .tcp, on: port)` with no interface restriction, so the listener binds to all interfaces. Another host on the network can reach it. DSN-f5402406 (#129, issue number pending) tracks restricting the bind to loopback.
+**Interface restriction (user decision, 2026-10-11).** The listener accepts connections only from the local machine (loopback). `MCPServer.start` configures `NWParameters.tcp` with `requiredInterfaceType = .loopback`, restricting listener interfaces to `127.0.0.1` and `::1`. Any connection attempt targeting a non-loopback network address is refused (#129). The MCP popover displays the address as `127.0.0.1:9820`.
 
 ### Configuration for Claude Desktop / Cursor
 Add `made` to your `claude_desktop_config.json`:
