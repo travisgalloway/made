@@ -14,7 +14,7 @@ public struct SceneBounds: Sendable, Equatable {
     public var center: SIMD3<Float> { (min + max) / 2 }
     public var radius: Float { simd_length(max - min) / 2 }
 
-    /// Bounds of the given meshes, offset by each transform's position (the renderer applies translation only).
+    /// Bounds of the given meshes, transformed by each mesh's full transform.
     /// Returns nil when no mesh has a vertex.
     public static func of(_ meshes: [CandidateMesh]) -> SceneBounds? {
         var lo = SIMD3<Float>(repeating: .infinity)
@@ -22,7 +22,7 @@ public struct SceneBounds: Sendable, Equatable {
         var found = false
         for mesh in meshes {
             for p in mesh.positions {
-                let w = p + mesh.transform.position
+                let w = mesh.transform.transformPoint(p)
                 lo = simd_min(lo, w)
                 hi = simd_max(hi, w)
                 found = true

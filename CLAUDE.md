@@ -56,9 +56,9 @@ macos/
   Sources/MadeCore/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, Geometry
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
-    Viewport/              MetalRenderer, Shaders.metal, Orientation, Camera, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation)
+    Viewport/              MetalRenderer, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation)
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool
-    Scene/                 DocumentModel (@Observable), KernelRegeneration
+    Scene/                 DocumentModel (@Observable), SolidMeshApplier, KernelRegeneration
     Agent/                 MCPProtocol, MCPServer, MCPLineFramer (input framing), CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
     Platform/              AppKit and UIKit shims

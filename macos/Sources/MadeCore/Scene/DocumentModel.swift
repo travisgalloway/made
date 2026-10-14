@@ -127,12 +127,12 @@ public final class DocumentModel {
             SceneObject(
                 id: boxSolidId,
                 def: .box(BoxParams(width: 40, depth: 30, height: 20)),
-                transform: .identity
+                transform: Transform(position: SIMD3<Float>(-25, 0, 0))
             ),
             SceneObject(
                 id: cylinderSolidId,
                 def: .cylinder(CylinderParams(radius: 15, height: 40)),
-                transform: .identity
+                transform: Transform(position: SIMD3<Float>(25, 0, 0))
             )
         ]
     }

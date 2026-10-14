@@ -136,6 +136,7 @@ import Foundation
         let result = await waiting.value
         #expect(result.error?.code == .cancelled)
         #expect(await client.getStats().dropped == 1)
+        #expect(await client.getStats().completed == 0)
         #expect(await client.storeCounts() == KernelStoreCounts())
     }
     
