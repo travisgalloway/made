@@ -267,22 +267,28 @@ public final class MCPServer: @unchecked Sendable {
         let task = Task { [weak self] in
             for await frame in frames {
                 guard !Task.isCancelled, let self, self.isRunning else { break }
+                let isAlive = self.lock.withLock { self.activeConnections[connectionId] != nil }
+                guard isAlive else { break }
                 if let response = await self.processFrame(frame) {
                     guard !Task.isCancelled, self.isRunning else { break }
+                    let stillAlive = self.lock.withLock { self.activeConnections[connectionId] != nil }
+                    guard stillAlive else { break }
                     #if DEBUG
                     if let forcedError = self.lock.withLock({ self._simulateSendFailure }) {
                         self.handleSendFailure(connection: connection, connectionId: connectionId, error: forcedError)
                         break
                     }
                     #endif
-                    await withCheckedContinuation { continuation in
+                    let sendError: NWError? = await withCheckedContinuation { continuation in
                         connection.send(content: Data((response + "\n").utf8), completion: .contentProcessed({ [weak self] error in
                             if let error {
                                 self?.handleSendFailure(connection: connection, connectionId: connectionId, error: error)
                             }
-                            continuation.resume()
+                            continuation.resume(returning: error)
                         }))
                     }
+                    if sendError != nil { break }
+                    try? await Task.sleep(for: .milliseconds(10))
                 }
                 if frame == .oversized { break }
             }
@@ -346,7 +352,7 @@ public final class MCPServer: @unchecked Sendable {
     /// Threads the framer through each receive by value; callbacks run serially on `queue`.
     private func receiveMessages(on connection: NWConnection, framer: MCPLineFramer, continuation: AsyncStream<MCPLineFramer.Frame>.Continuation) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
-            if let error {
+            if error != nil {
                 continuation.finish()
                 self?.removeConnection(connection)
                 return

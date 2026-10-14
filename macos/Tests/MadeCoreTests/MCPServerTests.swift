@@ -784,6 +784,7 @@ import Darwin
         
         let client = try await connectTCP(port: port)
         defer { client.cancel() }
+        let collector = TestResponseCollector(connection: client)
         
         for _ in 0..<50 {
             if server.activeConnectionCount == 1 { break }
@@ -800,13 +801,13 @@ import Darwin
         client.send(content: Data(sceneReq.utf8), completion: .contentProcessed({ _ in }))
         
         // Fast request should not deliver prematurely while slow request is pending
-        let (preData, _) = await receiveChunk(from: client, timeout: .milliseconds(150))
-        #expect(preData.isEmpty)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(collector.receivedCount == 0)
         
         blocker.unblock()
         client.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
         
-        let responses = await readAllResponses(from: client)
+        let responses = await collector.awaitAll()
         #expect(responses.count == 2)
         #expect(responses[0]["id"] as? Int == 1)
         #expect(responses[1]["id"] as? Int == 2)
@@ -908,6 +909,65 @@ import Darwin
         #expect(responses.count == 2)
         #expect(responses[0]["id"] as? Int == 1)
         #expect(responses[1]["id"] as? Int == 2)
+    }
+    
+    private final class TestResponseCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var buffer = Data()
+        private var isDone = false
+        private var continuation: CheckedContinuation<[[String: Any]], Never>?
+        
+        init(connection: NWConnection) {
+            readNext(connection: connection)
+        }
+        
+        private func readNext(connection: NWConnection) {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
+                guard let self else { return }
+                let contToResume: CheckedContinuation<[[String: Any]], Never>? = self.lock.withLock {
+                    if let content { self.buffer.append(content) }
+                    if isComplete || error != nil {
+                        self.isDone = true
+                        let c = self.continuation
+                        self.continuation = nil
+                        return c
+                    }
+                    return nil
+                }
+                if let contToResume {
+                    contToResume.resume(returning: self.parsedResponses())
+                } else if !isComplete && error == nil {
+                    self.readNext(connection: connection)
+                }
+            }
+        }
+        
+        var receivedCount: Int {
+            lock.withLock { buffer.count }
+        }
+        
+        func parsedResponses() -> [[String: Any]] {
+            let data = lock.withLock { buffer }
+            return data.split(separator: 0x0A).compactMap {
+                try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any]
+            }
+        }
+        
+        func awaitAll() async -> [[String: Any]] {
+            await withCheckedContinuation { cont in
+                let alreadyDone = lock.withLock { () -> Bool in
+                    if self.isDone {
+                        return true
+                    } else {
+                        self.continuation = cont
+                        return false
+                    }
+                }
+                if alreadyDone {
+                    cont.resume(returning: parsedResponses())
+                }
+            }
+        }
     }
     
     private func receiveChunk(from connection: NWConnection, timeout: Duration = .seconds(2)) async -> (data: Data, isDone: Bool) {
