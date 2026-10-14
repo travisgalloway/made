@@ -26,15 +26,15 @@ Phase 4.0 records the open decisions that gate the milestones after it.
 
 ## 1. Scene & Document Foundation
 
-The document model holds an ordered array of objects with `addObject`, `removeObject`, `setParam`, and `setTransform`. The 4.N labels below are local to this page. GitHub issue titles use a different numbering, so the cited issue number is the key.
+The document model currently holds an ordered array of objects with `addObject`, `removeObject`, `setParam`, and `setTransform`. Under ADR-D2 ([ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143), the scene transitions to an ordered feature list with multi-body parts by default (#150). The 4.N labels below are local to this page. GitHub issue titles use a different numbering, so the cited issue number is the key.
 
-- Open scene work: generalize the scene and inspector (#66, #67), selection (#69, #70), add and remove objects (#73), feature tree (#34).
+- Open scene work: ordered feature list (#150, ADR-D2), generalize the scene and inspector (#66, #67), selection (#69, #70), add and remove objects (#73), feature tree (#34, ADR-D2).
 
-- **4.1 Native `.made` Document Package** (#83, [ADR-D7](../architecture/adr/ADR-D7-made-encoding.md)):
+- **4.1 Native `.made` Document Package** (#83, [ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), [ADR-D7](../architecture/adr/ADR-D7-made-encoding.md)):
   - Conforms to Apple's `FileDocument` / `ReferenceFileDocument` protocols with exported UTType `com.made.cad.document`.
   - Directory package containing canonical JSON (`manifest.json`, `document.json`), plain-text `.part.ts` sources (`parts/`), embedded STEP/IGES assets (`assets/`), and a Git-ignored binary cache (`cache/`).
-- **4.2 Undo/Redo Engine (Command Pattern)** (#39):
-  - Integrates system `UndoManager` with `DocumentModel`'s command API (`addObject`, `removeObject`, `setParam`, `setTransform`).
+- **4.2 Undo/Redo Engine (Command Pattern)** (#39, [ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md)):
+  - Integrates system `UndoManager` with `DocumentModel`'s command API (`addObject`, `removeObject`, `setParam`, `setTransform`, and feature mutations under ADR-D2).
   - Restoring a previous state issues a command that invalidates only the affected solid.
 
 ---
@@ -45,8 +45,8 @@ The document model holds an ordered array of objects with `addObject`, `removeOb
   - Integrates `SecondMouseAU/OCCTSwift` via pre-built `OCCT.xcframework` as the canonical B-rep kernel ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142).
   - Imports and exports ISO 10303 STEP (AP203/AP214) and IGES boundary representation files.
   - Adds true topological fillets, chamfers, and draft angles.
-- **4.4 Multi-Body CSG Boolean Operations** (#35):
-  - Builds on `EuclidEngine.subtract/union/intersect` to allow complex tree-based boolean operations across arbitrary solids.
+- **4.4 Multi-Body CSG Boolean Operations** (#35, [ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md)):
+  - Builds on `EuclidEngine.subtract/union/intersect` (and canonical OCCT booleans under #82) to allow complex tree-based boolean operations across arbitrary solids within multi-body parts (ADR-D2).
 
 ---
 
