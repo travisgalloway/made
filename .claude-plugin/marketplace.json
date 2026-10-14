@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "made",
+  "description": "Official Claude Code plugin marketplace for made parametric CAD",
+  "owner": {
+    "name": "Travis Galloway",
+    "url": "https://github.com/travisgalloway/made"
+  },
+  "plugins": [
+    {
+      "name": "made-cad",
+      "description": "Author, reload, inspect, and verify parametric 3D CAD parts (.part.ts / .part.js) in made over MCP",
+      "version": "0.1.0",
+      "author": {
+        "name": "Travis Galloway"
+      },
+      "source": "./plugins/made-cad",
+      "category": "development",
+      "homepage": "https://github.com/travisgalloway/made"
+    }
+  ]
+}

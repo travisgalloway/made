@@ -1,0 +1,81 @@
+{
+  "version": "1.0.0",
+  "description": "Evaluation benchmark set of natural-language CAD part requests and expected geometric properties for the made-cad skill.",
+  "cases": [
+    {
+      "id": "eval-01-perforated-plate",
+      "title": "Perforated Mounting Plate",
+      "prompt": "Create a 60x40x6 mm rectangular mounting plate sitting on the XY plane (minimum corner at [0, 0, 0], maximum corner at [60, 40, 6]) with a central 16 mm diameter through-hole at [30, 20] and four 6 mm diameter corner mounting holes inset 8 mm from each edge.",
+      "solution": "solutions/eval-01-perforated-plate.part.ts",
+      "expected": {
+        "volume": 12525.0,
+        "area": 6080.0,
+        "bounds": {
+          "min": [0, 0, 0],
+          "max": [60, 40, 6]
+        },
+        "tolerance": 0.01
+      }
+    },
+    {
+      "id": "eval-02-t-slot-riser",
+      "title": "Extruded T-Profile Riser Block",
+      "prompt": "Create a T-shaped riser block extruded 30 mm along Y (centered on X and Y, base at Z = 0) from an XZ cross-section with a 40x8 mm base and a 12 mm wide central upright web reaching Z = 28 mm, with two 6 mm diameter mounting holes through the base flanges at X = -14 and X = +14, Y = 0.",
+      "solution": "solutions/eval-02-t-slot-riser.part.ts",
+      "expected": {
+        "volume": 16350.0,
+        "area": 5388.92,
+        "bounds": {
+          "min": [-20, -15, 0],
+          "max": [20, 15, 28]
+        },
+        "tolerance": 0.01
+      }
+    },
+    {
+      "id": "eval-03-stepped-flange-adapter",
+      "title": "Revolved Stepped Flange Adapter",
+      "prompt": "Create a revolved stepped flange adapter around the Z axis using a 36-slice full revolution: a 40 mm diameter, 6 mm tall base flange from Z = 0 to Z = 6 stepping to a 24 mm diameter, 18 mm tall hub from Z = 6 to Z = 24, with a concentric 12 mm diameter through-bore from Z = 0 to Z = 24.",
+      "solution": "solutions/eval-03-stepped-flange-adapter.part.ts",
+      "expected": {
+        "volume": 12900.0,
+        "area": 5300.0,
+        "bounds": {
+          "min": [-20, -20, 0],
+          "max": [20, 20, 24]
+        },
+        "tolerance": 0.01
+      }
+    },
+    {
+      "id": "eval-04-slotted-clevis-block",
+      "title": "Slotted Clevis Fork Block",
+      "prompt": "Create a clevis fork block of outer dimensions 36x24x32 mm (centered on X and Y, Z from 0 to 32) with a 12 mm wide U-slot cut into the top 20 mm along the full Y depth (Z from 12 to 32) and an 8 mm diameter cross-pin hole along the X axis centered at Y = 0, Z = 22.",
+      "solution": "solutions/eval-04-slotted-clevis-block.part.ts",
+      "expected": {
+        "volume": 20680.0,
+        "area": 6450.44,
+        "bounds": {
+          "min": [-18, -12, 0],
+          "max": [18, 12, 32]
+        },
+        "tolerance": 0.01
+      }
+    },
+    {
+      "id": "eval-05-hex-nut-blank",
+      "title": "Extruded Hexagonal Nut Blank",
+      "prompt": "Create a hexagonal nut blank extruded from a 6-sided regular polygon of circumradius 14 mm on the XY plane to a height of 10 mm (Z from 0 to 10), with a central 12 mm diameter bore along the Z axis.",
+      "solution": "solutions/eval-05-hex-nut-blank.part.ts",
+      "expected": {
+        "volume": 3960.0,
+        "area": 2009.91,
+        "bounds": {
+          "min": [-14, -12.124356, 0],
+          "max": [14, 12.124356, 10]
+        },
+        "tolerance": 0.01
+      }
+    }
+  ]
+}
