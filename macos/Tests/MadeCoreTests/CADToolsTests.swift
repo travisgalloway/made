@@ -324,6 +324,110 @@ import Foundation
         await expectAddRejected(["type": .string("cylinder"), "radius": .double(.infinity)], mentioning: "radius")
     }
     
+    @Test func testAddSolidRejectsNonNumericStringSize() async {
+        await expectAddRejected(["type": .string("box"), "width": .string("abc")], mentioning: "width")
+        await expectAddRejected(["type": .string("box"), "depth": .string("def")], mentioning: "depth")
+        await expectAddRejected(["type": .string("box"), "height": .string("ghi")], mentioning: "height")
+        await expectAddRejected(["type": .string("cylinder"), "radius": .string("jkl")], mentioning: "radius")
+        await expectAddRejected(["type": .string("cylinder"), "height": .string("mno")], mentioning: "height")
+    }
+
+    @Test func testAddSolidRejectsStringHoldingNumber() async {
+        await expectAddRejected(["type": .string("box"), "width": .string("40")], mentioning: "width")
+        await expectAddRejected(["type": .string("cylinder"), "radius": .string("15")], mentioning: "radius")
+    }
+
+    @Test func testAddSolidRejectsDimensionOverflowingFloat() async {
+        await expectAddRejected(["type": .string("box"), "width": .double(1e39)], mentioning: "finite")
+        await expectAddRejected(["type": .string("box"), "depth": .double(1e39)], mentioning: "finite")
+        await expectAddRejected(["type": .string("box"), "height": .double(1e39)], mentioning: "finite")
+        await expectAddRejected(["type": .string("cylinder"), "radius": .double(1e39)], mentioning: "finite")
+        await expectAddRejected(["type": .string("cylinder"), "height": .double(1e39)], mentioning: "finite")
+    }
+
+    @Test func testAddSolidRejectsNullDimension() async {
+        await expectAddRejected(["type": .string("box"), "width": .null], mentioning: "width")
+        await expectAddRejected(["type": .string("cylinder"), "radius": .null], mentioning: "radius")
+    }
+
+    @Test func testAddSolidRejectsBooleanDimension() async {
+        await expectAddRejected(["type": .string("box"), "height": .bool(true)], mentioning: "height")
+        await expectAddRejected(["type": .string("cylinder"), "radius": .bool(false)], mentioning: "radius")
+    }
+
+    @Test func testAddSolidClampsNegativeDimension() async {
+        let doc = DocumentModel()
+        let result = await addSolid(doc, [
+            "type": .string("box"),
+            "width": .double(-10),
+            "depth": .double(-5),
+            "height": .double(-2)
+        ])
+        #expect(result.isError == false)
+        #expect(result.content.first?.text == "Successfully added solid with ID: box-2 with dimensions (width: 5.0, depth: 5.0, height: 5.0) at position (0.0, 0.0, 0.0)")
+        if case .box(let p) = doc.objects.last?.def {
+            #expect(p.width == 5.0)
+            #expect(p.depth == 5.0)
+            #expect(p.height == 5.0)
+        } else {
+            Issue.record("Expected box solid")
+        }
+    }
+
+    @Test func testAddSolidSuccessMessageReportsClampedDimensionsAndPosition() async {
+        let docBox = DocumentModel()
+        let boxResult = await addSolid(docBox, [
+            "type": .string("box"),
+            "width": .double(120),
+            "depth": .double(2),
+            "height": .double(25),
+            "posX": .double(10),
+            "posY": .double(-20),
+            "posZ": .double(30)
+        ])
+        #expect(boxResult.isError == false)
+        #expect(boxResult.content.first?.text == "Successfully added solid with ID: box-2 with dimensions (width: 90.0, depth: 5.0, height: 25.0) at position (10.0, -20.0, 30.0)")
+
+        let docCyl = DocumentModel()
+        let cylResult = await addSolid(docCyl, [
+            "type": .string("cylinder"),
+            "radius": .double(80),
+            "height": .double(2),
+            "posX": .double(5),
+            "posY": .double(0),
+            "posZ": .double(-10)
+        ])
+        #expect(cylResult.isError == false)
+        #expect(cylResult.content.first?.text == "Successfully added solid with ID: cylinder-2 with dimensions (radius: 50.0, height: 5.0) at position (5.0, 0.0, -10.0)")
+    }
+
+    @Test func testAddSolidDefaultsMissingDimensions() async {
+        let docBox = DocumentModel()
+        let boxResult = await addSolid(docBox, ["type": .string("box")])
+        #expect(boxResult.isError == false)
+        #expect(boxResult.content.first?.text == "Successfully added solid with ID: box-2 with dimensions (width: 40.0, depth: 30.0, height: 20.0) at position (0.0, 0.0, 0.0)")
+        if case .box(let p) = docBox.objects.last?.def {
+            #expect(p.width == 40.0)
+            #expect(p.depth == 30.0)
+            #expect(p.height == 20.0)
+        } else {
+            Issue.record("Expected box solid")
+        }
+        #expect(docBox.objects.last?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        let docCyl = DocumentModel()
+        let cylResult = await addSolid(docCyl, ["type": .string("cylinder")])
+        #expect(cylResult.isError == false)
+        #expect(cylResult.content.first?.text == "Successfully added solid with ID: cylinder-2 with dimensions (radius: 15.0, height: 40.0) at position (0.0, 0.0, 0.0)")
+        if case .cylinder(let p) = docCyl.objects.last?.def {
+            #expect(p.radius == 15.0)
+            #expect(p.height == 40.0)
+        } else {
+            Issue.record("Expected cylinder solid")
+        }
+        #expect(docCyl.objects.last?.transform.position == SIMD3<Float>(0, 0, 0))
+    }
+    
     @Test func testAddSolidAcceptsIntegerPosition() async {
         let doc = DocumentModel()
         let result = await addSolid(doc, ["type": .string("box"), "posX": .int(12)])

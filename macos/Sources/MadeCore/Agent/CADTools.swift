@@ -282,23 +282,33 @@ public final class CADToolRegistry {
             )
             // The document model clamps sizes to its limits.
             if type == "box" {
-                let w = try Self.optionalNumber(arguments, "width").map(Float.init) ?? 40.0
-                let d = try Self.optionalNumber(arguments, "depth").map(Float.init) ?? 30.0
-                let h = try Self.optionalNumber(arguments, "height").map(Float.init) ?? 20.0
+                let w = try Self.optionalDimension(arguments, "width") ?? 40.0
+                let d = try Self.optionalDimension(arguments, "depth") ?? 30.0
+                let h = try Self.optionalDimension(arguments, "height") ?? 20.0
                 def = .box(BoxParams(width: w, depth: d, height: h))
             } else {
-                let r = try Self.optionalNumber(arguments, "radius").map(Float.init) ?? 15.0
-                let h = try Self.optionalNumber(arguments, "height").map(Float.init) ?? 40.0
+                let r = try Self.optionalDimension(arguments, "radius") ?? 15.0
+                let h = try Self.optionalDimension(arguments, "height") ?? 40.0
                 def = .cylinder(CylinderParams(radius: r, height: h))
             }
         } catch {
             return .error(error.message)
         }
         
-        let id = document.addObject(def: def, transform: transform)
+        let clampedDef = DocumentLimits.clamp(def)
+        let id = document.addObject(def: clampedDef, transform: transform)
         scheduleRecompute(id: id)
         
-        return .text("Successfully added solid with ID: \(id.rawValue)")
+        let dimStr: String
+        switch clampedDef {
+        case .box(let p):
+            dimStr = "with dimensions (width: \(p.width), depth: \(p.depth), height: \(p.height))"
+        case .cylinder(let p):
+            dimStr = "with dimensions (radius: \(p.radius), height: \(p.height))"
+        default:
+            dimStr = ""
+        }
+        return .text("Successfully added solid with ID: \(id.rawValue) \(dimStr) at position (\(transform.position.x), \(transform.position.y), \(transform.position.z))")
     }
     
     private func handleSetParam(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
@@ -358,6 +368,16 @@ public final class CADToolRegistry {
             throw ArgumentError(message: "Argument '\(key)' must be between \(Int(range.min)) and \(Int(range.max)) mm")
         }
         return Float(value)
+    }
+    
+    /// An optional solid dimension, ensuring the value is numeric, finite as a Double, and finite when converted to Float.
+    private static func optionalDimension(_ arguments: [String: AnyCodableValue], _ key: String) throws(ArgumentError) -> Float? {
+        guard let value = try optionalNumber(arguments, key) else { return nil }
+        let floatVal = Float(value)
+        guard floatVal.isFinite else {
+            throw ArgumentError(message: "Argument '\(key)' must be a finite number")
+        }
+        return floatVal
     }
     
     /// Ordered name-and-value pairs of the parameters an agent may set, or nil for a solid with none.
