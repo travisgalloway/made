@@ -129,27 +129,87 @@ import os
     @Test func testSetParamClampsWithinLimits() {
         let doc = DocumentModel()
         
-        // Min limit is 5, max is 90
+        // Box parameter clamping: width, depth, height clamped to 5...90 mm
+        // Below min
         doc.setParam(id: boxSolidId, key: "width", value: 1)
-        if case .box(let params) = doc.paramsFor(id: boxSolidId) {
-            #expect(params.width == 5.0)
-        } else {
-            Issue.record("Expected box params")
-        }
+        doc.setParam(id: boxSolidId, key: "depth", value: 0)
+        doc.setParam(id: boxSolidId, key: "height", value: -10)
+        #expect(box(doc, boxSolidId)?.width == 5.0)
+        #expect(box(doc, boxSolidId)?.depth == 5.0)
+        #expect(box(doc, boxSolidId)?.height == 5.0)
         
+        // Above max
         doc.setParam(id: boxSolidId, key: "width", value: 500)
-        if case .box(let params) = doc.paramsFor(id: boxSolidId) {
-            #expect(params.width == 90.0)
-        } else {
-            Issue.record("Expected box params")
-        }
+        doc.setParam(id: boxSolidId, key: "depth", value: 100)
+        doc.setParam(id: boxSolidId, key: "height", value: 95)
+        #expect(box(doc, boxSolidId)?.width == 90.0)
+        #expect(box(doc, boxSolidId)?.depth == 90.0)
+        #expect(box(doc, boxSolidId)?.height == 90.0)
         
+        // Mid values
         doc.setParam(id: boxSolidId, key: "width", value: 45)
-        if case .box(let params) = doc.paramsFor(id: boxSolidId) {
-            #expect(params.width == 45.0)
-        } else {
-            Issue.record("Expected box params")
-        }
+        doc.setParam(id: boxSolidId, key: "depth", value: 30)
+        doc.setParam(id: boxSolidId, key: "height", value: 20)
+        #expect(box(doc, boxSolidId)?.width == 45.0)
+        #expect(box(doc, boxSolidId)?.depth == 30.0)
+        #expect(box(doc, boxSolidId)?.height == 20.0)
+        
+        // NaN and infinities
+        doc.setParam(id: boxSolidId, key: "width", value: .nan)
+        #expect(box(doc, boxSolidId)?.width == 5.0)
+        doc.setParam(id: boxSolidId, key: "width", value: -.infinity)
+        #expect(box(doc, boxSolidId)?.width == 5.0)
+        doc.setParam(id: boxSolidId, key: "width", value: .infinity)
+        #expect(box(doc, boxSolidId)?.width == 90.0)
+        doc.setParam(id: boxSolidId, key: "depth", value: .nan)
+        #expect(box(doc, boxSolidId)?.depth == 5.0)
+        doc.setParam(id: boxSolidId, key: "height", value: .nan)
+        #expect(box(doc, boxSolidId)?.height == 5.0)
+        
+        // Cylinder parameter clamping: radius clamped to 5...50 mm, height clamped to 5...90 mm
+        // Below min
+        doc.setParam(id: cylinderSolidId, key: "radius", value: 0)
+        doc.setParam(id: cylinderSolidId, key: "height", value: 0)
+        #expect(cylinder(doc, cylinderSolidId)?.radius == 5.0)
+        #expect(cylinder(doc, cylinderSolidId)?.height == 5.0)
+        doc.setParam(id: cylinderSolidId, key: "height", value: -50)
+        #expect(cylinder(doc, cylinderSolidId)?.height == 5.0)
+        
+        // Above max
+        doc.setParam(id: cylinderSolidId, key: "radius", value: 500)
+        doc.setParam(id: cylinderSolidId, key: "height", value: 200)
+        #expect(cylinder(doc, cylinderSolidId)?.radius == 50.0)
+        #expect(cylinder(doc, cylinderSolidId)?.height == 90.0)
+        
+        // Mid values
+        doc.setParam(id: cylinderSolidId, key: "radius", value: 15)
+        doc.setParam(id: cylinderSolidId, key: "height", value: 40)
+        #expect(cylinder(doc, cylinderSolidId)?.radius == 15.0)
+        #expect(cylinder(doc, cylinderSolidId)?.height == 40.0)
+        
+        // NaN
+        doc.setParam(id: cylinderSolidId, key: "radius", value: .nan)
+        doc.setParam(id: cylinderSolidId, key: "height", value: .nan)
+        #expect(cylinder(doc, cylinderSolidId)?.radius == 5.0)
+        #expect(cylinder(doc, cylinderSolidId)?.height == 5.0)
+        
+        // Unknown keys and non-existent IDs
+        let boxBefore = box(doc, boxSolidId)
+        doc.setParam(id: boxSolidId, key: "unknown", value: 10)
+        doc.setParam(id: boxSolidId, key: "bogus", value: 50)
+        #expect(box(doc, boxSolidId) == boxBefore)
+        
+        let cylinderBefore = cylinder(doc, cylinderSolidId)
+        doc.setParam(id: cylinderSolidId, key: "depth", value: 25)
+        doc.setParam(id: cylinderSolidId, key: "unknown", value: 10)
+        #expect(cylinder(doc, cylinderSolidId) == cylinderBefore)
+        
+        // Non-existent ID returns cleanly without crashing or mutating objects
+        let initialObjectCount = doc.objects.count
+        doc.setParam(id: ObjectId("nonexistent"), key: "width", value: 20)
+        #expect(doc.objects.count == initialObjectCount)
+        #expect(box(doc, boxSolidId) == boxBefore)
+        #expect(cylinder(doc, cylinderSolidId) == cylinderBefore)
     }
     
     @Test func testExtendedDocumentProperties() {
