@@ -241,18 +241,23 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             (view as? CADMTKView)?.beginDragCursor(for: action)
             
             let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
-            _ = pointerRouter.handle(.down(pointerType: pointerType(for: action), pointer: pointer))
+            let pType = pointerType(for: event)
+            _ = pointerRouter.handle(.down(pointerType: pType, pointer: pointer))
         }
         
-        private func pointerType(for action: ViewportDragAction) -> PointerType {
-            action.isNavigation ? .mouse : .pen
+        private func pointerType(for event: NSEvent) -> PointerType {
+            if event.subtype == .tabletPoint || event.subtype == .tabletProximity {
+                return .pen
+            }
+            return .mouse
         }
         
         func handleMouseDragged(with event: NSEvent, button: MouseButton) {
             guard let view = mtkView, let action = activeDragAction else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
             let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
-            let decision = pointerRouter.handle(.move(pointerType: pointerType(for: action), pointer: pointer))
+            let pType = pointerType(for: event)
+            let decision = pointerRouter.handle(.move(pointerType: pType, pointer: pointer))
             
             let deltaX = Float(loc.x - lastMousePoint.x)
             let deltaY = Float(loc.y - lastMousePoint.y)
@@ -325,17 +330,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         private func resolveSnap(at loc: CGPoint, in view: MTKView) {
             let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
-            let viewMatrix = Orientation.makeLookAt(
-                eye: parent.renderer.cameraPosition,
-                target: parent.renderer.cameraTarget,
-                up: Orientation.worldUp
-            )
-            let projMatrix = Orientation.makePerspective(
-                fovyRadians: Float.pi / 4.0,
-                aspect: aspect,
-                nearZ: 0.1,
-                farZ: 1000.0
-            )
+            let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
             
             let candidateMeshes = parent.renderer.candidateMeshes()
             let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
@@ -344,8 +339,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 meshes: candidateMeshes,
                 pointer: pointer,
                 viewportSize: view.bounds.size,
-                viewMatrix: viewMatrix,
-                projectionMatrix: projMatrix,
+                viewMatrix: matrices.view,
+                projectionMatrix: matrices.projection,
                 gridSpacing: defaultGridSpacing,
                 tolerancePx: defaultSnapTolerancePx
             )
@@ -359,8 +354,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleMouseUp(with event: NSEvent, button: MouseButton) {
-            let action = activeDragAction ?? .manipulate
-            _ = pointerRouter.handle(.up(pointerType: pointerType(for: action), pointerId: button.pointerId))
+            let pType = pointerType(for: event)
+            let decision = pointerRouter.handle(.up(pointerType: pType, pointerId: button.pointerId))
             activeMouseButton = nil
             activeDragAction = nil
             (mtkView as? CADMTKView)?.endDragCursor()
@@ -370,6 +365,24 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 parent.renderer.activeSnap = nil
                 parent.onSnapChanged?(nil)
                 invalidate(reason: .interaction)
+            }
+            
+            if button == .left && decision.mode == .manipulate {
+                if parent.tool == .select || pType == .pen {
+                    guard let view = mtkView else { return }
+                    let loc = view.convert(event.locationInWindow, from: nil)
+                    let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                    let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                    let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
+                    let hitId = pickSolidAtPointer(
+                        pointer: pointer,
+                        viewportSize: view.bounds.size,
+                        viewMatrix: matrices.view,
+                        projectionMatrix: matrices.projection,
+                        candidateMeshes: parent.renderer.candidateMeshes()
+                    )
+                    parent.document.selectedId = hitId
+                }
             }
         }
         

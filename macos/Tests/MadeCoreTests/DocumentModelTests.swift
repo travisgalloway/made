@@ -292,4 +292,52 @@ import os
         #expect(doc.objects.count == 3)
         #expect(observedOnMain.withLock { $0 } == true)
     }
+
+    @Test func testInitialSelectionIsBox() {
+        let doc = DocumentModel()
+        #expect(doc.selectedId == boxSolidId)
+    }
+
+    @Test func testSettingNewSelectionTriggersObservation() {
+        let doc = DocumentModel()
+        let changeFired = OSAllocatedUnfairLock<Bool>(initialState: false)
+        withObservationTracking {
+            _ = doc.selectedId
+        } onChange: {
+            changeFired.withLock { $0 = true }
+        }
+
+        doc.selectedId = cylinderSolidId
+        #expect(changeFired.withLock { $0 })
+        #expect(doc.selectedId == cylinderSolidId)
+    }
+
+    @Test func testSettingUnchangedSelectionIsNoOp() {
+        let doc = DocumentModel()
+        let changeFired = OSAllocatedUnfairLock<Bool>(initialState: false)
+        withObservationTracking {
+            _ = doc.selectedId
+        } onChange: {
+            changeFired.withLock { $0 = true }
+        }
+
+        doc.selectedId = boxSolidId
+        #expect(!changeFired.withLock { $0 })
+        #expect(doc.selectedId == boxSolidId)
+    }
+
+    @Test func testRemovingSelectedObjectClearsSelection() {
+        let doc = DocumentModel()
+        #expect(doc.selectedId == boxSolidId)
+        doc.removeObject(id: boxSolidId)
+        #expect(doc.selectedId == nil)
+    }
+
+    @Test func testRemovingUnselectedObjectPreservesSelection() {
+        let doc = DocumentModel()
+        #expect(doc.selectedId == boxSolidId)
+        doc.removeObject(id: cylinderSolidId)
+        #expect(doc.selectedId == boxSolidId)
+    }
 }
+

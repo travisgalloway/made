@@ -332,6 +332,27 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
     }
 
+    /// Computes view and projection matrices for the given aspect ratio and optional camera override,
+    /// respecting the current projection mode (perspective vs orthographic).
+    public func viewAndProjectionMatrices(
+        aspect: Float,
+        cameraOverride: Camera? = nil
+    ) -> (view: simd_float4x4, projection: simd_float4x4) {
+        let eye = cameraOverride?.position ?? cameraPosition
+        let target = cameraOverride?.target ?? cameraTarget
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: target, up: Orientation.worldUp)
+        let projMatrix: simd_float4x4
+        if projectionMode == .orthographic {
+            let dist = max(10.0, simd_length(eye - target))
+            let halfH = dist * 0.4
+            let halfW = halfH * aspect
+            projMatrix = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
+        } else {
+            projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+        }
+        return (view: viewMatrix, projection: projMatrix)
+    }
+
     // MARK: - Residency
 
     private func updateResidency() {
@@ -385,18 +406,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         encoder.setFrontFacing(.counterClockwise)
         encoder.setCullMode(.back)
 
-        let eye = cameraOverride?.position ?? cameraPosition
-        let target = cameraOverride?.target ?? cameraTarget
-        let viewMatrix = Orientation.makeLookAt(eye: eye, target: target, up: Orientation.worldUp)
-        let projMatrix: simd_float4x4
-        if projectionMode == .orthographic {
-            let dist = max(10.0, simd_length(eye - target))
-            let halfH = dist * 0.4
-            let halfW = halfH * aspect
-            projMatrix = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
-        } else {
-            projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
-        }
+        let matrices = viewAndProjectionMatrices(aspect: aspect, cameraOverride: cameraOverride)
+        let viewMatrix = matrices.view
+        let projMatrix = matrices.projection
 
         var drawCalls = 0
         for (id, mesh) in meshes where !hiddenSolidIds.contains(id) {

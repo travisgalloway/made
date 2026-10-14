@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 153 capabilities with their implementation status. The matrix shows 95 Shipped, 40 In progress, 12 Planned, and 6 Deprecated rows.
+Table 1 lists 153 capabilities with their implementation status. The matrix shows 96 Shipped, 40 In progress, 11 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -19,6 +19,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
+- INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69.
 - WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. Each side pane has a tab bar with one tab, and the Inspector's Properties tab is one form, and the viewport header breadcrumb is a static label.
 - UI-1, UI-11, UI-12, UI-13, UI-15, and UI-18 are Deprecated. The Copilot tab and the File and Geometry menu items were removed in #124.
 - AGENT-10, AGENT-11, AGENT-14, AGENT-15, and AGENT-16 are In progress with UI none. `InAppAgentController` has no host view since #124 (decision AGENT-10).
@@ -63,7 +64,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | INPUT-6 | A user can snap a point to a 10 mm XY grid with Z unchanged (doc states a 1 mm or 5 mm pitch in earlier text) | done | done | n/a | Shipped | #88, #102 | n/a |
 | INPUT-7 | A user can resolve snap candidates by strict priority vertex over edge over grid inside a 20 px tolerance (doc states a 10 mm radius in earlier text) | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-8 | A user can orbit, pan and zoom the camera with trackpad (two-finger scroll pans, Option or Command scroll and pinch zoom), mouse (wheel zooms) or modifier and button drags; multi-touch is not wired | done | done | n/a | Shipped | #87 | n/a |
-| INPUT-9 | A user can click or tap a solid in the viewport to select it (picking) | none | none | n/a | Planned | #69 | n/a |
+| INPUT-9 | A user can click or tap a solid in the viewport to select it (picking) | done | done | n/a | Shipped | #69 | n/a |
 | INPUT-10 | A user can snap to vertices and edges of existing solids while manipulating | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-11 | A user can two-finger tap to trigger context actions | none | none | n/a | Planned | #42 | n/a |
 | INPUT-12 | A user can pick a Select, Orbit, Pan or Zoom tool from the toolbar or with V, O, P and Z, and a plain left-drag follows the tool while modifier navigation keeps working | done | done | n/a | Shipped |  | n/a |

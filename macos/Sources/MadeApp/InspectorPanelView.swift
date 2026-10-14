@@ -36,7 +36,7 @@ struct InspectorPanelView: View {
             ContentUnavailableView(
                 "No Object Selected",
                 systemImage: "cursorarrow.slash",
-                description: Text("Select a solid in the Navigator to inspect its properties.")
+                description: Text("Select a solid in the viewport or Navigator to inspect its properties.")
             )
         }
     }
