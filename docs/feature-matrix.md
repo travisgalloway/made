@@ -128,7 +128,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-19 | A user can type exact dimension values in the inspector (numeric fields with a 1-mm stepper, clamped to `DocumentLimits`) | done | n/a | n/a | Shipped | #70, #446 | n/a |
 | UI-20 | A user can edit an object's X, Y and Z position in the inspector | done | n/a | n/a | Shipped | #70 | n/a |
 | UI-21 | A user sees an inline warning next to a parameter the kernel rejected | done | n/a | done | Shipped | #109 | n/a |
-| UI-22 | A user can remove a solid from the GUI | done | n/a | n/a | Shipped | #73 | n/a |
+| UI-22 | A user can remove a solid from the GUI with a confirmation dialog (Cancel preserves solid and selection; Delete confirms removal and disposes kernel/mesh) | done | n/a | n/a | Shipped | #73, #141 | n/a |
 | UI-23 | A user can run the app on iPadOS 17 | none | n/a | n/a | Planned | #84 | n/a |
 | UI-24 | A user can show or hide the Navigator, Console and Inspector panes from toolbar toggle buttons | done | n/a | n/a | Shipped |  | n/a |
 | UI-25 | A user can toggle the sidebar, console, and inspector from the standard View menu commands (⇧⌘Y for console) | done | n/a | n/a | Shipped | #140 | n/a |

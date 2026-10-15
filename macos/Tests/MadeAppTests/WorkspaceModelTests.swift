@@ -194,4 +194,134 @@ import MadeCore
         #expect(WorkspaceModel.consoleShortcutKey == "y")
         #expect(WorkspaceModel.consoleShortcutModifiers == [.command, .shift])
     }
+
+    // MARK: - Deletion Confirmation
+
+    @Test @MainActor func testRequestDeleteObjectSetsPendingDeleteId() {
+        let model = WorkspaceModel()
+        let id = ObjectId("box-1")
+        #expect(model.pendingDeleteId == nil)
+        #expect(model.objectPendingDeletion == nil)
+
+        model.requestDeleteObject(id)
+
+        #expect(model.pendingDeleteId == id)
+        #expect(model.objectPendingDeletion?.id == id)
+        #expect(model.objectPendingDeletion?.name == "box-1")
+    }
+
+    @Test @MainActor func testCancelDeleteObjectClearsPendingAndPreservesSolidAndSelection() {
+        let model = WorkspaceModel()
+        let id = ObjectId("box-1")
+        model.selectedId = id
+
+        model.requestDeleteObject(id)
+        #expect(model.pendingDeleteId == id)
+        #expect(model.selectedId == id)
+
+        model.cancelDeleteObject()
+
+        #expect(model.pendingDeleteId == nil)
+        #expect(model.objectPendingDeletion == nil)
+        #expect(model.selectedId == id)
+        #expect(model.document.objects.contains(where: { $0.id == id }))
+    }
+
+    @Test @MainActor func testConfirmDeleteObjectRemovesSolidAndClearsSelection() async {
+        let model = WorkspaceModel()
+        let id = ObjectId("box-1")
+        let unselectedId = ObjectId("cylinder-1")
+        model.selectedId = id
+
+        model.requestDeleteObject(id)
+        #expect(model.pendingDeleteId == id)
+
+        model.confirmDeleteObject()
+
+        #expect(model.pendingDeleteId == nil)
+        #expect(model.objectPendingDeletion == nil)
+        #expect(model.selectedId == nil)
+        #expect(!model.document.objects.contains(where: { $0.id == id }))
+
+        // Confirming delete on an unselected solid preserves the selectedId
+        model.addObject(.box(BoxParams(width: 20, depth: 20, height: 20)))
+        guard let newBox = model.document.objects.first(where: { $0.id != unselectedId }) else {
+            Issue.record("Failed to add temporary solid")
+            return
+        }
+        model.selectedId = unselectedId
+        model.requestDeleteObject(newBox.id)
+        model.confirmDeleteObject()
+        #expect(model.selectedId == unselectedId)
+    }
+
+    @Test @MainActor func testRequestDeleteLockedObjectIsRefused() {
+        let model = WorkspaceModel()
+        let id = ObjectId("box-1")
+        model.document.setLocked(id: id, isLocked: true)
+
+        model.requestDeleteObject(id)
+
+        #expect(model.pendingDeleteId == nil)
+        #expect(model.objectPendingDeletion == nil)
+        #expect(model.document.objects.contains(where: { $0.id == id }))
+    }
+
+    @Test @MainActor func testTwoDeletesInARow() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+        let cylinderId = ObjectId("cylinder-1")
+
+        // Cancel first, delete second
+        model.requestDeleteObject(boxId)
+        #expect(model.pendingDeleteId == boxId)
+        model.cancelDeleteObject()
+        #expect(model.pendingDeleteId == nil)
+
+        model.requestDeleteObject(cylinderId)
+        #expect(model.pendingDeleteId == cylinderId)
+        model.confirmDeleteObject()
+        #expect(model.pendingDeleteId == nil)
+        #expect(model.document.objects.contains(where: { $0.id == boxId }))
+        #expect(!model.document.objects.contains(where: { $0.id == cylinderId }))
+
+        // Retargeting while another delete is pending updates target cleanly
+        model.addObject(.cylinder(CylinderParams(radius: 10, height: 20)))
+        guard let newCylinder = model.document.objects.first(where: { $0.id != boxId }) else {
+            Issue.record("Failed to add new cylinder")
+            return
+        }
+        model.requestDeleteObject(boxId)
+        #expect(model.pendingDeleteId == boxId)
+        model.requestDeleteObject(newCylinder.id)
+        #expect(model.pendingDeleteId == newCylinder.id)
+        model.confirmDeleteObject()
+        #expect(!model.document.objects.contains(where: { $0.id == newCylinder.id }))
+        #expect(model.document.objects.contains(where: { $0.id == boxId }))
+
+        // Second confirm removes the remaining solid
+        model.requestDeleteObject(boxId)
+        model.confirmDeleteObject()
+        #expect(model.document.objects.isEmpty)
+    }
+
+    @Test @MainActor func testConfirmDeleteOnObjectDeletedExternallySafelyNoOps() {
+        let model = WorkspaceModel()
+        let id = ObjectId("box-1")
+        model.requestDeleteObject(id)
+        #expect(model.pendingDeleteId == id)
+
+        // Object removed directly on document
+        model.document.removeObject(id: id)
+        #expect(!model.document.objects.contains(where: { $0.id == id }))
+
+        // Confirming pending delete safely clears pendingDeleteId and no-ops
+        model.confirmDeleteObject()
+        #expect(model.pendingDeleteId == nil)
+        #expect(model.objectPendingDeletion == nil)
+
+        // Confirming when no delete is pending also safely no-ops
+        model.confirmDeleteObject()
+        #expect(model.pendingDeleteId == nil)
+    }
 }

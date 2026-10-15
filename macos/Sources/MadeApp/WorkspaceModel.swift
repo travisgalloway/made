@@ -22,6 +22,7 @@ final class WorkspaceModel {
         get { document.selectedId }
         set { document.selectedId = newValue }
     }
+    var pendingDeleteId: ObjectId?
     var coordinator: CADMetalViewRepresentable.Coordinator?
     private(set) var renderStats = RenderStats()
     private(set) var kernelStats = KernelStats()
@@ -69,6 +70,11 @@ final class WorkspaceModel {
     var selectedObject: SceneObject? {
         guard let selectedId else { return nil }
         return document.objects.first { $0.id == selectedId }
+    }
+
+    var objectPendingDeletion: SceneObject? {
+        guard let pendingDeleteId else { return nil }
+        return document.objects.first { $0.id == pendingDeleteId }
     }
 
     // MARK: - Setup
@@ -243,6 +249,21 @@ final class WorkspaceModel {
         for url in panel.urls {
             openPartFile(at: url)
         }
+    }
+
+    func requestDeleteObject(_ id: ObjectId) {
+        guard let obj = document.objects.first(where: { $0.id == id }), !obj.isLocked else { return }
+        pendingDeleteId = id
+    }
+
+    func confirmDeleteObject() {
+        guard let id = pendingDeleteId else { return }
+        pendingDeleteId = nil
+        removeObject(id)
+    }
+
+    func cancelDeleteObject() {
+        pendingDeleteId = nil
     }
 
     func removeObject(_ id: ObjectId) {
