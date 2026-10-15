@@ -579,6 +579,39 @@ import ImageIO
         #expect(renderer.lastDrawCalls == 0, "Scene render pass must issue 0 draw calls for hidden solid")
     }
 
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    @MainActor
+    func testMeshColorChangeUpdatesRenderedPixelColor() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let boxId = SolidId("box-color-render-test")
+        let blueColor = SIMD4<Float>(0, 0, 1, 1)
+        #expect(renderer.installMesh(payload, for: boxId, transform: .identity, color: blueColor, isHidden: false))
+
+        let topCenter = project(SIMD3<Float>(0, 0, 10), renderer: renderer)
+        let pixelIndex = (Int(topCenter.y) * width + Int(topCenter.x)) * 4
+
+        // Initial blue snapshot
+        let snapshot1 = await renderer.captureSnapshotPngBase64()
+        let pixels1 = try decodeRGBA(try #require(snapshot1))
+        #expect(pixels1[pixelIndex + 2] > 200, "Blue channel should be bright initially")
+        #expect(pixels1[pixelIndex] < 50, "Red channel should be dark initially")
+
+        // Update color in place to red
+        let redColor = SIMD4<Float>(1, 0, 0, 1)
+        #expect(renderer.updateColor(redColor, for: boxId))
+
+        // Red snapshot
+        let snapshot2 = await renderer.captureSnapshotPngBase64()
+        let pixels2 = try decodeRGBA(try #require(snapshot2))
+        #expect(pixels2[pixelIndex] > 200, "Red channel should be bright after updateColor")
+        #expect(pixels2[pixelIndex + 2] < 50, "Blue channel should be dark after updateColor")
+    }
+
     private func viewProjection(_ renderer: MetalRenderer) -> simd_float4x4 {
         let matrices = renderer.viewAndProjectionMatrices(aspect: Float(width) / Float(height))
         return matrices.projection * matrices.view

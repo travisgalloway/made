@@ -27,6 +27,7 @@ struct InspectorPanelView: View {
                     identitySection(selected)
                     transformSection(selected)
                     dimensionsSection(selected)
+                    materialSection(selected)
                 }
                 .disabled(selected.isLocked)
                 .formStyle(.columns)
@@ -116,6 +117,24 @@ struct InspectorPanelView: View {
             }
         } header: {
             sectionHeader("Dimensions")
+        }
+    }
+
+    private func materialSection(_ obj: SceneObject) -> some View {
+        Section {
+            ColorPicker("Color", selection: Binding(
+                get: {
+                    let c = obj.material.color
+                    return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z), opacity: Double(c.w))
+                },
+                set: { newColor in
+                    let resolved = newColor.resolve(in: EnvironmentValues())
+                    let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
+                    workspace.setMaterial(obj.id, MaterialAttributes(color: simdColor))
+                }
+            ), supportsOpacity: false)
+        } header: {
+            sectionHeader("Material")
         }
     }
 

@@ -481,5 +481,27 @@ import os
         #expect(doc.objects.isEmpty)
         #expect(doc.selectedId == nil)
     }
+
+    @Test func testSetMaterialMultipleObjectsImportedAndNonExistent() {
+        let doc = DocumentModel()
+        let red = MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1))
+        let green = MaterialAttributes(color: SIMD4<Float>(0, 1, 0, 1))
+
+        #expect(doc.setMaterial(id: boxSolidId, material: red) == .success(()))
+        #expect(doc.setMaterial(id: cylinderSolidId, material: green) == .success(()))
+
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.material.color == SIMD4<Float>(1, 0, 0, 1))
+        #expect(doc.objects.first(where: { $0.id == cylinderSolidId })?.material.color == SIMD4<Float>(0, 1, 0, 1))
+
+        // Imported object definition
+        let importedId = doc.addObject(def: .imported(name: "step-bracket"))
+        let yellow = MaterialAttributes(color: SIMD4<Float>(1, 1, 0, 1))
+        #expect(doc.setMaterial(id: importedId, material: yellow) == .success(()))
+        #expect(doc.objects.first(where: { $0.id == importedId })?.material.color == SIMD4<Float>(1, 1, 0, 1))
+
+        // Non-existent ID returns .failure(.objectNotFound)
+        let ghostId = ObjectId("nonexistent-solid")
+        #expect(doc.setMaterial(id: ghostId, material: red) == .failure(.objectNotFound(ghostId)))
+    }
 }
 

@@ -13,11 +13,15 @@ private final class StubSink: SolidMeshSink {
     }
     var calls: [Call] = []
     var installed: [SolidId: Transform] = [:]
+    var installedColors: [SolidId: SIMD4<Float>] = [:]
     var succeeds = true
 
     func installMesh(_ payload: MeshPayload, for id: SolidId, transform: Transform, color: SIMD4<Float>, isHidden: Bool) -> Bool {
         calls.append(Call(id: id, transform: transform, color: color, isHidden: isHidden))
-        if succeeds { installed[id] = transform }
+        if succeeds {
+            installed[id] = transform
+            installedColors[id] = color
+        }
         return succeeds
     }
 
@@ -27,8 +31,15 @@ private final class StubSink: SolidMeshSink {
         return true
     }
 
+    func updateColor(_ color: SIMD4<Float>, for id: SolidId) -> Bool {
+        guard installed[id] != nil else { return false }
+        installedColors[id] = color
+        return true
+    }
+
     func removeMesh(for id: SolidId) -> Bool {
-        installed.removeValue(forKey: id) != nil
+        installedColors.removeValue(forKey: id)
+        return installed.removeValue(forKey: id) != nil
     }
 }
 
@@ -147,5 +158,30 @@ private final class StubSink: SolidMeshSink {
         #expect(SolidMeshApplier.remove(id: boxSolidId, from: sink))
         #expect(sink.installed[boxSolidId] == nil)
         #expect(!SolidMeshApplier.remove(id: boxSolidId, from: sink))
+    }
+
+    @Test func testApplyMaterialUpdatesColorWithoutRecompute() {
+        let doc = DocumentModel()
+        let sink = StubSink()
+        _ = SolidMeshApplier.apply(success, to: boxSolidId, document: doc, sink: sink)
+        #expect(sink.calls.count == 1)
+        let initialColor = sink.calls[0].color
+        #expect(sink.installedColors[boxSolidId] == initialColor)
+
+        let newColor = SIMD4<Float>(0.2, 0.8, 0.4, 1.0)
+        _ = doc.setMaterial(id: boxSolidId, material: MaterialAttributes(color: newColor))
+
+        #expect(SolidMeshApplier.applyMaterial(to: boxSolidId, document: doc, sink: sink))
+        #expect(sink.installedColors[boxSolidId] == newColor)
+        // Verify installMesh was not called again (no recompute / buffer churn)
+        #expect(sink.calls.count == 1)
+
+        // Missing ID returns false
+        #expect(!SolidMeshApplier.applyMaterial(to: SolidId("missing"), document: doc, sink: sink))
+
+        // Subsequent recompute retains live material color
+        _ = SolidMeshApplier.apply(success, to: boxSolidId, document: doc, sink: sink)
+        #expect(sink.calls.count == 2)
+        #expect(sink.calls[1].color == newColor)
     }
 }

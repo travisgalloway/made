@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 154 capabilities with their implementation status. The matrix shows 97 Shipped, 40 In progress, 11 Planned, and 6 Deprecated rows.
+Table 1 lists 154 capabilities with their implementation status. The matrix shows 98 Shipped, 39 In progress, 11 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -105,7 +105,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-11 | An agent can create CSG composite objects that reference their parent operations (multi-body boolean operations, ADR-D2) | none | none | none | Planned | #35, #143 | n/a |
 | DOC-12 | A user can load imported B-Rep solids from STEP or IGES into the scene | none | none | none | Planned | #38, #82 | n/a |
 | DOC-13 | A user can lock or unlock an object (`isLocked` flag); locked objects reject parameter edits, transform edits, material changes, and removal across core mutators, workspace actions, inspector controls, viewport gizmo manipulation, and MCP tools | done | done | done | Shipped | #127 | n/a |
-| DOC-14 | A user sees each object drawn in its material color (`MaterialAttributes.color`, default light blue); `setMaterial` has no caller, so the color cannot change | none | done | done | In progress | #137 | n/a |
+| DOC-14 | A user sees each object drawn in its material color (default light blue) and can change a solid's material color in the Inspector; the viewport mesh and stored object follow | done | done | done | Shipped | #137 | n/a |
 | DOC-15 | An agent tool call changes the document on the main actor, so it cannot race a SwiftUI read of the same document; the stdio and TCP transports both hop through the `@MainActor` registry | none | done | done | Shipped | #91 | n/a |
 | UI-1 | A user can switch the sidebar between Inspector and AI Copilot with a segmented picker | none | n/a | n/a | Deprecated |  | n/a |
 | UI-2 | A user can choose the selected solid by clicking a row in the Navigator's Scene list (was a menu picker "Active Solid"; moved) | done | n/a | n/a | Shipped | #34 | n/a |

@@ -25,6 +25,15 @@ extension MetalRenderer {
         return true
     }
 
+    /// Updates an installed mesh's material color in place without rebuilding GPU buffers.
+    @MainActor
+    public func updateColor(_ color: SIMD4<Float>, for id: SolidId) -> Bool {
+        guard var mesh = meshes[id] else { return false }
+        mesh.color = color
+        meshes[id] = mesh
+        return true
+    }
+
     /// Removes the mesh and hidden flag for `id`.
     @MainActor
     public func removeMesh(for id: SolidId) -> Bool {
