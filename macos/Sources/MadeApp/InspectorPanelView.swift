@@ -116,7 +116,7 @@ struct InspectorPanelView: View {
             case .cylinder(let params):
                 paramField("Radius", params.radius, DocumentLimits.cylinderRadius, id: obj.id, key: "radius") { workspace.setParam(obj.id, "radius", $0) }
                 paramField("Height (Z)", params.height, DocumentLimits.cylinderHeight, id: obj.id, key: "height") { workspace.setParam(obj.id, "height", $0) }
-            case .imported(let name):
+            case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):
                 LabeledContent("Boolean", value: "\(op.rawValue)(\(solidA.rawValue), \(solidB.rawValue))")

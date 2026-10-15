@@ -1,5 +1,6 @@
 import Foundation
 import Euclid
+import OCCTSwift
 
 /// Runs Tier 1 Euclid CSG geometry in the calling process (ADR-D1, ADR-D9 #247).
 ///
@@ -9,6 +10,7 @@ import Euclid
 public actor LocalKernelEngine: KernelEngine {
     private var solids: [SolidId: MeshPayload] = [:]
     private var euclidMeshes: [SolidId: Euclid.Mesh] = [:]
+    private var occtShapes: [SolidId: Shape] = [:]
     
     public init() {}
     
@@ -74,14 +76,28 @@ public actor LocalKernelEngine: KernelEngine {
             }
             return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid \(sId) not found"))
             
-        case .importStep(_, _, _):
-            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "STEP import pending OpenCASCADE bridge"))
+        case .importStep(_, let sId, let data):
+            if data.isEmpty {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "STEP data is empty"))
+            }
+            do {
+                let shape = try OCCTEngine.importStep(data: data)
+                guard let payload = OCCTEngine.toMeshPayload(shape) else {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate STEP geometry"))
+                }
+                solids[sId] = payload
+                occtShapes[sId] = shape
+                return .success(jobId: jobId, value: payload)
+            } catch {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to parse STEP geometry"))
+            }
         }
     }
     
     public func dispose(solidId: SolidId) async {
         solids.removeValue(forKey: solidId)
         euclidMeshes.removeValue(forKey: solidId)
+        occtShapes.removeValue(forKey: solidId)
     }
     
     /// An in-process job cannot be interrupted.
@@ -93,6 +109,6 @@ public actor LocalKernelEngine: KernelEngine {
     }
     
     public func storeCounts() async -> KernelEngineCounts {
-        KernelEngineCounts(solids: solids.count, euclidMeshes: euclidMeshes.count)
+        KernelEngineCounts(solids: solids.count, euclidMeshes: euclidMeshes.count, occtShapes: occtShapes.count)
     }
 }

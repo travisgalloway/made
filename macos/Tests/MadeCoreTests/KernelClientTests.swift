@@ -40,6 +40,49 @@ import Foundation
         #expect(payload.triangleCount > 0)
         #expect(payload.positions.count == payload.normals.count)
     }
+
+    @Test func testImportStepGeneratesMesh() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let solidId = SolidId("step-test")
+        let jobId = JobId("job-step-1")
+        
+        let stepData = try #require(OCCTEngine.sampleBoxStepData())
+        #expect(!stepData.isEmpty)
+        
+        let result = await client.request(.importStep(jobId: jobId, solidId: solidId, data: stepData))
+        #expect(result.isSuccess)
+        guard let payload = result.value else {
+            Issue.record("Expected mesh payload from STEP import")
+            return
+        }
+        #expect(payload.triangleCount > 0)
+        #expect(payload.indices.count == payload.triangleCount * 3)
+        #expect(payload.positions.count == payload.normals.count)
+        #expect(payload.positions.count > 0)
+    }
+
+    @Test func testImportStepEmptyDataReturnsGeometryFailed() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let solidId = SolidId("step-empty")
+        let jobId = JobId("job-step-2")
+        
+        let result = await client.request(.importStep(jobId: jobId, solidId: solidId, data: Data()))
+        #expect(!result.isSuccess)
+        #expect(result.error?.code == .geometryFailed)
+        #expect(result.error?.message == "STEP data is empty")
+    }
+
+    @Test func testImportStepCorruptDataReturnsGeometryFailed() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let solidId = SolidId("step-corrupt")
+        let jobId = JobId("job-step-3")
+        let corruptData = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04])
+        
+        let result = await client.request(.importStep(jobId: jobId, solidId: solidId, data: corruptData))
+        #expect(!result.isSuccess)
+        #expect(result.error?.code == .geometryFailed)
+        #expect(result.error?.message == "Failed to parse STEP geometry")
+    }
     
     @Test func testRapidRequestsConflateToLatestValue() async {
         let client = KernelClient(debounceDuration: .milliseconds(50))

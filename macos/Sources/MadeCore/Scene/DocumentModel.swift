@@ -7,7 +7,7 @@ public typealias ObjectId = SolidId
 public enum ObjectDef: Sendable, Equatable {
     case box(BoxParams)
     case cylinder(CylinderParams)
-    case imported(name: String)
+    case imported(name: String, sourceURL: URL? = nil, data: Data? = nil)
     /// A boolean result: the operation and its operand IDs, with no replay (#35).
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
     /// A scripted `.part.ts` or `.part.js` source file on disk, with its last evaluated shape tree (#427).
@@ -32,7 +32,7 @@ extension ObjectDef {
             return "\(Self.formatDim(p.width)) × \(Self.formatDim(p.depth)) × \(Self.formatDim(p.height)) mm"
         case .cylinder(let p):
             return "r \(Self.formatDim(p.radius)) × h \(Self.formatDim(p.height)) mm"
-        case .imported(let name):
+        case .imported(let name, _, _):
             return name.isEmpty ? "Imported mesh" : name
         case .boolean(let op, let solidA, let solidB):
             return "\(op.rawValue)(\(solidA.rawValue), \(solidB.rawValue))"
@@ -385,6 +385,8 @@ public final class DocumentModel {
         let defaultName: String?
         if case .part(let url, _) = clamped, !url.lastPathComponent.isEmpty {
             defaultName = url.lastPathComponent
+        } else if case .imported(let name, _, _) = clamped, !name.isEmpty {
+            defaultName = name
         } else {
             defaultName = nil
         }

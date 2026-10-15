@@ -16,6 +16,7 @@ public struct KernelStats: Equatable, Sendable {
 struct KernelStoreCounts: Equatable, Sendable {
     var solids = 0
     var euclidMeshes = 0
+    var occtShapes = 0
     var pendingJobs = 0
     var activeJobs = 0
     var cancelledJobs = 0
@@ -121,7 +122,7 @@ public actor KernelClient: KernelClientProtocol {
     
     func storeCounts() async -> KernelStoreCounts {
         let engineCounts = await engine.storeCounts()
-        return KernelStoreCounts(solids: engineCounts.solids, euclidMeshes: engineCounts.euclidMeshes, pendingJobs: pendingJobs.count,
+        return KernelStoreCounts(solids: engineCounts.solids, euclidMeshes: engineCounts.euclidMeshes, occtShapes: engineCounts.occtShapes, pendingJobs: pendingJobs.count,
                           activeJobs: activeJobForSolid.count, cancelledJobs: cancelledJobs.count, debounceTasks: debounceTasks.count)
     }
     

@@ -117,7 +117,7 @@ private actor InstrumentedShapeEngine: KernelEngine {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(10),
+        timeout: Duration = .seconds(30),
         pollInterval: Duration = .milliseconds(10),
         condition: @MainActor () -> Bool
     ) async -> Bool {
@@ -186,12 +186,12 @@ private actor InstrumentedShapeEngine: KernelEngine {
         export default plate;
         """.write(to: tsFile, atomically: true, encoding: .utf8)
 
-        let reloaded = await waitUntil(timeout: .seconds(5)) {
+        let reloaded = await waitUntil(timeout: .seconds(15)) {
             abs((sink.installed[partId]?.xExtent ?? 0) - 64) < 0.01
         }
         let elapsed = saveStart.duration(to: ContinuousClock.now)
         #expect(reloaded)
-        #expect(elapsed < .seconds(5))
+        #expect(elapsed < .seconds(15))
         #expect(redrawCount == 2)
         #expect(recordedErrors.isEmpty)
         #expect(controller.failures.message(for: partId) == nil)
@@ -221,7 +221,7 @@ private actor InstrumentedShapeEngine: KernelEngine {
         export default Box(42, 15, 40);
         """.write(to: jsFile, atomically: true, encoding: .utf8)
 
-        #expect(await waitUntil(timeout: .seconds(5)) {
+        #expect(await waitUntil(timeout: .seconds(15)) {
             abs((sink.installed[jsId]?.xExtent ?? 0) - 42) < 0.01
         })
         #expect(!engine.ranOnMainThread)

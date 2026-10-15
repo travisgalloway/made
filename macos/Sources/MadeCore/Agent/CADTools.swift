@@ -243,7 +243,7 @@ public final class CADToolRegistry {
                 item["params"] = ["width": p.width, "depth": p.depth, "height": p.height]
             case .cylinder(let p):
                 item["params"] = ["radius": p.radius, "height": p.height]
-            case .imported(let name):
+            case .imported(let name, _, _):
                 item["importedName"] = name
             case .boolean(let op, let solidA, let solidB):
                 item["operation"] = op.rawValue
@@ -517,7 +517,7 @@ public final class CADToolRegistry {
             resultDict["volumeMm3"] = volume
             resultDict["surfaceAreaMm2"] = surfaceArea
             
-        case .imported(let name):
+        case .imported(let name, _, _):
             resultDict["type"] = "imported"
             resultDict["name"] = name
             

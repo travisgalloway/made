@@ -21,13 +21,15 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/nicklockwood/Euclid.git", from: "0.9.6")
+        .package(url: "https://github.com/nicklockwood/Euclid.git", from: "0.9.6"),
+        .package(url: "https://github.com/SecondMouseAU/OCCTSwift.git", from: "3.0.0")
     ],
     targets: [
         .target(
             name: "MadeCore",
             dependencies: [
-                .product(name: "Euclid", package: "Euclid")
+                .product(name: "Euclid", package: "Euclid"),
+                .product(name: "OCCTSwift", package: "OCCTSwift")
             ],
             path: "Sources/MadeCore",
             resources: [

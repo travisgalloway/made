@@ -24,10 +24,13 @@ public struct KernelEngineCounts: Equatable, Sendable {
     public var solids = 0
     /// Number of cached Euclid meshes held in the Tier 1 fast CSG engine cache (ADR-D9 #247).
     public var euclidMeshes = 0
+    /// Number of cached OCCT shapes held in the Tier 2 B-Rep kernel cache (ADR-D1, ADR-D9).
+    public var occtShapes = 0
     
-    public init(solids: Int = 0, euclidMeshes: Int = 0) {
+    public init(solids: Int = 0, euclidMeshes: Int = 0, occtShapes: Int = 0) {
         self.solids = solids
         self.euclidMeshes = euclidMeshes
+        self.occtShapes = occtShapes
     }
 }
 

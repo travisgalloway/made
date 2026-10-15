@@ -21,6 +21,16 @@
       "homepageURL": "https://github.com/nicklockwood/Euclid",
       "licenseFile": "Euclid-MIT.txt",
       "kind": "package"
+    },
+    {
+      "id": "occtswift",
+      "name": "OCCTSwift",
+      "version": "3.0.0",
+      "spdxIdentifier": "LGPL-2.1-only",
+      "copyright": "Copyright (c) 2024-2026 SecondMouseAU",
+      "homepageURL": "https://github.com/SecondMouseAU/OCCTSwift",
+      "licenseFile": "OCCTSwift-LGPL-2.1.txt",
+      "kind": "package"
     }
   ]
 }
