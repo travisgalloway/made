@@ -393,4 +393,66 @@ import simd
         )
         #expect((afterRemoval?.kind) != .vertex)
     }
+
+    @Test func testSnappingWithOrthographicProjection() {
+        let viewportSize = CGSize(width: 800, height: 600)
+        let eye = SIMD3<Float>(0, -100, 100)
+        let target = SIMD3<Float>(0, 0, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: target, up: SIMD3<Float>(0, 0, 1))
+        
+        let aspect: Float = 800.0 / 600.0
+        let dist = simd_length(eye - target)
+        let halfH = dist * 0.4
+        let halfW = halfH * aspect
+        let projMatrix = Orientation.makeOrthographic(
+            left: -halfW, right: halfW,
+            bottom: -halfH, top: halfH,
+            nearZ: 0.1, farZ: 1000.0
+        )
+        let vp = projMatrix * viewMatrix
+        
+        // 1. Ray unprojection and round-trip screen projection
+        let testPointer = SIMD2<Float>(450, 320)
+        let ray = screenPointToRay(
+            screenPoint: testPointer,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        )
+        #expect(ray != nil)
+        guard let ray else { return }
+        
+        // Pick a point along the ray
+        let pointAlongRay = ray.origin + ray.direction * 50.0
+        let projectedScreen = projectToScreen(
+            point: pointAlongRay,
+            viewProjectionMatrix: vp,
+            viewportSize: viewportSize
+        )
+        #expect(projectedScreen != nil)
+        if let projectedScreen {
+            #expect(abs(projectedScreen.x - testPointer.x) <= 1e-3)
+            #expect(abs(projectedScreen.y - testPointer.y) <= 1e-3)
+        }
+        
+        // 2. Snap candidate resolution under orthographic projection
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("ortho-box"), payload: boxPayload)
+        let corner = SIMD3<Float>(10, -10, 10)
+        guard let screenCorner = projectToScreen(point: corner, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
+            Issue.record("Failed to project corner to screen")
+            return
+        }
+        
+        let snapResult = resolveSnapAtPointer(
+            meshes: [mesh],
+            pointer: screenCorner,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        )
+        #expect(snapResult != nil)
+        #expect(snapResult?.kind == .vertex)
+        #expect(snapResult?.point == corner)
+    }
 }

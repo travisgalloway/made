@@ -97,7 +97,7 @@ Shaders are written in Metal Shading Language (MSL) in [`Shaders.metal`](../../m
 The viewport draws a ground grid on Z = 0 (#102) with 10 mm pitch matching snapToGrid, and a labelled XYZ axes indicator at the origin (#103).
 
 ### Camera
-`Camera` in `Camera.swift` holds a position, a target, and distance and pitch limits. It provides orbit, pan, and zoom operations, plus view presets (perspective, top, front, right, isometric) and a perspective or orthographic projection. `CameraFraming.swift` computes `SceneBounds` and frames the camera on the scene. `ViewportTool` (select, orbit, pan, zoom) chooses what a drag does. Camera input from the viewport invalidates it with the `camera` reason.
+`Camera` in `Camera.swift` holds a position, a target, distance and pitch limits, projection mode (`CameraProjection`: `.perspective` or `.orthographic`), and `orthographicScale`. It provides orbit, pan, and zoom operations, plus view presets (perspective, top, front, right, isometric). Users switch projections via the segmented picker in the viewport header (#128). In perspective mode, zooming adjusts camera distance along the line of sight; in orthographic mode, zooming scales `orthographicScale` (adjusting view frustum extents `halfH` and `halfW`) without moving the eye position or target. `CameraFraming.swift` computes `SceneBounds` and frames the camera on the scene. `ViewportTool` (select, orbit, pan, zoom) chooses what a drag does. Camera input and projection switches invalidate the viewport with the `camera` reason.
 
 ---
 

@@ -207,10 +207,78 @@ import ImageIO
         #expect(g > 150 && r < 50, "Foreground solid face must occlude background solid outline")
     }
 
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testOrthographicProjectionPreservesApparentWidthAcrossDepths() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.camera = Camera(
+            position: SIMD3<Float>(0, -200, 0),
+            target: SIMD3<Float>(0, 0, 0)
+        )
+        let boxPayload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 30, depth: 20, height: 20))
+        let nearTransform = Transform(position: SIMD3<Float>(0, -100, 0))
+        let farTransform = Transform(position: SIMD3<Float>(0, 50, 0))
+
+        // 1. Perspective mode: near solid appears wider than far solid
+        renderer.projectionMode = .perspective
+        let nearBoundsPerspective = projectedBounds(of: boxPayload, transform: nearTransform, renderer: renderer)
+        let farBoundsPerspective = projectedBounds(of: boxPayload, transform: farTransform, renderer: renderer)
+        let nearWidthPerspective = nearBoundsPerspective.width
+        let farWidthPerspective = farBoundsPerspective.width
+        #expect(nearWidthPerspective > farWidthPerspective)
+
+        // 2. Orthographic mode: near and far solids have equal projected width
+        renderer.projectionMode = .orthographic
+        let nearBoundsOrtho = projectedBounds(of: boxPayload, transform: nearTransform, renderer: renderer)
+        let farBoundsOrtho = projectedBounds(of: boxPayload, transform: farTransform, renderer: renderer)
+        let nearWidthOrtho = nearBoundsOrtho.width
+        let farWidthOrtho = farBoundsOrtho.width
+        #expect(abs(nearWidthOrtho - farWidthOrtho) < 1e-4)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testOrthographicSnapshotMatchesProjection() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+        renderer.projectionMode = .orthographic
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("ortho-box")] = mesh
+
+        let snapshot = await renderer.captureSnapshotPngBase64()
+        let base64 = try #require(snapshot)
+        let pixels = try decodeRGBA(base64)
+
+        let bounds = projectedBounds(of: payload, renderer: renderer)
+        let background = mostCommonPixel(pixels)
+
+        var outside = 0
+        var inside = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                let p = (pixels[i], pixels[i + 1], pixels[i + 2])
+                let covered = abs(Int(p.0) - Int(background.0)) > 4
+                    || abs(Int(p.1) - Int(background.1)) > 4
+                    || abs(Int(p.2) - Int(background.2)) > 4
+                guard covered else { continue }
+                if bounds.insetBy(dx: -2, dy: -2).contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
+                    inside += 1
+                } else {
+                    outside += 1
+                }
+            }
+        }
+
+        #expect(outside == 0, "pixels drawn outside the orthographic box's projected bounds")
+        #expect(Double(inside) > (0.5 * Double(bounds.width * bounds.height)), "box covers too little of its orthographic projected bounds")
+    }
+
     private func viewProjection(_ renderer: MetalRenderer) -> simd_float4x4 {
-        let view = Orientation.makeLookAt(eye: renderer.cameraPosition, target: renderer.cameraTarget, up: Orientation.worldUp)
-        let proj = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: Float(width) / Float(height), nearZ: 0.1, farZ: 1000.0)
-        return proj * view
+        let matrices = renderer.viewAndProjectionMatrices(aspect: Float(width) / Float(height))
+        return matrices.projection * matrices.view
     }
 
     private func project(_ point: SIMD3<Float>, renderer: MetalRenderer) -> CGPoint {
@@ -219,11 +287,13 @@ import ImageIO
         return CGPoint(x: Double((ndc.x + 1) / 2) * Double(width), y: Double((1 - ndc.y) / 2) * Double(height))
     }
 
-    private func projectedBounds(of payload: MeshPayload, renderer: MetalRenderer) -> CGRect {
+    private func projectedBounds(of payload: MeshPayload, transform: Transform = .identity, renderer: MetalRenderer) -> CGRect {
         var minX = Double.infinity, minY = Double.infinity
         var maxX = -Double.infinity, maxY = -Double.infinity
         for v in stride(from: 0, to: payload.positions.count, by: 3) {
-            let p = project(SIMD3<Float>(payload.positions[v], payload.positions[v + 1], payload.positions[v + 2]), renderer: renderer)
+            let localPoint = SIMD3<Float>(payload.positions[v], payload.positions[v + 1], payload.positions[v + 2])
+            let worldPoint = transform.transformPoint(localPoint)
+            let p = project(worldPoint, renderer: renderer)
             minX = min(minX, p.x); maxX = max(maxX, p.x)
             minY = min(minY, p.y); maxY = max(maxY, p.y)
         }
