@@ -35,12 +35,12 @@ struct ViewportStatusBar: View {
                 Text("Snap: none")
             }
             Spacer()
-            Button(workspace.isConsoleVisible ? "Hide Console" : "Show Console",
+            Button(workspace.consoleToggleTitle,
                    systemImage: "rectangle.bottomthird.inset.filled") {
                 workspace.toggleConsole()
             }
             .foregroundStyle(workspace.isConsoleVisible ? Color.accentColor : Color.secondary)
-            .help(workspace.isConsoleVisible ? "Hide Console (⇧⌘Y)" : "Show Console (⇧⌘Y)")
+            .help(workspace.consoleToggleHelp)
         }
         .font(.callout)
         .monospacedDigit()

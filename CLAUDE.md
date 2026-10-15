@@ -63,7 +63,7 @@ macos/
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
     Platform/              AppKit and UIKit shims
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
-  Sources/MadeApp/         MadeApp (@main, sidebar and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
+  Sources/MadeApp/         MadeApp (@main, sidebar, console, and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField,
                            CADMetalViewRepresentable

@@ -50,8 +50,8 @@ struct MadeApp: App {
                 OpenSourceLicensesMenuButton()
             }
             CommandGroup(after: .sidebar) {
-                Button(workspace.isConsoleVisible ? "Hide Console" : "Show Console") { workspace.toggleConsole() }
-                    .keyboardShortcut("y", modifiers: [.command, .shift])
+                Button(workspace.consoleToggleTitle) { workspace.toggleConsole() }
+                    .keyboardShortcut(WorkspaceModel.consoleShortcutKey, modifiers: WorkspaceModel.consoleShortcutModifiers)
             }
             CommandGroup(after: .help) {
                 OpenSourceLicensesMenuButton()

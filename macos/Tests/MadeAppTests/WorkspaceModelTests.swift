@@ -169,4 +169,29 @@ import MadeCore
         #expect(model.kernelStats.conflated > initialConflated)
         #expect(model.kernelStats.dispatched > initialDispatched)
     }
+
+    @Test @MainActor func testToggleConsoleCyclesVisibility() {
+        let model = WorkspaceModel()
+        #expect(model.isConsoleVisible == false)
+
+        model.toggleConsole()
+        #expect(model.isConsoleVisible == true)
+
+        model.toggleConsole()
+        #expect(model.isConsoleVisible == false)
+    }
+
+    @Test @MainActor func testConsoleToggleTitlesAndShortcutConstants() {
+        let model = WorkspaceModel()
+        model.isConsoleVisible = false
+        #expect(model.consoleToggleTitle == "Show Console")
+        #expect(model.consoleToggleHelp == "Show Console (⇧⌘Y)")
+
+        model.toggleConsole()
+        #expect(model.consoleToggleTitle == "Hide Console")
+        #expect(model.consoleToggleHelp == "Hide Console (⇧⌘Y)")
+
+        #expect(WorkspaceModel.consoleShortcutKey == "y")
+        #expect(WorkspaceModel.consoleShortcutModifiers == [.command, .shift])
+    }
 }
