@@ -276,6 +276,148 @@ import ImageIO
         #expect(Double(inside) > (0.5 * Double(bounds.width * bounds.height)), "box covers too little of its orthographic projected bounds")
     }
 
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testAlternatingMeshMutationsAndSnapshots() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let boxPayload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let cylPayload = EuclidEngine.toMeshPayload(EuclidEngine.makeCylinder(radius: 15, height: 25))
+        let boxMesh = try #require(renderer.createMesh(from: boxPayload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        let cylMesh = try #require(renderer.createMesh(from: cylPayload, color: SIMD4<Float>(0.9, 0.4, 0.2, 1.0)))
+
+        let iterations = 500
+        let task1 = Task { @MainActor in
+            for i in 0..<iterations {
+                let solidId = SolidId("stress-solid-\(i % 5)")
+                if i % 3 == 0 {
+                    renderer.meshes[solidId] = boxMesh
+                } else if i % 3 == 1 {
+                    var modified = cylMesh
+                    modified.transform = Transform(position: SIMD3<Float>(Float(i % 10), 0, 0))
+                    renderer.meshes[solidId] = modified
+                } else {
+                    renderer.meshes.removeValue(forKey: solidId)
+                }
+                if i % 4 == 0 {
+                    renderer.selectedId = solidId
+                } else {
+                    renderer.selectedId = nil
+                }
+                if i % 10 == 0 {
+                    await Task.yield()
+                }
+            }
+        }
+
+        let task2 = Task.detached {
+            for _ in 0..<iterations {
+                let snapshot = await renderer.captureSnapshotPngBase64()
+                #expect(snapshot != nil, "Snapshot should return valid base64 image")
+            }
+        }
+
+        _ = await task1.value
+        _ = await task2.value
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMeshRemovedWhileSnapshotEncodingIteratesPreviousCopy() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.2, 0.5, 0.8, 1.0)))
+        let boxId = SolidId("temp-box")
+        renderer.meshes[boxId] = mesh
+
+        // Capture scene state on MainActor while the mesh is present
+        let scene = await MainActor.run { renderer.snapshotSceneState() }
+
+        // Remove the mesh on MainActor immediately after scene capture
+        await MainActor.run {
+            _ = renderer.meshes.removeValue(forKey: boxId)
+        }
+        #expect(renderer.meshes.isEmpty)
+
+        // Snapshot encoding iterates the copied scene, keeping mesh buffers resident
+        let snapshot = try #require(await renderer.captureSnapshotPngBase64(scene: scene))
+        #expect(renderer.lastDrawCalls == 1)
+
+        let pixels = try decodeRGBA(snapshot)
+        let bounds = projectedBounds(of: payload, renderer: renderer)
+        let background = mostCommonPixel(pixels)
+
+        var coveredPixels = 0
+        for y in Int(bounds.minY)..<min(height, Int(bounds.maxY)) {
+            for x in Int(bounds.minX)..<min(width, Int(bounds.maxX)) {
+                let i = (y * width + x) * 4
+                let diffR = abs(Int(pixels[i]) - Int(background.0))
+                let diffG = abs(Int(pixels[i + 1]) - Int(background.1))
+                let diffB = abs(Int(pixels[i + 2]) - Int(background.2))
+                if diffR > 4 || diffG > 4 || diffB > 4 {
+                    coveredPixels += 1
+                }
+            }
+        }
+        #expect(coveredPixels > 0, "mesh from previous scene copy was rendered in snapshot despite removal")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testCameraMutatedAfterSceneCopyPreservesCopiedCamera() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.2, 0.4, 0.8, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        // Set camera looking from top (+Z)
+        renderer.camera = Camera.preset(.top)
+        let topSnapshot = try #require(await renderer.captureSnapshotPngBase64())
+
+        // Set camera looking from front (-Y to +Y)
+        renderer.camera = Camera.preset(.front)
+        let frontSnapshot = try #require(await renderer.captureSnapshotPngBase64())
+
+        #expect(topSnapshot != frontSnapshot, "different cameras produce distinct snapshots")
+
+        // Capture scene state with top camera
+        renderer.camera = Camera.preset(.top)
+        let scene = await MainActor.run { renderer.snapshotSceneState() }
+
+        // Mutate camera to front on MainActor
+        await MainActor.run {
+            renderer.camera = Camera.preset(.front)
+        }
+
+        // Snapshot rendered from scene preserves copied top camera
+        let snapshotFromScene = try #require(await renderer.captureSnapshotPngBase64(scene: scene))
+        #expect(snapshotFromScene == topSnapshot)
+        #expect(snapshotFromScene != frontSnapshot)
+        #expect(renderer.camera.position == Camera.preset(.front).position)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSnapshotWithZeroMeshes() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        #expect(renderer.meshes.isEmpty)
+        let snapshot = try #require(await renderer.captureSnapshotPngBase64())
+        let pixels = try decodeRGBA(snapshot)
+        #expect(pixels.count == width * height * 4)
+        #expect(renderer.lastDrawCalls == 0)
+    }
+
     private func viewProjection(_ renderer: MetalRenderer) -> simd_float4x4 {
         let matrices = renderer.viewAndProjectionMatrices(aspect: Float(width) / Float(height))
         return matrices.projection * matrices.view

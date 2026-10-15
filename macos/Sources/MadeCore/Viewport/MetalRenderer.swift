@@ -16,6 +16,13 @@ struct GizmoGeometryBuffers: @unchecked Sendable {
 }
 
 /// Metal 4 renderer for the CAD viewport (invariant 5). Draws on demand only (invariant 2).
+///
+/// Marked `@unchecked Sendable` because it coordinates GPU pipeline objects (`MTLDevice`, `MTL4CommandQueue`,
+/// `MTLResidencySet`) that lack system Sendable annotations. Mutable scene state (`meshes`, `camera`,
+/// `hiddenSolidIds`, `selectedId`, `activeSnap`, `activeGizmoHandle`) is strictly mutated on `@MainActor`.
+/// Off-main snapshot routines (`captureSnapshotPngBase64`) capture an immutable `SceneSnapshot` on `@MainActor`
+/// before encoding, preventing data races during concurrent scene edits. GPU command encoding for snapshots
+/// is synchronized via `snapshotLock`, `snapshotAllocator`, and `snapshotTable`.
 public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     public let device: MTLDevice
     public let commandQueue: MTL4CommandQueue
@@ -101,6 +108,18 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public var hiddenSolidIds: Set<SolidId> = []
     public var onDeviceLost: (@Sendable () -> Void)? = nil
     public var onFrameRendered: (@Sendable () -> Void)? = nil
+
+    @MainActor
+    public func snapshotSceneState() -> SceneSnapshot {
+        SceneSnapshot(
+            meshes: meshes,
+            hiddenSolidIds: hiddenSolidIds,
+            camera: camera,
+            selectedId: selectedId,
+            activeSnap: activeSnap,
+            activeGizmoHandle: activeGizmoHandle
+        )
+    }
 
     public init?(device: MTLDevice) {
         guard device.supportsFamily(.metal4) else {
@@ -354,20 +373,19 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
     }
 
-    /// Computes view and projection matrices for the given aspect ratio and optional camera override,
-    /// respecting the current projection mode (perspective vs orthographic).
+    /// Computes view and projection matrices for the given aspect ratio and camera,
+    /// respecting the camera's projection mode (perspective vs orthographic).
     public func viewAndProjectionMatrices(
         aspect: Float,
-        cameraOverride: Camera? = nil
+        camera: Camera
     ) -> (view: simd_float4x4, projection: simd_float4x4) {
-        let eye = cameraOverride?.position ?? cameraPosition
-        let target = cameraOverride?.target ?? cameraTarget
+        let eye = camera.position
+        let target = camera.target
         let viewMatrix = Orientation.makeLookAt(eye: eye, target: target, up: Orientation.worldUp)
         let projMatrix: simd_float4x4
-        if projectionMode == .orthographic {
+        if camera.projection == .orthographic {
             let baseDist = max(10.0, simd_length(eye - target))
-            let orthoScale = cameraOverride?.orthographicScale ?? camera.orthographicScale
-            let dist = max(1.0, baseDist * orthoScale)
+            let dist = max(1.0, baseDist * camera.orthographicScale)
             let halfH = dist * 0.4
             let halfW = halfH * aspect
             projMatrix = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
@@ -375,6 +393,15 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
         }
         return (view: viewMatrix, projection: projMatrix)
+    }
+
+    /// Computes view and projection matrices for the given aspect ratio and optional camera override,
+    /// respecting the current projection mode (perspective vs orthographic).
+    public func viewAndProjectionMatrices(
+        aspect: Float,
+        cameraOverride: Camera? = nil
+    ) -> (view: simd_float4x4, projection: simd_float4x4) {
+        viewAndProjectionMatrices(aspect: aspect, camera: cameraOverride ?? camera)
     }
 
     // MARK: - Residency
@@ -418,13 +445,20 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
     }
 
-    private func requiredArenaCapacity() -> Int {
+    private func requiredArenaCapacity(meshCount: Int? = nil) -> Int {
         // One block per visible solid, plus outline, grid, axes, labels, snap marker, and gizmo.
-        UniformArena.capacity(forDraws: meshes.count + 12, blockSize: MemoryLayout<OutlineUniforms>.stride)
+        let count = meshCount ?? meshes.count
+        return UniformArena.capacity(forDraws: count + 12, blockSize: MemoryLayout<OutlineUniforms>.stride)
     }
 
     @discardableResult
-    private func renderScene(_ ctx: EncodeContext, aspect: Float, cameraOverride: Camera? = nil, includeGizmo: Bool = true) -> Int {
+    private func renderScene(
+        _ ctx: EncodeContext,
+        scene: SceneSnapshot,
+        aspect: Float,
+        cameraOverride: Camera? = nil,
+        includeGizmo: Bool = true
+    ) -> Int {
         let encoder = ctx.encoder
         encoder.setArgumentTable(ctx.table, stages: [.vertex, .fragment])
         encoder.setRenderPipelineState(solidPipeline)
@@ -433,12 +467,13 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         encoder.setFrontFacing(.counterClockwise)
         encoder.setCullMode(.back)
 
-        let matrices = viewAndProjectionMatrices(aspect: aspect, cameraOverride: cameraOverride)
+        let activeCamera = cameraOverride ?? scene.camera
+        let matrices = viewAndProjectionMatrices(aspect: aspect, camera: activeCamera)
         let viewMatrix = matrices.view
         let projMatrix = matrices.projection
 
         var drawCalls = 0
-        for (id, mesh) in meshes where !hiddenSolidIds.contains(id) {
+        for (id, mesh) in scene.meshes where !scene.hiddenSolidIds.contains(id) {
             let uniforms = RenderUniforms(
                 modelMatrix: mesh.transform.matrix,
                 viewMatrix: viewMatrix,
@@ -460,9 +495,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
 
         // Selection outline pass for the selected solid (cull .front, depth test .lessEqual, write: false)
-        if let selectedId,
-           let mesh = meshes[selectedId],
-           !hiddenSolidIds.contains(selectedId) {
+        if let selectedId = scene.selectedId,
+           let mesh = scene.meshes[selectedId],
+           !scene.hiddenSolidIds.contains(selectedId) {
             let outlineUniforms = OutlineUniforms(
                 modelMatrix: mesh.transform.matrix,
                 viewMatrix: viewMatrix,
@@ -532,7 +567,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
 
         // Snap marker
-        if let snap = activeSnap, let positions = snapPositionBuffer, let normals = snapNormalBuffer,
+        if let snap = scene.activeSnap, let positions = snapPositionBuffer, let normals = snapNormalBuffer,
            let indices = snapIndexBuffer, snapIndexCount > 0 {
             var modelMatrix = matrix_identity_float4x4
             modelMatrix.columns.3 = SIMD4<Float>(snap.point, 1.0)
@@ -568,10 +603,17 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
         // Gizmo rendering for selected solid
         if includeGizmo,
-           let selectedId,
-           let mesh = meshes[selectedId],
-           !hiddenSolidIds.contains(selectedId) {
-            drawGizmo(ctx, mesh: mesh, viewMatrix: viewMatrix, projMatrix: projMatrix, drawCalls: &drawCalls)
+           let selectedId = scene.selectedId,
+           let mesh = scene.meshes[selectedId],
+           !scene.hiddenSolidIds.contains(selectedId) {
+            drawGizmo(
+                ctx,
+                mesh: mesh,
+                viewMatrix: viewMatrix,
+                projMatrix: projMatrix,
+                activeGizmoHandle: scene.activeGizmoHandle,
+                drawCalls: &drawCalls
+            )
         }
 
         return drawCalls
@@ -606,6 +648,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             hasLayerResidency = true
         }
 
+        let scene = MainActor.assumeIsolated { snapshotSceneState() }
         let interval = Self.signposter.beginInterval("Frame")
         defer { Self.signposter.endInterval("Frame", interval) }
 
@@ -615,7 +658,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             // Waits for the GPU to release this slot's allocator and arena.
             _ = frameEvent.wait(untilSignaledValue: frameNumber - UInt64(Self.framesInFlight), timeoutMS: 1000)
         }
-        let required = requiredArenaCapacity()
+        let required = requiredArenaCapacity(meshCount: scene.meshes.count)
         if frameArenas[slot].capacity < required, let grown = UniformArena(device: device, capacity: required * 2) {
             frameArenas[slot] = grown
             updateResidency()
@@ -633,6 +676,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         let aspect = Float(max(1.0, view.drawableSize.width) / max(1.0, view.drawableSize.height))
         let drawCalls = renderScene(
             EncodeContext(encoder: encoder, table: frameTable, arena: arena),
+            scene: scene,
             aspect: aspect,
             includeGizmo: showsGizmo
         )
@@ -660,7 +704,26 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         await captureSnapshotPngBase64(view: view, includeGizmo: false)
     }
 
+    public func captureSnapshotPngBase64(scene: SceneSnapshot) async -> String? {
+        await captureSnapshotPngBase64(view: nil, includeGizmo: false, scene: scene)
+    }
+
     public func captureSnapshotPngBase64(view: ViewportPerspective?, includeGizmo: Bool) async -> String? {
+        await captureSnapshotPngBase64(view: view, includeGizmo: includeGizmo, scene: nil)
+    }
+
+    public func captureSnapshotPngBase64(
+        view: ViewportPerspective?,
+        includeGizmo: Bool,
+        scene sceneOverride: SceneSnapshot?
+    ) async -> String? {
+        let scene = if let sceneOverride {
+            sceneOverride
+        } else {
+            await MainActor.run { [self] in
+                self.snapshotSceneState()
+            }
+        }
         let width = 800
         let height = 600
         let colorDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: Self.colorFormat, width: width, height: height, mipmapped: false)
@@ -671,10 +734,26 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         depthDescriptor.storageMode = .private
         guard let colorTexture = device.makeTexture(descriptor: colorDescriptor),
               let depthTexture = device.makeTexture(descriptor: depthDescriptor),
-              let arena = UniformArena(device: device, capacity: requiredArenaCapacity()),
+              let arena = UniformArena(device: device, capacity: requiredArenaCapacity(meshCount: scene.meshes.count)),
               let snapshotResidency = try? device.makeResidencySet(descriptor: MTLResidencySetDescriptor()),
               let commandBuffer = device.makeCommandBuffer() else { return nil }
+
         snapshotResidency.addAllocations([colorTexture, depthTexture, arena.buffer])
+        for mesh in scene.meshes.values {
+            snapshotResidency.addAllocations([mesh.positionBuffer, mesh.normalBuffer, mesh.indexBuffer])
+        }
+        if let billboardTexture { snapshotResidency.addAllocations([billboardTexture]) }
+        let statics: [MTLBuffer?] = [
+            gridPositionBuffer, gridColorBuffer, axesPositionBuffer, axesColorBuffer,
+            labelCenterBuffer, labelOffsetBuffer, labelTexCoordBuffer, labelColorBuffer,
+            snapPositionBuffer, snapNormalBuffer, snapIndexBuffer
+        ]
+        snapshotResidency.addAllocations(statics.compactMap { $0 })
+        if includeGizmo {
+            for geom in gizmoGeometry.values {
+                snapshotResidency.addAllocations([geom.positionBuffer, geom.defaultColorBuffer, geom.activeColorBuffer])
+            }
+        }
         snapshotResidency.commit()
 
         let pass = MTL4RenderPassDescriptor()
@@ -699,6 +778,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             }
             drawCalls = renderScene(
                 EncodeContext(encoder: encoder, table: snapshotTable, arena: arena),
+                scene: scene,
                 aspect: Float(width) / Float(height),
                 cameraOverride: cameraOverride,
                 includeGizmo: includeGizmo

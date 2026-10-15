@@ -104,3 +104,29 @@ public struct MetalMesh: @unchecked Sendable {
         self.candidateMesh = candidateMesh ?? CandidateMesh(id: SolidId("mesh"), positions: [], edges: [], transform: transform)
     }
 }
+
+/// An immutable point-in-time capture of viewport scene state for off-main encoding passes.
+public struct SceneSnapshot: Sendable {
+    public let meshes: [SolidId: MetalMesh]
+    public let hiddenSolidIds: Set<SolidId>
+    public let camera: Camera
+    public let selectedId: SolidId?
+    public let activeSnap: SnapResult?
+    public let activeGizmoHandle: GizmoHandle?
+
+    public init(
+        meshes: [SolidId: MetalMesh] = [:],
+        hiddenSolidIds: Set<SolidId> = [],
+        camera: Camera = Camera(),
+        selectedId: SolidId? = nil,
+        activeSnap: SnapResult? = nil,
+        activeGizmoHandle: GizmoHandle? = nil
+    ) {
+        self.meshes = meshes
+        self.hiddenSolidIds = hiddenSolidIds
+        self.camera = camera
+        self.selectedId = selectedId
+        self.activeSnap = activeSnap
+        self.activeGizmoHandle = activeGizmoHandle
+    }
+}
