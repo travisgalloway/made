@@ -123,6 +123,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var renderer: MetalRenderer
     var tool: ViewportTool
     var coordinatorBinding: Binding<Coordinator?>?
+    var isCommandActive: Bool
+    var onCancelCommand: (() -> Void)?
+    var onCommitCommand: (() -> Void)?
+    var onSelectObjectForCommand: ((ObjectId) -> Void)?
     var onInvalidate: (() -> Void)?
     var onSnapChanged: ((SnapResult?) -> Void)?
     var onToolShortcut: ((ViewportTool) -> Void)?
@@ -134,6 +138,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         renderer: MetalRenderer,
         tool: ViewportTool = .select,
         coordinator: Binding<Coordinator?>? = nil,
+        isCommandActive: Bool = false,
+        onCancelCommand: (() -> Void)? = nil,
+        onCommitCommand: (() -> Void)? = nil,
+        onSelectObjectForCommand: ((ObjectId) -> Void)? = nil,
         onInvalidate: (() -> Void)? = nil,
         onSnapChanged: ((SnapResult?) -> Void)? = nil,
         onToolShortcut: ((ViewportTool) -> Void)? = nil,
@@ -144,6 +152,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.renderer = renderer
         self.tool = tool
         self.coordinatorBinding = coordinator
+        self.isCommandActive = isCommandActive
+        self.onCancelCommand = onCancelCommand
+        self.onCommitCommand = onCommitCommand
+        self.onSelectObjectForCommand = onSelectObjectForCommand
         self.onInvalidate = onInvalidate
         self.onSnapChanged = onSnapChanged
         self.onToolShortcut = onToolShortcut
@@ -413,6 +425,17 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleKeyDown(with event: NSEvent) -> Bool {
+            if parent.isCommandActive {
+                if event.keyCode == 53 { // Esc
+                    parent.onCancelCommand?()
+                    return true
+                }
+                if event.keyCode == 36 { // Return
+                    parent.onCommitCommand?()
+                    return true
+                }
+            }
+
             let blocking: NSEvent.ModifierFlags = [.command, .control, .option]
             guard event.modifierFlags.intersection(blocking).isEmpty,
                   let key = event.charactersIgnoringModifiers?.lowercased().first else { return false }
@@ -710,6 +733,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         candidateMeshes: parent.renderer.candidateMeshes()
                     )
                     parent.document.selectedId = hitId
+                    if let hitId, parent.isCommandActive {
+                        parent.onSelectObjectForCommand?(hitId)
+                    }
                     if parent.renderer.selectedId != hitId {
                         parent.renderer.selectedId = hitId
                         invalidate(reason: .interaction)

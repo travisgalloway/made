@@ -56,7 +56,7 @@ macos/
   Sources/MadeCore/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, Geometry
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
-    Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation)
+    Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo
     Scene/                 DocumentModel (@Observable), SolidMeshApplier, KernelRegeneration
     Agent/                 MCPProtocol, MCPServer, MCPLineFramer (input framing), CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
@@ -65,10 +65,10 @@ macos/
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
   Sources/MadeApp/         MadeApp (@main, sidebar, console, and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
-                           MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField,
-                           CADMetalViewRepresentable
-  Tests/MadeCoreTests/     Swift Testing suites
-  Tests/MadeAppTests/      WorkspaceModelTests and application unit tests
+                           MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView,
+                           CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView
+  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests)
+  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, and application unit tests
 ```
 
 ## Architectural invariants

@@ -90,3 +90,6 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 - [2026-10-14] `macos/Tests/MadeCoreTests/CADToolsTests.swift:709`, `testWindowBoundSetParamAndSetTransformRedrawSolid` binds unused variable `kernel` triggering compiler warning `#NoUsage`.
   Found while working on #129. Severity, low (compiler warning).
 
+- [2026-10-15] `macos/Tests/MadeCoreTests/CADToolsTests.swift:894`, `testWindowBoundSetTransformUpdatesMeshRotation` binds unused variable `doc` triggering compiler warning `#NoUsage`.
+  Found while working on #315. Severity, low (compiler warning).
+

@@ -50,17 +50,27 @@ struct ViewportCanvasView: View {
         switch workspace.viewportManager.state {
         case .ready:
             if let renderer = workspace.viewportManager.renderer {
-                CADMetalViewRepresentable(
-                    document: workspace.document,
-                    renderer: renderer,
-                    tool: workspace.tool,
-                    coordinator: $workspace.coordinator,
-                    onInvalidate: { workspace.updateStats() },
-                    onSnapChanged: { workspace.handleSnapChanged($0) },
-                    onToolShortcut: { workspace.tool = $0 },
-                    onResetView: { workspace.resetView() },
-                    onCommitParam: { id, key, value in workspace.setParam(id, key, value) }
-                )
+                ZStack(alignment: .topLeading) {
+                    CADMetalViewRepresentable(
+                        document: workspace.document,
+                        renderer: renderer,
+                        tool: workspace.tool,
+                        coordinator: $workspace.coordinator,
+                        isCommandActive: workspace.activeCommand != nil,
+                        onCancelCommand: { workspace.cancelActiveCommand() },
+                        onCommitCommand: { workspace.commitActiveCommand() },
+                        onSelectObjectForCommand: { id in workspace.selectObjectForActiveCommand(id) },
+                        onInvalidate: { workspace.updateStats() },
+                        onSnapChanged: { workspace.handleSnapChanged($0) },
+                        onToolShortcut: { workspace.tool = $0 },
+                        onResetView: { workspace.resetView() },
+                        onCommitParam: { id, key, value in workspace.setParam(id, key, value) }
+                    )
+
+                    if workspace.commandPanelPlacement == .floatingHUD, let session = workspace.activeCommand {
+                        CommandHUDOverlayView(session: session)
+                    }
+                }
             }
         case .initializing:
             ProgressView("Initializing Metal 4…")

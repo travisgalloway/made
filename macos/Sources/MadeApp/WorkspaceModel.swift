@@ -59,6 +59,26 @@ final class WorkspaceModel {
     private(set) var mcpServerError: String? = nil
     let mcpPort: UInt16 = 9820
 
+    // Command Panel & Active Command
+    public static let commandPanelPlacementDefaultsKey = "com.made.commandPanelPlacement"
+    private let defaults: UserDefaults
+    var commandPanelPlacement: CommandPanelPlacement {
+        didSet {
+            defaults.set(commandPanelPlacement.rawValue, forKey: Self.commandPanelPlacementDefaultsKey)
+        }
+    }
+    var activeCommand: CommandSession?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let raw = defaults.string(forKey: Self.commandPanelPlacementDefaultsKey),
+           let placement = CommandPanelPlacement(rawValue: raw) {
+            self.commandPanelPlacement = placement
+        } else {
+            self.commandPanelPlacement = .floatingHUD
+        }
+    }
+
     private var isSetUp = false
 
     struct RenderStats: Equatable {
@@ -181,6 +201,53 @@ final class WorkspaceModel {
                 }
             }
         }
+    }
+
+    // MARK: - Command Panel & Sessions
+
+    func startCommand(_ session: CommandSession) {
+        if activeCommand != nil {
+            cancelActiveCommand()
+        }
+        activeCommand = session
+        if session.isPreviewEnabled {
+            session.onPreviewUpdate?()
+        }
+    }
+
+    func cancelActiveCommand() {
+        guard let session = activeCommand else { return }
+        activeCommand = nil
+        session.cancel()
+    }
+
+    func commitActiveCommand() {
+        guard let session = activeCommand else { return }
+        guard session.canCommit else { return }
+        activeCommand = nil
+        session.commit()
+    }
+
+    func selectObjectForActiveCommand(_ id: ObjectId) {
+        guard let session = activeCommand else { return }
+        let name = document.objects.first(where: { $0.id == id })?.name ?? id.rawValue
+        if let activeIndex = session.selectionSlots.firstIndex(where: { $0.isActive }) {
+            session.setSlotSelection(slotId: session.selectionSlots[activeIndex].id, objectId: id, objectName: name)
+        } else if let emptyIndex = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil }) {
+            session.setSlotSelection(slotId: session.selectionSlots[emptyIndex].id, objectId: id, objectName: name)
+        }
+    }
+
+    func startAddBoxCommand() {
+        startCommand(CommandSession.makeAddBox(workspace: self))
+    }
+
+    func startAddCylinderCommand() {
+        startCommand(CommandSession.makeAddCylinder(workspace: self))
+    }
+
+    func startTransformCommand() {
+        startCommand(CommandSession.makeTransform(workspace: self, targetId: selectedId))
     }
 
     // MARK: - Scene editing

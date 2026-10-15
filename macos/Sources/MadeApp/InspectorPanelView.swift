@@ -11,10 +11,17 @@ struct InspectorPanelView: View {
         VStack(spacing: 0) {
             PaneTabBar(label: "Inspector", selection: $workspace.inspectorTab, fillsWidth: true)
             Divider()
-            switch workspace.inspectorTab {
-            case .properties:
-                properties
-                    .frame(maxHeight: .infinity)
+            if workspace.commandPanelPlacement == .inspector, let session = workspace.activeCommand {
+                ScrollView {
+                    CommandPanelView(session: session)
+                }
+                .frame(maxHeight: .infinity)
+            } else {
+                switch workspace.inspectorTab {
+                case .properties:
+                    properties
+                        .frame(maxHeight: .infinity)
+                }
             }
         }
     }
