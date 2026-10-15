@@ -49,7 +49,7 @@ The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTL
 
 ```
 macos/
-  Package.swift            MadeCore (library), MadeApp and MadeKernelService (executables), MadeCoreTests
+  Package.swift            MadeCore (library), MadeApp and MadeKernelService (executables), MadeCoreTests, MadeAppTests
   Support/                 Info.plist files for Made.app and the kernel XPC service
   scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle)
                            and compiles the app icon (img/made.icon, an Icon Composer file) with actool
@@ -68,6 +68,7 @@ macos/
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField,
                            CADMetalViewRepresentable
   Tests/MadeCoreTests/     Swift Testing suites
+  Tests/MadeAppTests/      WorkspaceModelTests and application unit tests
 ```
 
 ## Architectural invariants

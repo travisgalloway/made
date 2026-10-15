@@ -270,12 +270,19 @@ final class WorkspaceModel {
         log(.info, "Scene", "\(obj.isLocked ? "Unlocked" : "Locked") object \(id.rawValue)")
     }
 
+    private func formatVec3(_ v: SIMD3<Float>) -> String {
+        String(format: "(%.1f, %.1f, %.1f)", v.x, v.y, v.z)
+    }
+
     func setTransform(_ id: ObjectId, _ transform: Transform) {
+        guard let current = document.objects.first(where: { $0.id == id }),
+              current.transform != transform else { return }
         let result = document.setTransform(id: id, transform: transform)
         guard case .success = result else { return }
         if let renderer = viewportManager.renderer {
             _ = SolidMeshApplier.applyTransform(to: id, document: document, sink: renderer)
         }
+        log(.info, "Scene", "Updated \(id.rawValue) transform to position \(formatVec3(transform.position)) scale \(formatVec3(transform.scale))")
         invalidateViewport(.model)
     }
 
