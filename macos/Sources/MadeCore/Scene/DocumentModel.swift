@@ -24,6 +24,36 @@ public enum ObjectDef: Sendable, Equatable {
     }
 }
 
+extension ObjectDef {
+    /// Human-readable summary of the object's primary parameters.
+    public var parameterSummary: String {
+        switch self {
+        case .box(let p):
+            return "\(Self.formatDim(p.width)) × \(Self.formatDim(p.depth)) × \(Self.formatDim(p.height)) mm"
+        case .cylinder(let p):
+            return "r \(Self.formatDim(p.radius)) × h \(Self.formatDim(p.height)) mm"
+        case .imported(let name):
+            return name.isEmpty ? "Imported mesh" : name
+        case .boolean(let op, let solidA, let solidB):
+            return "\(op.rawValue)(\(solidA.rawValue), \(solidB.rawValue))"
+        case .part(let url, _):
+            let filename = url.lastPathComponent
+            return (filename.isEmpty || filename == "/") ? "part" : filename
+        }
+    }
+
+    private static func formatDim(_ val: Float) -> String {
+        guard !val.isNaN && !val.isInfinite else { return "—" }
+        let cleanVal = val == 0 ? 0 : val
+        if cleanVal.rounded() == cleanVal {
+            return String(format: "%.0f", cleanVal)
+        } else {
+            let formatted = String(format: "%.2f", cleanVal)
+            return formatted.replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+        }
+    }
+}
+
 public struct MaterialAttributes: Sendable, Equatable {
     public var color: SIMD4<Float>
     
@@ -57,6 +87,18 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.material = material
+    }
+}
+
+extension SceneObject {
+    /// Human-readable summary of the object's primary parameters.
+    public var parameterSummary: String {
+        def.parameterSummary
+    }
+
+    /// Convenience accessor for the solid definition kind.
+    public var kind: String {
+        def.kind
     }
 }
 

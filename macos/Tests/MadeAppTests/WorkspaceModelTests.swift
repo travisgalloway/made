@@ -720,6 +720,26 @@ import MadeCore
         #expect(model.camera.position.x > model.camera.target.x)
     }
 
+    @Test @MainActor func testApplyViewCubeRegionWhenViewportUnavailable() {
+        let model = WorkspaceModel()
+        model.viewportManager.state = .unavailable(reason: .noDevice)
+        model.viewportManager.renderer = nil
+
+        // Home region sets perspective view reset even without renderer
+        model.applyViewCubeRegion(.home)
+        let resetCam = Camera.preset(.perspective)
+        #expect(simd_length(model.camera.position - resetCam.position) <= 1e-2)
+
+        // Face region sets orthogonal preset without renderer
+        model.applyViewCubeRegion(.face(.top))
+        #expect(model.perspective == .top)
+        #expect(model.camera.position.z > model.camera.target.z)
+
+        model.applyViewCubeRegion(.face(.front))
+        #expect(model.perspective == .front)
+        #expect(model.camera.position.y < model.camera.target.y)
+    }
+
     @Test @MainActor func testAllSettingsUserDefaultsPersistenceRoundtrip() {
         let suiteName = "test.settings.all.\(UUID().uuidString)"
         guard let customDefaults = UserDefaults(suiteName: suiteName) else {

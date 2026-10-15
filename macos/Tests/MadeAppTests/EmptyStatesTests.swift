@@ -117,6 +117,41 @@ import MadeCore
         #expect(workspace.logs.isEmpty)
     }
 
+    @Test @MainActor func testNavigatorFilteringWithKindAndParameterSummary() {
+        let workspace = WorkspaceModel()
+        let objects = workspace.document.objects
+
+        // Kind matching
+        let cylinderFilter = NavigatorSidebarView.filter(objects: objects, query: "cylinder")
+        #expect(cylinderFilter.count == 1)
+        #expect(cylinderFilter.first?.id == cylinderSolidId)
+
+        let boxFilter = NavigatorSidebarView.filter(objects: objects, query: "box")
+        #expect(boxFilter.count == 1)
+        #expect(boxFilter.first?.id == boxSolidId)
+
+        // Parameter summary matching
+        let radiusFilter = NavigatorSidebarView.filter(objects: objects, query: "r 15")
+        #expect(radiusFilter.count == 1)
+        #expect(radiusFilter.first?.id == cylinderSolidId)
+
+        let dimFilter = NavigatorSidebarView.filter(objects: objects, query: "40 × 30")
+        #expect(dimFilter.count == 1)
+        #expect(dimFilter.first?.id == boxSolidId)
+
+        // Raw ID matching
+        let idFilter = NavigatorSidebarView.filter(objects: objects, query: "box-1")
+        #expect(idFilter.count == 1)
+        #expect(idFilter.first?.id == boxSolidId)
+
+        // Empty query returns all objects
+        #expect(NavigatorSidebarView.filter(objects: objects, query: "").count == objects.count)
+        #expect(NavigatorSidebarView.filter(objects: objects, query: "   ").count == objects.count)
+
+        // No match returns empty
+        #expect(NavigatorSidebarView.filter(objects: objects, query: "nonexistent-query-404").isEmpty)
+    }
+
     @Test @MainActor func testViewInstantiationUnderEmptyAndPopulatedStates() {
         let emptyModel = WorkspaceModel()
         for obj in emptyModel.document.objects {
@@ -127,7 +162,12 @@ import MadeCore
 
         let populatedModel = WorkspaceModel()
 
-        for model in [emptyModel, populatedModel] {
+        let largeModel = WorkspaceModel()
+        for i in 1...500 {
+            largeModel.document.addObject(def: .box(BoxParams(width: Float(i % 50 + 10), depth: 30, height: 20)))
+        }
+
+        for model in [emptyModel, populatedModel, largeModel] {
             let views: [any View] = [
                 EmptySceneGuidanceOverlayView().environment(model),
                 ViewportCanvasView().environment(model),

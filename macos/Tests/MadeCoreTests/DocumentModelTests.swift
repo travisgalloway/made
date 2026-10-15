@@ -503,5 +503,97 @@ import os
         let ghostId = ObjectId("nonexistent-solid")
         #expect(doc.setMaterial(id: ghostId, material: red) == .failure(.objectNotFound(ghostId)))
     }
+
+    @Test func testParameterSummaryForEachKind() {
+        // Box with integer dimensions
+        let boxInt = ObjectDef.box(BoxParams(width: 40, depth: 30, height: 20))
+        #expect(boxInt.parameterSummary == "40 × 30 × 20 mm")
+
+        // Box with fractional dimensions
+        let boxFrac = ObjectDef.box(BoxParams(width: 10.5, depth: 20.25, height: 30))
+        #expect(boxFrac.parameterSummary == "10.5 × 20.25 × 30 mm")
+
+        // Cylinder with integer parameters
+        let cylInt = ObjectDef.cylinder(CylinderParams(radius: 10, height: 25))
+        #expect(cylInt.parameterSummary == "r 10 × h 25 mm")
+
+        // Cylinder with fractional parameters
+        let cylFrac = ObjectDef.cylinder(CylinderParams(radius: 12.5, height: 35.75))
+        #expect(cylFrac.parameterSummary == "r 12.5 × h 35.75 mm")
+
+        // Imported with filename
+        let importedNamed = ObjectDef.imported(name: "bracket.step")
+        #expect(importedNamed.parameterSummary == "bracket.step")
+
+        // Imported with empty string
+        let importedEmpty = ObjectDef.imported(name: "")
+        #expect(importedEmpty.parameterSummary == "Imported mesh")
+
+        // Boolean operation
+        let boolDef = ObjectDef.boolean(op: .subtract, solidA: ObjectId("box-1"), solidB: ObjectId("cylinder-1"))
+        #expect(boolDef.parameterSummary == "subtract(box-1, cylinder-1)")
+
+        // Part with URL
+        let partDef = ObjectDef.part(url: URL(fileURLWithPath: "/workspace/models/wheel.part.ts"))
+        #expect(partDef.parameterSummary == "wheel.part.ts")
+
+        // Part with root/empty path fallback
+        let partEmpty = ObjectDef.part(url: URL(string: "file:///")!)
+        #expect(partEmpty.parameterSummary == "part")
+
+        // NaN and infinity guards
+        let boxNaN = ObjectDef.box(BoxParams(width: .nan, depth: .infinity, height: 10))
+        #expect(boxNaN.parameterSummary == "— × — × 10 mm")
+
+        let cylNaN = ObjectDef.cylinder(CylinderParams(radius: .nan, height: .infinity))
+        #expect(cylNaN.parameterSummary == "r — × h — mm")
+
+        // SceneObject forwarding properties
+        let sceneObj = SceneObject(id: ObjectId("box-1"), def: boxInt)
+        #expect(sceneObj.parameterSummary == "40 × 30 × 20 mm")
+        #expect(sceneObj.kind == "box")
+    }
+
+    @Test func testFiveHundredObjectsResponsivenessAndSelection() {
+        let doc = DocumentModel()
+        // Clear default solids to manage explicit 500 items
+        for obj in doc.objects {
+            doc.removeObject(id: obj.id)
+        }
+        #expect(doc.objects.isEmpty)
+
+        var addedIds: [ObjectId] = []
+        addedIds.reserveCapacity(500)
+        for i in 1...500 {
+            let id = doc.addObject(def: .box(BoxParams(width: Float(i % 50 + 10), depth: 30, height: 20)))
+            addedIds.append(id)
+        }
+        #expect(doc.objects.count == 500)
+
+        let firstId = addedIds[0]
+        let midId = addedIds[250]
+        let lastId = addedIds[499]
+
+        let clock = ContinuousClock()
+        let elapsed = clock.measure {
+            doc.selectedId = firstId
+            #expect(doc.selectedId == firstId)
+            doc.selectedId = midId
+            #expect(doc.selectedId == midId)
+            doc.selectedId = lastId
+            #expect(doc.selectedId == lastId)
+        }
+        #expect(elapsed < .milliseconds(50))
+
+        // Removing the selected object sets selectedId = nil
+        doc.removeObject(id: lastId)
+        #expect(doc.selectedId == nil)
+
+        // Reset selection and remove an unselected object
+        doc.selectedId = midId
+        #expect(doc.selectedId == midId)
+        doc.removeObject(id: firstId)
+        #expect(doc.selectedId == midId)
+    }
 }
 
