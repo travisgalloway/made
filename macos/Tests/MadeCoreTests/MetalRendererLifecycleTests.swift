@@ -65,6 +65,26 @@ import simd
     }
 
     @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testUpdateColorInPlace() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        let solidId = SolidId("box-color-test")
+        let payload = makePayload()
+        let initialColor = SIMD4<Float>(0.2, 0.4, 0.8, 1.0)
+        #expect(renderer.installMesh(payload, for: solidId, transform: .identity, color: initialColor, isHidden: false))
+        #expect(renderer.meshes[solidId]?.color == initialColor)
+
+        let newColor = SIMD4<Float>(0.9, 0.1, 0.1, 1.0)
+        let updated = renderer.updateColor(newColor, for: solidId)
+        #expect(updated)
+        #expect(renderer.meshes[solidId]?.color == newColor)
+
+        // Updating color for non-existent solid returns false
+        #expect(!renderer.updateColor(newColor, for: SolidId("non-existent")))
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
     func testRemoveMeshPrunesRendererAndHiddenState() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))

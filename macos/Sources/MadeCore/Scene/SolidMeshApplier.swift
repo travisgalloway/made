@@ -8,12 +8,15 @@ public protocol SolidMeshSink: AnyObject {
     func installMesh(_ payload: MeshPayload, for id: SolidId, transform: Transform, color: SIMD4<Float>, isHidden: Bool) -> Bool
     /// Updates an installed mesh's transform in place. Returns false when no mesh is installed for `id`.
     func updateTransform(_ transform: Transform, for id: SolidId) -> Bool
+    /// Updates an installed mesh's material color in place. Returns false when no mesh is installed for `id`.
+    func updateColor(_ color: SIMD4<Float>, for id: SolidId) -> Bool
     /// Removes the mesh for `id`, if any. Returns true when a mesh was present.
     func removeMesh(for id: SolidId) -> Bool
 }
 
 extension SolidMeshSink {
     public func updateTransform(_ transform: Transform, for id: SolidId) -> Bool { false }
+    public func updateColor(_ color: SIMD4<Float>, for id: SolidId) -> Bool { false }
     public func removeMesh(for id: SolidId) -> Bool { false }
 }
 
@@ -48,6 +51,17 @@ public enum SolidMeshApplier {
     ) -> Bool {
         guard let object = document.objects.first(where: { $0.id == id }) else { return false }
         return sink.updateTransform(object.transform, for: id)
+    }
+
+    /// Updates an installed mesh's material color from the document's live state.
+    /// Returns true when the mesh was updated and the viewport needs a redraw.
+    public static func applyMaterial(
+        to id: SolidId,
+        document: DocumentModel,
+        sink: SolidMeshSink
+    ) -> Bool {
+        guard let object = document.objects.first(where: { $0.id == id }) else { return false }
+        return sink.updateColor(object.material.color, for: id)
     }
 
     /// Drops an installed mesh for a removed solid. Returns true when a mesh was removed.

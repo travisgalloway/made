@@ -279,6 +279,16 @@ final class WorkspaceModel {
         invalidateViewport(.model)
     }
 
+    func setMaterial(_ id: ObjectId, _ material: MaterialAttributes) {
+        let result = document.setMaterial(id: id, material: material)
+        guard case .success = result else { return }
+        if let renderer = viewportManager.renderer {
+            _ = SolidMeshApplier.applyMaterial(to: id, document: document, sink: renderer)
+        }
+        log(.info, "Scene", "Updated material for \(id.rawValue)")
+        invalidateViewport(.model)
+    }
+
     func setParam(_ id: ObjectId, _ key: String, _ value: Float) {
         let result = document.setParam(id: id, key: key, value: value)
         guard case .success = result else { return }

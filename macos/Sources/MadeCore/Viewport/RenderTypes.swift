@@ -83,7 +83,7 @@ public struct MetalMesh: @unchecked Sendable {
     public let indexBuffer: MTLBuffer
     public let indexCount: Int
     public var transform: Transform
-    public let color: SIMD4<Float>
+    public var color: SIMD4<Float>
     public var candidateMesh: CandidateMesh
     
     public init(
