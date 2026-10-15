@@ -1011,7 +1011,7 @@ final class WorkspaceModel {
                   SolidMeshApplier.apply(result, to: id, document: self.document, sink: renderer) else { return }
             self.invalidateViewport(.model)
             if case .success = result {
-                for depId in self.document.dependentObjects(of: id) {
+                for depId in self.document.directDependentObjects(of: id) {
                     self.recomputeSolid(id: depId)
                 }
             }

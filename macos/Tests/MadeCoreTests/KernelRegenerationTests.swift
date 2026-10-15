@@ -141,6 +141,168 @@ import Foundation
         #expect(KernelRegeneration.request(for: unmeshedSketch, jobId: j) == nil)
     }
 
+    // MARK: - Incremental Regeneration Tests (BL-FND-03)
+
+    @Test func testIncrementalRegenerationOnlyDispatchesRootAndDependents() async {
+        let document = DocumentModel()
+        let boxFeature = document.features[0]
+
+        // Add an independent cylinder solid
+        let independentId = document.addObject(def: .cylinder(CylinderParams(radius: 10, height: 20)))
+
+        // Add a boolean feature combining box-1 and cylinder-1
+        let boolId = document.reserveId(for: .boolean(op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId))
+        let boolFeature = Feature(
+            name: "Cut",
+            operation: .boolean(BooleanFeatureData(op: .subtract, targetSolidId: boxSolidId, toolSolidId: cylinderSolidId)),
+            outputSolidId: boolId
+        )
+        _ = document.addFeature(boolFeature)
+
+        let client = RecordingKernelClient()
+        // Regenerate incrementally from boxFeature
+        await KernelRegeneration.regenerateIncremental(from: boxFeature.id, in: document, client: client)
+
+        // boxFeature and its dependent boolFeature should be dispatched
+        #expect(client.requestedSolids.contains(boxSolidId))
+        #expect(client.requestedSolids.contains(boolId))
+
+        // cylinder-1 and independent solid must be untouched (0 kernel requests)
+        #expect(!client.requestedSolids.contains(cylinderSolidId))
+        #expect(!client.requestedSolids.contains(independentId))
+        #expect(client.requestedSolids.count == 2)
+    }
+
+    @Test func testIncrementalRegenerationDiamondDependencyDeduplication() async {
+        let document = DocumentModel(features: [])
+
+        // Feature A (root)
+        let solidA = SolidId("solid-a")
+        let featureA = Feature.makeBox(solidId: solidA, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(featureA)
+
+        // Feature B (depends on A)
+        let solidB = SolidId("solid-b")
+        let featureB = Feature(
+            name: "Feature B",
+            operation: .primitive(.box(BoxParams(width: 12, depth: 12, height: 12))),
+            references: [.feature(featureA.id)],
+            outputSolidId: solidB
+        )
+        _ = document.addFeature(featureB)
+
+        // Feature C (depends on A)
+        let solidC = SolidId("solid-c")
+        let featureC = Feature(
+            name: "Feature C",
+            operation: .primitive(.box(BoxParams(width: 14, depth: 14, height: 14))),
+            references: [.feature(featureA.id)],
+            outputSolidId: solidC
+        )
+        _ = document.addFeature(featureC)
+
+        // Feature D (depends on B and C - diamond join)
+        let solidD = SolidId("solid-d")
+        let featureD = Feature(
+            name: "Feature D",
+            operation: .boolean(BooleanFeatureData(op: .union, targetSolidId: solidB, toolSolidId: solidC)),
+            references: [.feature(featureB.id), .feature(featureC.id)],
+            outputSolidId: solidD
+        )
+        _ = document.addFeature(featureD)
+
+        // Feature E (independent)
+        let solidE = SolidId("solid-e")
+        let featureE = Feature.makeCylinder(solidId: solidE, params: CylinderParams(radius: 5, height: 10))
+        _ = document.addFeature(featureE)
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerateIncremental(from: featureA.id, in: document, client: client)
+
+        // Evaluated in topological order: A first, B and C, then D
+        #expect(client.requestedSolids.count == 4)
+        #expect(client.requestedSolids[0] == solidA)
+        #expect(client.requestedSolids[1] == solidB)
+        #expect(client.requestedSolids[2] == solidC)
+        #expect(client.requestedSolids[3] == solidD)
+
+        // D evaluates exactly once
+        #expect(client.requestedSolids.filter { $0 == solidD }.count == 1)
+
+        // Independent E issues 0 requests
+        #expect(!client.requestedSolids.contains(solidE))
+    }
+
+    @Test func testIncrementalRegenerationNonSolidSketchPropagatesToExtrusion() async {
+        let document = DocumentModel()
+        // Has box-1 and cylinder-1 by default
+
+        let sketchEntityId = UUID()
+        let sketchFeature = Feature(
+            name: "Sketch 1",
+            operation: .sketch(SketchFeatureData(
+                planeName: "XY",
+                entities: [SketchEntity(id: sketchEntityId, kind: "circle", data: ["radius": 5.0])]
+            ))
+        )
+        _ = document.addFeature(sketchFeature)
+
+        let extrudeSolidId = SolidId("extrude-1")
+        let extrudeFeature = Feature(
+            name: "Extrude 1",
+            operation: .primitive(.box(BoxParams(width: 10, depth: 10, height: 20))),
+            references: [.feature(sketchFeature.id, role: "sketchProfile")],
+            outputSolidId: extrudeSolidId
+        )
+        _ = document.addFeature(extrudeFeature)
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerateIncremental(from: sketchFeature.id, in: document, client: client)
+
+        // Sketch has no solid output / request, so issues 0 requests
+        // Extrusion produces solid, so recomputes
+        #expect(client.requestedSolids == [extrudeSolidId])
+        #expect(!client.requestedSolids.contains(boxSolidId))
+        #expect(!client.requestedSolids.contains(cylinderSolidId))
+    }
+
+    @Test func testIncrementalRegenerationSuppressedUpstreamRecordsBrokenReference() async {
+        let document = DocumentModel()
+        let boxFeature = document.features[0]
+
+        let depSolidId = SolidId("dep-solid")
+        let depFeature = Feature(
+            name: "Dependent",
+            operation: .primitive(.box(BoxParams(width: 5, depth: 5, height: 5))),
+            references: [.feature(boxFeature.id, role: "parent")],
+            outputSolidId: depSolidId
+        )
+        _ = document.addFeature(depFeature)
+
+        // Suppress upstream boxFeature
+        _ = document.setFeatureSuppressed(id: boxFeature.id, isSuppressed: true)
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerateIncremental(from: boxFeature.id, in: document, client: client)
+
+        // Dependent feature records reference-broken error and is not dispatched
+        let depFeatureAfter = document.feature(for: depFeature.id)
+        #expect(depFeatureAfter?.errorState?.code == "reference-broken")
+        #expect(!client.requestedSolids.contains(depSolidId))
+        #expect(!client.requestedSolids.contains(boxSolidId))
+        #expect(client.requestedSolids.isEmpty)
+    }
+
+    @Test func testIncrementalRegenerationUnknownFeatureIdIsNoOp() async {
+        let document = DocumentModel()
+        let client = RecordingKernelClient()
+
+        let unknownId = UUID()
+        await KernelRegeneration.regenerateIncremental(from: unknownId, in: document, client: client)
+
+        #expect(client.requestedSolids.isEmpty)
+    }
+
     private func object(_ id: SolidId, _ def: ObjectDef) -> SceneObject {
         SceneObject(id: id, name: id.rawValue, def: def)
     }

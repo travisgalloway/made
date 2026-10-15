@@ -48,10 +48,16 @@ public enum KernelRegeneration {
         }
     }
     
-    /// Resubmits every buildable feature in sequential list order, skipping suppressed features and `excluded`.
-    /// Kernel failures are recorded as `FeatureErrorState` on the affected feature.
-    public static func regenerate(document: DocumentModel, client: any KernelClientProtocol, excluding excluded: SolidId?) async {
-        for feature in document.features {
+    /// Resubmits specified features in order, skipping suppressed features, `excluded`, and non-solid features.
+    /// Kernel failures and broken references are recorded as `FeatureErrorState` on the affected feature (BL-FND-03).
+    public static func regenerate(
+        features: [Feature],
+        in document: DocumentModel,
+        client: any KernelClientProtocol,
+        excluding excluded: SolidId? = nil
+    ) async {
+        for feat in features {
+            let feature = document.feature(for: feat.id) ?? feat
             guard !feature.isSuppressed else { continue }
             guard feature.outputSolidId != excluded else { continue }
 
@@ -77,6 +83,28 @@ public enum KernelRegeneration {
                 document.setFeatureError(id: feature.id, error: errorState)
             }
         }
+    }
+
+    /// Incrementally regenerates geometry starting from `featureId` and cascading strictly to its transitive dependents (BL-FND-03).
+    public static func regenerateIncremental(
+        from featureId: UUID,
+        in document: DocumentModel,
+        client: any KernelClientProtocol,
+        excluding excluded: SolidId? = nil
+    ) async {
+        guard let rootFeature = document.feature(for: featureId) else { return }
+        let dependents = document.dependentFeatures(referencing: featureId)
+        await regenerate(features: [rootFeature] + dependents, in: document, client: client, excluding: excluded)
+    }
+
+    /// Resubmits every buildable feature in sequential list order, skipping suppressed features and `excluded`.
+    /// Kernel failures are recorded as `FeatureErrorState` on the affected feature.
+    public static func regenerate(
+        document: DocumentModel,
+        client: any KernelClientProtocol,
+        excluding excluded: SolidId? = nil
+    ) async {
+        await regenerate(features: document.features, in: document, client: client, excluding: excluded)
     }
 }
 
