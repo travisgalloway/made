@@ -41,6 +41,23 @@ struct InspectorPanelView: View {
                 .controlSize(.small)
                 .padding()
             }
+        } else if workspace.document.objects.isEmpty {
+            ContentUnavailableView {
+                Label("No Objects in Scene", systemImage: "cube.transparent")
+            } description: {
+                Text("Add a 3D solid primitive or open a part script to inspect and edit its properties.")
+            } actions: {
+                HStack(spacing: 8) {
+                    Button("Add Box", systemImage: "shippingbox") {
+                        workspace.addDefaultBox()
+                    }
+                    Button("Add Cylinder", systemImage: "cylinder") {
+                        workspace.addDefaultCylinder()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         } else {
             ContentUnavailableView(
                 "No Object Selected",

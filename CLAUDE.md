@@ -66,9 +66,10 @@ macos/
   Sources/MadeApp/         MadeApp (@main, sidebar, console, and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView,
-                           CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView
+                           CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
+                           EmptySceneGuidanceOverlayView
   Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests)
-  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, and application unit tests
+  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, and application unit tests
 ```
 
 ## Architectural invariants

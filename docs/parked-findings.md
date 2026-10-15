@@ -34,7 +34,7 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 - REQ-e73808df | macos/Tests/MadeCoreTests/CameraTests.swift:171 | No test references `PointerRouter` or `RouterEvent`, so pointer type routing is untested. (contradicted on 2026-10-11: `testPointerRouterClickVsDragThreshold` covers it) | requirements R1
 - REQ-2011a068 | macos/Tests/MadeCoreTests/KernelClientTests.swift:1 | No test requests two solids to assert that only the changed solid re-tessellates. | requirements R1
 - UX-9d5cdfe3 | macos/Sources/MadeApp/ContentView.swift:155 | The Copilot transcript pane is blank when no messages exist. (target removed in #124) | ux U1
-- UX-d91b82aa | macos/Sources/MadeApp/InspectorPanelView.swift:17 | The inspector renders blank when the document is empty or the selection is stale. (target removed in #124; the Inspector now shows an empty state at lines 17-21) | ux U1
+- UX-d91b82aa | macos/Sources/MadeApp/InspectorPanelView.swift:17 | The inspector renders blank when the document is empty or the selection is stale. (resolved by #400 on 2026-10-15: Inspector panel distinguishes empty document with creation actions from unselected object with selection guidance) | ux U1
 - UX-3814a375 | macos/Sources/MadeApp/ContentView.swift:198 | The Copilot text field has no focus state on tab switch or after submit. (target removed in #124) | ux U1
 - UX-619d2b55 | macos/Sources/MadeApp/NavigatorSidebarView.swift:1 | The UI uses inconsistent nouns for scene entities and inconsistent product names. (see also UX-c45e9d6c) | ux U1
 - KERN-14 | macos/Sources/MadeCore/Kernel/KernelClient.swift:38 | `getStats` and `pendingJobId(for:)` have no caller outside tests, so the job counters have no reader. | closure A
@@ -57,7 +57,7 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 - DSN-aa44aa3e | macos/Sources/MadeApp/MadeApp.swift:16 | The stdio `Task` drops its handle and calls `exit(0)` whatever ended `runStdio`. | design D2
 - API-a89664a0 | macos/Sources/MadeCore/Viewport/ViewportState.swift:85 | Three flags and two environment variables name one behavior, and no document mentions them. | api P1
 - REQ-2574b26a | macos/Sources/MadeApp/WorkspaceModel.swift:1 | No test target imports MadeApp, so the visibility, selection, and numeric edit criteria of #120 and #122 have no automated check. | requirements R1
-- UX-a630e5c4 | macos/Sources/MadeApp/NavigatorSidebarView.swift:20 | An empty document shows a search-no-results view, because the overlay does not check for an empty filter. | ux U1
+- UX-a630e5c4 | macos/Sources/MadeApp/NavigatorSidebarView.swift:20 | An empty document shows a search-no-results view, because the overlay does not check for an empty filter. (resolved by #400 on 2026-10-15: Navigator sidebar prioritizes empty scene guidance with quick actions over search filter) | ux U1
 - UX-2413dcfc | macos/Sources/MadeApp/ConsoleDrawerView.swift:18 | Clear Console Logs runs at once with no confirmation. The impact is low, since logs are diagnostic. | ux U1
 - UX-c45e9d6c | macos/Sources/MadeApp/NavigatorSidebarView.swift:1 | The UI names the scene entity object, solid, and Scene Outline in different places, and the console three ways. | ux U1
 - UX-6c264994 | macos/Sources/MadeApp/ContentView.swift:78 | The MCP toolbar button shows the running state by color only, and the label does not change. | ux U1
@@ -92,4 +92,7 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 
 - [2026-10-15] `macos/Tests/MadeCoreTests/CADToolsTests.swift:894`, `testWindowBoundSetTransformUpdatesMeshRotation` binds unused variable `doc` triggering compiler warning `#NoUsage`.
   Found while working on #315. Severity, low (compiler warning).
+
+- [2026-10-15] `macos/Tests/MadeAppTests/SettingsViewTests.swift:21,25`, `#expect(view != nil)` compares non-optional `some View` to nil triggering compiler warnings.
+  Found while working on #400. Severity, low (compiler warning).
 
