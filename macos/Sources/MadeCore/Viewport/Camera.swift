@@ -45,12 +45,13 @@ public struct Camera: Sendable, Equatable {
         self.orthographicScale = orthographicScale
     }
     
-    /// Pure function: orbits the camera around `target` with the given azimuth (yaw around +Z) and elevation (pitch above XY plane) deltas.
+    /// Pure function: orbits the camera around `pivot` (or `target` if nil) with the given azimuth (yaw around +Z) and elevation (pitch above XY plane) deltas.
     /// Pitch is clamped to `[minPitch, maxPitch]` so the view never flips. Zero movement leaves camera unchanged.
     public static func orbit(
         camera: Camera,
         deltaAzimuth: Float,
-        deltaElevation: Float
+        deltaElevation: Float,
+        pivot: SIMD3<Float>? = nil
     ) -> Camera {
         if deltaAzimuth == 0 && deltaElevation == 0 {
             return camera
@@ -67,17 +68,34 @@ public struct Camera: Sendable, Equatable {
         let newAzimuth = currentAzimuth + deltaAzimuth
         let newElevation = min(max(currentElevation + deltaElevation, camera.minPitch), camera.maxPitch)
         
-        let cosElev = cos(newElevation)
-        let sinElev = sin(newElevation)
+        let p = pivot ?? camera.target
+        if p == camera.target {
+            let cosElev = cos(newElevation)
+            let sinElev = sin(newElevation)
+            let newOffset = SIMD3<Float>(
+                r * cosElev * cos(newAzimuth),
+                r * cosElev * sin(newAzimuth),
+                r * sinElev
+            )
+            var result = camera
+            result.position = camera.target + newOffset
+            return result
+        }
         
-        let newOffset = SIMD3<Float>(
-            r * cosElev * cos(newAzimuth),
-            r * cosElev * sin(newAzimuth),
-            r * sinElev
-        )
+        let deltaTheta = newElevation - currentElevation
+        let deltaPhi = deltaAzimuth
+        
+        let qYaw = simd_quatf(angle: deltaPhi, axis: SIMD3<Float>(0, 0, 1))
+        let cameraRightAtNewAzimuth = SIMD3<Float>(-sin(newAzimuth), cos(newAzimuth), 0)
+        let qPitch = simd_quatf(angle: -deltaTheta, axis: cameraRightAtNewAzimuth)
+        
+        let rot = { (w: SIMD3<Float>) -> SIMD3<Float> in
+            qPitch.act(qYaw.act(w))
+        }
         
         var result = camera
-        result.position = camera.target + newOffset
+        result.position = p + rot(camera.position - p)
+        result.target = p + rot(camera.target - p)
         return result
     }
     
@@ -121,10 +139,12 @@ public struct Camera: Sendable, Equatable {
     
     /// Pure function: zooms the camera by scaling distance to target by `factor`.
     /// `factor > 1.0` moves camera closer (zooms in). `factor < 1.0` moves camera farther (zooms out).
+    /// If `cursorRay` is provided, zooms toward the cursor ray while keeping the view direction and the point under cursor stationary.
     /// Distance is clamped to `[minDistance, maxDistance]`. Factor 1.0 leaves camera unchanged.
     public static func zoom(
         camera: Camera,
-        factor: Float
+        factor: Float,
+        cursorRay: Ray3D? = nil
     ) -> Camera {
         if factor == 1.0 || factor <= 0.0 || factor.isNaN || factor.isInfinite {
             return camera
@@ -137,24 +157,54 @@ public struct Camera: Sendable, Equatable {
         if camera.projection == .orthographic {
             let currentEffective = dist * camera.orthographicScale
             let newEffective = min(max(currentEffective / factor, camera.minDistance), camera.maxDistance)
+            guard newEffective > 1e-6 else { return camera }
+            let effectiveFactor = currentEffective / newEffective
+            let cursorOffset: SIMD3<Float>
+            if let cursorRay {
+                let fNorm = simd_normalize(camera.target - camera.position)
+                let nearPlaneCenter = camera.position + fNorm * 0.1
+                cursorOffset = cursorRay.origin - nearPlaneCenter
+            } else {
+                cursorOffset = .zero
+            }
+            let shift = (1.0 - 1.0 / effectiveFactor) * cursorOffset
             var result = camera
+            result.position = camera.position + shift
+            result.target = camera.target + shift
             result.orthographicScale = newEffective / dist
             return result
         }
-        let dir = simd_normalize(forward)
+        let fNorm = simd_normalize(camera.target - camera.position)
         let newDist = min(max(dist / factor, camera.minDistance), camera.maxDistance)
+        let deltaD = dist - newDist
         
         var result = camera
-        result.position = camera.target + dir * newDist
+        if let cursorRay {
+            let dNorm = simd_normalize(cursorRay.direction)
+            let dot = simd_dot(dNorm, fNorm)
+            if dot > 0.1 {
+                let s = deltaD / dot
+                let deltaX = s * dNorm
+                let deltaXPerp = deltaX - deltaD * fNorm
+                result.position = camera.position + deltaX
+                result.target = camera.target + deltaXPerp
+            } else {
+                result.position = camera.target + simd_normalize(camera.position - camera.target) * newDist
+            }
+        } else {
+            result.position = camera.target + simd_normalize(camera.position - camera.target) * newDist
+        }
         return result
     }
     
     /// Pure function: zooms the camera by adjusting distance to target by `deltaDistance`.
     /// `deltaDistance < 0` moves camera closer (zooms in). `deltaDistance > 0` moves camera farther (zooms out).
+    /// If `cursorRay` is provided, zooms toward the cursor ray while keeping the view direction and the point under cursor stationary.
     /// Distance is clamped to `[minDistance, maxDistance]`. Delta 0 leaves camera unchanged.
     public static func zoom(
         camera: Camera,
-        deltaDistance: Float
+        deltaDistance: Float,
+        cursorRay: Ray3D? = nil
     ) -> Camera {
         if deltaDistance == 0 || deltaDistance.isNaN || deltaDistance.isInfinite {
             return camera
@@ -167,32 +217,60 @@ public struct Camera: Sendable, Equatable {
         if camera.projection == .orthographic {
             let currentEffective = dist * camera.orthographicScale
             let newEffective = min(max(currentEffective + deltaDistance, camera.minDistance), camera.maxDistance)
+            guard newEffective > 1e-6 else { return camera }
+            let effectiveFactor = currentEffective / newEffective
+            let cursorOffset: SIMD3<Float>
+            if let cursorRay {
+                let fNorm = simd_normalize(camera.target - camera.position)
+                let nearPlaneCenter = camera.position + fNorm * 0.1
+                cursorOffset = cursorRay.origin - nearPlaneCenter
+            } else {
+                cursorOffset = .zero
+            }
+            let shift = (1.0 - 1.0 / effectiveFactor) * cursorOffset
             var result = camera
+            result.position = camera.position + shift
+            result.target = camera.target + shift
             result.orthographicScale = newEffective / dist
             return result
         }
-        let dir = simd_normalize(forward)
+        let fNorm = simd_normalize(camera.target - camera.position)
         let newDist = min(max(dist + deltaDistance, camera.minDistance), camera.maxDistance)
+        let deltaD = dist - newDist
         
         var result = camera
-        result.position = camera.target + dir * newDist
+        if let cursorRay {
+            let dNorm = simd_normalize(cursorRay.direction)
+            let dot = simd_dot(dNorm, fNorm)
+            if dot > 0.1 {
+                let s = deltaD / dot
+                let deltaX = s * dNorm
+                let deltaXPerp = deltaX - deltaD * fNorm
+                result.position = camera.position + deltaX
+                result.target = camera.target + deltaXPerp
+            } else {
+                result.position = camera.target + simd_normalize(camera.position - camera.target) * newDist
+            }
+        } else {
+            result.position = camera.target + simd_normalize(camera.position - camera.target) * newDist
+        }
         return result
     }
     
-    public func orbited(deltaAzimuth: Float, deltaElevation: Float) -> Camera {
-        Camera.orbit(camera: self, deltaAzimuth: deltaAzimuth, deltaElevation: deltaElevation)
+    public func orbited(deltaAzimuth: Float, deltaElevation: Float, pivot: SIMD3<Float>? = nil) -> Camera {
+        Camera.orbit(camera: self, deltaAzimuth: deltaAzimuth, deltaElevation: deltaElevation, pivot: pivot)
     }
     
     public func panned(deltaX: Float, deltaY: Float, viewportSize: CGSize = CGSize(width: 800, height: 600)) -> Camera {
         Camera.pan(camera: self, deltaX: deltaX, deltaY: deltaY, viewportSize: viewportSize)
     }
     
-    public func zoomed(factor: Float) -> Camera {
-        Camera.zoom(camera: self, factor: factor)
+    public func zoomed(factor: Float, cursorRay: Ray3D? = nil) -> Camera {
+        Camera.zoom(camera: self, factor: factor, cursorRay: cursorRay)
     }
     
-    public func zoomed(deltaDistance: Float) -> Camera {
-        Camera.zoom(camera: self, deltaDistance: deltaDistance)
+    public func zoomed(deltaDistance: Float, cursorRay: Ray3D? = nil) -> Camera {
+        Camera.zoom(camera: self, deltaDistance: deltaDistance, cursorRay: cursorRay)
     }
     
     /// Returns a camera positioned at a standard engineering perspective preset.

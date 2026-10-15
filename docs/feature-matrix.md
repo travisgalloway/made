@@ -17,7 +17,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - Issue holds the GitHub issue number that tracks the capability. A blank cell has no tracking issue.
 - KERN-9 is Shipped. The conflation race (finding DSN-efe60d18) was fixed under #90.
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
-- INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
+- INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87, and cursor-centered orbit (geometry, selection, ground plane precedence) and cursor-centered zoom (perspective and orthographic) under #385.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
 - INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69.
 - DOC-8 is Shipped. Interactive viewport gizmo manipulation (translation arrows, rotation rings, and scale cubes with two-physics parameter conversion) with on-demand invalidation and single release commit was implemented under #71 (Phase 4.19) and #72 (Phase 4.20).
@@ -66,7 +66,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | INPUT-5 | A user can click or drag with the mouse; movement past 6 px classifies the gesture as navigate, otherwise manipulate (doc states a 3 pt threshold in earlier text) | done | done | n/a | Shipped | #87 | n/a |
 | INPUT-6 | A user can snap a point to a 10 mm XY grid with Z unchanged (doc states a 1 mm or 5 mm pitch in earlier text) | done | done | n/a | Shipped | #88, #102 | n/a |
 | INPUT-7 | A user can resolve snap candidates by strict priority vertex over edge over grid inside a 20 px tolerance (doc states a 10 mm radius in earlier text) | done | done | n/a | Shipped | #88 | n/a |
-| INPUT-8 | A user can orbit, pan and zoom the camera with trackpad (two-finger scroll pans, Option or Command scroll and pinch zoom), mouse (wheel zooms) or modifier and button drags; multi-touch is not wired | done | done | n/a | Shipped | #87 | n/a |
+| INPUT-8 | A user can orbit, pan and zoom the camera with trackpad (two-finger scroll pans, Option or Command scroll and pinch zoom), mouse (wheel zooms) or modifier and button drags, with orbit centered about cursor geometry/selection/ground plane and zoom directed toward the cursor in perspective and orthographic projections; multi-touch is not wired | done | done | n/a | Shipped | #87, #385 | n/a |
 | INPUT-9 | A user can click or tap a solid in the viewport to select it (picking) | done | done | n/a | Shipped | #69 | n/a |
 | INPUT-10 | A user can snap to vertices and edges of existing solids while manipulating | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-11 | A user can two-finger tap to trigger context actions | none | none | n/a | Planned | #42 | n/a |

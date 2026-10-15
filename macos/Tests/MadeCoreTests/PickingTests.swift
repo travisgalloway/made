@@ -145,4 +145,120 @@ import simd
         )
         #expect(missId == nil)
     }
+
+    // MARK: - BL-VPT-08: Orbit Pivot Resolution Tests
+
+    @Test func testResolveOrbitPivotPrecedenceHitOverSelection() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-hit"), payload: payload)
+
+        let ray = Ray3D(origin: SIMD3<Float>(0, -50, 0), direction: SIMD3<Float>(0, 1, 0))
+        let selectedCenter = SIMD3<Float>(100, 100, 100)
+        let fallbackTarget = SIMD3<Float>(0, 0, 10)
+
+        let pivot = resolveOrbitPivot(
+            ray: ray,
+            candidateMeshes: [mesh],
+            selectedSolidCenter: selectedCenter,
+            fallbackTarget: fallbackTarget
+        )
+
+        // Hit point is on front face of box: (0, -10, 0)
+        #expect(abs(pivot.x - 0.0) <= 1e-4)
+        #expect(abs(pivot.y - (-10.0)) <= 1e-4)
+        #expect(abs(pivot.z - 0.0) <= 1e-4)
+        #expect(pivot != selectedCenter, "Geometry hit under cursor must take precedence over active selection center")
+        #expect(pivot != fallbackTarget)
+    }
+
+    @Test func testResolveOrbitPivotPrecedenceSelectionOverGround() {
+        // Ray aimed into empty space, but angled down so it intersects ground plane Z=0
+        let ray = Ray3D(origin: SIMD3<Float>(0, -50, 50), direction: simd_normalize(SIMD3<Float>(0, 1, -1)))
+        let groundHit = ray.intersectPlaneZZero()
+        #expect(groundHit != nil)
+
+        let selectedCenter = SIMD3<Float>(35, -20, 15)
+        let fallbackTarget = SIMD3<Float>(0, 0, 10)
+
+        let pivot = resolveOrbitPivot(
+            ray: ray,
+            candidateMeshes: [], // Misses geometry
+            selectedSolidCenter: selectedCenter,
+            fallbackTarget: fallbackTarget
+        )
+
+        #expect(pivot == selectedCenter, "Active selection center must take precedence over ground plane intersection")
+        #expect(pivot != groundHit)
+        #expect(pivot != fallbackTarget)
+    }
+
+    @Test func testResolveOrbitPivotPrecedenceGroundOverTarget() {
+        // Ray aimed into empty space, intersecting ground plane Z=0 at distance <= 1000
+        let ray = Ray3D(origin: SIMD3<Float>(0, -50, 50), direction: simd_normalize(SIMD3<Float>(0, 1, -1)))
+        let groundHit = ray.intersectPlaneZZero()
+        #expect(groundHit != nil)
+        #expect(simd_length(groundHit! - ray.origin) <= 1000.0)
+
+        let fallbackTarget = SIMD3<Float>(0, 0, 10)
+
+        let pivot = resolveOrbitPivot(
+            ray: ray,
+            candidateMeshes: [], // Misses geometry
+            selectedSolidCenter: nil, // No selection
+            fallbackTarget: fallbackTarget
+        )
+
+        #expect(abs(pivot.x - groundHit!.x) <= 1e-4, "Ground plane hit must take precedence over fallback target")
+        #expect(abs(pivot.y - groundHit!.y) <= 1e-4)
+        #expect(abs(pivot.z - 0.0) <= 1e-4)
+        #expect(pivot != fallbackTarget)
+    }
+
+    @Test func testResolveOrbitPivotFarGroundPlaneFallsBackToTarget() {
+        // Ray hitting ground plane far away (> 1000 units)
+        // Origin at (0, 0, 10), direction with tiny downward slope so ground hit distance is >> 1000
+        let farRay = Ray3D(origin: SIMD3<Float>(0, 0, 10), direction: simd_normalize(SIMD3<Float>(10000, 0, -1)))
+        let farGroundHit = farRay.intersectPlaneZZero()
+        #expect(farGroundHit != nil)
+        #expect(simd_length(farGroundHit! - farRay.origin) > 1000.0)
+
+        let fallbackTarget = SIMD3<Float>(0, 0, 10)
+
+        let farPivot = resolveOrbitPivot(
+            ray: farRay,
+            candidateMeshes: [],
+            selectedSolidCenter: nil,
+            fallbackTarget: fallbackTarget
+        )
+        #expect(farPivot == fallbackTarget, "Ground plane hit beyond maxGroundPlaneDistance must fall back to target")
+
+        // Ray parallel to ground plane (direction.z == 0)
+        let parallelRay = Ray3D(origin: SIMD3<Float>(0, 0, 10), direction: SIMD3<Float>(0, 1, 0))
+        let parallelPivot = resolveOrbitPivot(
+            ray: parallelRay,
+            candidateMeshes: [],
+            selectedSolidCenter: nil,
+            fallbackTarget: fallbackTarget
+        )
+        #expect(parallelPivot == fallbackTarget, "Parallel ray must fall back to target")
+
+        // Ray pointing away from ground plane (direction.z > 0 from z > 0)
+        let upwardRay = Ray3D(origin: SIMD3<Float>(0, 0, 10), direction: SIMD3<Float>(0, 0, 1))
+        let upwardPivot = resolveOrbitPivot(
+            ray: upwardRay,
+            candidateMeshes: [],
+            selectedSolidCenter: nil,
+            fallbackTarget: fallbackTarget
+        )
+        #expect(upwardPivot == fallbackTarget, "Upward ray must fall back to target")
+
+        // Ray is nil
+        let nilRayPivot = resolveOrbitPivot(
+            ray: nil,
+            candidateMeshes: [],
+            selectedSolidCenter: nil,
+            fallbackTarget: fallbackTarget
+        )
+        #expect(nilRayPivot == fallbackTarget, "Nil ray must fall back to target")
+    }
 }

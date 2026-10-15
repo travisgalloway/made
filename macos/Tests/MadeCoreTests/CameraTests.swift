@@ -340,4 +340,212 @@ import simd
         #expect(!cameraAfterSwitchOrbit.position.z.isNaN)
         #expect(cameraAfterSwitchOrbit.projection == .orthographic)
     }
+
+    // MARK: - BL-VPT-08: Orbit about Pivot Tests
+
+    @Test func testOrbitAroundPivotKeepsPivotScreenProjectionStationary() {
+        let camera = Camera(position: SIMD3<Float>(100, -120, 80), target: SIMD3<Float>(0, 0, 10))
+        let pivot = SIMD3<Float>(25, -15, 30) // Off-center from camera.target
+        let aspect: Float = 800.0 / 600.0
+        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+
+        // Compute NDC of pivot before orbit
+        let viewMatrixBefore = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let p4Before = projMatrix * viewMatrixBefore * SIMD4<Float>(pivot, 1.0)
+        let ndcBefore = SIMD2<Float>(p4Before.x, p4Before.y) / p4Before.w
+
+        // Perform multiple orbits with different deltas
+        let testDeltas: [(Float, Float)] = [
+            (0.3, 0.2),
+            (-0.5, 0.15),
+            (0.8, -0.4),
+            (-1.2, -0.25)
+        ]
+
+        for (dAz, dEl) in testDeltas {
+            let orbited = Camera.orbit(camera: camera, deltaAzimuth: dAz, deltaElevation: dEl, pivot: pivot)
+            let viewMatrixAfter = Orientation.makeLookAt(eye: orbited.position, target: orbited.target, up: Orientation.worldUp)
+            let p4After = projMatrix * viewMatrixAfter * SIMD4<Float>(pivot, 1.0)
+            let ndcAfter = SIMD2<Float>(p4After.x, p4After.y) / p4After.w
+
+            #expect(abs(ndcAfter.x - ndcBefore.x) <= 1e-4, "Pivot NDC X must be stationary under orbit (deltaAz: \(dAz), deltaEl: \(dEl))")
+            #expect(abs(ndcAfter.y - ndcBefore.y) <= 1e-4, "Pivot NDC Y must be stationary under orbit (deltaAz: \(dAz), deltaEl: \(dEl))")
+        }
+    }
+
+    @Test func testOrbitAroundPivotPreservesEyeToTargetAndEyeToPivotDistances() {
+        let camera = Camera(position: SIMD3<Float>(60, -90, 70), target: SIMD3<Float>(5, 10, 15))
+        let pivot = SIMD3<Float>(-30, 20, 25)
+
+        let initialEyeToTarget = simd_length(camera.position - camera.target)
+        let initialEyeToPivot = simd_length(camera.position - pivot)
+        let initialTargetToPivot = simd_length(camera.target - pivot)
+
+        let orbited = Camera.orbit(camera: camera, deltaAzimuth: 1.1, deltaElevation: -0.4, pivot: pivot)
+
+        let orbitedEyeToTarget = simd_length(orbited.position - orbited.target)
+        let orbitedEyeToPivot = simd_length(orbited.position - pivot)
+        let orbitedTargetToPivot = simd_length(orbited.target - pivot)
+
+        #expect(abs(orbitedEyeToTarget - initialEyeToTarget) <= 1e-4, "Eye-to-target distance must be strictly preserved")
+        #expect(abs(orbitedEyeToPivot - initialEyeToPivot) <= 1e-4, "Eye-to-pivot distance must be strictly preserved")
+        #expect(abs(orbitedTargetToPivot - initialTargetToPivot) <= 1e-4, "Target-to-pivot distance must be strictly preserved")
+        #expect(orbited.target != camera.target, "Target must rotate rigidly when orbiting around an off-center pivot")
+        #expect(orbited.position != camera.position)
+    }
+
+    @Test func testOrbitAroundPivotPitchClampAndNoRoll() {
+        let camera = Camera(position: SIMD3<Float>(80, -80, 50), target: SIMD3<Float>(0, 0, 0))
+        let pivot = SIMD3<Float>(15, -10, 5)
+
+        // Excessive upward elevation delta (+10.0 radians)
+        let highCamera = Camera.orbit(camera: camera, deltaAzimuth: 0.5, deltaElevation: 10.0, pivot: pivot)
+        let highViewMatrix = Orientation.makeLookAt(eye: highCamera.position, target: highCamera.target, up: Orientation.worldUp)
+        let highRight = SIMD3<Float>(highViewMatrix.columns.0.x, highViewMatrix.columns.1.x, highViewMatrix.columns.2.x)
+        #expect(abs(highRight.z) <= 1e-4, "High camera right vector must have 0 Z component (no roll)")
+
+        let highForward = highCamera.position - highCamera.target
+        let highElev = asin(min(max(highForward.z / simd_length(highForward), -1.0), 1.0))
+        #expect(highElev <= camera.maxPitch + 1e-4)
+
+        // Excessive downward elevation delta (-10.0 radians)
+        let lowCamera = Camera.orbit(camera: camera, deltaAzimuth: -0.5, deltaElevation: -10.0, pivot: pivot)
+        let lowViewMatrix = Orientation.makeLookAt(eye: lowCamera.position, target: lowCamera.target, up: Orientation.worldUp)
+        let lowRight = SIMD3<Float>(lowViewMatrix.columns.0.x, lowViewMatrix.columns.1.x, lowViewMatrix.columns.2.x)
+        #expect(abs(lowRight.z) <= 1e-4, "Low camera right vector must have 0 Z component (no roll)")
+
+        let lowForward = lowCamera.position - lowCamera.target
+        let lowElev = asin(min(max(lowForward.z / simd_length(lowForward), -1.0), 1.0))
+        #expect(lowElev >= camera.minPitch - 1e-4)
+    }
+
+    // MARK: - BL-VPT-08: Zoom to Cursor Tests
+
+    @Test func testPerspectiveZoomToCursorKeepsPointStationaryOnScreen() {
+        let camera = Camera(position: SIMD3<Float>(0, -120, 60), target: SIMD3<Float>(0, 0, 10))
+        let aspect: Float = 800.0 / 600.0
+        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+
+        let initialView = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let cursorRay = screenPointToRay(
+            screenPoint: SIMD2<Float>(550, 420),
+            viewportSize: CGSize(width: 800, height: 600),
+            viewMatrix: initialView,
+            projectionMatrix: projMatrix
+        )!
+
+        // A test 3D point along this cursor ray
+        let testPoint = cursorRay.origin + cursorRay.direction * 80.0
+
+        let p4Before = projMatrix * initialView * SIMD4<Float>(testPoint, 1.0)
+        let ndcBefore = SIMD2<Float>(p4Before.x, p4Before.y) / p4Before.w
+
+        // Zoom in by factor 1.6
+        let zoomed = Camera.zoom(camera: camera, factor: 1.6, cursorRay: cursorRay)
+        let newView = Orientation.makeLookAt(eye: zoomed.position, target: zoomed.target, up: Orientation.worldUp)
+        let p4After = projMatrix * newView * SIMD4<Float>(testPoint, 1.0)
+        let ndcAfter = SIMD2<Float>(p4After.x, p4After.y) / p4After.w
+
+        #expect(abs(ndcAfter.x - ndcBefore.x) <= 1e-4, "Cursor point NDC X must remain stationary on screen")
+        #expect(abs(ndcAfter.y - ndcBefore.y) <= 1e-4, "Cursor point NDC Y must remain stationary on screen")
+
+        // View direction f must be invariant (no yaw/pitch/roll drift)
+        let initF = simd_normalize(camera.target - camera.position)
+        let zoomedF = simd_normalize(zoomed.target - zoomed.position)
+        #expect(abs(initF.x - zoomedF.x) <= 1e-4)
+        #expect(abs(initF.y - zoomedF.y) <= 1e-4)
+        #expect(abs(initF.z - zoomedF.z) <= 1e-4)
+    }
+
+    @Test func testPerspectiveZoomToCursorClampsToMinAndMaxDistance() {
+        let camera = Camera(position: SIMD3<Float>(0, -100, 50), target: SIMD3<Float>(0, 0, 10))
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: 4.0 / 3.0, nearZ: 0.1, farZ: 1000.0)
+        let cursorRay = screenPointToRay(
+            screenPoint: SIMD2<Float>(500, 350),
+            viewportSize: CGSize(width: 800, height: 600),
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        )!
+
+        // Extreme zoom in (factor)
+        let extremeIn = Camera.zoom(camera: camera, factor: 10000.0, cursorRay: cursorRay)
+        let distIn = simd_length(extremeIn.position - extremeIn.target)
+        #expect(abs(distIn - camera.minDistance) <= 1e-3)
+
+        // Extreme zoom out (factor)
+        let extremeOut = Camera.zoom(camera: camera, factor: 0.0001, cursorRay: cursorRay)
+        let distOut = simd_length(extremeOut.position - extremeOut.target)
+        #expect(abs(distOut - camera.maxDistance) <= 1e-3)
+
+        // Extreme zoom in (deltaDistance)
+        let deltaIn = Camera.zoom(camera: camera, deltaDistance: -10000.0, cursorRay: cursorRay)
+        #expect(abs(simd_length(deltaIn.position - deltaIn.target) - camera.minDistance) <= 1e-3)
+
+        // Extreme zoom out (deltaDistance)
+        let deltaOut = Camera.zoom(camera: camera, deltaDistance: 10000.0, cursorRay: cursorRay)
+        #expect(abs(simd_length(deltaOut.position - deltaOut.target) - camera.maxDistance) <= 1e-3)
+    }
+
+    @Test func testOrthographicZoomToCursorKeepsPointStationaryOnScreen() {
+        let camera = Camera(projection: .orthographic)
+        let aspect: Float = 800.0 / 600.0
+        let baseDist = max(10.0, simd_length(camera.position - camera.target))
+        let dist = max(1.0, baseDist * camera.orthographicScale)
+        let halfH = dist * 0.4
+        let halfW = halfH * aspect
+        let proj = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+
+        let cursorRay = screenPointToRay(
+            screenPoint: SIMD2<Float>(520, 240),
+            viewportSize: CGSize(width: 800, height: 600),
+            viewMatrix: viewMatrix,
+            projectionMatrix: proj
+        )!
+
+        let testPoint = cursorRay.intersectPlaneZZero()!
+        let p4Before = proj * viewMatrix * SIMD4<Float>(testPoint, 1.0)
+        let ndcBefore = SIMD2<Float>(p4Before.x, p4Before.y) / p4Before.w
+
+        // Zoom in by factor 2.0
+        let zoomed = Camera.zoom(camera: camera, factor: 2.0, cursorRay: cursorRay)
+        let newBaseDist = max(10.0, simd_length(zoomed.position - zoomed.target))
+        let newDist = max(1.0, newBaseDist * zoomed.orthographicScale)
+        let newHalfH = newDist * 0.4
+        let newHalfW = newHalfH * aspect
+        let newProj = Orientation.makeOrthographic(left: -newHalfW, right: newHalfW, bottom: -newHalfH, top: newHalfH, nearZ: 0.1, farZ: 1000.0)
+        let newView = Orientation.makeLookAt(eye: zoomed.position, target: zoomed.target, up: Orientation.worldUp)
+
+        let p4After = newProj * newView * SIMD4<Float>(testPoint, 1.0)
+        let ndcAfter = SIMD2<Float>(p4After.x, p4After.y) / p4After.w
+
+        #expect(abs(ndcAfter.x - ndcBefore.x) <= 1e-4, "Orthographic cursor point NDC X must remain stationary on screen")
+        #expect(abs(ndcAfter.y - ndcBefore.y) <= 1e-4, "Orthographic cursor point NDC Y must remain stationary on screen")
+    }
+
+    @Test func testOrthographicZoomToCursorClampsToMinAndMaxDistance() {
+        let camera = Camera(projection: .orthographic)
+        let aspect: Float = 800.0 / 600.0
+        let baseDist = max(10.0, simd_length(camera.position - camera.target))
+        let dist = max(1.0, baseDist * camera.orthographicScale)
+        let halfH = dist * 0.4
+        let halfW = halfH * aspect
+        let proj = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+
+        let cursorRay = screenPointToRay(
+            screenPoint: SIMD2<Float>(400, 300),
+            viewportSize: CGSize(width: 800, height: 600),
+            viewMatrix: viewMatrix,
+            projectionMatrix: proj
+        )!
+
+        let effectiveDist = simd_length(camera.position - camera.target)
+        let extremeIn = Camera.zoom(camera: camera, factor: 10000.0, cursorRay: cursorRay)
+        #expect(abs(extremeIn.orthographicScale * effectiveDist - camera.minDistance) <= 1e-3)
+
+        let extremeOut = Camera.zoom(camera: camera, factor: 0.0001, cursorRay: cursorRay)
+        #expect(abs(extremeOut.orthographicScale * effectiveDist - camera.maxDistance) <= 1e-3)
+    }
 }

@@ -243,6 +243,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         public let viewportCoordinator = ViewportCoordinator()
         public let pointerRouter = PointerRouter()
         public var dragState: GizmoDragState? = nil
+        public var activeOrbitPivot: SIMD3<Float>? = nil
         
         private var lastMousePoint: CGPoint = .zero
         private var activeMouseButton: MouseButton? = nil
@@ -365,6 +366,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 shift: isShiftDown
             )
             activeDragAction = action
+            if action == .orbit {
+                activeOrbitPivot = resolveOrbitPivot(at: loc, in: view)
+            }
             (view as? CADMTKView)?.beginDragCursor(for: action)
             _ = pointerRouter.handle(.down(pointerType: pType, pointer: pointer))
         }
@@ -400,7 +404,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     parent.renderer.camera = Camera.orbit(
                         camera: parent.renderer.camera,
                         deltaAzimuth: -deltaX * sensitivity,
-                        deltaElevation: deltaY * sensitivity
+                        deltaElevation: deltaY * sensitivity,
+                        pivot: activeOrbitPivot ?? parent.renderer.camera.target
                     )
                 case .pan:
                     parent.renderer.camera = Camera.pan(
@@ -411,9 +416,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     )
                 case .zoom:
                     guard deltaY != 0 else { return }
+                    let ray = unprojectCursorRay(at: loc, in: view)
                     parent.renderer.camera = Camera.zoom(
                         camera: parent.renderer.camera,
-                        factor: ViewportTool.zoomFactor(forDragDeltaY: deltaY)
+                        factor: ViewportTool.zoomFactor(forDragDeltaY: deltaY),
+                        cursorRay: ray
                     )
                 case .manipulate:
                     return
@@ -661,6 +668,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             let decision = pointerRouter.handle(.up(pointerType: pType, pointerId: button.pointerId))
             activeMouseButton = nil
             activeDragAction = nil
+            activeOrbitPivot = nil
             (mtkView as? CADMTKView)?.endDragCursor()
             
             if let drag = dragState {
@@ -748,6 +756,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             _ = pointerRouter.handle(.cancel(pointerType: .mouse, pointerId: button.pointerId))
             activeMouseButton = nil
             activeDragAction = nil
+            activeOrbitPivot = nil
             (mtkView as? CADMTKView)?.endDragCursor()
             
             if let drag = dragState {
@@ -776,6 +785,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             guard let drag = dragState else { return }
             _ = parent.renderer.removeMesh(for: drag.selectedId)
             dragState = nil
+            activeOrbitPivot = nil
             parent.renderer.activeGizmoHandle = nil
             if activeSnapResult != nil {
                 activeSnapResult = nil
@@ -788,6 +798,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         func handleScrollWheel(with event: NSEvent) {
             guard let view = mtkView else { return }
+            let loc = view.convert(event.locationInWindow, from: nil)
+            let ray = unprojectCursorRay(at: loc, in: view)
             if event.hasPreciseScrollingDeltas {
                 let dx = Float(event.scrollingDeltaX)
                 let dy = Float(event.scrollingDeltaY)
@@ -798,7 +810,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 
                 if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command) {
                     let factor = 1.0 + dy * 0.01
-                    parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
+                    parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor, cursorRay: ray)
                 } else {
                     // 2-finger trackpad pan
                     parent.renderer.camera = Camera.pan(
@@ -818,7 +830,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 guard decision.mode == .navigate else { return }
                 
                 let factor = 1.0 + dy * 0.05
-                parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
+                parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor, cursorRay: ray)
                 invalidate(reason: .camera)
             }
         }
@@ -831,8 +843,57 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             let decision = pointerRouter.handle(.magnify(factor: factor))
             guard decision.mode == .navigate else { return }
             
-            parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
+            guard let view = mtkView else { return }
+            let loc = view.convert(event.locationInWindow, from: nil)
+            let ray = unprojectCursorRay(at: loc, in: view)
+            parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor, cursorRay: ray)
             invalidate(reason: .camera)
+        }
+        
+        public func unprojectCursorRay(at loc: CGPoint, in view: MTKView) -> Ray3D? {
+            let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+            let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+            let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            return screenPointToRay(
+                screenPoint: pointer,
+                viewportSize: view.bounds.size,
+                viewMatrix: matrices.view,
+                projectionMatrix: matrices.projection
+            )
+        }
+        
+        public func resolveOrbitPivot(at loc: CGPoint, in view: MTKView) -> SIMD3<Float> {
+            let ray = unprojectCursorRay(at: loc, in: view)
+            let candidateMeshes = parent.renderer.candidateMeshes()
+            var selectedCenter: SIMD3<Float>? = nil
+            if let selectedId = parent.document.selectedId,
+               let mesh = parent.renderer.meshes[selectedId],
+               !parent.renderer.hiddenSolidIds.contains(selectedId) {
+                let positions = mesh.candidateMesh.positions
+                if !positions.isEmpty {
+                    var localMin = SIMD3<Float>(repeating: Float.greatestFiniteMagnitude)
+                    var localMax = SIMD3<Float>(repeating: -Float.greatestFiniteMagnitude)
+                    for pos in positions {
+                        localMin = simd_min(localMin, pos)
+                        localMax = simd_max(localMax, pos)
+                    }
+                    let localCenter = (localMin + localMax) * 0.5
+                    let center4 = mesh.transform.matrix * SIMD4<Float>(localCenter, 1.0)
+                    if abs(center4.w) > 1e-8 {
+                        selectedCenter = SIMD3<Float>(center4.x, center4.y, center4.z) / center4.w
+                    } else {
+                        selectedCenter = mesh.transform.position
+                    }
+                } else {
+                    selectedCenter = mesh.transform.position
+                }
+            }
+            return MadeCore.resolveOrbitPivot(
+                ray: ray,
+                candidateMeshes: candidateMeshes,
+                selectedSolidCenter: selectedCenter,
+                fallbackTarget: parent.renderer.camera.target
+            )
         }
     }
 }
