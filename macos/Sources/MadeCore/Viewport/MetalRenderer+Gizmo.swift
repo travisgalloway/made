@@ -187,6 +187,7 @@ extension MetalRenderer {
         mesh: MetalMesh,
         viewMatrix: simd_float4x4,
         projMatrix: simd_float4x4,
+        activeGizmoHandle: GizmoHandle?,
         drawCalls: inout Int
     ) {
         var modelTranslation = matrix_identity_float4x4
