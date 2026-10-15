@@ -111,3 +111,29 @@ public func pickSolidAtPointer(
     }
     return pickSolid(ray: ray, candidateMeshes: candidateMeshes)?.id
 }
+
+/// Resolves the 3D orbit pivot point by strict 4-tier precedence:
+/// 1. Surface hit point under the cursor from visible scene geometry (`pickSolid`).
+/// 2. Center/transform of the actively selected solid if cursor misses geometry.
+/// 3. Ground plane intersection (`Ray3D.intersectPlaneZZero()`) if within view distance (<= maxGroundPlaneDistance).
+/// 4. Current `fallbackTarget` (camera target).
+public func resolveOrbitPivot(
+    ray: Ray3D?,
+    candidateMeshes: [CandidateMesh],
+    selectedSolidCenter: SIMD3<Float>?,
+    fallbackTarget: SIMD3<Float>,
+    maxGroundPlaneDistance: Float = 1000.0
+) -> SIMD3<Float> {
+    if let ray, let hit = pickSolid(ray: ray, candidateMeshes: candidateMeshes) {
+        return hit.hitPoint
+    }
+    if let selectedSolidCenter {
+        return selectedSolidCenter
+    }
+    if let ray, let groundHit = ray.intersectPlaneZZero() {
+        if simd_length(groundHit - ray.origin) <= maxGroundPlaneDistance {
+            return groundHit
+        }
+    }
+    return fallbackTarget
+}
