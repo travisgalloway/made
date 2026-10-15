@@ -54,11 +54,25 @@ extension ObjectDef {
     }
 }
 
-public struct MaterialAttributes: Sendable, Equatable {
+public struct MaterialAttributes: Sendable, Equatable, Codable {
     public var color: SIMD4<Float>
     
     public init(color: SIMD4<Float> = SIMD4<Float>(0.35, 0.65, 0.95, 1.0)) {
         self.color = color
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case color
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.color = try container.decodeIfPresent(SIMD4<Float>.self, forKey: .color) ?? SIMD4<Float>(0.35, 0.65, 0.95, 1.0)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(color, forKey: .color)
     }
 }
 
@@ -87,6 +101,124 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.material = material
+    }
+}
+
+extension ObjectDef: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case params
+        case name
+        case assetPath
+        case op
+        case solidA
+        case solidB
+        case url
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+        switch kind {
+        case "box":
+            let params = try container.decode(BoxParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.box(params))
+        case "cylinder":
+            let params = try container.decode(CylinderParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.cylinder(params))
+        case "imported":
+            let name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+            let assetPath = try container.decodeIfPresent(String.self, forKey: .assetPath)
+            let sourceURL = assetPath.map { URL(fileURLWithPath: $0) }
+            self = .imported(name: name, sourceURL: sourceURL, data: nil)
+        case "boolean":
+            let op = try container.decode(BooleanOp.self, forKey: .op)
+            let solidA = try container.decode(ObjectId.self, forKey: .solidA)
+            let solidB = try container.decode(ObjectId.self, forKey: .solidB)
+            self = .boolean(op: op, solidA: solidA, solidB: solidB)
+        case "part":
+            let urlString = try container.decode(String.self, forKey: .url)
+            let url: URL
+            if urlString.hasPrefix("file://"), let parsed = URL(string: urlString) {
+                url = parsed
+            } else {
+                url = URL(fileURLWithPath: urlString)
+            }
+            self = DocumentLimits.clamp(.part(url: url, shape: nil))
+        default:
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .box(let params):
+            try container.encode("box", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .cylinder(let params):
+            try container.encode("cylinder", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .imported(let name, let sourceURL, _):
+            try container.encode("imported", forKey: .kind)
+            try container.encode(name, forKey: .name)
+            if let sourceURL {
+                let filename = sourceURL.lastPathComponent
+                try container.encode("assets/\(filename)", forKey: .assetPath)
+            } else if !name.isEmpty {
+                let filename = (name.hasSuffix(".step") || name.hasSuffix(".stp") || name.hasSuffix(".iges") || name.hasSuffix(".igs")) ? name : "\(name).step"
+                try container.encode("assets/\(filename)", forKey: .assetPath)
+            }
+        case .boolean(let op, let solidA, let solidB):
+            try container.encode("boolean", forKey: .kind)
+            try container.encode(op, forKey: .op)
+            try container.encode(solidA, forKey: .solidA)
+            try container.encode(solidB, forKey: .solidB)
+        case .part(let url, _):
+            try container.encode("part", forKey: .kind)
+            let filename = url.lastPathComponent
+            if url.path.contains("/parts/") || url.path.hasPrefix("parts/") {
+                try container.encode("parts/\(filename)", forKey: .url)
+            } else {
+                try container.encode(url.isFileURL ? url.path : url.absoluteString, forKey: .url)
+            }
+        }
+    }
+}
+
+extension SceneObject: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case def
+        case transform
+        case isVisible
+        case isLocked
+        case material
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(ObjectId.self, forKey: .id)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? id.rawValue
+        self.def = try container.decode(ObjectDef.self, forKey: .def)
+        self.transform = try container.decodeIfPresent(Transform.self, forKey: .transform) ?? .identity
+        self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        self.material = try container.decodeIfPresent(MaterialAttributes.self, forKey: .material) ?? MaterialAttributes()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(def, forKey: .def)
+        try container.encode(transform, forKey: .transform)
+        try container.encode(isVisible, forKey: .isVisible)
+        try container.encode(isLocked, forKey: .isLocked)
+        try container.encode(material, forKey: .material)
     }
 }
 
@@ -237,6 +369,33 @@ public final class DocumentModel {
             )
         ]
         setupUndoObservers()
+    }
+
+    public init(objects: [SceneObject], selectedId: ObjectId? = nil) {
+        self.objects = objects
+        self._selectedId = selectedId ?? objects.first?.id
+        self.seq = Self.computeMaxSequence(objects: objects)
+        setupUndoObservers()
+    }
+
+    public func reset(with newObjects: [SceneObject], selectedId: ObjectId? = nil) {
+        undoManager?.removeAllActions()
+        objects = newObjects
+        seq = Self.computeMaxSequence(objects: newObjects)
+        self.selectedId = selectedId ?? newObjects.first?.id
+        activeInteractiveParamEdit = nil
+        undoStateVersion += 1
+    }
+
+    private static func computeMaxSequence(objects: [SceneObject]) -> Int {
+        var maxSeq = 1
+        for obj in objects {
+            let parts = obj.id.rawValue.split(separator: "-")
+            if parts.count >= 2, let lastNum = Int(parts.last!) {
+                maxSeq = max(maxSeq, lastNum)
+            }
+        }
+        return maxSeq
     }
 
     private func setupUndoObservers() {

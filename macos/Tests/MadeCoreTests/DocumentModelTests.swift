@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import Observation
 import os
+import simd
 @testable import MadeCore
 
 @Suite @MainActor struct DocumentModelTests {
@@ -821,6 +822,281 @@ import os
         ])
         #expect(doc.canUndo)
         #expect(!doc.canRedo)
+    }
+
+    // MARK: - Persistence & Serialization (Issue #83)
+
+    @Test func testDocumentModelSerializationRoundTrip() throws {
+        let doc = DocumentModel()
+        // Add all types of objects
+        let boxId = doc.addObject(
+            ObjectId("custom-box-1"),
+            def: .box(BoxParams(width: 50, depth: 40, height: 30)),
+            transform: Transform(
+                position: SIMD3<Float>(10, 20, 30),
+                rotation: simd_quatf(angle: .pi / 4, axis: SIMD3<Float>(0, 0, 1)),
+                scale: SIMD3<Float>(2, 2, 2)
+            )
+        )
+        doc.setName(id: boxId, name: "My Box")
+        doc.setVisibility(id: boxId, isVisible: false)
+        _ = doc.setMaterial(id: boxId, material: MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1)))
+        doc.setLocked(id: boxId, isLocked: true)
+
+        let cylinderId = doc.addObject(
+            ObjectId("custom-cyl-2"),
+            def: .cylinder(CylinderParams(radius: 20, height: 60))
+        )
+
+        let importedId = doc.addObject(
+            ObjectId("custom-imp-3"),
+            def: .imported(name: "bracket.step", sourceURL: URL(fileURLWithPath: "assets/bracket.step"))
+        )
+
+        let boolId = doc.addObject(
+            ObjectId("custom-bool-4"),
+            def: .boolean(op: .union, solidA: boxId, solidB: cylinderId)
+        )
+
+        let partId = doc.addObject(
+            ObjectId("custom-part-5"),
+            def: .part(url: URL(fileURLWithPath: "/tmp/bracket.part.ts"))
+        )
+
+        doc.selectedId = boolId
+
+        // Encode
+        let encodedData = try DocumentModelCoder.encode(document: doc)
+        #expect(!encodedData.isEmpty)
+        #expect(encodedData.last == UInt8(ascii: "\n"))
+
+        // Decode
+        let decodedData = try DocumentModelCoder.decode(from: encodedData)
+        #expect(decodedData.schemaVersion == 1)
+        #expect(decodedData.selectedId == boolId)
+        #expect(decodedData.objects.count == doc.objects.count)
+
+        // Verify restoration into new DocumentModel
+        let restoredDoc = DocumentModel(objects: decodedData.objects, selectedId: decodedData.selectedId)
+        #expect(restoredDoc.objects.count == doc.objects.count)
+        #expect(restoredDoc.selectedId == boolId)
+
+        // Verify custom box properties
+        guard let restoredBox = restoredDoc.objects.first(where: { $0.id == boxId }) else {
+            Issue.record("Missing restored box")
+            return
+        }
+        #expect(restoredBox.name == "My Box")
+        #expect(!restoredBox.isVisible)
+        #expect(restoredBox.isLocked)
+        #expect(restoredBox.material.color == SIMD4<Float>(1, 0, 0, 1))
+        #expect(restoredBox.transform.position == SIMD3<Float>(10, 20, 30))
+        #expect(restoredBox.transform.scale == SIMD3<Float>(2, 2, 2))
+        if case .box(let p) = restoredBox.def {
+            #expect(p.width == 50)
+            #expect(p.depth == 40)
+            #expect(p.height == 30)
+        } else {
+            Issue.record("Expected box def")
+        }
+
+        // Verify cylinder
+        guard let restoredCyl = restoredDoc.objects.first(where: { $0.id == cylinderId }) else {
+            Issue.record("Missing restored cylinder")
+            return
+        }
+        if case .cylinder(let p) = restoredCyl.def {
+            #expect(p.radius == 20)
+            #expect(p.height == 60)
+        } else {
+            Issue.record("Expected cylinder def")
+        }
+
+        // Verify imported
+        guard let restoredImp = restoredDoc.objects.first(where: { $0.id == importedId }) else {
+            Issue.record("Missing restored imported object")
+            return
+        }
+        if case .imported(let name, let url, _) = restoredImp.def {
+            #expect(name == "bracket.step")
+            #expect(url?.lastPathComponent == "bracket.step")
+        } else {
+            Issue.record("Expected imported def")
+        }
+
+        // Verify boolean
+        guard let restoredBool = restoredDoc.objects.first(where: { $0.id == boolId }) else {
+            Issue.record("Missing restored boolean")
+            return
+        }
+        if case .boolean(let op, let a, let b) = restoredBool.def {
+            #expect(op == .union)
+            #expect(a == boxId)
+            #expect(b == cylinderId)
+        } else {
+            Issue.record("Expected boolean def")
+        }
+
+        // Verify part
+        guard let restoredPart = restoredDoc.objects.first(where: { $0.id == partId }) else {
+            Issue.record("Missing restored part")
+            return
+        }
+        if case .part(let url, _) = restoredPart.def {
+            #expect(url.lastPathComponent == "bracket.part.ts")
+        } else {
+            Issue.record("Expected part def")
+        }
+    }
+
+    @Test func testDocumentModelDecodeClampsOutOfBoundsParameters() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "objects": [
+            {
+              "id": "box-1",
+              "def": {
+                "kind": "box",
+                "params": {
+                  "width": 999.0,
+                  "depth": -50.0,
+                  "height": 0.0
+                }
+              }
+            },
+            {
+              "id": "cylinder-1",
+              "def": {
+                "kind": "cylinder",
+                "params": {
+                  "radius": 500.0,
+                  "height": 2.0
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: json)
+        #expect(decoded.objects.count == 2)
+
+        if case .box(let p) = decoded.objects[0].def {
+            #expect(p.width == DocumentLimits.boxWidth.max)
+            #expect(p.depth == DocumentLimits.boxDepth.min)
+            #expect(p.height == DocumentLimits.boxHeight.min)
+        } else {
+            Issue.record("Expected box def")
+        }
+
+        if case .cylinder(let p) = decoded.objects[1].def {
+            #expect(p.radius == DocumentLimits.cylinderRadius.max)
+            #expect(p.height == DocumentLimits.cylinderHeight.min)
+        } else {
+            Issue.record("Expected cylinder def")
+        }
+    }
+
+    @Test func testDocumentModelDecodeDefaultsMissingOptionalFields() throws {
+        let json = """
+        {
+          "objects": [
+            {
+              "id": "minimal-box",
+              "def": {
+                "kind": "box",
+                "params": {
+                  "width": 20.0,
+                  "depth": 20.0,
+                  "height": 20.0
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: json)
+        #expect(decoded.schemaVersion == 1)
+        #expect(decoded.objects.count == 1)
+
+        let obj = decoded.objects[0]
+        #expect(obj.id == ObjectId("minimal-box"))
+        #expect(obj.name == "minimal-box")
+        #expect(obj.transform == .identity)
+        #expect(obj.isVisible == true)
+        #expect(obj.isLocked == false)
+        #expect(obj.material == MaterialAttributes())
+    }
+
+    @Test func testDocumentModelRejectsCorruptAndTruncatedJSON() {
+        let truncated = "{ \"objects\": [ { \"id\": \"box-1\"".data(using: .utf8)!
+        #expect(throws: (any Error).self) {
+            _ = try DocumentModelCoder.decode(from: truncated)
+        }
+
+        let invalidKind = """
+        {
+          "objects": [
+            {
+              "id": "obj-1",
+              "def": {
+                "kind": "unknown_shape"
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        #expect(throws: (any Error).self) {
+            _ = try DocumentModelCoder.decode(from: invalidKind)
+        }
+    }
+
+    @Test func testDocumentModelResetAndInitMaintainsSequenceCounter() {
+        let initialObjects = [
+            SceneObject(id: ObjectId("box-5"), def: .box(BoxParams(width: 10, depth: 10, height: 10))),
+            SceneObject(id: ObjectId("cylinder-12"), def: .cylinder(CylinderParams(radius: 10, height: 10))),
+            SceneObject(id: ObjectId("boolean-3"), def: .boolean(op: .union, solidA: ObjectId("box-5"), solidB: ObjectId("cylinder-12")))
+        ]
+
+        let doc = DocumentModel(objects: initialObjects, selectedId: ObjectId("cylinder-12"))
+        #expect(doc.selectedId == ObjectId("cylinder-12"))
+
+        // Next reserved ID should be 13 (max 12 + 1)
+        let nextId = doc.reserveId(for: .box(BoxParams(width: 10, depth: 10, height: 10)))
+        #expect(nextId == ObjectId("box-13"))
+
+        // Reset with new objects with max sequence 42
+        let resetObjects = [
+            SceneObject(id: ObjectId("part-42"), def: .part(url: URL(fileURLWithPath: "/tmp/foo.part.ts")))
+        ]
+        doc.reset(with: resetObjects)
+        #expect(doc.objects.count == 1)
+        #expect(doc.selectedId == ObjectId("part-42"))
+
+        let nextAfterReset = doc.reserveId(for: .cylinder(CylinderParams(radius: 10, height: 10)))
+        #expect(nextAfterReset == ObjectId("cylinder-43"))
+    }
+
+    @Test func testQuaternionKeyedAndUnkeyedDecoding() throws {
+        // Keyed {w, x, y, z}
+        let keyedJSON = "{\"w\": 1.0, \"x\": 0.0, \"y\": 0.0, \"z\": 0.0}".data(using: .utf8)!
+        let qKeyed = try JSONDecoder().decode(simd_quatf.self, from: keyedJSON)
+        #expect(qKeyed.real == 1.0)
+        #expect(qKeyed.imag == SIMD3<Float>(0, 0, 0))
+
+        // Unkeyed [x, y, z, w]
+        let unkeyedJSON = "[0.0, 0.0, 0.0, 1.0]".data(using: .utf8)!
+        let qUnkeyed = try JSONDecoder().decode(simd_quatf.self, from: unkeyedJSON)
+        #expect(qUnkeyed.real == 1.0)
+        #expect(qUnkeyed.imag == SIMD3<Float>(0, 0, 0))
+
+        // Alternative keyed {r, ix, iy, iz}
+        let altKeyedJSON = "{\"r\": 1.0, \"ix\": 0.0, \"iy\": 0.0, \"iz\": 0.0}".data(using: .utf8)!
+        let qAltKeyed = try JSONDecoder().decode(simd_quatf.self, from: altKeyedJSON)
+        #expect(qAltKeyed.real == 1.0)
+        #expect(qAltKeyed.imag == SIMD3<Float>(0, 0, 0))
     }
 }
 

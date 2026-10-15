@@ -111,14 +111,19 @@ Both `setParam` and `addObject` apply the size ranges via `DocumentLimits`. The 
 
 ## Native Document Persistence (`.made`)
 
-Planned (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model integrates with Apple's `FileDocument` / `ReferenceFileDocument` protocols as a directory package (`FileWrapper`). No persistence exists today:
-- **Uniform Type Identifier**: `com.made.cad.document` (extension: `.made`, conforming to `com.apple.package` and `public.composite-content`).
+Implemented (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model integrates with Apple's `FileDocument` protocol via `MadeDocument` and `MadePackage` as a directory package (`FileWrapper`):
+- **Uniform Type Identifier**: `com.made.cad.document` (extension: `.made`, conforming to `com.apple.package` and `public.composite-content`). Registered in `Info.plist` and declared via `UTType.madeDocument`.
 - **Package Bundle Architecture** ([ADR-D7](./adr/ADR-D7-made-encoding.md), #376):
-  - `manifest.json`: Schema version (#237), document settings (#238), and custom metadata (#172).
-  - `document.json`: Serialized scene graph, feature list, parameter table (#174), and assembly instances (#161), formatted with sorted keys and 2-space indentation.
+  - `manifest.json`: Schema version (`schemaVersion: 1`), application version, unit settings, and kernel tolerances.
+  - `document.json`: Serialized `DocumentData` (canonical JSON with sorted keys, 2-space indentation, trailing newline, clamping `DocumentLimits` on decode).
   - `parts/`: Plain-text `.part.ts` and `.part.js` part source files that external agents edit directly ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #435, #427).
   - `assets/`: Embedded STEP/IGES binary data (#38) and external reference descriptors (#160).
-  - `cache/`: Regenerable B-rep caches, display meshes, simulation results, and `thumbnail.png` (#248), ignored by Git (#376).
+  - `cache/`: Regenerable B-rep caches, display meshes, simulation results, and `thumbnail.png` (#248), ignored by Git via `cache/.gitignore` containing `*` (#376).
+- **Workspace Integration & Autosave**:
+  - `WorkspaceModel` manages document lifecycle: New (⌘N), Open (⌘O), Save (⌘S), Save As (⇧⌘S).
+  - Window title tracks document filename (or "Untitled CAD Document" when unsaved), displaying document modification state in the window close button and proxy icon.
+  - Background autosave debounces document mutations (`autosaveDebounceNanoseconds`), writing asynchronously when an existing document file URL is bound.
+  - Corrupt packages or unsupported future schema versions surface clean error feedback without corrupting active memory state.
 
 ---
 

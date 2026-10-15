@@ -8,6 +8,24 @@ public struct SolidId: Hashable, Equatable, Sendable, Codable, CustomStringConve
     }
     
     public var description: String { rawValue }
+
+    private enum CodingKeys: String, CodingKey {
+        case rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(), let str = try? container.decode(String.self) {
+            self.rawValue = str
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.rawValue = try container.decode(String.self, forKey: .rawValue)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public struct JobId: Hashable, Equatable, Sendable, Codable, CustomStringConvertible {
@@ -18,6 +36,24 @@ public struct JobId: Hashable, Equatable, Sendable, Codable, CustomStringConvert
     }
     
     public var description: String { rawValue }
+
+    private enum CodingKeys: String, CodingKey {
+        case rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(), let str = try? container.decode(String.self) {
+            self.rawValue = str
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.rawValue = try container.decode(String.self, forKey: .rawValue)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public struct BoxParams: Hashable, Equatable, Sendable, Codable {
