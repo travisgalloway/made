@@ -235,16 +235,31 @@ import simd
             #expect(camera.target == Camera.defaultTarget)
             let dist = simd_length(camera.position - camera.target)
             #expect(abs(dist - 150.0) <= 1e-2)
+            
+            let lookAt = Orientation.makeLookAt(eye: camera.position, target: camera.target)
+            #expect(!lookAt.columns.0.x.isNaN && !lookAt.columns.0.x.isInfinite)
+            #expect(!lookAt.columns.1.y.isNaN && !lookAt.columns.1.y.isInfinite)
+            #expect(!lookAt.columns.2.z.isNaN && !lookAt.columns.2.z.isInfinite)
+            #expect(!lookAt.columns.3.w.isNaN && !lookAt.columns.3.w.isInfinite)
         }
         
         let top = Camera.preset(.top)
         #expect(top.position.z > top.target.z)
         
+        let bottom = Camera.preset(.bottom)
+        #expect(bottom.position.z < bottom.target.z)
+        
         let front = Camera.preset(.front)
         #expect(front.position.y < front.target.y)
         
+        let back = Camera.preset(.back)
+        #expect(back.position.y > back.target.y)
+        
         let right = Camera.preset(.right)
         #expect(right.position.x > right.target.x)
+        
+        let left = Camera.preset(.left)
+        #expect(left.position.x < left.target.x)
     }
     
     @Test func testMakeOrthographicProjection() {

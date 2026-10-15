@@ -115,10 +115,49 @@ struct ViewNavigationCommands: Commands {
             Divider()
 
             Menu("View Angle") {
-                ForEach(ViewportPerspective.allCases) { perspective in
-                    Button(perspective.rawValue) {
-                        workspace.applyPerspective(perspective)
-                    }
+                Button("Front") {
+                    workspace.applyPerspective(.front)
+                }
+                .keyboardShortcut(WorkspaceModel.viewFrontShortcutKey, modifiers: WorkspaceModel.viewShortcutModifiers)
+
+                Button("Top") {
+                    workspace.applyPerspective(.top)
+                }
+                .keyboardShortcut(WorkspaceModel.viewTopShortcutKey, modifiers: WorkspaceModel.viewShortcutModifiers)
+
+                Button("Right") {
+                    workspace.applyPerspective(.right)
+                }
+                .keyboardShortcut(WorkspaceModel.viewRightShortcutKey, modifiers: WorkspaceModel.viewShortcutModifiers)
+
+                Button("Isometric") {
+                    workspace.applyPerspective(.isometric)
+                }
+                .keyboardShortcut(WorkspaceModel.viewIsometricShortcutKey, modifiers: WorkspaceModel.viewShortcutModifiers)
+
+                Divider()
+
+                Button("Normal To") {
+                    workspace.alignNormalTo()
+                }
+                .keyboardShortcut(WorkspaceModel.viewNormalToShortcutKey, modifiers: WorkspaceModel.viewShortcutModifiers)
+
+                Divider()
+
+                Button("Back") {
+                    workspace.applyPerspective(.back)
+                }
+
+                Button("Left") {
+                    workspace.applyPerspective(.left)
+                }
+
+                Button("Bottom") {
+                    workspace.applyPerspective(.bottom)
+                }
+
+                Button("Perspective") {
+                    workspace.applyPerspective(.perspective)
                 }
             }
 

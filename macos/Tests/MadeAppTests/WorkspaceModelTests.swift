@@ -1,5 +1,6 @@
 import Testing
 import SwiftUI
+import simd
 @testable import MadeApp
 import MadeCore
 
@@ -488,6 +489,11 @@ import MadeCore
         #expect(WorkspaceModel.toolPanShortcutKey == "3")
         #expect(WorkspaceModel.toolZoomShortcutKey == "4")
         #expect(WorkspaceModel.consoleShortcutKey == "y")
+        #expect(WorkspaceModel.viewFrontShortcutKey == "1")
+        #expect(WorkspaceModel.viewTopShortcutKey == "2")
+        #expect(WorkspaceModel.viewRightShortcutKey == "3")
+        #expect(WorkspaceModel.viewIsometricShortcutKey == "7")
+        #expect(WorkspaceModel.viewNormalToShortcutKey == "8")
 
         // Assert exact modifier combinations
         #expect(WorkspaceModel.deleteShortcutModifiers == [.command])
@@ -503,6 +509,7 @@ import MadeCore
         #expect(WorkspaceModel.mcpServerShortcutModifiers == [.command, .shift])
         #expect(WorkspaceModel.toolShortcutModifiers == [.command, .option])
         #expect(WorkspaceModel.consoleShortcutModifiers == [.command, .shift])
+        #expect(WorkspaceModel.viewShortcutModifiers == [.control])
 
         // Verify Invariant 8: All menu shortcuts strictly include at least one modifier key (.command, .shift, .option, .control)
         // so they never collide with plain-key viewport tools (V, O, P, Z, F, H, =, -) or intercept text field editing.
@@ -519,7 +526,8 @@ import MadeCore
             WorkspaceModel.resetViewShortcutModifiers,
             WorkspaceModel.mcpServerShortcutModifiers,
             WorkspaceModel.toolShortcutModifiers,
-            WorkspaceModel.consoleShortcutModifiers
+            WorkspaceModel.consoleShortcutModifiers,
+            WorkspaceModel.viewShortcutModifiers
         ]
 
         let standardModifiers: EventModifiers = [.command, .shift, .option, .control]
@@ -634,5 +642,81 @@ import MadeCore
 
         model.cancelActiveCommand()
         #expect(model.activeCommand == nil)
+    }
+
+    @Test @MainActor func testAlignNormalToWithSelectedSolidAndFlip() {
+        let model = WorkspaceModel()
+        model.setUp()
+        let boxId = ObjectId("box-1")
+        model.selectedId = boxId
+
+        // Initial identity rotation -> transformed normal is worldUp +Z: (0, 0, 1)
+        model.alignNormalTo()
+        #expect(model.camera.target == model.selectedObject?.transform.position)
+        #expect(model.camera.position.z > model.camera.target.z)
+        let initialDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(initialDir.z > 0.99)
+
+        // Second activation flips 180° to looking from -Z
+        model.alignNormalTo()
+        let flippedDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(flippedDir.z < -0.99)
+
+        // Rotate object 90° around X axis (worldUp (0,0,1) rotates to (0, -1, 0))
+        let rotX = simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(1, 0, 0))
+        model.setTransform(boxId, Transform(position: SIMD3<Float>(15, 25, 35), rotation: rotX))
+
+        model.alignNormalTo()
+        #expect(model.camera.target == SIMD3<Float>(15, 25, 35))
+        let rotatedDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(abs(rotatedDir.x) < 1e-3)
+        #expect(rotatedDir.y < -0.99) // Normal points along -Y
+        #expect(abs(rotatedDir.z) < 1e-3)
+
+        // Flip rotated normal
+        model.alignNormalTo()
+        let rotatedFlippedDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(rotatedFlippedDir.y > 0.99) // Normal flipped to +Y
+
+        // Test unselected fallback to ground plane (0, 0, 1)
+        model.selectedId = nil
+        model.alignNormalTo()
+        let groundDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(groundDir.z > 0.99)
+
+        // Repeated unselected activation flips 180°
+        model.alignNormalTo()
+        let groundFlippedDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(groundFlippedDir.z < -0.99)
+    }
+
+    @Test @MainActor func testApplyViewCubeRegion() {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        // Home region sets perspective view reset
+        model.applyViewCubeRegion(.home)
+        let resetCam = Camera.preset(.perspective)
+        #expect(simd_length(model.camera.position - resetCam.position) <= 1e-2)
+
+        // Face region sets orthogonal preset
+        model.applyViewCubeRegion(.face(.top))
+        #expect(model.perspective == .top)
+        #expect(model.camera.position.z > model.camera.target.z)
+
+        model.applyViewCubeRegion(.face(.front))
+        #expect(model.perspective == .front)
+        #expect(model.camera.position.y < model.camera.target.y)
+
+        // Edge region
+        model.applyViewCubeRegion(.edge(.top, .front))
+        #expect(model.camera.position.z > model.camera.target.z)
+        #expect(model.camera.position.y < model.camera.target.y)
+
+        // Corner region
+        model.applyViewCubeRegion(.corner(.top, .front, .right))
+        #expect(model.camera.position.z > model.camera.target.z)
+        #expect(model.camera.position.y < model.camera.target.y)
+        #expect(model.camera.position.x > model.camera.target.x)
     }
 }
