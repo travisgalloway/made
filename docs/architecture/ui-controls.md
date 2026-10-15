@@ -54,6 +54,7 @@ The window uses system primitives for its chrome, and one button style per conte
 - Position and scale have three numeric fields each, with X, Y, and Z captions.
 - Every numeric field is a `CommitNumberField`. It edits a text draft and writes to the model only on Return or focus loss, then shows the model's value, which may be clamped. A field bound directly to the model reformatted its text after each keystroke.
 - Each dimension has a numeric millimeter field and a 1-mm stepper, with accessibility names and values in millimeters. Both call `DocumentModel.setParam(id:key:value:)`, which clamps to the `DocumentLimits` ranges, then requests tessellation from `KernelClient`, which debounces it.
+- When no object is selected (`selectedObject == nil`), the Inspector displays an empty state (`ContentUnavailableView`) with the message "No Object Selected". Imported meshes (`.imported`) display identity and transform fields without editable dimension fields.
 
 ### 4. Console
 - [`ConsoleDrawerView`](../../macos/Sources/MadeApp/ConsoleDrawerView.swift) sits in a `VSplitView` below the viewport, so its height can be dragged. It appears when `WorkspaceModel.isConsoleVisible` is set. Its footer holds the filter field and the clear button.

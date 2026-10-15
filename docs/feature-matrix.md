@@ -108,11 +108,11 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-15 | An agent tool call changes the document on the main actor, so it cannot race a SwiftUI read of the same document; the stdio and TCP transports both hop through the `@MainActor` registry | none | done | done | Shipped | #91 | n/a |
 | UI-1 | A user can switch the sidebar between Inspector and AI Copilot with a segmented picker | none | n/a | n/a | Deprecated |  | n/a |
 | UI-2 | A user can choose the selected solid by clicking a row in the Navigator's Scene list (was a menu picker "Active Solid"; moved) | done | n/a | n/a | Shipped | #34 | n/a |
-| UI-3 | A user can set box width (X) from the inspector numeric field or 1-mm stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
-| UI-4 | A user can set box depth (Y) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
-| UI-5 | A user can set box height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
-| UI-6 | A user can set cylinder radius from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
-| UI-7 | A user can set cylinder height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #106, #446 | n/a |
+| UI-3 | A user can set box width (X) from the inspector numeric field or 1-mm stepper | done | n/a | n/a | Shipped | #67, #70, #106, #446 | n/a |
+| UI-4 | A user can set box depth (Y) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #70, #106, #446 | n/a |
+| UI-5 | A user can set box height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #70, #106, #446 | n/a |
+| UI-6 | A user can set cylinder radius from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #70, #106, #446 | n/a |
+| UI-7 | A user can set cylinder height (Z) from the inspector numeric field or stepper | done | n/a | n/a | Shipped | #67, #70, #106, #446 | n/a |
 | UI-8 | A user can see an imported solid's name in the inspector (read-only) | done | n/a | n/a | Shipped |  | n/a |
 | UI-9 | A user sees the changed solid re-tessellated and redrawn after a dimension change, using the solid's current transform, color and visibility directly; a solid removed during the recompute stays removed | done | n/a | n/a | Shipped | #66, #92, #94 | n/a |
 | UI-10 | A user sees the initial two-solid scene generated at launch | done | n/a | n/a | Shipped |  | n/a |
@@ -124,7 +124,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-16 | A user can add a box from the GUI (was Geometry > Add Box with an empty action; moved to Navigator Add > Box Solid, fixed 30x30x30 mm) | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-17 | A user can add a cylinder from the GUI (was Geometry > Add Cylinder; moved to Navigator Add > Cylinder Solid, radius 12, height 35 mm) | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-18 | A user can choose Geometry > Import STEP File... (Cmd+Shift+I) | none | n/a | n/a | Deprecated | #38 | n/a |
-| UI-19 | A user can type exact dimension values in the inspector (numeric fields with a 1-mm stepper, clamped to `DocumentLimits`) | done | n/a | n/a | Shipped | #446 | n/a |
+| UI-19 | A user can type exact dimension values in the inspector (numeric fields with a 1-mm stepper, clamped to `DocumentLimits`) | done | n/a | n/a | Shipped | #70, #446 | n/a |
 | UI-20 | A user can edit an object's X, Y and Z position in the inspector | done | n/a | n/a | Shipped | #70 | n/a |
 | UI-21 | A user sees an inline warning next to a parameter the kernel rejected | done | n/a | done | Shipped | #109 | n/a |
 | UI-22 | A user can remove a solid from the GUI | done | n/a | n/a | Shipped | #73 | n/a |

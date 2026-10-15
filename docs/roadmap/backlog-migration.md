@@ -44,7 +44,7 @@ The following issues represent core CAD features that remain open and have been 
 | **#66** | Multi-object scene generalization | Open. `DocumentModel` holds an array of objects and `MetalRenderer` draws several meshes. Generalizing the scene (positions, per-object rotation and scale) is not done. |
 | **#67** | Parametric panel adaptation | Open. The Inspector (`InspectorPanelView.swift`) has sliders for dimensions and numeric fields for position and scale. Numeric dimension fields are not built. |
 | **#69** | Selection model state | Open. `WorkspaceModel.selectedId` holds the selection, set by the Navigator list. The document has no selection state and the viewport has no picking. |
-| **#70** | Selection-driven inspector | Open. The Inspector follows the Navigator selection. Typed dimension fields are not built. |
+| **#70** | Selection-driven inspector | Delivered. The Inspector follows the Navigator and viewport selection. Dimensions have typed numeric fields with 1-mm steppers, clamped to DocumentLimits. |
 | **#71** | Gizmo write-back (move/rotate) | Metal 4 transform handles writing to `DocumentModel.setTransform`. |
 | **#72** | Gizmo resize with GPU preview | Scale matrix preview during drag, single debounced kernel tessellation on release. |
 | **#73** | Add / remove objects | Open. `addObject` and `removeObject` run through agent tools and through the Navigator Add menu and Delete action (`NavigatorSidebarView.swift`). |
