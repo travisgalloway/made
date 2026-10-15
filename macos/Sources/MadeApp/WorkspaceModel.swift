@@ -226,6 +226,10 @@ final class WorkspaceModel {
         let angular = defaults.object(forKey: Self.angularToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.angularToleranceDefaultsKey) : KernelTolerances.defaultAngularTolerance
         let chordal = defaults.object(forKey: Self.chordalToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.chordalToleranceDefaultsKey) : KernelTolerances.defaultChordalTolerance
         self.kernelTolerances = KernelTolerances(linearTolerance: linear, angularTolerance: angular, chordalTolerance: chordal).clamped()
+
+        self.document.onUndoRedoMutation = { [weak self] mutation in
+            self?.handleUndoRedoMutation(mutation)
+        }
     }
 
     func resetSettingsToDefaults() {
@@ -716,6 +720,79 @@ final class WorkspaceModel {
         }
     }
 
+    // MARK: - Undo & Redo
+
+    var undoManager: UndoManager? {
+        document.undoManager
+    }
+
+    var canUndo: Bool {
+        document.canUndo
+    }
+
+    var canRedo: Bool {
+        document.canRedo
+    }
+
+    var undoTitle: String {
+        document.undoActionTitle
+    }
+
+    var redoTitle: String {
+        document.redoActionTitle
+    }
+
+    func undo() {
+        document.undo()
+    }
+
+    func redo() {
+        document.redo()
+    }
+
+    func beginInteractiveParamEdit(_ id: ObjectId, _ key: String) {
+        document.beginInteractiveParamEdit(id: id, key: key)
+    }
+
+    func endInteractiveParamEdit(_ id: ObjectId, _ key: String) {
+        document.endInteractiveParamEdit(id: id, key: key)
+    }
+
+    func handleUndoRedoMutation(_ mutation: DocumentMutation) {
+        switch mutation {
+        case .added(let id):
+            selectedId = id
+            recomputeSolid(id: id)
+            invalidateViewport(.model)
+
+        case .removed(let id):
+            partReloadController?.stopWatching(id: id)
+            Task {
+                await kernelClient.dispose(solidId: id)
+                for depId in self.document.dependentObjects(of: id) {
+                    self.recomputeSolid(id: depId)
+                }
+            }
+            recomputeFailures.clear(id)
+            if let renderer = viewportManager.renderer {
+                _ = SolidMeshApplier.remove(id: id, from: renderer)
+            }
+            log(.info, "Scene", "Removed object \(id.rawValue)")
+            invalidateViewport(.model)
+
+        case .paramChanged(let id, let key, let value):
+            log(.kernel, "CSG", "Updated \(id.rawValue) \(key) to \(String(format: "%.1f", value))")
+            recomputeSolid(id: id)
+
+        case .transformChanged(let id, let transform):
+            if let renderer = viewportManager.renderer {
+                _ = SolidMeshApplier.applyTransform(to: id, document: document, sink: renderer)
+            }
+            log(.info, "Scene", "Updated \(id.rawValue) transform to position \(formatVec3(transform.position)) scale \(formatVec3(transform.scale))")
+            invalidateViewport(.model)
+        }
+    }
+
     #if DEBUG
     /// Forces the next recompute of any solid to fail, so the failure message can be checked by hand.
     func failNextRecompute() {
@@ -915,6 +992,12 @@ final class WorkspaceModel {
 
     // MARK: - Keyboard Shortcuts & Modifiers (BL-MAC-04)
 
+    static let undoShortcutKey: KeyEquivalent = "z"
+    static let undoShortcutModifiers: EventModifiers = [.command]
+
+    static let redoShortcutKey: KeyEquivalent = "z"
+    static let redoShortcutModifiers: EventModifiers = [.command, .shift]
+
     static let deleteShortcutKey: KeyEquivalent = .delete
     static let deleteShortcutModifiers: EventModifiers = [.command]
 
@@ -1010,6 +1093,8 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Isometric View", shortcut: "⌃7", category: .navigation, description: "Align camera to standard isometric viewpoint"),
         ShortcutCheatsheetEntry(title: "Normal To", shortcut: "⌃8", category: .navigation, description: "Align camera perpendicular to selected solid's active face or flip 180°"),
 
+        ShortcutCheatsheetEntry(title: "Undo", shortcut: "⌘Z", category: .editing, description: "Undo last parameter, transform, add, or delete edit"),
+        ShortcutCheatsheetEntry(title: "Redo", shortcut: "⇧⌘Z", category: .editing, description: "Redo previously undone edit"),
         ShortcutCheatsheetEntry(title: "Add Box", shortcut: "⇧⌘B", category: .editing, description: "Add new parametric box solid to document"),
         ShortcutCheatsheetEntry(title: "Add Cylinder", shortcut: "⇧⌘C", category: .editing, description: "Add new parametric cylinder solid to document"),
         ShortcutCheatsheetEntry(title: "Hide/Show Solid", shortcut: "⇧⌘H", category: .editing, description: "Toggle visibility of selected solid"),

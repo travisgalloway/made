@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 157 capabilities with their implementation status. The matrix shows 101 Shipped, 39 In progress, 11 Planned, and 6 Deprecated rows.
+Table 1 lists 158 capabilities with their implementation status. The matrix shows 102 Shipped, 39 In progress, 11 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -21,6 +21,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
 - INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69.
 - DOC-8 is Shipped. Interactive viewport gizmo manipulation (translation arrows, rotation rings, and scale cubes with two-physics parameter conversion) with on-demand invalidation and single release commit was implemented under #71 (Phase 4.19) and #72 (Phase 4.20).
+- DOC-16 is Shipped. Document model undo/redo registration for parameter, transform, add, and remove edits with Edit menu commands (⌘Z / ⇧⌘Z), selective re-tessellation, zero-kernel transform updates, and continuous slider drag coalescing was implemented under #39.
 - WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. Each side pane has a tab bar with one tab, and the Inspector's Properties tab is one form, and the viewport header breadcrumb is a static label.
 - WORKSPACE-2 is Shipped. The command panel pattern with dual placement (Inspector vs floating HUD) and non-covering HUD placement algorithm was implemented under #315.
 - WORKSPACE-3 is Shipped. The native macOS multi-tab Settings window (`Cmd+,`) with General, Units, Navigation, Display, Tolerances, and Shortcuts tabs, UserDefaults persistence, live viewport overlay updates, and CAD navigation presets was implemented under #398.
@@ -110,6 +111,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-13 | A user can lock or unlock an object (`isLocked` flag); locked objects reject parameter edits, transform edits, material changes, and removal across core mutators, workspace actions, inspector controls, viewport gizmo manipulation, and MCP tools | done | done | done | Shipped | #127 | n/a |
 | DOC-14 | A user sees each object drawn in its material color (default light blue) and can change a solid's material color in the Inspector; the viewport mesh and stored object follow | done | done | done | Shipped | #137 | n/a |
 | DOC-15 | An agent tool call changes the document on the main actor, so it cannot race a SwiftUI read of the same document; the stdio and TCP transports both hop through the `@MainActor` registry | none | done | done | Shipped | #91 | n/a |
+| DOC-16 | A user can undo and redo parameter, transform, add, and remove edits via Edit > Undo (⌘Z) and Redo (⇧⌘Z); transform undo updates Metal buffers directly without kernel recomputes, parameter undo triggers selective re-tessellation, slider dragging coalesces into a single undo step, and remove then undo restores the identical ObjectId | done | done | done | Shipped | #39 | n/a |
 | UI-1 | A user can switch the sidebar between Inspector and AI Copilot with a segmented picker | none | n/a | n/a | Deprecated |  | n/a |
 | UI-2 | A user can browse every scene object in the Navigator's Scene list showing its name, ID, kind badge, and parameter summary, and choose the selected solid by clicking a row (with Inspector kept in sync) | done | done | done | Shipped | #34, #124 | n/a |
 | UI-3 | A user can set box width (X) from the inspector numeric field or 1-mm stepper | done | n/a | n/a | Shipped | #67, #70, #106, #446 | n/a |

@@ -473,6 +473,8 @@ import MadeCore
 
     @Test @MainActor func testMenuShortcutConstantsAndModifiers() {
         // Assert keys
+        #expect(WorkspaceModel.undoShortcutKey == "z")
+        #expect(WorkspaceModel.redoShortcutKey == "z")
         #expect(WorkspaceModel.deleteShortcutKey == .delete)
         #expect(WorkspaceModel.addBoxShortcutKey == "b")
         #expect(WorkspaceModel.addCylinderShortcutKey == "c")
@@ -496,6 +498,8 @@ import MadeCore
         #expect(WorkspaceModel.viewNormalToShortcutKey == "8")
 
         // Assert exact modifier combinations
+        #expect(WorkspaceModel.undoShortcutModifiers == [.command])
+        #expect(WorkspaceModel.redoShortcutModifiers == [.command, .shift])
         #expect(WorkspaceModel.deleteShortcutModifiers == [.command])
         #expect(WorkspaceModel.addBoxShortcutModifiers == [.command, .shift])
         #expect(WorkspaceModel.addCylinderShortcutModifiers == [.command, .shift])
@@ -514,6 +518,8 @@ import MadeCore
         // Verify Invariant 8: All menu shortcuts strictly include at least one modifier key (.command, .shift, .option, .control)
         // so they never collide with plain-key viewport tools (V, O, P, Z, F, H, =, -) or intercept text field editing.
         let allModifierSets: [EventModifiers] = [
+            WorkspaceModel.undoShortcutModifiers,
+            WorkspaceModel.redoShortcutModifiers,
             WorkspaceModel.deleteShortcutModifiers,
             WorkspaceModel.addBoxShortcutModifiers,
             WorkspaceModel.addCylinderShortcutModifiers,
@@ -913,6 +919,115 @@ import MadeCore
             #expect(!entry.shortcut.isEmpty)
             #expect(!entry.description.isEmpty)
         }
+
+        #expect(shortcuts.contains(where: { $0.title == "Undo" && $0.shortcut == "⌘Z" }))
+        #expect(shortcuts.contains(where: { $0.title == "Redo" && $0.shortcut == "⇧⌘Z" }))
+    }
+
+    @Test @MainActor func testWorkspaceUndoRedoMenuCommands() {
+        let model = WorkspaceModel()
+        #expect(!model.canUndo)
+        #expect(!model.canRedo)
+        #expect(model.undoTitle == "Undo")
+        #expect(model.redoTitle == "Redo")
+
+        model.setParam(ObjectId("box-1"), "width", 60.0)
+        #expect(model.canUndo)
+        #expect(!model.canRedo)
+        #expect(model.undoTitle == "Undo Change Width")
+
+        model.undo()
+        #expect(!model.canUndo)
+        #expect(model.canRedo)
+        #expect(model.redoTitle == "Redo Change Width")
+
+        model.redo()
+        #expect(model.canUndo)
+        #expect(!model.canRedo)
+        #expect(model.undoTitle == "Undo Change Width")
+    }
+
+    @Test @MainActor func testWorkspaceUndoRedoSelectiveRecompute() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        // Settle initial setup recomputes
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        await model.updateKernelStats()
+        let initialStats = await model.kernelClient.getStats()
+
+        // Edit box-1 parameter
+        model.setParam(boxId, "width", 55.0)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        await model.updateKernelStats()
+        let afterEditStats = await model.kernelClient.getStats()
+        #expect(afterEditStats.dispatched - initialStats.dispatched == 1)
+
+        // Undo parameter edit: only box-1 should recompute
+        model.undo()
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        await model.updateKernelStats()
+        let afterUndoStats = await model.kernelClient.getStats()
+        #expect(afterUndoStats.dispatched - afterEditStats.dispatched == 1)
+        #expect(afterUndoStats.completed - afterEditStats.completed == 1)
+
+        // Redo parameter edit: only box-1 should recompute
+        model.redo()
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        await model.updateKernelStats()
+        let afterRedoStats = await model.kernelClient.getStats()
+        #expect(afterRedoStats.dispatched - afterUndoStats.dispatched == 1)
+        #expect(afterRedoStats.completed - afterUndoStats.completed == 1)
+    }
+
+    @Test @MainActor func testWorkspaceUndoRedoTransformDoesNotDispatchKernel() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        await model.updateKernelStats()
+        let statsBefore = await model.kernelClient.getStats()
+
+        var newTransform = Transform()
+        newTransform.position = SIMD3<Float>(10, 20, 30)
+
+        model.setTransform(boxId, newTransform)
+        let statsAfterMove = await model.kernelClient.getStats()
+        #expect(statsAfterMove.dispatched == statsBefore.dispatched)
+
+        // Undo transform move
+        model.undo()
+        let statsAfterUndo = await model.kernelClient.getStats()
+        #expect(statsAfterUndo.dispatched == statsBefore.dispatched)
+        #expect(model.document.objects.first(where: { $0.id == boxId })?.transform != newTransform)
+
+        // Redo transform move
+        model.redo()
+        let statsAfterRedo = await model.kernelClient.getStats()
+        #expect(statsAfterRedo.dispatched == statsBefore.dispatched)
+        #expect(model.document.objects.first(where: { $0.id == boxId })?.transform == newTransform)
     }
 
     @Test @MainActor func testEditingOperandParameterRecomputesDependentBooleanOnly() async throws {
