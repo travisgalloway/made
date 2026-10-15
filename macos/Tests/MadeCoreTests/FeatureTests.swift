@@ -332,4 +332,32 @@ import simd
         #expect(synthesized.inputExpressions["depth"]?.value == 20.0)
         #expect(synthesized.inputExpressions["height"]?.value == 10.0)
     }
+
+    @Test func testBooleanFeatureDataKeepToolSerializationAndBackwardCompatibility() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        // With keepTool: true
+        let dataWithKeepTool = BooleanFeatureData(op: .union, targetSolidId: SolidId("a"), toolSolidId: SolidId("b"), keepTool: true)
+        let encoded = try encoder.encode(dataWithKeepTool)
+        let decoded = try decoder.decode(BooleanFeatureData.self, from: encoded)
+        #expect(decoded.op == .union)
+        #expect(decoded.targetSolidId == SolidId("a"))
+        #expect(decoded.toolSolidId == SolidId("b"))
+        #expect(decoded.keepTool == true)
+
+        // Legacy JSON without keepTool key defaults to false
+        let legacyJSON = """
+        {
+          "op": "subtract",
+          "targetSolidId": "box-1",
+          "toolSolidId": "cylinder-1"
+        }
+        """.data(using: .utf8)!
+        let legacyDecoded = try decoder.decode(BooleanFeatureData.self, from: legacyJSON)
+        #expect(legacyDecoded.op == .subtract)
+        #expect(legacyDecoded.targetSolidId == SolidId("box-1"))
+        #expect(legacyDecoded.toolSolidId == SolidId("cylinder-1"))
+        #expect(legacyDecoded.keepTool == false)
+    }
 }

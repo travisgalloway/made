@@ -138,7 +138,8 @@ public final class CADToolRegistry {
                     properties: [
                         "solidA": MCPProperty(type: "string", description: "Target solid ID (e.g. 'box-1')"),
                         "solidB": MCPProperty(type: "string", description: "Tool/cutter solid ID (e.g. 'cylinder-1')"),
-                        "operation": MCPProperty(type: "string", description: "Operation: 'subtract', 'union', or 'intersect'", enum: ["subtract", "union", "intersect"])
+                        "operation": MCPProperty(type: "string", description: "Operation: 'subtract', 'union', or 'intersect'", enum: ["subtract", "union", "intersect"]),
+                        "keepTool": MCPProperty(type: "boolean", description: "Optional: If true, keep the tool solid visible. If false, hide both operands. When omitted, operand visibility is preserved.")
                     ],
                     required: ["solidA", "solidB", "operation"]
                 )
@@ -997,6 +998,15 @@ public final class CADToolRegistry {
         guard solidA != solidB else {
             return .error("Operands 'solidA' and 'solidB' must be different solids, but both are '\(solidAStr)'")
         }
+        let keepTool: Bool?
+        if let raw = arguments["keepTool"] {
+            guard let b = raw.boolValue else {
+                return .error("Argument 'keepTool' must be a boolean")
+            }
+            keepTool = b
+        } else {
+            keepTool = nil
+        }
         await settleRecomputes(for: [solidA, solidB])
         let def = ObjectDef.boolean(op: op, solidA: solidA, solidB: solidB)
         let outputId = document.reserveId(for: def)
@@ -1016,6 +1026,10 @@ public final class CADToolRegistry {
                 return .error("Solid '\(missing)' was removed while the boolean \(opStr) was running")
             }
             document.addObject(outputId, def: def)
+            if let keepTool {
+                document.setVisibility(id: solidA, isVisible: false)
+                document.setVisibility(id: solidB, isVisible: keepTool)
+            }
             if let sink = meshSink, SolidMeshApplier.apply(result, to: outputId, document: document, sink: sink) {
                 onViewportInvalidated?()
             }

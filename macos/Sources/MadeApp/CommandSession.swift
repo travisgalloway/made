@@ -450,6 +450,11 @@ extension CommandSession {
                     id: "operation",
                     label: "Operation",
                     value: .choice("Subtract", options: ["Subtract", "Union", "Intersect"])
+                ),
+                CommandInput(
+                    id: "keepTool",
+                    label: "Keep Tool",
+                    value: .toggle(false)
                 )
             ],
             isPreviewEnabled: true
@@ -531,9 +536,10 @@ extension CommandSession {
             let def = ObjectDef.boolean(op: op, solidA: a, solidB: b)
             let newId = workspace.document.reserveId(for: def)
 
-            // Hide operands but retain in document
+            // Hide target solid A; tool solid B visibility depends on keepTool
             workspace.setVisibility(a, isVisible: false)
-            workspace.setVisibility(b, isVisible: false)
+            let keepTool = session.toggleValue(for: "keepTool") ?? false
+            workspace.setVisibility(b, isVisible: keepTool)
 
             workspace.document.addObject(newId, def: def)
             workspace.selectedId = newId

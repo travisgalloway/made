@@ -58,27 +58,59 @@ public actor LocalKernelEngine: KernelEngine {
             return .success(jobId: jobId, value: mesh)
             
         case .booleanOperation(_, let sId, let op, let solidA, let solidB):
-            guard let meshA = euclidMeshes[solidA] else {
-                return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid A '\(solidA)' not found for CSG boolean"))
+            let shapeA = occtShapes[solidA]
+            let shapeB = occtShapes[solidB]
+            let euclidA = euclidMeshes[solidA]
+            let euclidB = euclidMeshes[solidB]
+
+            guard shapeA != nil || euclidA != nil else {
+                return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid A '\(solidA)' not found for boolean operation"))
             }
-            guard let meshB = euclidMeshes[solidB] else {
-                return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid B '\(solidB)' not found for CSG boolean"))
+            guard shapeB != nil || euclidB != nil else {
+                return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid B '\(solidB)' not found for boolean operation"))
             }
-            
-            let resultMesh: Euclid.Mesh
-            switch op {
-            case .subtract:
-                resultMesh = EuclidEngine.subtract(meshA, meshB)
-            case .union:
-                resultMesh = EuclidEngine.union(meshA, meshB)
-            case .intersect:
-                resultMesh = EuclidEngine.intersect(meshA, meshB)
+
+            if let shapeA, let shapeB {
+                do {
+                    let resultShape = try OCCTEngine.booleanOperation(op: op, shapeA: shapeA, shapeB: shapeB)
+                    if let resultShape {
+                        occtShapes[sId] = resultShape
+                        if let payload = OCCTEngine.toMeshPayload(resultShape), !payload.isEmpty {
+                            solids[sId] = payload
+                            return .success(jobId: jobId, value: payload)
+                        } else {
+                            let emptyPayload = MeshPayload(positions: [], normals: [], indices: [])
+                            solids[sId] = emptyPayload
+                            return .success(jobId: jobId, value: emptyPayload)
+                        }
+                    } else if op == .intersect {
+                        let emptyPayload = MeshPayload(positions: [], normals: [], indices: [])
+                        solids[sId] = emptyPayload
+                        return .success(jobId: jobId, value: emptyPayload)
+                    } else {
+                        return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Boolean \(op.rawValue) operation failed"))
+                    }
+                } catch {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Boolean \(op.rawValue) operation failed: \(error)"))
+                }
+            } else if let meshA = euclidA, let meshB = euclidB {
+                let resultMesh: Euclid.Mesh
+                switch op {
+                case .subtract:
+                    resultMesh = EuclidEngine.subtract(meshA, meshB)
+                case .union:
+                    resultMesh = EuclidEngine.union(meshA, meshB)
+                case .intersect:
+                    resultMesh = EuclidEngine.intersect(meshA, meshB)
+                }
+
+                euclidMeshes[sId] = resultMesh
+                let payload = EuclidEngine.toMeshPayload(resultMesh)
+                solids[sId] = payload
+                return .success(jobId: jobId, value: payload)
+            } else {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Cannot perform boolean operation between B-Rep body and mesh-only body"))
             }
-            
-            euclidMeshes[sId] = resultMesh
-            let payload = EuclidEngine.toMeshPayload(resultMesh)
-            solids[sId] = payload
-            return .success(jobId: jobId, value: payload)
             
         case .evaluateShape(_, let sId, let shape):
             if let error = shape.validate() {
