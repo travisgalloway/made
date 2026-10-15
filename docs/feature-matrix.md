@@ -137,7 +137,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-28 | A user can lock or unlock an object from the Navigator lock button or context menu; locking disables inspector controls, disables row deletion, and hides the viewport gizmo | done | n/a | n/a | Shipped | #127 | n/a |
 | UI-29 | A user can rename an object in the Inspector Identity section and read its ID and kind | done | n/a | n/a | Shipped |  | n/a |
 | UI-30 | A user can edit an object's X, Y and Z scale in the inspector (floor 0.01); the renderer applies scale through the model and normal matrix | done | n/a | n/a | Shipped | #66, #136 | n/a |
-| UI-31 | A user can read a timestamped, level-colored console log (INFO, KERNEL, SNAP, AGENT, ERROR) with auto-scroll in the resizable console pane (⇧⌘Y or the status-bar button); entries also go to the unified log | done | n/a | n/a | Shipped |  | n/a |
+| UI-31 | A user can read a timestamped, level-colored console log (INFO, KERNEL, SNAP, AGENT, ERROR) with auto-scroll in the resizable console pane (⇧⌘Y or the status-bar button); entries also go to the unified log | done | n/a | n/a | Shipped | #138 | n/a |
 | UI-32 | A user can filter console entries by message, subsystem or level | done | n/a | n/a | Shipped |  | n/a |
 | UI-33 | A user can clear the console log | done | n/a | n/a | Shipped |  | n/a |
 | UI-34 | A user can open or close the Model Context Protocol window from a toolbar button that turns green while the server runs | done | n/a | n/a | Shipped |  | n/a |

@@ -50,6 +50,11 @@ let package = Package(
             name: "MadeCoreTests",
             dependencies: ["MadeCore"],
             path: "Tests/MadeCoreTests"
+        ),
+        .testTarget(
+            name: "MadeAppTests",
+            dependencies: ["MadeApp", "MadeCore"],
+            path: "Tests/MadeAppTests"
         )
     ]
 )
