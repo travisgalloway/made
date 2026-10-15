@@ -9,6 +9,12 @@ import simd
     @Test func testInitialDocumentHasTwoDefaultSolids() {
         let doc = DocumentModel()
         
+        #expect(doc.features.count == 2)
+        #expect(doc.features[0].outputSolidId == boxSolidId)
+        #expect(doc.features[0].name == "box-1")
+        #expect(doc.features[1].outputSolidId == cylinderSolidId)
+        #expect(doc.features[1].name == "cylinder-1")
+
         #expect(doc.objects.count == 2)
         #expect(doc.objects[0].id == boxSolidId)
         #expect(doc.objects[0].transform.position == SIMD3<Float>(-25, 0, 0))
@@ -211,6 +217,13 @@ import simd
         #expect(doc.objects.count == initialObjectCount)
         #expect(box(doc, boxSolidId) == boxBefore)
         #expect(cylinder(doc, cylinderSolidId) == cylinderBefore)
+
+        // Verify input expressions on features reflect latest parameters
+        #expect(doc.features[0].inputExpressions["width"]?.value == 90.0)
+        #expect(doc.features[0].inputExpressions["depth"]?.value == 5.0)
+        #expect(doc.features[0].inputExpressions["height"]?.value == 5.0)
+        #expect(doc.features[1].inputExpressions["radius"]?.value == 5.0)
+        #expect(doc.features[1].inputExpressions["height"]?.value == 5.0)
     }
 
     @Test func testTypedDimensionEntryThroughSetParam() {

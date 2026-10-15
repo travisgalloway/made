@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 public struct SolidId: Hashable, Equatable, Sendable, Codable, CustomStringConvertible {
     public let rawValue: String
@@ -200,5 +201,72 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         case .booleanOperation(_, let s, _, _, _): return s
         case .evaluateShape(_, let s, _): return s
         }
+    }
+}
+
+// MARK: - Topological Query Types (ADR-D3)
+
+public enum SubelementType: String, Sendable, Codable, Equatable, Hashable {
+    case face
+    case edge
+    case vertex
+}
+
+public enum HistoryStepKind: String, Sendable, Codable, Equatable, Hashable {
+    case generated
+    case modified
+    case deleted
+}
+
+public struct HistoryStep: Sendable, Codable, Equatable, Hashable {
+    public var kind: HistoryStepKind
+    public var label: String
+    public var sourceIndex: Int?
+
+    public init(kind: HistoryStepKind, label: String, sourceIndex: Int? = nil) {
+        self.kind = kind
+        self.label = label
+        self.sourceIndex = sourceIndex
+    }
+}
+
+public struct GeometricSignature: Sendable, Codable, Equatable, Hashable {
+    public var surfaceOrCurveType: String?
+    public var normal: SIMD3<Float>?
+    public var centroid: SIMD3<Float>?
+    public var areaOrLength: Double?
+
+    public init(
+        surfaceOrCurveType: String? = nil,
+        normal: SIMD3<Float>? = nil,
+        centroid: SIMD3<Float>? = nil,
+        areaOrLength: Double? = nil
+    ) {
+        self.surfaceOrCurveType = surfaceOrCurveType
+        self.normal = normal
+        self.centroid = centroid
+        self.areaOrLength = areaOrLength
+    }
+}
+
+public struct TopologicalReference: Sendable, Codable, Equatable, Hashable, Identifiable {
+    public var id: UUID
+    public var sourceFeatureId: UUID
+    public var elementType: SubelementType
+    public var historyPath: [HistoryStep]
+    public var disambiguator: GeometricSignature?
+
+    public init(
+        id: UUID = UUID(),
+        sourceFeatureId: UUID,
+        elementType: SubelementType,
+        historyPath: [HistoryStep] = [],
+        disambiguator: GeometricSignature? = nil
+    ) {
+        self.id = id
+        self.sourceFeatureId = sourceFeatureId
+        self.elementType = elementType
+        self.historyPath = historyPath
+        self.disambiguator = disambiguator
     }
 }

@@ -6,24 +6,22 @@ The document model in `made` is the single source of truth for all 3D scene obje
 
 ## Scene Architecture
 
-Today, `DocumentModel` represents scenes through a flat array of `SceneObject` instances. Under ADR-D2 ([ADR-D2](./adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150), `made` transitions to a hybrid history-based modeling paradigm: an ordered linear feature list (`features: [Feature]`) serving as the single source of truth, recording direct manipulation edits as discrete features, with multi-body parts by default. During transition (#150), evaluated output bodies project stable `SolidId` identifiers into `SceneObject` representations so existing MCP tools and UI inspectors continue operating without disruption.
+Under ADR-D2 ([ADR-D2](./adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150), `made` adopts a hybrid history-based modeling paradigm: an ordered linear feature list (`features: [Feature]`) serving as the canonical source of truth for part geometry, recording direct manipulation edits as discrete features, with multi-body parts by default. Active, non-suppressed features project stable `SolidId` identifiers into `SceneObject` representations (`objects: [SceneObject]`) so existing MCP tools, viewport rendering, and UI inspectors continue operating without disruption while feature tree UI (#34) and feature tools (#151) land.
 
 ```
 ┌────────────────────────────────────────────────────────┐
 │              DocumentModel (@Observable)               │
-│   • Current: objects: [SceneObject] (ordered array)    │
-│   • Target (ADR-D2, #150): features: [Feature]         │
-│     (multi-body parts, rollback, undo/redo integration)│
+│   • Canonical: features: [Feature] (ordered list)      │
+│   • Projected: objects: [SceneObject] (active solids)  │
+│     (multi-body parts, suppression, undo/redo)         │
 └──────────────────────────┬─────────────────────────────┘
                            │ Dispatches Command Mutations
 ┌──────────────────────────▼─────────────────────────────┐
 │                 Command Pattern API                    │
-│   • addObject(def:transform:)                          │
-│   • removeObject(id:)                                  │
-│   • setParam(id:key:value:)                            │
-│   • setTransform(id:transform:)                        │
+│   • addFeature / removeFeature / updateFeature         │
+│   • setFeatureSuppressed / setFeatureError             │
+│   • addObject / removeObject / setParam / setTransform │
 │   • setName / setVisibility / setLocked / setMaterial  │
-│   • Target: addFeature / editFeature / rollbackTo      │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Reactive Bindings        │ Async Invalidation
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
@@ -35,9 +33,52 @@ Today, `DocumentModel` represents scenes through a flat array of `SceneObject` i
 
 ---
 
-## Object Data Model
+## Feature Data Model
 
-Every entity in the scene graph is represented by a `SceneObject`:
+The canonical source of truth for part geometry is `Feature` in [`Feature.swift`](../../macos/Sources/MadeCore/Scene/Feature.swift):
+
+```swift
+public struct Feature: Identifiable, Sendable, Codable, Equatable {
+    public let id: UUID
+    public var name: String
+    public var operation: FeatureOperation
+    public var inputExpressions: [String: FeatureExpression]
+    public var references: [TopologicalReference]
+    public var isSuppressed: Bool
+    public var errorState: FeatureErrorState?
+    public var generatedTopology: [String: TopologicalReference]
+    public var outputSolidId: SolidId?
+    public var transform: Transform
+    public var isVisible: Bool
+    public var isLocked: Bool
+    public var material: MaterialAttributes
+}
+
+public enum FeatureOperation: Sendable, Codable, Equatable {
+    case primitive(PrimitiveFeatureData) // .box(BoxParams), .cylinder(CylinderParams)
+    case sketch(SketchFeatureData)
+    case extrude(ExtrudeFeatureData)
+    case boolean(BooleanFeatureData)
+    case part(PartFeatureData)
+    case imported(ImportedFeatureData)
+}
+```
+
+Each feature holds:
+1. **Persistent UUID (`id`)**: Stable identity across sessions, undo/redo, and direct edits.
+2. **Display Name (`name`)**: User-facing name shown in the Feature Tree (#34).
+3. **Operation (`operation`)**: Concrete geometry construction step (`primitive`, `sketch`, `extrude`, `boolean`, `part`, `imported`).
+4. **Input Expressions (`inputExpressions`, BL-PAR-02)**: Parameter inputs stored as formulas and evaluated numeric values (`FeatureExpression`).
+5. **Typed References (`references`, BL-FND-02)**: Query-based topological sub-element references (`TopologicalReference`) conforming to ADR-D3.
+6. **Suppression Flag (`isSuppressed`)**: Toggles feature inclusion, excluding geometry from projected objects and skipping kernel regeneration.
+7. **Persisted Error State (`errorState`, BL-FND-04)**: Diagnostics (`FeatureErrorState`) recorded when regeneration or reference binding fails.
+8. **Generated-Topology Map (`generatedTopology`)**: Queryable sub-element map (`face:top`, `face:bottom`, etc.) resolved by downstream features.
+
+---
+
+## Object Data Model (Synchronized Projection)
+
+Every active, non-suppressed solid in the scene graph is projected into a `SceneObject`:
 
 ```swift
 public struct SceneObject: Identifiable, Sendable, Equatable {

@@ -3,6 +3,31 @@ import Foundation
 /// Rebuilds kernel requests from the document, so a restarted kernel service can be repopulated.
 @MainActor
 public enum KernelRegeneration {
+    /// The request that recomputes `feature`, or nil for features that do not produce kernel geometry.
+    public static func request(for feature: Feature, jobId: JobId) -> KernelRequest? {
+        guard let solidId = feature.outputSolidId else { return nil }
+        switch feature.operation {
+        case .primitive(.box(let params)):
+            return .makeBox(jobId: jobId, solidId: solidId, params: params)
+        case .primitive(.cylinder(let params)):
+            return .makeCylinder(jobId: jobId, solidId: solidId, params: params)
+        case .boolean(let b):
+            return .booleanOperation(jobId: jobId, solidId: solidId, op: b.op, solidA: b.targetSolidId, solidB: b.toolSolidId)
+        case .part(let p):
+            guard let shape = p.shape else { return nil }
+            return .evaluateShape(jobId: jobId, solidId: solidId, shape: shape)
+        case .imported(let imp):
+            if let data = imp.data {
+                return .importStep(jobId: jobId, solidId: solidId, data: data)
+            } else if let sourceURL = imp.sourceURL, FileManager.default.fileExists(atPath: sourceURL.path), let fileData = try? Data(contentsOf: sourceURL) {
+                return .importStep(jobId: jobId, solidId: solidId, data: fileData)
+            }
+            return nil
+        case .sketch, .extrude:
+            return nil
+        }
+    }
+
     /// The request that recomputes `object`, or nil for objects the kernel cannot build from parameters.
     public static func request(for object: SceneObject, jobId: JobId) -> KernelRequest? {
         switch object.def {
@@ -23,27 +48,22 @@ public enum KernelRegeneration {
         }
     }
     
-    /// Resubmits every buildable object except `excluded`, the solid whose job stopped the service.
-    /// Base solids are submitted concurrently, followed by boolean operations in topological order.
+    /// Resubmits every buildable feature in sequential list order, skipping suppressed features and `excluded`.
+    /// Kernel failures are recorded as `FeatureErrorState` on the affected feature.
     public static func regenerate(document: DocumentModel, client: any KernelClientProtocol, excluding excluded: SolidId?) async {
-        let candidateObjects = document.objects.filter { $0.id != excluded }
-        var baseRequests: [KernelRequest] = []
-        var booleanRequests: [KernelRequest] = []
-        for obj in candidateObjects {
-            guard let req = request(for: obj, jobId: JobId("regen-\(UUID().uuidString)")) else { continue }
-            if case .booleanOperation = req {
-                booleanRequests.append(req)
-            } else {
-                baseRequests.append(req)
+        for feature in document.features {
+            guard !feature.isSuppressed else { continue }
+            guard feature.outputSolidId != excluded else { continue }
+            guard let req = request(for: feature, jobId: JobId("regen-\(UUID().uuidString)")) else { continue }
+
+            let result = await client.request(req)
+            switch result {
+            case .success:
+                document.setFeatureError(id: feature.id, error: nil)
+            case .failure(_, let err):
+                let errorState = FeatureErrorState(code: err.code.rawValue, message: err.message)
+                document.setFeatureError(id: feature.id, error: errorState)
             }
-        }
-        await withTaskGroup(of: Void.self) { group in
-            for req in baseRequests {
-                group.addTask { _ = await client.request(req) }
-            }
-        }
-        for req in booleanRequests {
-            _ = await client.request(req)
         }
     }
 }

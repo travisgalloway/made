@@ -118,6 +118,36 @@ public struct MadePackage: Sendable, Equatable {
             }
         }
 
+        if var features = decodedDoc.features {
+            for i in 0..<features.count {
+                if case .imported(var imp) = features[i].operation {
+                    let candidateFilenames = [
+                        imp.sourceURL?.lastPathComponent,
+                        imp.name,
+                        imp.name.hasSuffix(".step") || imp.name.hasSuffix(".stp") ? nil : "\(imp.name).step"
+                    ].compactMap { $0 }
+
+                    var matchedData: Data? = nil
+                    var matchedName: String? = nil
+                    for candidate in candidateFilenames {
+                        if let data = loadedAssets[candidate] {
+                            matchedData = data
+                            matchedName = candidate
+                            break
+                        }
+                    }
+
+                    if let matchedData {
+                        let url = matchedName.map { URL(fileURLWithPath: "assets/\($0)") }
+                        imp.sourceURL = url
+                        imp.data = matchedData
+                        features[i].operation = .imported(imp)
+                    }
+                }
+            }
+            decodedDoc.features = features
+        }
+
         // 4. Read parts/
         var loadedParts: [String: Data] = [:]
         if let partsWrapper = children["parts"], partsWrapper.isDirectory, let partFiles = partsWrapper.fileWrappers {
