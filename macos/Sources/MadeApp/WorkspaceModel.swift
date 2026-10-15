@@ -454,6 +454,17 @@ final class WorkspaceModel {
 
     // MARK: - Console
 
+    static let consoleShortcutKey: KeyEquivalent = "y"
+    static let consoleShortcutModifiers: EventModifiers = [.command, .shift]
+
+    var consoleToggleTitle: String {
+        isConsoleVisible ? "Hide Console" : "Show Console"
+    }
+
+    var consoleToggleHelp: String {
+        isConsoleVisible ? "Hide Console (⇧⌘Y)" : "Show Console (⇧⌘Y)"
+    }
+
     /// Writes to the unified log (Console.app, `log stream`) and to the in-app console.
     func log(_ level: ConsoleLogLevel, _ subsystem: String, _ message: String) {
         Logger(subsystem: "com.made.app", category: subsystem).log(level: level.osLogType, "\(message, privacy: .public)")
