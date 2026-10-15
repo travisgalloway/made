@@ -61,12 +61,94 @@ final class WorkspaceModel {
     private(set) var mcpServerError: String? = nil
     let mcpPort: UInt16 = 9820
 
-    // Command Panel & Active Command
+    // Defaults Keys
     public static let commandPanelPlacementDefaultsKey = "com.made.commandPanelPlacement"
+    public static let lengthUnitDefaultsKey = "com.made.units.length"
+    public static let angleUnitDefaultsKey = "com.made.units.angle"
+    public static let decimalPrecisionDefaultsKey = "com.made.units.precision"
+    public static let navigationPresetDefaultsKey = "com.made.navigation.preset"
+    public static let defaultProjectionDefaultsKey = "com.made.display.defaultProjection"
+    public static let defaultPerspectiveDefaultsKey = "com.made.display.defaultPerspective"
+    public static let showsGridDefaultsKey = "com.made.display.showsGrid"
+    public static let showsAxesDefaultsKey = "com.made.display.showsAxes"
+    public static let showsGizmoDefaultsKey = "com.made.display.showsGizmo"
+    public static let linearToleranceDefaultsKey = "com.made.tolerances.linear"
+    public static let angularToleranceDefaultsKey = "com.made.tolerances.angular"
+    public static let chordalToleranceDefaultsKey = "com.made.tolerances.chordal"
+
     private let defaults: UserDefaults
     var commandPanelPlacement: CommandPanelPlacement {
         didSet {
             defaults.set(commandPanelPlacement.rawValue, forKey: Self.commandPanelPlacementDefaultsKey)
+        }
+    }
+    var lengthUnit: LengthUnit {
+        didSet {
+            defaults.set(lengthUnit.rawValue, forKey: Self.lengthUnitDefaultsKey)
+        }
+    }
+    var angleUnit: AngleUnit {
+        didSet {
+            defaults.set(angleUnit.rawValue, forKey: Self.angleUnitDefaultsKey)
+        }
+    }
+    var decimalPrecision: Int {
+        didSet {
+            let clamped = UnitSettings.clampPrecision(decimalPrecision)
+            if decimalPrecision != clamped { decimalPrecision = clamped }
+            defaults.set(decimalPrecision, forKey: Self.decimalPrecisionDefaultsKey)
+        }
+    }
+    var navigationPreset: NavigationPreset {
+        didSet {
+            defaults.set(navigationPreset.rawValue, forKey: Self.navigationPresetDefaultsKey)
+        }
+    }
+    var defaultProjection: CameraProjection {
+        didSet {
+            defaults.set(defaultProjection.rawValue, forKey: Self.defaultProjectionDefaultsKey)
+        }
+    }
+    var defaultPerspective: ViewportPerspective {
+        didSet {
+            defaults.set(defaultPerspective.rawValue, forKey: Self.defaultPerspectiveDefaultsKey)
+        }
+    }
+    var showsGrid: Bool {
+        didSet {
+            defaults.set(showsGrid, forKey: Self.showsGridDefaultsKey)
+            if let renderer = viewportManager.renderer {
+                renderer.showsGrid = showsGrid
+                invalidateViewport(.interaction)
+            }
+        }
+    }
+    var showsAxes: Bool {
+        didSet {
+            defaults.set(showsAxes, forKey: Self.showsAxesDefaultsKey)
+            if let renderer = viewportManager.renderer {
+                renderer.showsAxes = showsAxes
+                invalidateViewport(.interaction)
+            }
+        }
+    }
+    var showsGizmo: Bool {
+        didSet {
+            defaults.set(showsGizmo, forKey: Self.showsGizmoDefaultsKey)
+            if let renderer = viewportManager.renderer {
+                let isLocked = selectedObject?.isLocked ?? false
+                renderer.showsGizmo = showsGizmo && !isLocked
+                invalidateViewport(.interaction)
+            }
+        }
+    }
+    var kernelTolerances: KernelTolerances {
+        didSet {
+            let clamped = kernelTolerances.clamped()
+            if kernelTolerances != clamped { kernelTolerances = clamped }
+            defaults.set(kernelTolerances.linearTolerance, forKey: Self.linearToleranceDefaultsKey)
+            defaults.set(kernelTolerances.angularTolerance, forKey: Self.angularToleranceDefaultsKey)
+            defaults.set(kernelTolerances.chordalTolerance, forKey: Self.chordalToleranceDefaultsKey)
         }
     }
     var activeCommand: CommandSession?
@@ -79,6 +161,89 @@ final class WorkspaceModel {
         } else {
             self.commandPanelPlacement = .floatingHUD
         }
+
+        if let raw = defaults.string(forKey: Self.lengthUnitDefaultsKey),
+           let unit = LengthUnit(rawValue: raw) {
+            self.lengthUnit = unit
+        } else {
+            self.lengthUnit = .millimeters
+        }
+
+        if let raw = defaults.string(forKey: Self.angleUnitDefaultsKey),
+           let unit = AngleUnit(rawValue: raw) {
+            self.angleUnit = unit
+        } else {
+            self.angleUnit = .degrees
+        }
+
+        if defaults.object(forKey: Self.decimalPrecisionDefaultsKey) != nil {
+            let p = defaults.integer(forKey: Self.decimalPrecisionDefaultsKey)
+            self.decimalPrecision = UnitSettings.clampPrecision(p)
+        } else {
+            self.decimalPrecision = UnitSettings.defaultDecimalPrecision
+        }
+
+        if let raw = defaults.string(forKey: Self.navigationPresetDefaultsKey),
+           let preset = NavigationPreset(rawValue: raw) {
+            self.navigationPreset = preset
+        } else {
+            self.navigationPreset = .defaultPreset
+        }
+
+        if let raw = defaults.string(forKey: Self.defaultProjectionDefaultsKey),
+           let proj = CameraProjection(rawValue: raw) {
+            self.defaultProjection = proj
+        } else {
+            self.defaultProjection = .perspective
+        }
+
+        if let raw = defaults.string(forKey: Self.defaultPerspectiveDefaultsKey),
+           let persp = ViewportPerspective(rawValue: raw) {
+            self.defaultPerspective = persp
+        } else {
+            self.defaultPerspective = .perspective
+        }
+
+        if defaults.object(forKey: Self.showsGridDefaultsKey) != nil {
+            self.showsGrid = defaults.bool(forKey: Self.showsGridDefaultsKey)
+        } else {
+            self.showsGrid = true
+        }
+
+        if defaults.object(forKey: Self.showsAxesDefaultsKey) != nil {
+            self.showsAxes = defaults.bool(forKey: Self.showsAxesDefaultsKey)
+        } else {
+            self.showsAxes = true
+        }
+
+        if defaults.object(forKey: Self.showsGizmoDefaultsKey) != nil {
+            self.showsGizmo = defaults.bool(forKey: Self.showsGizmoDefaultsKey)
+        } else {
+            self.showsGizmo = true
+        }
+
+        let linear = defaults.object(forKey: Self.linearToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.linearToleranceDefaultsKey) : KernelTolerances.defaultLinearTolerance
+        let angular = defaults.object(forKey: Self.angularToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.angularToleranceDefaultsKey) : KernelTolerances.defaultAngularTolerance
+        let chordal = defaults.object(forKey: Self.chordalToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.chordalToleranceDefaultsKey) : KernelTolerances.defaultChordalTolerance
+        self.kernelTolerances = KernelTolerances(linearTolerance: linear, angularTolerance: angular, chordalTolerance: chordal).clamped()
+    }
+
+    func resetSettingsToDefaults() {
+        commandPanelPlacement = .floatingHUD
+        lengthUnit = .millimeters
+        angleUnit = .degrees
+        decimalPrecision = UnitSettings.defaultDecimalPrecision
+        navigationPreset = .defaultPreset
+        defaultProjection = .perspective
+        defaultPerspective = .perspective
+        showsGrid = true
+        showsAxes = true
+        showsGizmo = true
+        kernelTolerances = KernelTolerances.default
+    }
+
+    func resetTolerancesToDefaults() {
+        kernelTolerances = KernelTolerances.default
     }
 
     private var isSetUp = false
@@ -107,7 +272,17 @@ final class WorkspaceModel {
 
         _ = viewportManager.setup()
         if let renderer = viewportManager.renderer {
+            renderer.showsGrid = showsGrid
+            renderer.showsAxes = showsAxes
+            let isLocked = selectedObject?.isLocked ?? false
+            renderer.showsGizmo = showsGizmo && !isLocked
             self.camera = renderer.camera
+        }
+        if defaultProjection != .perspective {
+            setProjectionMode(defaultProjection)
+        }
+        if defaultPerspective != .perspective {
+            applyPerspective(defaultPerspective)
         }
         viewportManager.renderer?.onDeviceLost = { [weak viewportManager] in
             Task { @MainActor in viewportManager?.handleDeviceLost() }
@@ -625,7 +800,7 @@ final class WorkspaceModel {
         }
     }
 
-    func resetView() { applyPerspective(.perspective) }
+    func resetView() { applyPerspective(defaultPerspective) }
     func zoomStep(zoomIn: Bool) { coordinator?.zoomStep(zoomIn: zoomIn) }
     func fitToScene() { coordinator?.fitToScene() }
 
@@ -770,5 +945,62 @@ final class WorkspaceModel {
         if isConsoleVisible {
             updateStats()
         }
+    }
+
+    // MARK: - Shortcuts Catalog
+
+    public static let standardShortcuts: [ShortcutCheatsheetEntry] = [
+        ShortcutCheatsheetEntry(title: "Select", shortcut: "V / ⌥⌘1", category: .tools, description: "Select tool — select and manipulate solids or gizmos"),
+        ShortcutCheatsheetEntry(title: "Orbit", shortcut: "O / ⌥⌘2", category: .tools, description: "Orbit tool — orbit camera view around target or cursor"),
+        ShortcutCheatsheetEntry(title: "Pan", shortcut: "P / ⌥⌘3", category: .tools, description: "Pan tool — pan camera view parallel to screen"),
+        ShortcutCheatsheetEntry(title: "Zoom", shortcut: "Z / ⌥⌘4", category: .tools, description: "Zoom tool — drag to smoothly zoom in or out"),
+
+        ShortcutCheatsheetEntry(title: "Reset View", shortcut: "⌘0", category: .navigation, description: "Reset camera to default perspective view"),
+        ShortcutCheatsheetEntry(title: "Zoom to Fit", shortcut: "⇧⌘F", category: .navigation, description: "Frame all visible solids within viewport"),
+        ShortcutCheatsheetEntry(title: "Zoom In", shortcut: "⌘=", category: .navigation, description: "Step zoom closer to scene center"),
+        ShortcutCheatsheetEntry(title: "Zoom Out", shortcut: "⌘-", category: .navigation, description: "Step zoom further from scene center"),
+        ShortcutCheatsheetEntry(title: "Front View", shortcut: "⌃1", category: .navigation, description: "Align camera to front plane (+Y view)"),
+        ShortcutCheatsheetEntry(title: "Top View", shortcut: "⌃2", category: .navigation, description: "Align camera to top plane (+Z view)"),
+        ShortcutCheatsheetEntry(title: "Right View", shortcut: "⌃3", category: .navigation, description: "Align camera to right plane (+X view)"),
+        ShortcutCheatsheetEntry(title: "Isometric View", shortcut: "⌃7", category: .navigation, description: "Align camera to standard isometric viewpoint"),
+        ShortcutCheatsheetEntry(title: "Normal To", shortcut: "⌃8", category: .navigation, description: "Align camera perpendicular to selected solid's active face or flip 180°"),
+
+        ShortcutCheatsheetEntry(title: "Add Box", shortcut: "⇧⌘B", category: .editing, description: "Add new parametric box solid to document"),
+        ShortcutCheatsheetEntry(title: "Add Cylinder", shortcut: "⇧⌘C", category: .editing, description: "Add new parametric cylinder solid to document"),
+        ShortcutCheatsheetEntry(title: "Hide/Show Solid", shortcut: "⇧⌘H", category: .editing, description: "Toggle visibility of selected solid"),
+        ShortcutCheatsheetEntry(title: "Lock/Unlock Solid", shortcut: "⇧⌘L", category: .editing, description: "Toggle lock state of selected solid to prevent edits"),
+        ShortcutCheatsheetEntry(title: "Reload Part", shortcut: "⌃⌘R", category: .editing, description: "Force recompute and rebuild active CAD part or script"),
+
+        ShortcutCheatsheetEntry(title: "Toggle Console", shortcut: "⇧⌘Y", category: .workspace, description: "Toggle visibility of bottom telemetry and error console drawer"),
+        ShortcutCheatsheetEntry(title: "MCP Server", shortcut: "⇧⌘M", category: .workspace, description: "Open MCP Server status popover and configuration"),
+        ShortcutCheatsheetEntry(title: "Settings", shortcut: "⌘,", category: .workspace, description: "Open Made application preferences and settings window")
+    ]
+
+    public var shortcuts: [ShortcutCheatsheetEntry] { Self.standardShortcuts }
+}
+
+public enum ShortcutCategory: String, CaseIterable, Identifiable, Sendable {
+    case all = "All"
+    case tools = "Tools"
+    case navigation = "Navigation"
+    case editing = "Scene Editing"
+    case workspace = "Workspace"
+
+    public var id: String { rawValue }
+}
+
+public struct ShortcutCheatsheetEntry: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let shortcut: String
+    public let category: ShortcutCategory
+    public let description: String
+
+    public init(id: String? = nil, title: String, shortcut: String, category: ShortcutCategory, description: String) {
+        self.id = id ?? "\(category.rawValue)-\(title)"
+        self.title = title
+        self.shortcut = shortcut
+        self.category = category
+        self.description = description
     }
 }

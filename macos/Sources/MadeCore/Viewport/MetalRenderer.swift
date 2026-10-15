@@ -86,6 +86,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public var activeSnap: SnapResult? = nil
     public var selectedId: SolidId? = nil
     public var activeGizmoHandle: GizmoHandle? = nil
+    public var showsGrid: Bool = true
+    public var showsAxes: Bool = true
     public var showsGizmo: Bool = true
     var gizmoGeometry: [GizmoHandle: GizmoGeometryBuffers] = [:]
     public private(set) var lastDrawCalls: Int = 0
@@ -526,7 +528,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         let lineUniforms = GridUniforms(viewProjectionMatrix: projMatrix * viewMatrix)
 
         // Ground grid on Z = 0
-        if let positions = gridPositionBuffer, let colors = gridColorBuffer, gridVertexCount > 0,
+        if showsGrid, let positions = gridPositionBuffer, let colors = gridColorBuffer, gridVertexCount > 0,
            ctx.bindUniforms(lineUniforms, at: 2) {
             encoder.setRenderPipelineState(linePipeline)
             encoder.setDepthStencilState(gridDepthState)
@@ -538,7 +540,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
 
         // Axes indicator lines at the origin
-        if let positions = axesPositionBuffer, let colors = axesColorBuffer, axesVertexCount > 0,
+        if showsAxes, let positions = axesPositionBuffer, let colors = axesColorBuffer, axesVertexCount > 0,
            ctx.bindUniforms(lineUniforms, at: 2) {
             encoder.setRenderPipelineState(linePipeline)
             encoder.setDepthStencilState(axesDepthState)
@@ -550,7 +552,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
 
         // Axes billboard labels
-        if let centers = labelCenterBuffer, let offsets = labelOffsetBuffer, let uvs = labelTexCoordBuffer,
+        if showsAxes, let centers = labelCenterBuffer, let offsets = labelOffsetBuffer, let uvs = labelTexCoordBuffer,
            let colors = labelColorBuffer, let texture = billboardTexture, labelVertexCount > 0,
            ctx.bindUniforms(BillboardUniforms(viewMatrix: viewMatrix, projectionMatrix: projMatrix, labelSize: axesLabelSize), at: 4) {
             encoder.setRenderPipelineState(billboardPipeline)

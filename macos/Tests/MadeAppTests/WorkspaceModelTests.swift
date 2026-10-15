@@ -719,4 +719,179 @@ import MadeCore
         #expect(model.camera.position.y < model.camera.target.y)
         #expect(model.camera.position.x > model.camera.target.x)
     }
+
+    @Test @MainActor func testAllSettingsUserDefaultsPersistenceRoundtrip() {
+        let suiteName = "test.settings.all.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        let model1 = WorkspaceModel(defaults: customDefaults)
+
+        // Verify defaults
+        #expect(model1.lengthUnit == .millimeters)
+        #expect(model1.angleUnit == .degrees)
+        #expect(model1.decimalPrecision == UnitSettings.defaultDecimalPrecision)
+        #expect(model1.navigationPreset == .defaultPreset)
+        #expect(model1.defaultProjection == .perspective)
+        #expect(model1.defaultPerspective == .perspective)
+        #expect(model1.showsGrid == true)
+        #expect(model1.showsAxes == true)
+        #expect(model1.showsGizmo == true)
+        #expect(model1.kernelTolerances == KernelTolerances.default)
+
+        // Mutate all settings
+        model1.lengthUnit = .inches
+        model1.angleUnit = .radians
+        model1.decimalPrecision = 4
+        model1.navigationPreset = .solidWorks
+        model1.defaultProjection = .orthographic
+        model1.defaultPerspective = .top
+        model1.showsGrid = false
+        model1.showsAxes = false
+        model1.showsGizmo = false
+        model1.kernelTolerances = KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.5, chordalTolerance: 0.05)
+
+        // Verify stored in customDefaults
+        #expect(customDefaults.string(forKey: WorkspaceModel.lengthUnitDefaultsKey) == "in")
+        #expect(customDefaults.string(forKey: WorkspaceModel.angleUnitDefaultsKey) == "rad")
+        #expect(customDefaults.integer(forKey: WorkspaceModel.decimalPrecisionDefaultsKey) == 4)
+        #expect(customDefaults.string(forKey: WorkspaceModel.navigationPresetDefaultsKey) == "SolidWorks")
+        #expect(customDefaults.string(forKey: WorkspaceModel.defaultProjectionDefaultsKey) == "Orthographic")
+        #expect(customDefaults.string(forKey: WorkspaceModel.defaultPerspectiveDefaultsKey) == "Top")
+        #expect(customDefaults.bool(forKey: WorkspaceModel.showsGridDefaultsKey) == false)
+        #expect(customDefaults.bool(forKey: WorkspaceModel.showsAxesDefaultsKey) == false)
+        #expect(customDefaults.bool(forKey: WorkspaceModel.showsGizmoDefaultsKey) == false)
+        #expect(customDefaults.double(forKey: WorkspaceModel.linearToleranceDefaultsKey) == 0.005)
+        #expect(customDefaults.double(forKey: WorkspaceModel.angularToleranceDefaultsKey) == 0.5)
+        #expect(customDefaults.double(forKey: WorkspaceModel.chordalToleranceDefaultsKey) == 0.05)
+
+        // Restore into new WorkspaceModel instance
+        let model2 = WorkspaceModel(defaults: customDefaults)
+        #expect(model2.lengthUnit == .inches)
+        #expect(model2.angleUnit == .radians)
+        #expect(model2.decimalPrecision == 4)
+        #expect(model2.navigationPreset == .solidWorks)
+        #expect(model2.defaultProjection == .orthographic)
+        #expect(model2.defaultPerspective == .top)
+        #expect(model2.showsGrid == false)
+        #expect(model2.showsAxes == false)
+        #expect(model2.showsGizmo == false)
+        #expect(model2.kernelTolerances == KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.5, chordalTolerance: 0.05))
+    }
+
+    @Test @MainActor func testResetSettingsToDefaults() {
+        let suiteName = "test.settings.reset.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        let model = WorkspaceModel(defaults: customDefaults)
+        model.commandPanelPlacement = .inspector
+        model.lengthUnit = .feet
+        model.angleUnit = .radians
+        model.decimalPrecision = 5
+        model.navigationPreset = .fusion360
+        model.defaultProjection = .orthographic
+        model.defaultPerspective = .front
+        model.showsGrid = false
+        model.showsAxes = false
+        model.showsGizmo = false
+        model.kernelTolerances = KernelTolerances(linearTolerance: 0.05, angularTolerance: 1.0, chordalTolerance: 0.1)
+
+        // Reset
+        model.resetSettingsToDefaults()
+
+        #expect(model.commandPanelPlacement == .floatingHUD)
+        #expect(model.lengthUnit == .millimeters)
+        #expect(model.angleUnit == .degrees)
+        #expect(model.decimalPrecision == UnitSettings.defaultDecimalPrecision)
+        #expect(model.navigationPreset == .defaultPreset)
+        #expect(model.defaultProjection == .perspective)
+        #expect(model.defaultPerspective == .perspective)
+        #expect(model.showsGrid == true)
+        #expect(model.showsAxes == true)
+        #expect(model.showsGizmo == true)
+        #expect(model.kernelTolerances == KernelTolerances.default)
+
+        // Check fresh model picks up reset defaults
+        let modelRestored = WorkspaceModel(defaults: customDefaults)
+        #expect(modelRestored.commandPanelPlacement == .floatingHUD)
+        #expect(modelRestored.lengthUnit == .millimeters)
+        #expect(modelRestored.showsGrid == true)
+    }
+
+    @Test @MainActor func testResetTolerancesToDefaults() {
+        let suiteName = "test.tolerances.reset.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        let model = WorkspaceModel(defaults: customDefaults)
+        model.kernelTolerances = KernelTolerances(linearTolerance: 0.02, angularTolerance: 2.5, chordalTolerance: 0.2)
+        #expect(model.kernelTolerances != KernelTolerances.default)
+
+        model.resetTolerancesToDefaults()
+        #expect(model.kernelTolerances == KernelTolerances.default)
+    }
+
+    @Test @MainActor func testCorruptedUserDefaultsFallbackToDefaults() {
+        let suiteName = "test.settings.corrupted.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        // Populate corrupted values
+        customDefaults.set("garbage_unit", forKey: WorkspaceModel.lengthUnitDefaultsKey)
+        customDefaults.set("garbage_angle", forKey: WorkspaceModel.angleUnitDefaultsKey)
+        customDefaults.set(999, forKey: WorkspaceModel.decimalPrecisionDefaultsKey)
+        customDefaults.set("garbage_preset", forKey: WorkspaceModel.navigationPresetDefaultsKey)
+        customDefaults.set("garbage_projection", forKey: WorkspaceModel.defaultProjectionDefaultsKey)
+        customDefaults.set("garbage_perspective", forKey: WorkspaceModel.defaultPerspectiveDefaultsKey)
+        customDefaults.set(-100.0, forKey: WorkspaceModel.linearToleranceDefaultsKey)
+        customDefaults.set(Double.nan, forKey: WorkspaceModel.angularToleranceDefaultsKey)
+        customDefaults.set(1000.0, forKey: WorkspaceModel.chordalToleranceDefaultsKey)
+
+        let model = WorkspaceModel(defaults: customDefaults)
+        #expect(model.lengthUnit == .millimeters)
+        #expect(model.angleUnit == .degrees)
+        #expect(model.decimalPrecision == UnitSettings.maxDecimalPrecision) // clamped to 6
+        #expect(model.navigationPreset == .defaultPreset)
+        #expect(model.defaultProjection == .perspective)
+        #expect(model.defaultPerspective == .perspective)
+        #expect(model.kernelTolerances.linearTolerance == KernelTolerances.minLinearTolerance) // clamped from -100
+        #expect(model.kernelTolerances.angularTolerance == KernelTolerances.defaultAngularTolerance) // clamped from NaN
+        #expect(model.kernelTolerances.chordalTolerance == KernelTolerances.maxChordalTolerance) // clamped from 1000
+    }
+
+    @Test @MainActor func testShortcutsCatalogCompleteness() {
+        let model = WorkspaceModel()
+        let shortcuts = model.shortcuts
+
+        #expect(shortcuts.count == WorkspaceModel.standardShortcuts.count)
+        #expect(shortcuts.count >= 20)
+
+        // All categories represented
+        let categories = Set(shortcuts.map(\.category))
+        #expect(categories.contains(.tools))
+        #expect(categories.contains(.navigation))
+        #expect(categories.contains(.editing))
+        #expect(categories.contains(.workspace))
+
+        // All entries have non-empty fields
+        for entry in shortcuts {
+            #expect(!entry.id.isEmpty)
+            #expect(!entry.title.isEmpty)
+            #expect(!entry.shortcut.isEmpty)
+            #expect(!entry.description.isEmpty)
+        }
+    }
 }
