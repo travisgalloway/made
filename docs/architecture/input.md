@@ -88,24 +88,28 @@ Each candidate carries a screen distance in pixels. Candidates beyond `defaultSn
 
 ---
 
-## 3D Manipulation Gizmo (Move / Rotate)
+## 3D Manipulation Gizmo (Move / Rotate / Scale)
 
-Implemented in [`Gizmo.swift`](../../macos/Sources/MadeCore/Input/Gizmo.swift) and [`MetalRenderer+Gizmo.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer+Gizmo.swift) (#71, Phase 4.19):
+Implemented in [`Gizmo.swift`](../../macos/Sources/MadeCore/Input/Gizmo.swift) and [`MetalRenderer+Gizmo.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer+Gizmo.swift) (#71 Phase 4.19, #72 Phase 4.20):
 
-When an object is selected in the viewport under the Select tool, 3D translation arrows and rotation rings render at the solid's origin adhering to right-handed Z-up coordinates (+X red, +Y green, +Z blue).
+When an object is selected in the viewport under the Select tool, 3D translation arrows, rotation rings, and scale handles render at the solid's origin adhering to right-handed Z-up coordinates (+X red, +Y green, +Z blue).
 
 ### Interaction and Hit-Testing
-- **Handles**: `GizmoHandle` provides 6 degrees of freedom: 3 translation axes (`.translateX`, `.translateY`, `.translateZ`) and 3 rotation rings (`.rotateX`, `.rotateY`, `.rotateZ`).
-- **Screen-Space Hit-Testing**: Evaluates pointer proximity against 3D arrow shafts and rotation ring planes/perimeters within `defaultGizmoTolerancePx` (16 pt).
+- **Handles**: `GizmoHandle` provides 9 degrees of freedom: 3 translation axes (`.translateX`, `.translateY`, `.translateZ`, length 30 mm), 3 rotation rings (`.rotateX`, `.rotateY`, `.rotateZ`, radius 24 mm), and 3 scale handles (`.scaleX`, `.scaleY`, `.scaleZ`, length 42 mm with 3 mm wireframe cubes at tips).
+- **Screen-Space Hit-Testing**: Evaluates pointer proximity against 3D arrow shafts, rotation ring planes/perimeters, and scale shaft extensions/cube edges within `defaultGizmoTolerancePx` (16 pt).
 - **Touch Input Offset**: For touch input (`isTouch: true`), the hit test lifts the contact point upwards by `touchPickOffsetPt` (28 pt) so the handle remains visible above the user's finger during touch contact.
 - **Gesture Arbitration Lock**: On mouse/pointer down on a gizmo handle, the coordinator locks `GestureArbiter` into `.manipulate`, completely preventing camera orbit/pan until pointer release.
 
 ### Drag Projections & Math
 - **Translation (Skew-Ray Parameter)**: Computes the closest point parameter $s$ between the camera ray and the selected 3D translation axis $L(s) = \mathbf{C} + s\mathbf{u}$. Movement is projected along the axis as $\Delta s \cdot \mathbf{u}$.
 - **Rotation (Ray-Plane Angle)**: Intersects the camera ray with the rotation ring plane to extract radial vectors from the gizmo center. Computes the signed angle $\theta = \text{atan2}((\mathbf{v}_0 \times \mathbf{v}_1) \cdot \mathbf{u}, \mathbf{v}_0 \cdot \mathbf{v}_1)$ and applies delta quaternion $\Delta q = \text{simd\_quatf(angle: } \theta, \text{axis: } \mathbf{u})$.
-- **Snapping During Drag**: While translating, vertex, edge, and grid snap candidates are evaluated at the pointer screen location. When snapped, the delta is constrained to the active axis.
+- **Scale (Ray-Axis Ratio)**: Computes parameter $s$ along the active axis and scale factor $\text{ratio} = \max\left(0.01, \frac{\text{baseParam} + (s - s_0)}{\text{baseParam}}\right)$ with $\text{baseParam} = 42.0$ mm. Updates `previewTransform.scale` along the active axis in-place on the renderer.
+- **Snapping During Drag**: While translating or scaling, vertex, edge, and grid snap candidates are evaluated at the pointer screen location. When snapped, the delta is constrained to the active axis.
 - **Two-Physics Rule & On-Demand Rendering**: During drag, live preview transforms are updated locally via `MetalRenderer.updateTransform` and tagged with `InvalidateReason.interaction` without dispatching geometry kernel jobs. The geometry kernel dispatch count remains strictly unchanged across the entire gesture.
-- **Single Commit on Release**: The final transform is committed to `DocumentModel.setTransform(id:transform:)` exactly once on gesture release if moved. A drag without movement or a cancelled gesture restores the original transform with zero commits.
+- **Single Commit & Parameter Conversion on Release**:
+  - For translation and rotation: The final transform is committed to `DocumentModel.setTransform(id:transform:)` exactly once on gesture release if moved.
+  - For scale: The preview scale factor converts into geometric parameters (`width`, `depth`, `height` for boxes; `radius`, `height` for cylinders) clamped by `DocumentLimits`. Renderer preview scale resets to $(1, 1, 1)$, and parameters flow through `WorkspaceModel.setParam`, which conflates rapid updates into exactly 1 kernel dispatch. For imported objects, scale is retained in `Transform` with zero kernel jobs.
+  - A drag without movement or a cancelled gesture restores the original transform with zero commits.
 
 ---
 

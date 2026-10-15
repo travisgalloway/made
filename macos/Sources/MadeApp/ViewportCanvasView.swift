@@ -45,7 +45,8 @@ struct ViewportCanvasView: View {
                     onInvalidate: { workspace.updateStats() },
                     onSnapChanged: { workspace.handleSnapChanged($0) },
                     onToolShortcut: { workspace.tool = $0 },
-                    onResetView: { workspace.resetView() }
+                    onResetView: { workspace.resetView() },
+                    onCommitParam: { id, key, value in workspace.setParam(id, key, value) }
                 )
             }
         case .initializing:
