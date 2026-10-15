@@ -79,10 +79,9 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | INPUT-13 | A user sees the viewport cursor follow the active tool (arrow, crosshair, open hand, resize) and a closed hand during a pan drag | done | n/a | n/a | Shipped |  | n/a |
 | KERN-1 | A user or agent can convert a Euclid mesh into an indexed triangle `MeshPayload` in right-handed Z-up coordinates; Euclid is permanently retained as Tier 1 fast CSG preview engine and test backend (ADR-D1, ADR-D9) | n/a | done | done | Shipped | #247 | n/a |
 | KERN-2 | A user can generate a parametric box mesh (X width, Y depth, Z height) | done | done | n/a | Shipped |  | n/a |
-| KERN-3 | A user can generate a parametric cylinder mesh along +Z (32 slices) | done | done | n/a | Shipped |  | n/a |
-| KERN-4 | An agent can subtract one solid mesh from another | none | done | n/a | In progress | #35 | n/a |
-| KERN-5 | An agent can union two solid meshes | none | done | n/a | In progress | #35 | n/a |
-| KERN-6 | An agent can intersect two solid meshes | none | done | n/a | In progress | #35 | n/a |
+| KERN-4 | An agent or user can subtract one B-rep body or mesh from another with exact OCCT B-Rep boolean evaluation and Euclid CSG fallback | done | done | done | Shipped | #35, #183 | n/a |
+| KERN-5 | An agent or user can union two B-rep bodies or meshes with exact OCCT B-Rep boolean evaluation and Euclid CSG fallback | done | done | done | Shipped | #35, #183 | n/a |
+| KERN-6 | An agent or user can intersect two B-rep bodies or meshes with exact OCCT B-Rep boolean evaluation, empty disjoint intersection handling, and Euclid CSG fallback | done | done | done | Shipped | #35, #183 | n/a |
 | KERN-7 | A developer can generate a box mesh with 24 vertices and flat normals by hand | n/a | done | n/a | In progress |  | n/a |
 | KERN-8 | A developer can generate a cylinder mesh with side wall and caps by hand | n/a | done | n/a | In progress |  | n/a |
 | KERN-9 | A user can request geometry and have requests debounced 60 ms and conflated to one pending job per solid | done | done | n/a | Shipped | #90 | n/a |
@@ -108,7 +107,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-8 | An agent or user can set an object's world transform; the renderer applies full model and normal matrix (position, rotation, scale) with interactive gizmo manipulation and Inspector inputs (Phase 4.19, Phase 4.20) | done | done | done | Shipped | #66, #71, #72 | n/a |
 | DOC-9 | A user can give objects a name and a visibility flag | done | done | done | Shipped |  | n/a |
 | DOC-10 | A user can hold a multi-object selection in the document (`selection: Set<ObjectId>`) | none | none | none | Planned | #69 | n/a |
-| DOC-11 | An agent or user can create CSG composite objects that reference their parent operations with union, subtract, intersect, topological recomputation, and interactive command session (Phase 4.2, ADR-D2) | done | done | done | Shipped | #35, #143 | n/a |
+| DOC-11 | An agent or user can create CSG composite objects that reference their parent operations with union, subtract, intersect, keep-tool option, topological recomputation, and interactive command session (Phase 4.2, ADR-D2) | done | done | done | Shipped | #35, #143, #183 | n/a |
 | DOC-12 | A user can export or load imported B-Rep solids from STEP or IGES into the scene via File / Solid menu commands and retain data across kernel restarts | done | done | done | Shipped | #82, #38 | n/a |
 | DOC-13 | A user can lock or unlock an object (`isLocked` flag); locked objects reject parameter edits, transform edits, material changes, and removal across core mutators, workspace actions, inspector controls, viewport gizmo manipulation, and MCP tools | done | done | done | Shipped | #127 | n/a |
 | DOC-14 | A user sees each object drawn in its material color (default light blue) and can change a solid's material color in the Inspector; the viewport mesh and stored object follow | done | done | done | Shipped | #137 | n/a |

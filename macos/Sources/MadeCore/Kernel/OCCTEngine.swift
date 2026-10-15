@@ -190,9 +190,21 @@ enum OCCTEngine {
         return filleted
     }
 
+    /// Evaluates an exact B-Rep boolean operation (`union`, `subtract`, or `intersect`) between two OCCT shapes.
+    static func booleanOperation(op: BooleanOp, shapeA: Shape, shapeB: Shape, fuzzyValue: Double = 0) throws -> Shape? {
+        switch op {
+        case .union:
+            return shapeA.union(shapeB, fuzzyValue: fuzzyValue)
+        case .subtract:
+            return shapeA.subtracting(shapeB, fuzzyValue: fuzzyValue)
+        case .intersect:
+            return shapeA.intersection(shapeB, fuzzyValue: fuzzyValue)
+        }
+    }
+
     #if DEBUG
-    static func sampleBoxStepData() -> Data? {
-        guard let shape = Shape.box(width: 10, height: 10, depth: 10) else { return nil }
+    static func sampleBoxStepData(origin: SIMD3<Double> = .zero, width: Double = 10, height: Double = 10, depth: Double = 10) -> Data? {
+        guard let shape = Shape.box(origin: origin, width: width, height: height, depth: depth) else { return nil }
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".step")
         defer { try? FileManager.default.removeItem(at: tempURL) }
         do {

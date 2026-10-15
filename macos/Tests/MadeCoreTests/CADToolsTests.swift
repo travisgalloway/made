@@ -628,7 +628,10 @@ import simd
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
         let registry = CADToolRegistry(document: doc, kernelClient: kernel)
-        let box = await kernel.request(.makeBox(jobId: JobId("jb"), solidId: boxSolidId, params: BoxParams(width: 40, depth: 30, height: 20)))
+        let box = await kernel.request(.evaluateShape(
+            jobId: JobId("jb"), solidId: boxSolidId,
+            shape: .box(BoxParams(width: 40, depth: 30, height: 20))
+        ))
         let far = await kernel.request(.evaluateShape(
             jobId: JobId("jc"), solidId: cylinderSolidId,
             shape: .translate(.cylinder(CylinderParams(radius: 15, height: 40), slices: 32), offset: SIMD3(500, 0, 0))
@@ -642,6 +645,85 @@ import simd
         
         let intersect = await registry.callTool(name: "cad_boolean_operation", arguments: booleanArgs("box-1", "cylinder-1", "intersect"))
         #expect(doc.objects.count == count + (intersect.isError == true ? 1 : 2))
+    }
+
+    @Test func testBooleanOperationWithKeepToolTruePreservesToolVisibility() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "solidA": .string("box-1"),
+            "solidB": .string("cylinder-1"),
+            "operation": .string("subtract"),
+            "keepTool": .bool(true)
+        ]
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: args)
+        #expect(result.isError == false)
+
+        let boxObj = doc.objects.first(where: { $0.id == boxSolidId })
+        let cylObj = doc.objects.first(where: { $0.id == cylinderSolidId })
+        #expect(boxObj?.isVisible == false)
+        #expect(cylObj?.isVisible == true)
+    }
+
+    @Test func testBooleanOperationWithKeepToolFalseHidesBothOperands() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "solidA": .string("box-1"),
+            "solidB": .string("cylinder-1"),
+            "operation": .string("subtract"),
+            "keepTool": .bool(false)
+        ]
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: args)
+        #expect(result.isError == false)
+
+        let boxObj = doc.objects.first(where: { $0.id == boxSolidId })
+        let cylObj = doc.objects.first(where: { $0.id == cylinderSolidId })
+        #expect(boxObj?.isVisible == false)
+        #expect(cylObj?.isVisible == false)
+    }
+
+    @Test func testBooleanOperationWithoutKeepToolPreservesVisibility() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "solidA": .string("box-1"),
+            "solidB": .string("cylinder-1"),
+            "operation": .string("subtract")
+        ]
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: args)
+        #expect(result.isError == false)
+
+        let boxObj = doc.objects.first(where: { $0.id == boxSolidId })
+        let cylObj = doc.objects.first(where: { $0.id == cylinderSolidId })
+        #expect(boxObj?.isVisible == true)
+        #expect(cylObj?.isVisible == true)
+    }
+
+    @Test func testBooleanOperationRejectsNonBooleanKeepTool() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "solidA": .string("box-1"),
+            "solidB": .string("cylinder-1"),
+            "operation": .string("subtract"),
+            "keepTool": .string("notABool")
+        ]
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: args)
+        #expect(result.isError == true)
+        #expect(result.content.first?.text?.contains("'keepTool' must be a boolean") == true)
     }
     
     @Test func testBooleanSucceedsWithValidOperands() async {

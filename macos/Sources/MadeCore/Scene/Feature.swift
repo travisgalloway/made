@@ -92,11 +92,36 @@ public struct BooleanFeatureData: Sendable, Codable, Equatable {
     public var op: BooleanOp
     public var targetSolidId: SolidId
     public var toolSolidId: SolidId
+    public var keepTool: Bool
 
-    public init(op: BooleanOp, targetSolidId: SolidId, toolSolidId: SolidId) {
+    public init(op: BooleanOp, targetSolidId: SolidId, toolSolidId: SolidId, keepTool: Bool = false) {
         self.op = op
         self.targetSolidId = targetSolidId
         self.toolSolidId = toolSolidId
+        self.keepTool = keepTool
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case op
+        case targetSolidId
+        case toolSolidId
+        case keepTool
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.op = try container.decode(BooleanOp.self, forKey: .op)
+        self.targetSolidId = try container.decode(SolidId.self, forKey: .targetSolidId)
+        self.toolSolidId = try container.decode(SolidId.self, forKey: .toolSolidId)
+        self.keepTool = try container.decodeIfPresent(Bool.self, forKey: .keepTool) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(op, forKey: .op)
+        try container.encode(targetSolidId, forKey: .targetSolidId)
+        try container.encode(toolSolidId, forKey: .toolSolidId)
+        try container.encode(keepTool, forKey: .keepTool)
     }
 }
 

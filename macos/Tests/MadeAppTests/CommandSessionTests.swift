@@ -274,8 +274,9 @@ extension WorkspaceModelTests {
         session.setSlotSelection(slotId: "solidB", objectId: cylId, objectName: "Cylinder")
         #expect(session.canCommit)
 
-        // Operation choice
+        // Operation choice and keepTool toggle default
         #expect(session.choiceValue(for: "operation") == "Subtract")
+        #expect(session.toggleValue(for: "keepTool") == false)
         session.setChoiceValue("Union", for: "operation")
         #expect(session.choiceValue(for: "operation") == "Union")
 
@@ -284,7 +285,7 @@ extension WorkspaceModelTests {
         session.cancel()
         #expect(workspace.document.objects.count == initialDocCount)
 
-        // Commit creates boolean solid, hides operands, and selects result
+        // Commit with keepTool: false creates boolean solid, hides both operands, and selects result
         session.commit()
         #expect(workspace.document.objects.count == initialDocCount + 1)
         let added = workspace.document.objects.last
@@ -299,6 +300,30 @@ extension WorkspaceModelTests {
         } else {
             Issue.record("Expected boolean object in DocumentModel")
         }
+    }
+
+    @Test @MainActor func testMakeBooleanWithKeepToolPreservesToolVisibility() {
+        let workspace = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+        workspace.selectedId = boxId
+
+        let session = CommandSession.makeBoolean(workspace: workspace, selectedId: boxId)
+        session.setSlotSelection(slotId: "solidB", objectId: cylId, objectName: "Cylinder")
+        #expect(session.canCommit)
+
+        session.setToggleValue(true, for: "keepTool")
+        #expect(session.toggleValue(for: "keepTool") == true)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        // Target solid A is hidden; tool solid B remains visible
+        #expect(workspace.document.objects.first(where: { $0.id == boxId })?.isVisible == false)
+        #expect(workspace.document.objects.first(where: { $0.id == cylId })?.isVisible == true)
     }
 }
 

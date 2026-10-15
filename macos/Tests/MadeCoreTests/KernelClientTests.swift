@@ -360,4 +360,213 @@ import Foundation
         let xs = stride(from: 0, to: payload.positions.count, by: 3).map { payload.positions[$0] }
         return (xs.max() ?? 0) - (xs.min() ?? 0)
     }
+
+    // MARK: - B-Rep Boolean Operations (Issue #183)
+
+    @Test func testBRepBooleanUnionSubtractIntersect() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let boxId = SolidId("brep-box")
+        let cylId = SolidId("brep-cyl")
+        let unionId = SolidId("brep-union")
+        let subId = SolidId("brep-sub")
+        let intId = SolidId("brep-int")
+
+        let boxRes = await client.request(.makeBox(jobId: JobId("b1"), solidId: boxId, params: BoxParams(width: 20, depth: 20, height: 20)))
+        let cylRes = await client.request(.makeCylinder(jobId: JobId("c1"), solidId: cylId, params: CylinderParams(radius: 5, height: 30)))
+        #expect(boxRes.isSuccess && cylRes.isSuccess)
+
+        // Union
+        let unionRes = await client.request(.booleanOperation(jobId: JobId("u1"), solidId: unionId, op: .union, solidA: boxId, solidB: cylId))
+        #expect(unionRes.isSuccess)
+        let unionMesh = unionRes.value
+        #expect(unionMesh != nil && (unionMesh?.triangleCount ?? 0) > 0)
+
+        // Subtract
+        let subRes = await client.request(.booleanOperation(jobId: JobId("s1"), solidId: subId, op: .subtract, solidA: boxId, solidB: cylId))
+        #expect(subRes.isSuccess)
+        let subMesh = subRes.value
+        #expect(subMesh != nil && (subMesh?.triangleCount ?? 0) > 0)
+
+        // Intersect
+        let intRes = await client.request(.booleanOperation(jobId: JobId("i1"), solidId: intId, op: .intersect, solidA: boxId, solidB: cylId))
+        #expect(intRes.isSuccess)
+        let intMesh = intRes.value
+        #expect(intMesh != nil && (intMesh?.triangleCount ?? 0) > 0)
+
+        let counts = await client.storeCounts()
+        #expect(counts.occtShapes == 5) // box, cyl, union, sub, int
+    }
+
+    @Test func testBRepDisjointIntersectionYieldsEmptyMesh() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let boxA = SolidId("disjoint-a")
+        let boxB = SolidId("disjoint-b")
+        let intOut = SolidId("disjoint-int-out")
+
+        let aRes = await client.request(.makeBox(jobId: JobId("da"), solidId: boxA, params: BoxParams(width: 10, depth: 10, height: 10)))
+        #expect(aRes.isSuccess)
+
+        let stepData = try #require(OCCTEngine.sampleBoxStepData(origin: SIMD3<Double>(500, 500, 500), width: 10, height: 10, depth: 10))
+        let bRes = await client.request(.importStep(jobId: JobId("db"), solidId: boxB, data: stepData))
+        #expect(bRes.isSuccess)
+
+        let intRes = await client.request(.booleanOperation(jobId: JobId("di"), solidId: intOut, op: .intersect, solidA: boxA, solidB: boxB))
+        #expect(intRes.isSuccess)
+        let mesh = try #require(intRes.value)
+        #expect(mesh.isEmpty)
+        #expect(mesh.triangleCount == 0)
+    }
+
+    @Test func testBRepDisjointUnionCombinesSolids() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let boxA = SolidId("disjoint-u-a")
+        let boxB = SolidId("disjoint-u-b")
+        let unionOut = SolidId("disjoint-u-out")
+
+        let aRes = await client.request(.makeBox(jobId: JobId("dua"), solidId: boxA, params: BoxParams(width: 10, depth: 10, height: 10)))
+        #expect(aRes.isSuccess)
+
+        let stepData = try #require(OCCTEngine.sampleBoxStepData(origin: SIMD3<Double>(500, 500, 500), width: 10, height: 10, depth: 10))
+        let bRes = await client.request(.importStep(jobId: JobId("dub"), solidId: boxB, data: stepData))
+        #expect(bRes.isSuccess)
+
+        let uRes = await client.request(.booleanOperation(jobId: JobId("du"), solidId: unionOut, op: .union, solidA: boxA, solidB: boxB))
+        #expect(uRes.isSuccess)
+        let mesh = try #require(uRes.value)
+        #expect(!mesh.isEmpty)
+        #expect(mesh.triangleCount > 0)
+    }
+
+    @Test func testBRepStepImportedBodyBoolean() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let stepSolid = SolidId("step-body")
+        let cylSolid = SolidId("cyl-cutter")
+        let diffSolid = SolidId("step-diff")
+
+        let stepData = try #require(OCCTEngine.sampleBoxStepData(origin: .zero, width: 30, height: 30, depth: 30))
+        let impRes = await client.request(.importStep(jobId: JobId("imp"), solidId: stepSolid, data: stepData))
+        #expect(impRes.isSuccess)
+
+        let cylRes = await client.request(.makeCylinder(jobId: JobId("cyl"), solidId: cylSolid, params: CylinderParams(radius: 6, height: 40)))
+        #expect(cylRes.isSuccess)
+
+        let diffRes = await client.request(.booleanOperation(jobId: JobId("sub"), solidId: diffSolid, op: .subtract, solidA: stepSolid, solidB: cylSolid))
+        #expect(diffRes.isSuccess)
+        let mesh = try #require(diffRes.value)
+        #expect(mesh.triangleCount > 0)
+    }
+
+    @Test func testBRepChainedBooleans() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let a = SolidId("chain-a")
+        let b = SolidId("chain-b")
+        let c = SolidId("chain-c")
+        let unionAB = SolidId("chain-ab")
+        let subC = SolidId("chain-abc")
+
+        _ = await client.request(.makeBox(jobId: JobId("ca"), solidId: a, params: BoxParams(width: 30, depth: 30, height: 10)))
+        _ = await client.request(.makeBox(jobId: JobId("cb"), solidId: b, params: BoxParams(width: 10, depth: 30, height: 30)))
+        _ = await client.request(.makeCylinder(jobId: JobId("cc"), solidId: c, params: CylinderParams(radius: 4, height: 40)))
+
+        let uRes = await client.request(.booleanOperation(jobId: JobId("cu"), solidId: unionAB, op: .union, solidA: a, solidB: b))
+        #expect(uRes.isSuccess)
+
+        let subRes = await client.request(.booleanOperation(jobId: JobId("cs"), solidId: subC, op: .subtract, solidA: unionAB, solidB: c))
+        #expect(subRes.isSuccess)
+        let mesh = try #require(subRes.value)
+        #expect(mesh.triangleCount > 0)
+    }
+
+    @Test func testBRepBooleanResultSubsequentFillet() async throws {
+        let engine = LocalKernelEngine()
+        let boxId = SolidId("fillet-box")
+        let cylId = SolidId("fillet-cyl")
+        let unionId = SolidId("fillet-union")
+
+        let boxRes = await engine.execute(.makeBox(jobId: JobId("fb"), solidId: boxId, params: BoxParams(width: 30, depth: 30, height: 30)))
+        let cylRes = await engine.execute(.makeCylinder(jobId: JobId("fc"), solidId: cylId, params: CylinderParams(radius: 4, height: 40)))
+        #expect(boxRes.isSuccess && cylRes.isSuccess)
+
+        let unionRes = await engine.execute(.booleanOperation(jobId: JobId("fu"), solidId: unionId, op: .union, solidA: boxId, solidB: cylId))
+        #expect(unionRes.isSuccess)
+
+        // The box top-back edge is far from the central cylinder, so its topological reference resolves
+        let boxFeature = Feature.makeBox(params: BoxParams(width: 30, depth: 30, height: 30))
+        let topBackEdgeRef = try #require(boxFeature.generatedTopology["edge:top-back"])
+
+        let filletRes = await engine.fillet(solidId: unionId, edgeReference: topBackEdgeRef, radius: 1.0)
+        #expect(filletRes.isSuccess)
+        let filletedMesh = try #require(filletRes.value)
+        #expect(filletedMesh.triangleCount > 0)
+    }
+
+    @Test func testBRepBooleanResultStepExport() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let boxId = SolidId("exp-box")
+        let cylId = SolidId("exp-cyl")
+        let unionId = SolidId("exp-union")
+
+        _ = await client.request(.makeBox(jobId: JobId("eb"), solidId: boxId, params: BoxParams(width: 20, depth: 20, height: 20)))
+        _ = await client.request(.makeCylinder(jobId: JobId("ec"), solidId: cylId, params: CylinderParams(radius: 5, height: 30)))
+
+        let unionRes = await client.request(.booleanOperation(jobId: JobId("eu"), solidId: unionId, op: .union, solidA: boxId, solidB: cylId))
+        #expect(unionRes.isSuccess)
+
+        let sceneObj = SceneObject(
+            id: unionId,
+            name: "Union Result",
+            def: .boolean(op: .union, solidA: boxId, solidB: cylId)
+        )
+
+        let exportRes = await client.exportStep(objects: [sceneObj])
+        #expect(exportRes.isSuccess)
+        let stepData = try #require(exportRes.value)
+        #expect(!stepData.isEmpty)
+
+        let measurement = try OCCTEngine.measureShape(data: stepData)
+        #expect(measurement.volume > 0)
+    }
+
+    @Test func testMixedBRepAndMeshOnlyOperandsFailsWithGeometryFailed() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let brepBox = SolidId("brep-operand")
+        let meshOnly = SolidId("mesh-operand")
+        let outId = SolidId("mixed-out")
+
+        let stepData = try #require(OCCTEngine.sampleBoxStepData(width: 20, height: 20, depth: 20))
+        _ = await client.request(.importStep(jobId: JobId("mb"), solidId: brepBox, data: stepData))
+        _ = await client.request(.evaluateShape(
+            jobId: JobId("me"),
+            solidId: meshOnly,
+            shape: .cylinder(CylinderParams(radius: 5, height: 25), slices: 16)
+        ))
+
+        let boolRes = await client.request(.booleanOperation(jobId: JobId("m-bool"), solidId: outId, op: .subtract, solidA: brepBox, solidB: meshOnly))
+        #expect(!boolRes.isSuccess)
+        #expect(boolRes.error?.code == .geometryFailed)
+        #expect(boolRes.error?.message.contains("B-Rep") == true)
+    }
+
+    @Test func testPureMeshCSGFallback() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let meshA = SolidId("mesh-a")
+        let meshB = SolidId("mesh-b")
+        let outId = SolidId("fallback-out")
+
+        _ = await client.request(.evaluateShape(
+            jobId: JobId("ea"),
+            solidId: meshA,
+            shape: .box(BoxParams(width: 20, depth: 20, height: 20))
+        ))
+        _ = await client.request(.evaluateShape(
+            jobId: JobId("eb"),
+            solidId: meshB,
+            shape: .cylinder(CylinderParams(radius: 5, height: 30), slices: 16)
+        ))
+
+        let fallbackRes = await client.request(.booleanOperation(jobId: JobId("fb-op"), solidId: outId, op: .subtract, solidA: meshA, solidB: meshB))
+        #expect(fallbackRes.isSuccess)
+        let mesh = try #require(fallbackRes.value)
+        #expect(mesh.triangleCount > 0)
+    }
 }
