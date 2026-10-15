@@ -27,8 +27,14 @@ struct ConsoleDrawerView: View {
                 .listStyle(.plain)
                 .environment(\.defaultMinListRowHeight, 16)
                 .overlay {
-                    if filteredLogs.isEmpty {
-                        ContentUnavailableView("No Logs", systemImage: "terminal")
+                    if workspace.logs.isEmpty {
+                        ContentUnavailableView(
+                            "No Logs",
+                            systemImage: "terminal",
+                            description: Text("Diagnostics and kernel events will appear here.")
+                        )
+                    } else if filteredLogs.isEmpty {
+                        ContentUnavailableView.search(text: filterText)
                     }
                 }
                 .onChange(of: workspace.logs.count) {

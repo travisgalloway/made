@@ -18,11 +18,22 @@ struct NavigatorSidebarView: View {
         .listStyle(.sidebar)
         .overlay {
             if workspace.document.objects.isEmpty {
-                ContentUnavailableView(
-                    "No Objects",
-                    systemImage: "cube.transparent",
-                    description: Text("Add a solid from the + menu below.")
-                )
+                ContentUnavailableView {
+                    Label("No Objects", systemImage: "cube.transparent")
+                } description: {
+                    Text("Add a 3D solid primitive or open a part script to begin modeling.")
+                } actions: {
+                    VStack(spacing: 8) {
+                        Button("Add Box", systemImage: "shippingbox") {
+                            workspace.addDefaultBox()
+                        }
+                        Button("Add Cylinder", systemImage: "cylinder") {
+                            workspace.addDefaultCylinder()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
             } else if filteredObjects.isEmpty {
                 ContentUnavailableView.search(text: filterText)
             }

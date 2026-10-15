@@ -20,7 +20,7 @@ struct ViewportCanvasView: View {
                 Image(systemName: "chevron.right")
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
-                Text(workspace.selectedObject?.name ?? "No Selection")
+                Text(workspace.document.objects.isEmpty ? "Empty Scene" : (workspace.selectedObject?.name ?? "No Selection"))
             }
             .font(.callout)
             Spacer()
@@ -71,6 +71,10 @@ struct ViewportCanvasView: View {
                             onResetView: { workspace.resetView() },
                             onCommitParam: { id, key, value in workspace.setParam(id, key, value) }
                         )
+
+                        if workspace.document.objects.isEmpty {
+                            EmptySceneGuidanceOverlayView()
+                        }
 
                         if workspace.commandPanelPlacement == .floatingHUD, let session = workspace.activeCommand {
                             CommandHUDOverlayView(session: session)
