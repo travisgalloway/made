@@ -326,6 +326,11 @@ public let cylinderSolidId = SolidId("cylinder-1")
 @Observable
 @MainActor
 public final class DocumentModel {
+    public private(set) var features: [Feature] = [] {
+        didSet {
+            syncObjectsFromFeatures()
+        }
+    }
     public private(set) var objects: [SceneObject] = []
     private var seq: Int = 1
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
@@ -356,35 +361,72 @@ public final class DocumentModel {
     
     public init() {
         // Initialize with default box and cylinder matching document.svelte.ts
-        objects = [
-            SceneObject(
-                id: boxSolidId,
-                def: .box(BoxParams(width: 40, depth: 30, height: 20)),
-                transform: Transform(position: SIMD3<Float>(-25, 0, 0))
-            ),
-            SceneObject(
-                id: cylinderSolidId,
-                def: .cylinder(CylinderParams(radius: 15, height: 40)),
-                transform: Transform(position: SIMD3<Float>(25, 0, 0))
-            )
-        ]
+        let boxFeature = Feature.makeBox(
+            solidId: boxSolidId,
+            params: BoxParams(width: 40, depth: 30, height: 20),
+            transform: Transform(position: SIMD3<Float>(-25, 0, 0))
+        )
+        let cylinderFeature = Feature.makeCylinder(
+            solidId: cylinderSolidId,
+            params: CylinderParams(radius: 15, height: 40),
+            transform: Transform(position: SIMD3<Float>(25, 0, 0))
+        )
+        self.features = [boxFeature, cylinderFeature]
+        syncObjectsFromFeatures()
+        self.seq = Self.computeMaxSequence(features: self.features)
+        setupUndoObservers()
+    }
+
+    public init(features: [Feature], selectedId: ObjectId? = nil) {
+        self.features = features
+        syncObjectsFromFeatures()
+        self._selectedId = selectedId ?? features.compactMap(\.outputSolidId).first
+        self.seq = Self.computeMaxSequence(features: features)
         setupUndoObservers()
     }
 
     public init(objects: [SceneObject], selectedId: ObjectId? = nil) {
-        self.objects = objects
+        let convertedFeatures = objects.map { Feature(from: $0) }
+        self.features = convertedFeatures
+        syncObjectsFromFeatures()
         self._selectedId = selectedId ?? objects.first?.id
         self.seq = Self.computeMaxSequence(objects: objects)
         setupUndoObservers()
     }
 
+    public func reset(with newFeatures: [Feature], selectedId: ObjectId? = nil) {
+        undoManager?.removeAllActions()
+        features = newFeatures
+        seq = Self.computeMaxSequence(features: newFeatures)
+        self.selectedId = selectedId ?? newFeatures.compactMap(\.outputSolidId).first
+        activeInteractiveParamEdit = nil
+        undoStateVersion += 1
+    }
+
     public func reset(with newObjects: [SceneObject], selectedId: ObjectId? = nil) {
         undoManager?.removeAllActions()
-        objects = newObjects
+        features = newObjects.map { Feature(from: $0) }
         seq = Self.computeMaxSequence(objects: newObjects)
         self.selectedId = selectedId ?? newObjects.first?.id
         activeInteractiveParamEdit = nil
         undoStateVersion += 1
+    }
+
+    private func syncObjectsFromFeatures() {
+        objects = features.compactMap { $0.toSceneObject() }
+    }
+
+    private static func computeMaxSequence(features: [Feature]) -> Int {
+        var maxSeq = 1
+        for f in features {
+            if let solidId = f.outputSolidId {
+                let parts = solidId.rawValue.split(separator: "-")
+                if parts.count >= 2, let lastNum = Int(parts.last!) {
+                    maxSeq = max(maxSeq, lastNum)
+                }
+            }
+        }
+        return maxSeq
     }
 
     private static func computeMaxSequence(objects: [SceneObject]) -> Int {
@@ -472,30 +514,181 @@ public final class DocumentModel {
         undoManager?.redo()
     }
 
+    // MARK: - Feature Mutators (ADR-D2)
+
+    @discardableResult
+    public func addFeature(_ feature: Feature) -> UUID {
+        features.append(feature)
+        if let solidId = feature.outputSolidId {
+            let parts = solidId.rawValue.split(separator: "-")
+            if parts.count >= 2, let lastNum = Int(parts.last!) {
+                seq = max(seq, lastNum)
+            }
+        }
+        let featureId = feature.id
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeFeature(id: featureId)
+                target.undoManager?.setActionName("Add Feature")
+                if let solidId = feature.outputSolidId {
+                    target.onUndoRedoMutation?(.removed(solidId))
+                }
+            }
+        }
+        undoManager?.setActionName("Add Feature")
+        undoStateVersion += 1
+        return featureId
+    }
+
+    @discardableResult
+    public func removeFeature(id: UUID) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(ObjectId(id.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(id.uuidString)))
+        }
+        let removedFeature = features[index]
+        let removedIndex = index
+        features.remove(at: index)
+        if let solidId = removedFeature.outputSolidId, selectedId == solidId {
+            selectedId = nil
+        }
+
+        let redoName = undoManager?.isUndoing == true ? "Add \(removedFeature.name)" : "Delete \(removedFeature.name)"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName)
+                target.undoManager?.setActionName(redoName)
+                if let solidId = removedFeature.outputSolidId {
+                    target.onUndoRedoMutation?(.added(solidId))
+                }
+            }
+        }
+        undoManager?.setActionName(redoName)
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertFeature(_ feature: Feature, at index: Int, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
+        guard !features.contains(where: { $0.id == feature.id }) else {
+            return .failure(.objectLocked(feature.outputSolidId ?? ObjectId(feature.id.uuidString)))
+        }
+        let targetIndex = min(max(0, index), features.count)
+        features.insert(feature, at: targetIndex)
+        if let solidId = feature.outputSolidId {
+            selectedId = solidId
+        }
+
+        let undoName = actionName ?? "Delete \(feature.name)"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeFeature(id: feature.id)
+                target.undoManager?.setActionName(undoName)
+                if let solidId = feature.outputSolidId {
+                    target.onUndoRedoMutation?(.removed(solidId))
+                }
+            }
+        }
+        undoManager?.setActionName(undoName)
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateFeature(_ feature: Feature) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == feature.id }) else {
+            return .failure(.objectNotFound(feature.outputSolidId ?? ObjectId(feature.id.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(feature.outputSolidId ?? ObjectId(feature.id.uuidString)))
+        }
+        let oldFeature = features[index]
+        guard oldFeature != feature else {
+            return .success(())
+        }
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateFeature(oldFeature)
+                target.undoManager?.setActionName("Update Feature")
+            }
+        }
+        undoManager?.setActionName("Update Feature")
+        undoStateVersion += 1
+        features[index] = feature
+        return .success(())
+    }
+
+    @discardableResult
+    public func setFeatureSuppressed(id: UUID, isSuppressed: Bool) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(ObjectId(id.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(id.uuidString)))
+        }
+        let oldSuppressed = features[index].isSuppressed
+        guard oldSuppressed != isSuppressed else {
+            return .success(())
+        }
+
+        let actionTitle = isSuppressed ? "Suppress Feature" : "Unsuppress Feature"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.setFeatureSuppressed(id: id, isSuppressed: oldSuppressed)
+                target.undoManager?.setActionName(actionTitle)
+            }
+        }
+        undoManager?.setActionName(actionTitle)
+        undoStateVersion += 1
+        features[index].isSuppressed = isSuppressed
+        if isSuppressed, let solidId = features[index].outputSolidId, selectedId == solidId {
+            selectedId = nil
+        }
+        return .success(())
+    }
+
+    public func setFeatureError(id: UUID, error: FeatureErrorState?) {
+        guard let index = features.firstIndex(where: { $0.id == id }) else { return }
+        features[index].errorState = error
+    }
+
+    public func feature(for id: UUID) -> Feature? {
+        features.first(where: { $0.id == id })
+    }
+
+    public func feature(for solidId: SolidId) -> Feature? {
+        features.first(where: { $0.outputSolidId == solidId })
+    }
+
+    // MARK: - SceneObject Bridged Mutators
+
     public func paramValue(for id: ObjectId, key: String) -> Float? {
-        guard let obj = objects.first(where: { $0.id == id }) else { return nil }
-        switch obj.def {
-        case .box(let p):
+        guard let feature = features.first(where: { $0.outputSolidId == id }) else { return nil }
+        switch feature.operation {
+        case .primitive(.box(let p)):
             switch key {
             case "width": return p.width
             case "depth": return p.depth
             case "height": return p.height
             default: return nil
             }
-        case .cylinder(let p):
+        case .primitive(.cylinder(let p)):
             switch key {
             case "radius": return p.radius
             case "height": return p.height
             default: return nil
             }
-        case .imported, .boolean, .part:
+        case .imported, .boolean, .part, .sketch, .extrude:
             return nil
         }
     }
 
     public func beginInteractiveParamEdit(id: ObjectId, key: String) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
-        guard !objects[index].isLocked else { return }
+        guard let feature = features.first(where: { $0.outputSolidId == id }) else { return }
+        guard !feature.isLocked else { return }
         guard let currentVal = paramValue(for: id, key: key) else { return }
         activeInteractiveParamEdit = (id: id, key: key, initialValue: currentVal)
     }
@@ -550,7 +743,8 @@ public final class DocumentModel {
             defaultName = nil
         }
         let obj = SceneObject(id: id, name: defaultName, def: clamped, transform: transform)
-        objects.append(obj)
+        let feature = Feature(from: obj)
+        features.append(feature)
 
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
@@ -568,11 +762,12 @@ public final class DocumentModel {
     /// Restores a previously removed object at its original index, preserving its identity.
     @discardableResult
     public func insertObject(_ obj: SceneObject, at index: Int, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
-        guard !objects.contains(where: { $0.id == obj.id }) else {
+        guard !features.contains(where: { $0.outputSolidId == obj.id }) else {
             return .failure(.objectLocked(obj.id))
         }
-        let targetIndex = min(max(0, index), objects.count)
-        objects.insert(obj, at: targetIndex)
+        let targetIndex = min(max(0, index), features.count)
+        let feature = Feature(from: obj)
+        features.insert(feature, at: targetIndex)
         selectedId = obj.id
 
         let undoName = actionName ?? "Delete \(obj.name)"
@@ -596,8 +791,13 @@ public final class DocumentModel {
         let def = ObjectDef.part(url: canonical, shape: nil)
         let id = reserveId(for: def)
         let displayName = name ?? (canonical.lastPathComponent.isEmpty ? id.rawValue : canonical.lastPathComponent)
-        let obj = SceneObject(id: id, name: displayName, def: def, transform: transform)
-        objects.append(obj)
+        let feature = Feature(
+            name: displayName,
+            operation: .part(PartFeatureData(url: canonical, shape: nil)),
+            outputSolidId: id,
+            transform: transform
+        )
+        features.append(feature)
 
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
@@ -614,33 +814,35 @@ public final class DocumentModel {
 
     /// Records the latest successfully evaluated `ShapeNode` for a scripted part object (#427).
     public func setPartShape(id: ObjectId, shape: ShapeNode) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
-        if case .part(let url, _) = objects[index].def {
-            objects[index].def = .part(url: url, shape: shape)
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
+        if case .part(var partData) = features[index].operation {
+            partData.shape = shape
+            features[index].operation = .part(partData)
         }
     }
 
     @discardableResult
     public func removeObject(id: ObjectId) -> Result<Void, DocumentMutationError> {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
-        guard !objects[index].isLocked else {
+        guard !features[index].isLocked else {
             return .failure(.objectLocked(id))
         }
-        let removedObj = objects[index]
+        let removedFeature = features[index]
         let removedIndex = index
-        objects.remove(at: index)
+        features.remove(at: index)
         if selectedId == id {
             selectedId = nil
         }
 
-        let redoName = undoManager?.isUndoing == true ? "Add \(removedObj.def.kind.capitalized)" : "Delete \(removedObj.name)"
+        let kind = removedFeature.toSceneObject()?.def.kind.capitalized ?? "Solid"
+        let redoName = undoManager?.isUndoing == true ? "Add \(kind)" : "Delete \(removedFeature.name)"
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
-                _ = target.insertObject(removedObj, at: removedIndex, actionName: redoName)
+                _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName)
                 target.undoManager?.setActionName(redoName)
-                target.onUndoRedoMutation?(.added(removedObj.id))
+                target.onUndoRedoMutation?(.added(id))
             }
         }
         undoManager?.setActionName(redoName)
@@ -650,18 +852,19 @@ public final class DocumentModel {
     
     @discardableResult
     public func setParam(id: ObjectId, key: String, value: Float) -> Result<Void, DocumentMutationError> {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
-        guard !objects[index].isLocked else {
+        guard !features[index].isLocked else {
             return .failure(.objectLocked(id))
         }
         guard let oldValue = paramValue(for: id, key: key) else {
             return .success(())
         }
         let clampedValue: Float
-        switch objects[index].def {
-        case .box(var params):
+        var updatedFeature = features[index]
+        switch updatedFeature.operation {
+        case .primitive(.box(var params)):
             switch key {
             case "width": params.width = DocumentLimits.clampBox(key: "width", value: value)
             case "depth": params.depth = DocumentLimits.clampBox(key: "depth", value: value)
@@ -669,18 +872,20 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = (key == "width" ? params.width : (key == "depth" ? params.depth : params.height))
-            objects[index].def = .box(params)
+            updatedFeature.operation = .primitive(.box(params))
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
             
-        case .cylinder(var params):
+        case .primitive(.cylinder(var params)):
             switch key {
             case "radius": params.radius = DocumentLimits.clampCylinder(key: "radius", value: value)
             case "height": params.height = DocumentLimits.clampCylinder(key: "height", value: value)
             default: break
             }
             clampedValue = (key == "radius" ? params.radius : params.height)
-            objects[index].def = .cylinder(params)
+            updatedFeature.operation = .primitive(.cylinder(params))
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
             
-        case .imported, .boolean, .part:
+        case .imported, .boolean, .part, .sketch, .extrude:
             return .success(())
         }
 
@@ -689,6 +894,7 @@ public final class DocumentModel {
         }
 
         if let active = activeInteractiveParamEdit, active.id == id, active.key == key {
+            features[index] = updatedFeature
             return .success(())
         }
 
@@ -702,22 +908,23 @@ public final class DocumentModel {
         }
         undoManager?.setActionName("Change \(key.capitalized)")
         undoStateVersion += 1
+        features[index] = updatedFeature
         return .success(())
     }
     
     @discardableResult
     public func setTransform(id: ObjectId, transform: Transform) -> Result<Void, DocumentMutationError> {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
-        guard !objects[index].isLocked else {
+        guard !features[index].isLocked else {
             return .failure(.objectLocked(id))
         }
-        let oldTransform = objects[index].transform
+        let oldTransform = features[index].transform
         guard oldTransform != transform else {
             return .success(())
         }
-        objects[index].transform = transform
+        features[index].transform = transform
 
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
@@ -733,29 +940,29 @@ public final class DocumentModel {
     }
     
     public func setName(id: ObjectId, name: String) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
-        objects[index].name = name
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
+        features[index].name = name
     }
     
     public func setVisibility(id: ObjectId, isVisible: Bool) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
-        objects[index].isVisible = isVisible
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
+        features[index].isVisible = isVisible
     }
     
     public func setLocked(id: ObjectId, isLocked: Bool) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
-        objects[index].isLocked = isLocked
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
+        features[index].isLocked = isLocked
     }
     
     @discardableResult
     public func setMaterial(id: ObjectId, material: MaterialAttributes) -> Result<Void, DocumentMutationError> {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
-        guard !objects[index].isLocked else {
+        guard !features[index].isLocked else {
             return .failure(.objectLocked(id))
         }
-        objects[index].material = material
+        features[index].material = material
         return .success(())
     }
 

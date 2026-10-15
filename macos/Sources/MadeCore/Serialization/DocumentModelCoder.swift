@@ -3,21 +3,42 @@ import Foundation
 /// Canonical scene data representation stored as `document.json` inside a `.made` package.
 public struct DocumentData: Codable, Sendable, Equatable {
     public var schemaVersion: Int
+    public var features: [Feature]?
     public var objects: [SceneObject]
     public var selectedId: ObjectId?
 
-    public init(schemaVersion: Int = 1, objects: [SceneObject], selectedId: ObjectId? = nil) {
+    public init(
+        schemaVersion: Int = 1,
+        features: [Feature]? = nil,
+        objects: [SceneObject]? = nil,
+        selectedId: ObjectId? = nil
+    ) {
         self.schemaVersion = schemaVersion
-        self.objects = objects.map { obj in
-            var copy = obj
-            copy.def = DocumentLimits.clamp(obj.def)
-            return copy
+        if let objects {
+            let clamped = objects.map { obj in
+                var copy = obj
+                copy.def = DocumentLimits.clamp(obj.def)
+                return copy
+            }
+            self.objects = clamped
+            self.features = features ?? clamped.map { Feature(from: $0) }
+        } else if let features {
+            self.features = features
+            self.objects = features.compactMap { $0.toSceneObject() }
+        } else {
+            self.features = []
+            self.objects = []
         }
         self.selectedId = selectedId
     }
 
+    public init(schemaVersion: Int = 1, objects: [SceneObject], selectedId: ObjectId? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
+        case features
         case objects
         case selectedId
     }
@@ -25,11 +46,18 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        let decodedFeatures = try container.decodeIfPresent([Feature].self, forKey: .features)
         let rawObjects = try container.decodeIfPresent([SceneObject].self, forKey: .objects) ?? []
-        self.objects = rawObjects.map { obj in
+        let clampedObjects = rawObjects.map { obj in
             var copy = obj
             copy.def = DocumentLimits.clamp(obj.def)
             return copy
+        }
+        self.objects = clampedObjects
+        if let decodedFeatures {
+            self.features = decodedFeatures
+        } else {
+            self.features = clampedObjects.map { Feature(from: $0) }
         }
         self.selectedId = try container.decodeIfPresent(ObjectId.self, forKey: .selectedId)
     }
@@ -37,6 +65,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encodeIfPresent(features, forKey: .features)
         try container.encode(objects, forKey: .objects)
         try container.encodeIfPresent(selectedId, forKey: .selectedId)
     }
@@ -73,7 +102,12 @@ public enum DocumentModelCoder {
     /// Convenience encoder for `DocumentModel`.
     @MainActor
     public static func encode(document: DocumentModel, schemaVersion: Int = 1) throws -> Data {
-        let docData = DocumentData(schemaVersion: schemaVersion, objects: document.objects, selectedId: document.selectedId)
+        let docData = DocumentData(
+            schemaVersion: schemaVersion,
+            features: document.features,
+            objects: document.objects,
+            selectedId: document.selectedId
+        )
         return try encode(docData)
     }
 
@@ -81,6 +115,10 @@ public enum DocumentModelCoder {
     @MainActor
     public static func decode(into document: DocumentModel, from data: Data) throws {
         let docData = try decode(from: data)
-        document.reset(with: docData.objects, selectedId: docData.selectedId)
+        if let features = docData.features {
+            document.reset(with: features, selectedId: docData.selectedId)
+        } else {
+            document.reset(with: docData.objects, selectedId: docData.selectedId)
+        }
     }
 }
