@@ -24,6 +24,7 @@ final class WorkspaceModel {
     }
     var coordinator: CADMetalViewRepresentable.Coordinator?
     private(set) var renderStats = RenderStats()
+    private(set) var kernelStats = KernelStats()
     var activeSnapKind: SnapKind?
     /// Last failed recompute per solid, shown in the Inspector (invariant 3: panels only).
     private(set) var recomputeFailures = RecomputeFailures()
@@ -96,6 +97,9 @@ final class WorkspaceModel {
                     let name = self.document.objects.first(where: { $0.id == id })?.name ?? id.rawValue
                     self.log(.info, "Part", "Reloaded \(name) (\(output.payload.triangleCount) triangles)")
                 }
+                Task { [weak self] in
+                    await self?.updateKernelStats()
+                }
             }
         )
         partReloadController = reloadController
@@ -111,6 +115,9 @@ final class WorkspaceModel {
                 guard let self else { return }
                 if let message = self.recomputeFailures.record(result, for: id) {
                     self.log(.error, "Kernel", message)
+                }
+                Task { [weak self] in
+                    await self?.updateKernelStats()
                 }
             }
         )
@@ -324,25 +331,33 @@ final class WorkspaceModel {
             return
         }
         if let registry = toolRegistry {
-            registry.scheduleRecompute(id: id)
+            let task = registry.scheduleRecompute(id: id)
+            Task { [weak self] in
+                await Task.yield()
+                await self?.updateKernelStats()
+                _ = await task?.value
+                await self?.updateKernelStats()
+            }
             return
         }
         guard let request = KernelRegeneration.request(for: obj, jobId: JobId("job-\(UUID().uuidString)")) else { return }
 
-        Task {
-            let result = await kernelClient.request(request)
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await self.kernelClient.request(request)
+            await self.updateKernelStats()
             // The solid was removed while the request was in flight; release what it repopulated.
-            guard document.objects.contains(where: { $0.id == id }) else {
-                await kernelClient.dispose(solidId: id)
+            guard self.document.objects.contains(where: { $0.id == id }) else {
+                await self.kernelClient.dispose(solidId: id)
                 return
             }
             // A failure leaves the previous mesh installed; only the message changes.
-            if let message = recomputeFailures.record(result, for: id) {
-                log(.error, "Kernel", message)
+            if let message = self.recomputeFailures.record(result, for: id) {
+                self.log(.error, "Kernel", message)
             }
-            guard let renderer = viewportManager.renderer,
-                  SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) else { return }
-            invalidateViewport(.model)
+            guard let renderer = self.viewportManager.renderer,
+                  SolidMeshApplier.apply(result, to: id, document: self.document, sink: renderer) else { return }
+            self.invalidateViewport(.model)
         }
     }
 
@@ -396,11 +411,24 @@ final class WorkspaceModel {
 
     func updateStats() {
         let shared = RenderInstrumentation.shared
-        renderStats = RenderStats(
+        let nextRenderStats = RenderStats(
             renderCount: shared.renderCount,
             drawCalls: shared.drawCalls,
             lastReason: shared.lastReason?.rawValue ?? "idle"
         )
+        if renderStats != nextRenderStats {
+            renderStats = nextRenderStats
+        }
+        Task { [weak self] in
+            await self?.updateKernelStats()
+        }
+    }
+
+    func updateKernelStats() async {
+        let stats = await kernelClient.getStats()
+        if kernelStats != stats {
+            kernelStats = stats
+        }
     }
 
     // MARK: - MCP
@@ -437,5 +465,8 @@ final class WorkspaceModel {
 
     func toggleConsole() {
         withAnimation(.easeInOut(duration: 0.15)) { isConsoleVisible.toggle() }
+        if isConsoleVisible {
+            updateStats()
+        }
     }
 }
