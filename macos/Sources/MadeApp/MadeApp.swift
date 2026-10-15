@@ -46,12 +46,12 @@ struct MadeApp: App {
                 Button("Reload Part Scripts") { workspace.reloadAllParts() }
                     .keyboardShortcut("r", modifiers: [.command])
             }
+            EditMenuCommands(workspace: workspace)
+            SolidMenuCommands(workspace: workspace)
+            ViewNavigationCommands(workspace: workspace)
+            ToolsMenuCommands(workspace: workspace)
             CommandGroup(after: .appInfo) {
                 OpenSourceLicensesMenuButton()
-            }
-            CommandGroup(after: .sidebar) {
-                Button(workspace.consoleToggleTitle) { workspace.toggleConsole() }
-                    .keyboardShortcut(WorkspaceModel.consoleShortcutKey, modifiers: WorkspaceModel.consoleShortcutModifiers)
             }
             CommandGroup(after: .help) {
                 OpenSourceLicensesMenuButton()

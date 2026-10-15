@@ -55,7 +55,7 @@ final class WorkspaceModel {
     private(set) var toolRegistry: CADToolRegistry?
     private(set) var partReloadController: PartReloadController?
     private(set) var mcpServer: MCPServer?
-    private(set) var isMCPServerRunning = false
+    var isMCPServerRunning = false
     private(set) var mcpServerError: String? = nil
     let mcpPort: UInt16 = 9820
 
@@ -185,6 +185,17 @@ final class WorkspaceModel {
 
     // MARK: - Scene editing
 
+    static let defaultBoxParams = BoxParams(width: 30, depth: 30, height: 30)
+    static let defaultCylinderParams = CylinderParams(radius: 12, height: 35)
+
+    func addDefaultBox() {
+        addObject(.box(Self.defaultBoxParams))
+    }
+
+    func addDefaultCylinder() {
+        addObject(.cylinder(Self.defaultCylinderParams))
+    }
+
     func addObject(_ def: ObjectDef) {
         let id = document.addObject(def: def)
         selectedId = id
@@ -230,6 +241,16 @@ final class WorkspaceModel {
         }
     }
 
+    var selectedPartId: ObjectId? {
+        guard let obj = selectedObject, case .part = obj.def else { return nil }
+        return obj.id
+    }
+
+    func reloadSelectedPart() {
+        guard let id = selectedPartId else { return }
+        reloadPart(id)
+    }
+
     func reloadPart(_ id: ObjectId) {
         partReloadController?.reloadNow(id: id)
     }
@@ -249,6 +270,16 @@ final class WorkspaceModel {
         for url in panel.urls {
             openPartFile(at: url)
         }
+    }
+
+    var canDeleteSelectedObject: Bool {
+        guard let obj = selectedObject else { return false }
+        return !obj.isLocked
+    }
+
+    func deleteSelectedObject() {
+        guard let id = selectedId else { return }
+        requestDeleteObject(id)
     }
 
     func requestDeleteObject(_ id: ObjectId) {
@@ -279,6 +310,16 @@ final class WorkspaceModel {
         invalidateViewport(.model)
     }
 
+    var hideToggleTitle: String {
+        guard let obj = selectedObject else { return "Hide Solid" }
+        return obj.isVisible ? "Hide Solid" : "Show Solid"
+    }
+
+    func toggleSelectedObjectVisibility() {
+        guard let id = selectedId else { return }
+        toggleVisibility(id)
+    }
+
     func toggleVisibility(_ id: ObjectId) {
         guard let obj = document.objects.first(where: { $0.id == id }) else { return }
         let visible = !obj.isVisible
@@ -290,6 +331,16 @@ final class WorkspaceModel {
         }
         log(.info, "Scene", "\(visible ? "Showed" : "Hid") object \(id.rawValue)")
         invalidateViewport(.model)
+    }
+
+    var lockToggleTitle: String {
+        guard let obj = selectedObject else { return "Lock Solid" }
+        return obj.isLocked ? "Unlock Solid" : "Lock Solid"
+    }
+
+    func toggleSelectedObjectLock() {
+        guard let id = selectedId else { return }
+        toggleLock(id)
     }
 
     func toggleLock(_ id: ObjectId) {
@@ -472,6 +523,51 @@ final class WorkspaceModel {
             }
         }
     }
+
+    var mcpServerToggleTitle: String {
+        isMCPServerRunning ? "Stop MCP Server" : "Start MCP Server"
+    }
+
+    // MARK: - Keyboard Shortcuts & Modifiers (BL-MAC-04)
+
+    static let deleteShortcutKey: KeyEquivalent = .delete
+    static let deleteShortcutModifiers: EventModifiers = [.command]
+
+    static let addBoxShortcutKey: KeyEquivalent = "b"
+    static let addBoxShortcutModifiers: EventModifiers = [.command, .shift]
+
+    static let addCylinderShortcutKey: KeyEquivalent = "c"
+    static let addCylinderShortcutModifiers: EventModifiers = [.command, .shift]
+
+    static let hideSolidShortcutKey: KeyEquivalent = "h"
+    static let hideSolidShortcutModifiers: EventModifiers = [.command, .shift]
+
+    static let lockSolidShortcutKey: KeyEquivalent = "l"
+    static let lockSolidShortcutModifiers: EventModifiers = [.command, .shift]
+
+    static let reloadPartShortcutKey: KeyEquivalent = "r"
+    static let reloadPartShortcutModifiers: EventModifiers = [.control, .command]
+
+    static let zoomInShortcutKey: KeyEquivalent = "="
+    static let zoomInShortcutModifiers: EventModifiers = [.command]
+
+    static let zoomOutShortcutKey: KeyEquivalent = "-"
+    static let zoomOutShortcutModifiers: EventModifiers = [.command]
+
+    static let zoomToFitShortcutKey: KeyEquivalent = "f"
+    static let zoomToFitShortcutModifiers: EventModifiers = [.command, .shift]
+
+    static let resetViewShortcutKey: KeyEquivalent = "0"
+    static let resetViewShortcutModifiers: EventModifiers = [.command]
+
+    static let mcpServerShortcutKey: KeyEquivalent = "m"
+    static let mcpServerShortcutModifiers: EventModifiers = [.command, .shift]
+
+    static let toolSelectShortcutKey: KeyEquivalent = "1"
+    static let toolOrbitShortcutKey: KeyEquivalent = "2"
+    static let toolPanShortcutKey: KeyEquivalent = "3"
+    static let toolZoomShortcutKey: KeyEquivalent = "4"
+    static let toolShortcutModifiers: EventModifiers = [.command, .option]
 
     // MARK: - Console
 

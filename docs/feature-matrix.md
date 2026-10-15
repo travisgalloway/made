@@ -131,7 +131,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-22 | A user can remove a solid from the GUI with a confirmation dialog (Cancel preserves solid and selection; Delete confirms removal and disposes kernel/mesh) | done | n/a | n/a | Shipped | #73, #141 | n/a |
 | UI-23 | A user can run the app on iPadOS 17 | none | n/a | n/a | Planned | #84 | n/a |
 | UI-24 | A user can show or hide the Navigator, Console and Inspector panes from toolbar toggle buttons | done | n/a | n/a | Shipped |  | n/a |
-| UI-25 | A user can toggle the sidebar, console, and inspector from the standard View menu commands (⇧⌘Y for console) | done | n/a | n/a | Shipped | #140 | n/a |
+| UI-25 | A user can reach every command from the native menu bar with standard Mac shortcuts (File: Open/Reload Part Scripts ⌘O/⌘R; Edit: Delete ⌘⌫; Solid: Add Box ⇧⌘B, Add Cylinder ⇧⌘C, Hide/Show ⇧⌘H, Lock/Unlock ⇧⌘L, Reload Part ⌃⌘R, Delete ⌘⌫; View: Sidebar ⌃⌘S, Inspector ⌥⌘I, Console ⇧⌘Y, Zoom In ⌘=, Zoom Out ⌘-, Zoom to Fit ⇧⌘F, Reset View ⌘0, View Angle presets, Projection Mode; Tools: Start/Stop MCP Server ⇧⌘M, Viewport Tools) | done | n/a | n/a | Shipped | #140, #250 | n/a |
 | UI-26 | A user can filter the Navigator's Scene list by object name or ID, with an empty-result message | done | n/a | n/a | Shipped |  | n/a |
 | UI-27 | A user can hide or show an object from the Navigator eye button or the context menu, and the viewport and snapping skip hidden objects | done | n/a | n/a | Shipped |  | n/a |
 | UI-28 | A user can lock or unlock an object from the Navigator lock button or context menu; locking disables inspector controls, disables row deletion, and hides the viewport gizmo | done | n/a | n/a | Shipped | #127 | n/a |

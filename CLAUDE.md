@@ -64,7 +64,7 @@ macos/
     Platform/              AppKit and UIKit shims
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
   Sources/MadeApp/         MadeApp (@main, sidebar, console, and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
-                           NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
+                           MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField,
                            CADMetalViewRepresentable
   Tests/MadeCoreTests/     Swift Testing suites
