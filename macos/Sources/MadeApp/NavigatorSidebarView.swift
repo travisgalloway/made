@@ -36,9 +36,26 @@ struct NavigatorSidebarView: View {
                 Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
                 Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
                 Divider()
-                Button("Delete", role: .destructive) { workspace.removeObject(id) }
+                Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
                     .disabled(obj.isLocked)
             }
+        }
+        .confirmationDialog(
+            "Delete “\(workspace.objectPendingDeletion?.name ?? "Solid")”?",
+            isPresented: Binding(
+                get: { workspace.pendingDeleteId != nil },
+                set: { if !$0 { workspace.cancelDeleteObject() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                workspace.confirmDeleteObject()
+            }
+            Button("Cancel", role: .cancel) {
+                workspace.cancelDeleteObject()
+            }
+        } message: {
+            Text("Are you sure you want to delete “\(workspace.objectPendingDeletion?.name ?? "this solid")”? This action cannot be undone.")
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             PaneTabBar(label: "Navigator", selection: $workspace.navigatorTab)
