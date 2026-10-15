@@ -446,7 +446,13 @@ import MadeCore
         #expect(resultId != nil)
 
         // Wait for recompute to fail with geometryFailed and roll back
-        try await Task.sleep(for: .milliseconds(150))
+        if let id = resultId, let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [id])
+        }
+        for _ in 0..<20 {
+            if model.document.objects.count == initialCount { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
 
         #expect(model.document.objects.count == initialCount)
         if let id = resultId {
@@ -1179,15 +1185,24 @@ import MadeCore
         try await Task.sleep(for: .milliseconds(150))
 
         // Remove cylinder-1
-        model.removeObject(cylId)
+        await model.removeObject(cylId).value
 
         if let registry = model.toolRegistry {
             await registry.settleRecomputes(for: [boolId])
         }
-        try await Task.sleep(for: .milliseconds(150))
+
+        var failureMsg = model.recomputeFailures.message(for: boolId)
+        if failureMsg == nil {
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(100))
+                if let msg = model.recomputeFailures.message(for: boolId) {
+                    failureMsg = msg
+                    break
+                }
+            }
+        }
 
         // Dependent boolean should have failed with unknown-solid
-        let failureMsg = model.recomputeFailures.message(for: boolId)
         #expect(failureMsg != nil)
         #expect(failureMsg?.contains("unknown-solid") == true)
         #expect(failureMsg?.contains("Solid B 'cylinder-1' not found") == true)

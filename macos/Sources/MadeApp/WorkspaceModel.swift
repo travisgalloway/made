@@ -643,12 +643,15 @@ final class WorkspaceModel {
         pendingDeleteId = nil
     }
 
-    func removeObject(_ id: ObjectId) {
-        guard let obj = document.objects.first(where: { $0.id == id }), !obj.isLocked else { return }
+    @discardableResult
+    func removeObject(_ id: ObjectId) -> Task<Void, Never> {
+        guard let obj = document.objects.first(where: { $0.id == id }), !obj.isLocked else {
+            return Task {}
+        }
         let dependents = document.dependentObjects(of: id)
         partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
-        Task {
+        let task = Task {
             await kernelClient.dispose(solidId: id)
             for depId in dependents {
                 self.recomputeSolid(id: depId)
@@ -660,6 +663,7 @@ final class WorkspaceModel {
         }
         log(.info, "Scene", "Removed object \(id.rawValue)")
         invalidateViewport(.model)
+        return task
     }
 
     var hideToggleTitle: String {
