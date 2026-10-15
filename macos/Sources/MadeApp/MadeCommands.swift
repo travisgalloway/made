@@ -1,6 +1,57 @@
 import SwiftUI
 import MadeCore
 
+struct FileMenuCommands: Commands {
+    var workspace: WorkspaceModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Document") {
+                workspace.newDocument()
+            }
+            .keyboardShortcut(WorkspaceModel.newDocumentShortcutKey, modifiers: WorkspaceModel.newDocumentShortcutModifiers)
+
+            Button("Open Document…") {
+                workspace.promptOpenDocument()
+            }
+            .keyboardShortcut(WorkspaceModel.openDocumentShortcutKey, modifiers: WorkspaceModel.openDocumentShortcutModifiers)
+
+            Button("Open Part Script…") {
+                workspace.promptOpenPartFile()
+            }
+            .keyboardShortcut(WorkspaceModel.openPartShortcutKey, modifiers: WorkspaceModel.openPartShortcutModifiers)
+
+            Divider()
+
+            Button("Save") {
+                workspace.promptSaveDocument()
+            }
+            .keyboardShortcut(WorkspaceModel.saveDocumentShortcutKey, modifiers: WorkspaceModel.saveDocumentShortcutModifiers)
+
+            Button("Save As…") {
+                workspace.saveDocumentAs()
+            }
+            .keyboardShortcut(WorkspaceModel.saveAsDocumentShortcutKey, modifiers: WorkspaceModel.saveAsDocumentShortcutModifiers)
+
+            Divider()
+
+            Button("Import STEP…") {
+                workspace.promptImportStepFile()
+            }
+
+            Button("Export STEP…") {
+                workspace.promptExportStepFile(selectedOnly: false)
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            Button("Reload Part Scripts") {
+                workspace.reloadAllParts()
+            }
+            .keyboardShortcut("r", modifiers: [.command])
+        }
+    }
+}
+
 struct EditMenuCommands: Commands {
     var workspace: WorkspaceModel
 

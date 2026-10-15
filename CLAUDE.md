@@ -59,6 +59,7 @@ macos/
     Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo
     Scene/                 DocumentModel (@Observable), SolidMeshApplier, KernelRegeneration, UnitSettings, KernelTolerances
+    Serialization/         DocumentModelCoder, MadeManifest, MadePackage, UTType+Made
     Agent/                 MCPProtocol, MCPServer, MCPLineFramer (input framing), CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use). Part files will be TypeScript on JavaScriptCore (ADR-D6, #435)
     Platform/              AppKit and UIKit shims
@@ -67,9 +68,9 @@ macos/
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView,
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
-                           EmptySceneGuidanceOverlayView
+                           EmptySceneGuidanceOverlayView, Document/MadeDocument
   Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests)
-  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, and application unit tests
+  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, MadeDocumentTests, and application unit tests
 ```
 
 ## Architectural invariants

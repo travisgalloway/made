@@ -24,6 +24,16 @@ final class WorkspaceModel {
         set { document.selectedId = newValue }
     }
     var pendingDeleteId: ObjectId?
+    // Document Persistence & State
+    var currentDocumentURL: URL?
+    var isDocumentModified: Bool = false
+    var autosaveDebounceNanoseconds: UInt64 = 2_000_000_000
+    private var autosaveTask: Task<Void, Never>?
+
+    var documentTitle: String {
+        let base = currentDocumentURL?.deletingPathExtension().lastPathComponent ?? "Untitled Project"
+        return isDocumentModified ? "\(base) — Edited" : base
+    }
     var coordinator: CADMetalViewRepresentable.Coordinator?
     private(set) var renderStats = RenderStats()
     private(set) var kernelStats = KernelStats()
@@ -448,6 +458,183 @@ final class WorkspaceModel {
 
     // MARK: - Scene editing
 
+    // MARK: - Document Lifecycle & Autosave
+
+    func markDocumentModified() {
+        isDocumentModified = true
+        syncWindowState()
+        scheduleAutosaveIfNeeded()
+    }
+
+    func scheduleAutosaveIfNeeded() {
+        guard currentDocumentURL != nil else { return }
+        autosaveTask?.cancel()
+        autosaveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: self.autosaveDebounceNanoseconds)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, self.isDocumentModified, let url = self.currentDocumentURL else { return }
+            self.performAutosave(to: url)
+        }
+    }
+
+    func performAutosave(to url: URL) {
+        _ = saveDocument(to: url)
+    }
+
+    func syncWindowState() {
+        let app: NSApplication? = NSApp
+        guard let app else { return }
+        guard let window = app.keyWindow ?? app.mainWindow ?? app.windows.first(where: { !($0 is NSPanel) }) else { return }
+        window.isDocumentEdited = isDocumentModified
+        window.representedURL = currentDocumentURL
+    }
+
+    func newDocument() {
+        cancelActiveCommand()
+        autosaveTask?.cancel()
+        autosaveTask = nil
+
+        let defaultObjects = [
+            SceneObject(
+                id: boxSolidId,
+                def: .box(BoxParams(width: 40, depth: 30, height: 20)),
+                transform: Transform(position: SIMD3<Float>(-25, 0, 0))
+            ),
+            SceneObject(
+                id: cylinderSolidId,
+                def: .cylinder(CylinderParams(radius: 15, height: 40)),
+                transform: Transform(position: SIMD3<Float>(25, 0, 0))
+            )
+        ]
+        document.reset(with: defaultObjects, selectedId: boxSolidId)
+        currentDocumentURL = nil
+        isDocumentModified = false
+        syncWindowState()
+        log(.info, "Document", "Created new document")
+
+        for obj in document.objects {
+            recomputeSolid(id: obj.id)
+        }
+    }
+
+    @discardableResult
+    func openDocument(at url: URL) -> Bool {
+        do {
+            let package = try MadePackage(directoryURL: url)
+            cancelActiveCommand()
+            autosaveTask?.cancel()
+            autosaveTask = nil
+
+            self.lengthUnit = package.manifest.units.lengthUnit
+            self.angleUnit = package.manifest.units.angleUnit
+            self.decimalPrecision = package.manifest.units.decimalPrecision
+            self.kernelTolerances = package.manifest.tolerances
+
+            document.reset(with: package.documentData.objects, selectedId: package.documentData.selectedId)
+            currentDocumentURL = url
+            isDocumentModified = false
+            syncWindowState()
+            log(.info, "Document", "Opened document from \(url.lastPathComponent)")
+
+            for obj in document.objects {
+                recomputeSolid(id: obj.id)
+            }
+            return true
+        } catch {
+            log(.error, "Document", "Failed to open document: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
+    func saveDocument(to targetURL: URL? = nil) -> Bool {
+        guard let destinationURL = targetURL ?? currentDocumentURL else {
+            promptSaveDocument()
+            return false
+        }
+
+        autosaveTask?.cancel()
+        autosaveTask = nil
+
+        do {
+            let manifest = MadeManifest(
+                schemaVersion: 1,
+                appVersion: "0.1",
+                units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
+                tolerances: kernelTolerances
+            )
+            let docData = DocumentData(schemaVersion: 1, objects: document.objects, selectedId: selectedId)
+
+            var assets: [String: Data] = [:]
+            for obj in document.objects {
+                if case .imported(let name, let sourceURL, let data) = obj.def {
+                    let filename = sourceURL?.lastPathComponent ?? (name.hasSuffix(".step") || name.hasSuffix(".stp") ? name : "\(name).step")
+                    if let data {
+                        assets[filename] = data
+                    } else if let sourceURL, FileManager.default.fileExists(atPath: sourceURL.path), let fileData = try? Data(contentsOf: sourceURL) {
+                        assets[filename] = fileData
+                    }
+                }
+            }
+
+            var parts: [String: Data] = [:]
+            for obj in document.objects {
+                if case .part(let url, _) = obj.def {
+                    let filename = url.lastPathComponent
+                    if FileManager.default.fileExists(atPath: url.path), let fileData = try? Data(contentsOf: url) {
+                        parts[filename] = fileData
+                    }
+                }
+            }
+
+            let package = MadePackage(manifest: manifest, documentData: docData, assets: assets, parts: parts)
+            try package.write(to: destinationURL)
+
+            currentDocumentURL = destinationURL
+            isDocumentModified = false
+            syncWindowState()
+            log(.info, "Document", "Saved document to \(destinationURL.lastPathComponent)")
+            return true
+        } catch {
+            log(.error, "Document", "Failed to save document: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func promptSaveDocument() {
+        if let current = currentDocumentURL {
+            _ = saveDocument(to: current)
+        } else {
+            saveDocumentAs()
+        }
+    }
+
+    func saveDocumentAs() {
+        let panel = NSSavePanel()
+        panel.title = "Save Document As"
+        panel.allowedContentTypes = [.madeDocument]
+        panel.canCreateDirectories = true
+        let defaultName = currentDocumentURL?.lastPathComponent ?? "Untitled.made"
+        panel.nameFieldStringValue = defaultName
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        _ = saveDocument(to: url)
+    }
+
+    func promptOpenDocument() {
+        let panel = NSOpenPanel()
+        panel.title = "Open Document"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.madeDocument]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openDocument(at: url)
+    }
+
     static let defaultBoxParams = BoxParams(width: 30, depth: 30, height: 30)
     static let defaultCylinderParams = CylinderParams(radius: 12, height: 35)
 
@@ -462,6 +649,7 @@ final class WorkspaceModel {
     func addObject(_ def: ObjectDef) {
         let id = document.addObject(def: def)
         selectedId = id
+        markDocumentModified()
         log(.info, "Scene", "Added object \(id.rawValue)")
         recomputeSolid(id: id)
     }
@@ -494,11 +682,13 @@ final class WorkspaceModel {
         if let controller = partReloadController {
             let id = controller.openPartFile(at: url)
             selectedId = id
+            markDocumentModified()
             log(.info, "Part", "Watching \(url.lastPathComponent) (\(id.rawValue))")
             return id
         } else {
             let id = document.addPart(url: url)
             selectedId = id
+            markDocumentModified()
             log(.info, "Part", "Added part \(url.lastPathComponent) (\(id.rawValue))")
             return id
         }
@@ -609,6 +799,7 @@ final class WorkspaceModel {
             let id = document.reserveId(for: .imported(name: url.lastPathComponent))
             document.addObject(id, def: .imported(name: url.lastPathComponent, sourceURL: url, data: data))
             selectedId = id
+            markDocumentModified()
             recomputeSolid(id: id)
             log(.info, "Kernel", "Importing STEP file \(url.lastPathComponent) (\(id.rawValue))")
             return id
@@ -651,6 +842,7 @@ final class WorkspaceModel {
         let dependents = document.dependentObjects(of: id)
         partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
+        markDocumentModified()
         let task = Task {
             await kernelClient.dispose(solidId: id)
             for depId in dependents {
@@ -687,6 +879,7 @@ final class WorkspaceModel {
         guard let obj = document.objects.first(where: { $0.id == id }) else { return }
         guard obj.isVisible != isVisible else { return }
         document.setVisibility(id: id, isVisible: isVisible)
+        markDocumentModified()
         if isVisible {
             viewportManager.renderer?.hiddenSolidIds.remove(id)
         } else {
@@ -708,7 +901,14 @@ final class WorkspaceModel {
     func toggleLock(_ id: ObjectId) {
         guard let obj = document.objects.first(where: { $0.id == id }) else { return }
         document.setLocked(id: id, isLocked: !obj.isLocked)
+        markDocumentModified()
         log(.info, "Scene", "\(obj.isLocked ? "Unlocked" : "Locked") object \(id.rawValue)")
+    }
+
+    func setName(id: ObjectId, name: String) {
+        guard let obj = document.objects.first(where: { $0.id == id }), obj.name != name else { return }
+        document.setName(id: id, name: name)
+        markDocumentModified()
     }
 
     private func formatVec3(_ v: SIMD3<Float>) -> String {
@@ -720,6 +920,7 @@ final class WorkspaceModel {
               current.transform != transform else { return }
         let result = document.setTransform(id: id, transform: transform)
         guard case .success = result else { return }
+        markDocumentModified()
         if let renderer = viewportManager.renderer {
             _ = SolidMeshApplier.applyTransform(to: id, document: document, sink: renderer)
         }
@@ -730,6 +931,7 @@ final class WorkspaceModel {
     func setMaterial(_ id: ObjectId, _ material: MaterialAttributes) {
         let result = document.setMaterial(id: id, material: material)
         guard case .success = result else { return }
+        markDocumentModified()
         if let renderer = viewportManager.renderer {
             _ = SolidMeshApplier.applyMaterial(to: id, document: document, sink: renderer)
         }
@@ -740,6 +942,7 @@ final class WorkspaceModel {
     func setParam(_ id: ObjectId, _ key: String, _ value: Float) {
         let result = document.setParam(id: id, key: key, value: value)
         guard case .success = result else { return }
+        markDocumentModified()
         log(.kernel, "CSG", "Updated \(id.rawValue) \(key) to \(String(format: "%.1f", value))")
         recomputeSolid(id: id)
     }
@@ -886,6 +1089,7 @@ final class WorkspaceModel {
             log(.info, "Scene", "Updated \(id.rawValue) transform to position \(formatVec3(transform.position)) scale \(formatVec3(transform.scale))")
             invalidateViewport(.model)
         }
+        markDocumentModified()
     }
 
     #if DEBUG
@@ -1087,6 +1291,21 @@ final class WorkspaceModel {
 
     // MARK: - Keyboard Shortcuts & Modifiers (BL-MAC-04)
 
+    static let newDocumentShortcutKey: KeyEquivalent = "n"
+    static let newDocumentShortcutModifiers: EventModifiers = [.command]
+
+    static let openDocumentShortcutKey: KeyEquivalent = "o"
+    static let openDocumentShortcutModifiers: EventModifiers = [.command]
+
+    static let openPartShortcutKey: KeyEquivalent = "o"
+    static let openPartShortcutModifiers: EventModifiers = [.command, .option]
+
+    static let saveDocumentShortcutKey: KeyEquivalent = "s"
+    static let saveDocumentShortcutModifiers: EventModifiers = [.command]
+
+    static let saveAsDocumentShortcutKey: KeyEquivalent = "s"
+    static let saveAsDocumentShortcutModifiers: EventModifiers = [.command, .shift]
+
     static let undoShortcutKey: KeyEquivalent = "z"
     static let undoShortcutModifiers: EventModifiers = [.command]
 
@@ -1196,6 +1415,11 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Lock/Unlock Solid", shortcut: "⇧⌘L", category: .editing, description: "Toggle lock state of selected solid to prevent edits"),
         ShortcutCheatsheetEntry(title: "Reload Part", shortcut: "⌃⌘R", category: .editing, description: "Force recompute and rebuild active CAD part or script"),
 
+        ShortcutCheatsheetEntry(title: "New Document", shortcut: "⌘N", category: .workspace, description: "Create a new CAD document with default scene solids"),
+        ShortcutCheatsheetEntry(title: "Open Document", shortcut: "⌘O", category: .workspace, description: "Open a native .made CAD directory package"),
+        ShortcutCheatsheetEntry(title: "Open Part Script", shortcut: "⌥⌘O", category: .workspace, description: "Open and live-watch a TypeScript or JavaScript CAD part script"),
+        ShortcutCheatsheetEntry(title: "Save Document", shortcut: "⌘S", category: .workspace, description: "Save current document to its .made package"),
+        ShortcutCheatsheetEntry(title: "Save As", shortcut: "⇧⌘S", category: .workspace, description: "Save current document to a new .made package location"),
         ShortcutCheatsheetEntry(title: "Toggle Console", shortcut: "⇧⌘Y", category: .workspace, description: "Toggle visibility of bottom telemetry and error console drawer"),
         ShortcutCheatsheetEntry(title: "MCP Server", shortcut: "⇧⌘M", category: .workspace, description: "Open MCP Server status popover and configuration"),
         ShortcutCheatsheetEntry(title: "Settings", shortcut: "⌘,", category: .workspace, description: "Open Made application preferences and settings window")

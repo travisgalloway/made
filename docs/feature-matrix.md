@@ -4,13 +4,13 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 158 capabilities with their implementation status. The matrix shows 102 Shipped, 39 In progress, 11 Planned, and 6 Deprecated rows.
+Table 1 lists 158 capabilities with their implementation status. The matrix shows 103 Shipped, 39 In progress, 11 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
 - UI is done where a person can reach the capability through a window control or a menu item that has an action.
 - API is done where an MCP tool, JSON-RPC method, or public Swift API exposes the capability.
-- Data is done where the capability has an in-memory model or cache. No persistent store exists (see Persistence note below).
+- Data is done where the capability has an in-memory model or cache. Native document persistence is provided by `.made` directory packages (see Persistence note below).
 - Contract is n/a on every row because the repository has no docs/contracts/ directory.
 - Status is Shipped only where code is reachable through its entry point. Rows with a stub, no caller, or a stated failure are In progress. Rows with no producer code are Planned.
 - Status is Deprecated where an earlier row's producer code no longer exists. The row names where the capability went.
@@ -26,10 +26,11 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - WORKSPACE-2 is Shipped. The command panel pattern with dual placement (Inspector vs floating HUD) and non-covering HUD placement algorithm was implemented under #315.
 - WORKSPACE-3 is Shipped. The native macOS multi-tab Settings window (`Cmd+,`) with General, Units, Navigation, Display, Tolerances, and Shortcuts tabs, UserDefaults persistence, live viewport overlay updates, and CAD navigation presets was implemented under #398.
 - WORKSPACE-4 is Shipped. Empty document, empty transcript/log, and no-selection guidance states across 3D viewport, Navigator sidebar, Inspector panel, and console drawer were implemented under #400.
-- UI-1, UI-11, UI-12, UI-13, UI-15, and UI-18 are Deprecated. The Copilot tab and the File and Geometry menu items were removed in #124.
+- UI-15 is Shipped. Native document creation, opening, saving, and autosave using the .made directory package format was implemented under #83.
+- UI-1, UI-11, UI-12, UI-13, and UI-18 are Deprecated. The Copilot tab and the Geometry menu items were removed in #124.
 - AGENT-10, AGENT-11, AGENT-14, AGENT-15, and AGENT-16 are In progress with UI none. `InAppAgentController` has no host view since #124 (decision AGENT-10).
 
-Persistence and simulation note. No capability persists a document (the .made package format is planned under #83 and ADR-D7). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
+Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
 
 Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabilities.md of audit run 20261011-195134.
 
@@ -126,7 +127,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | UI-12 | A user can read the Copilot transcript with user bubbles, assistant bubbles, a tool badge and auto-scroll | none | n/a | n/a | Deprecated |  | n/a |
 | UI-13 | A user sees all solids re-tessellated after a Copilot prompt completes | none | n/a | n/a | Deprecated | #107 | n/a |
 | UI-14 | A user can open one window with a unified toolbar (title hidden, default 1440x900, label "Untitled Project"); the "made - Native CAD" title no longer exists | done | n/a | n/a | Shipped |  | n/a |
-| UI-15 | A user can choose File > New CAD Document (Cmd+N) | none | n/a | n/a | Deprecated | #83 | n/a |
+| UI-15 | A user can choose File > New CAD Document (Cmd+N) and save/open native .made documents (Cmd+S, Shift+Cmd+S, Cmd+O) | done | done | done | Shipped | #83 | n/a |
 | UI-16 | A user can add a box from the GUI (was Geometry > Add Box with an empty action; moved to Navigator Add > Box Solid, fixed 30x30x30 mm) | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-17 | A user can add a cylinder from the GUI (was Geometry > Add Cylinder; moved to Navigator Add > Cylinder Solid, radius 12, height 35 mm) | done | n/a | n/a | Shipped | #73 | n/a |
 | UI-18 | A user can choose Geometry > Import STEP File... (Cmd+Shift+I) | none | n/a | n/a | Deprecated | #38 | n/a |

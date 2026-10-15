@@ -40,15 +40,7 @@ struct MadeApp: App {
         .commands {
             SidebarCommands()
             InspectorCommands()
-            CommandGroup(after: .newItem) {
-                Button("Open Part Script…") { workspace.promptOpenPartFile() }
-                    .keyboardShortcut("o", modifiers: [.command])
-                Button("Import STEP…") { workspace.promptImportStepFile() }
-                Button("Export STEP…") { workspace.promptExportStepFile(selectedOnly: false) }
-                    .keyboardShortcut("e", modifiers: [.command, .shift])
-                Button("Reload Part Scripts") { workspace.reloadAllParts() }
-                    .keyboardShortcut("r", modifiers: [.command])
-            }
+            FileMenuCommands(workspace: workspace)
             EditMenuCommands(workspace: workspace)
             SolidMenuCommands(workspace: workspace)
             ViewNavigationCommands(workspace: workspace)

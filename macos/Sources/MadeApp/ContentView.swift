@@ -38,8 +38,17 @@ struct ContentView: View {
                     }
                 }
         }
-        .navigationTitle("Untitled Project")
-        .onAppear { workspace.setUp() }
+        .navigationTitle(workspace.documentTitle)
+        .onAppear {
+            workspace.setUp()
+            workspace.syncWindowState()
+        }
+        .onChange(of: workspace.isDocumentModified) { _, _ in
+            workspace.syncWindowState()
+        }
+        .onChange(of: workspace.currentDocumentURL) { _, _ in
+            workspace.syncWindowState()
+        }
         .onChange(of: workspace.document.objects) { old, new in
             workspace.syncMeshes(removedFrom: old, to: new)
         }

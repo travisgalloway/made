@@ -73,7 +73,7 @@ struct InspectorPanelView: View {
         Section {
             TextField("Name", text: Binding(
                 get: { obj.name },
-                set: { workspace.document.setName(id: obj.id, name: $0) }
+                set: { workspace.setName(id: obj.id, name: $0) }
             ))
             LabeledContent("ID") {
                 Text(obj.id.rawValue).monospaced().textSelection(.enabled)
