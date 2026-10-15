@@ -663,6 +663,34 @@ public final class DocumentModel {
         features.first(where: { $0.outputSolidId == solidId })
     }
 
+    // MARK: - Reference Resolution (BL-FND-02)
+
+    /// Resolves an input reference in the context of this document.
+    public func resolve(reference: Reference, for feature: Feature? = nil) -> Result<ResolvedReference, ReferenceResolutionError> {
+        ReferenceResolver.resolve(reference: reference, for: feature, in: self)
+    }
+
+    /// Returns all references associated with the given feature.
+    public func references(for feature: Feature) -> [Reference] {
+        feature.references
+    }
+
+    /// Returns all features in the document that directly or indirectly reference the specified target feature.
+    public func dependentFeatures(referencing targetFeatureId: UUID) -> [Feature] {
+        features.filter { feat in
+            feat.references.contains { ref in
+                if ref.referencedFeatureId == targetFeatureId {
+                    return true
+                }
+                if case .body(let solidId) = ref.target,
+                   self.feature(for: solidId)?.id == targetFeatureId {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
     // MARK: - SceneObject Bridged Mutators
 
     public func paramValue(for id: ObjectId, key: String) -> Float? {
