@@ -228,23 +228,88 @@ extension Feature {
         let featureName = name ?? solidId?.rawValue ?? "Box 1"
         var topology: [String: TopologicalReference] = [:]
 
-        let faces: [(String, SIMD3<Float>)] = [
-            ("face:top", SIMD3<Float>(0, 0, 1)),
-            ("face:bottom", SIMD3<Float>(0, 0, -1)),
-            ("face:front", SIMD3<Float>(0, -1, 0)),
-            ("face:back", SIMD3<Float>(0, 1, 0)),
-            ("face:right", SIMD3<Float>(1, 0, 0)),
-            ("face:left", SIMD3<Float>(-1, 0, 0))
+        let hw = Float(params.width) / 2.0
+        let hd = Float(params.depth) / 2.0
+        let hh = Float(params.height) / 2.0
+        let w = Double(params.width)
+        let d = Double(params.depth)
+        let h = Double(params.height)
+
+        // 6 Faces
+        let faces: [(String, SIMD3<Float>, SIMD3<Float>, Double)] = [
+            ("face:top", SIMD3<Float>(0, 0, 1), SIMD3<Float>(0, 0, hh), w * d),
+            ("face:bottom", SIMD3<Float>(0, 0, -1), SIMD3<Float>(0, 0, -hh), w * d),
+            ("face:front", SIMD3<Float>(0, -1, 0), SIMD3<Float>(0, -hd, 0), w * h),
+            ("face:back", SIMD3<Float>(0, 1, 0), SIMD3<Float>(0, hd, 0), w * h),
+            ("face:right", SIMD3<Float>(1, 0, 0), SIMD3<Float>(hw, 0, 0), d * h),
+            ("face:left", SIMD3<Float>(-1, 0, 0), SIMD3<Float>(-hw, 0, 0), d * h)
         ]
 
-        for (label, normal) in faces {
+        for (label, normal, centroid, area) in faces {
             topology[label] = TopologicalReference(
                 sourceFeatureId: featureId,
                 elementType: .face,
                 historyPath: [HistoryStep(kind: .generated, label: label)],
                 disambiguator: GeometricSignature(
                     surfaceOrCurveType: "plane",
-                    normal: normal
+                    normal: normal,
+                    centroid: centroid,
+                    areaOrLength: area
+                )
+            )
+        }
+
+        // 12 Edges
+        let edges: [(String, SIMD3<Float>, Double)] = [
+            // Top 4 edges
+            ("edge:top-front", SIMD3<Float>(0, -hd, hh), w),
+            ("edge:top-back", SIMD3<Float>(0, hd, hh), w),
+            ("edge:top-left", SIMD3<Float>(-hw, 0, hh), d),
+            ("edge:top-right", SIMD3<Float>(hw, 0, hh), d),
+            // Bottom 4 edges
+            ("edge:bottom-front", SIMD3<Float>(0, -hd, -hh), w),
+            ("edge:bottom-back", SIMD3<Float>(0, hd, -hh), w),
+            ("edge:bottom-left", SIMD3<Float>(-hw, 0, -hh), d),
+            ("edge:bottom-right", SIMD3<Float>(hw, 0, -hh), d),
+            // Vertical 4 edges
+            ("edge:front-left", SIMD3<Float>(-hw, -hd, 0), h),
+            ("edge:front-right", SIMD3<Float>(hw, -hd, 0), h),
+            ("edge:back-left", SIMD3<Float>(-hw, hd, 0), h),
+            ("edge:back-right", SIMD3<Float>(hw, hd, 0), h)
+        ]
+
+        for (label, centroid, length) in edges {
+            topology[label] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .edge,
+                historyPath: [HistoryStep(kind: .generated, label: label)],
+                disambiguator: GeometricSignature(
+                    surfaceOrCurveType: "line",
+                    centroid: centroid,
+                    areaOrLength: length
+                )
+            )
+        }
+
+        // 8 Vertices
+        let vertices: [(String, SIMD3<Float>)] = [
+            ("vertex:top-front-left", SIMD3<Float>(-hw, -hd, hh)),
+            ("vertex:top-front-right", SIMD3<Float>(hw, -hd, hh)),
+            ("vertex:top-back-left", SIMD3<Float>(-hw, hd, hh)),
+            ("vertex:top-back-right", SIMD3<Float>(hw, hd, hh)),
+            ("vertex:bottom-front-left", SIMD3<Float>(-hw, -hd, -hh)),
+            ("vertex:bottom-front-right", SIMD3<Float>(hw, -hd, -hh)),
+            ("vertex:bottom-back-left", SIMD3<Float>(-hw, hd, -hh)),
+            ("vertex:bottom-back-right", SIMD3<Float>(hw, hd, -hh))
+        ]
+
+        for (label, centroid) in vertices {
+            topology[label] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: label)],
+                disambiguator: GeometricSignature(
+                    centroid: centroid
                 )
             )
         }
@@ -287,13 +352,21 @@ extension Feature {
         let featureName = name ?? solidId?.rawValue ?? "Cylinder 1"
         var topology: [String: TopologicalReference] = [:]
 
+        let r = Double(params.radius)
+        let h = Double(params.height)
+        let rf = params.radius
+        let hh = params.height / 2.0
+
+        // 3 Faces
         topology["face:top"] = TopologicalReference(
             sourceFeatureId: featureId,
             elementType: .face,
             historyPath: [HistoryStep(kind: .generated, label: "face:top")],
             disambiguator: GeometricSignature(
                 surfaceOrCurveType: "plane",
-                normal: SIMD3<Float>(0, 0, 1)
+                normal: SIMD3<Float>(0, 0, 1),
+                centroid: SIMD3<Float>(0, 0, hh),
+                areaOrLength: Double.pi * r * r
             )
         )
         topology["face:bottom"] = TopologicalReference(
@@ -302,7 +375,9 @@ extension Feature {
             historyPath: [HistoryStep(kind: .generated, label: "face:bottom")],
             disambiguator: GeometricSignature(
                 surfaceOrCurveType: "plane",
-                normal: SIMD3<Float>(0, 0, -1)
+                normal: SIMD3<Float>(0, 0, -1),
+                centroid: SIMD3<Float>(0, 0, -hh),
+                areaOrLength: Double.pi * r * r
             )
         )
         topology["face:side"] = TopologicalReference(
@@ -310,7 +385,59 @@ extension Feature {
             elementType: .face,
             historyPath: [HistoryStep(kind: .generated, label: "face:side")],
             disambiguator: GeometricSignature(
-                surfaceOrCurveType: "cylinder"
+                surfaceOrCurveType: "cylinder",
+                centroid: SIMD3<Float>(0, 0, 0),
+                areaOrLength: 2.0 * Double.pi * r * h
+            )
+        )
+
+        // 3 Edges
+        topology["edge:top"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:top")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "circle",
+                centroid: SIMD3<Float>(0, 0, hh),
+                areaOrLength: 2.0 * Double.pi * r
+            )
+        )
+        topology["edge:bottom"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:bottom")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "circle",
+                centroid: SIMD3<Float>(0, 0, -hh),
+                areaOrLength: 2.0 * Double.pi * r
+            )
+        )
+        topology["edge:seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:seam")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "line",
+                centroid: SIMD3<Float>(rf, 0, 0),
+                areaOrLength: h
+            )
+        )
+
+        // 2 Vertices
+        topology["vertex:top-seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:top-seam")],
+            disambiguator: GeometricSignature(
+                centroid: SIMD3<Float>(rf, 0, hh)
+            )
+        )
+        topology["vertex:bottom-seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:bottom-seam")],
+            disambiguator: GeometricSignature(
+                centroid: SIMD3<Float>(rf, 0, -hh)
             )
         )
 

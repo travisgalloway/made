@@ -1,5 +1,6 @@
 import Foundation
 import simd
+import CryptoKit
 
 public struct SolidId: Hashable, Equatable, Sendable, Codable, CustomStringConvertible {
     public let rawValue: String
@@ -128,6 +129,7 @@ public enum KernelErrorCode: String, Sendable, Codable, CaseIterable {
     case unknownSolid = "unknown-solid"
     case cancelled = "cancelled"
     case workerCrashed = "worker-crashed"
+    case topologicalReferenceBroken = "topological-reference-broken"
 }
 
 public struct KernelError: Error, Equatable, Sendable, Codable {
@@ -256,14 +258,46 @@ public struct TopologicalReference: Sendable, Codable, Equatable, Hashable, Iden
     public var historyPath: [HistoryStep]
     public var disambiguator: GeometricSignature?
 
+    public static func deterministicId(
+        sourceFeatureId: UUID,
+        historyPath: [HistoryStep],
+        elementType: SubelementType
+    ) -> UUID {
+        var hasher = SHA256()
+        hasher.update(data: Data(sourceFeatureId.uuidString.utf8))
+        hasher.update(data: Data(elementType.rawValue.utf8))
+        for step in historyPath {
+            hasher.update(data: Data(step.kind.rawValue.utf8))
+            hasher.update(data: Data(step.label.utf8))
+            if let index = step.sourceIndex {
+                var idx = Int64(index)
+                withUnsafeBytes(of: &idx) { hasher.update(bufferPointer: $0) }
+            }
+        }
+        let digest = hasher.finalize()
+        var bytes = Array(digest.prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50 // version 5 (name-based)
+        bytes[8] = (bytes[8] & 0x3F) | 0x80 // RFC 4122 variant
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
     public init(
-        id: UUID = UUID(),
+        id: UUID? = nil,
         sourceFeatureId: UUID,
         elementType: SubelementType,
         historyPath: [HistoryStep] = [],
         disambiguator: GeometricSignature? = nil
     ) {
-        self.id = id
+        self.id = id ?? Self.deterministicId(
+            sourceFeatureId: sourceFeatureId,
+            historyPath: historyPath,
+            elementType: elementType
+        )
         self.sourceFeatureId = sourceFeatureId
         self.elementType = elementType
         self.historyPath = historyPath

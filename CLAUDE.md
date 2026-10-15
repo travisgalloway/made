@@ -54,7 +54,7 @@ macos/
   scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle)
                            and compiles the app icon (img/made.icon, an Icon Composer file) with actool
   Sources/MadeCore/
-    Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, Geometry
+    Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
     Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo

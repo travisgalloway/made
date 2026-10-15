@@ -181,6 +181,15 @@ enum OCCTEngine {
         return MeshPayload(storage: storage)
     }
 
+    /// Fillets an edge in an OCCT shape identified by a persistent topological reference.
+    static func fillet(shape: Shape, edgeReference: TopologicalReference, radius: Double) throws -> Shape {
+        let edge = try TopologicalResolver.resolveEdge(in: shape, reference: edgeReference)
+        guard let filleted = shape.filleted(edges: [edge], radius: radius) else {
+            throw EngineError.tessellationFailed
+        }
+        return filleted
+    }
+
     #if DEBUG
     static func sampleBoxStepData() -> Data? {
         guard let shape = Shape.box(width: 10, height: 10, depth: 10) else { return nil }
