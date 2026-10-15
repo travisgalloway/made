@@ -122,6 +122,32 @@ Planned (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model integ
 
 ---
 
+## Undo / Redo Architecture
+
+`DocumentModel` integrates AppKit / Foundation `UndoManager` to provide native, symmetric undo/redo operations (`DOC-16`, #39) accessible via standard macOS shortcuts (**⌘Z** and **⇧⌘Z**) and `EditMenuCommands`:
+
+1. **Undo Registration & Scoping**:
+   - Every mutating command API (`addObject`, `addPart`, `removeObject`, `setParam`, `setTransform`) registers its inverse action on `DocumentModel.undoManager`.
+   - Undo and redo replay guards against locked objects (`isLocked`), aborting replay if the target is locked.
+   - Deleting an object records its full `SceneObject` definition, properties, and array index; undoing removal calls `insertObject(_:at:actionName:)` to restore the object with its exact, identical `ObjectId` preserved without allocating a new sequence ID.
+   - Any new mutating edit automatically clears redo history via native `UndoManager` semantics.
+
+2. **Continuous Interaction & Coalescing**:
+   - For continuous interactive controls (e.g. dragging dimension sliders in `InspectorPanelView`), `beginInteractiveParamEdit(id:key:)` captures the snapshot before dragging starts and pauses automatic per-tick undo registration.
+   - Intermediate drag updates change the model and update the viewport live.
+   - Upon release, `endInteractiveParamEdit(id:key:)` resumes undo registration and commits a single coalesced undo step bridging the initial value to the final value.
+
+3. **Selective Re-tessellation & Viewport Integration**:
+   - `DocumentModel` dispatches `DocumentMutation` notifications via `onUndoRedoMutation` callback during undo/redo replay.
+   - `WorkspaceModel` observes mutations and executes selective invalidation:
+     - **Parameter, Add, and Remove**: Triggers selective re-tessellation only for the affected solid, preserving unrelated cached geometries.
+     - **Transform**: Directly updates the Metal renderer instance buffer and recalculates bounding boxes without dispatching kernel jobs (0 kernel dispatches, adhering to Invariant 3).
+
+4. **Reactive State Tracking**:
+   - Changes to the undo stack (`NSUndoManagerDidUndoChange`, `NSUndoManagerDidRedoChange`, `NSUndoManagerCheckpoint`) increment `@Observable private(set) var undoStateVersion: UInt64`, dynamically refreshing `canUndo`, `canRedo`, `undoActionTitle`, and `redoActionTitle` in the Edit menu.
+
+---
+
 ## Open Decisions
 
 None at this time.

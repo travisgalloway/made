@@ -181,6 +181,13 @@ extension Result where Success == Void, Failure: Equatable {
     }
 }
 
+public enum DocumentMutation: Sendable, Equatable {
+    case added(ObjectId)
+    case removed(ObjectId)
+    case paramChanged(ObjectId, key: String, value: Float)
+    case transformChanged(ObjectId, transform: Transform)
+}
+
 public let boxSolidId = SolidId("box-1")
 public let cylinderSolidId = SolidId("cylinder-1")
 
@@ -190,6 +197,17 @@ public final class DocumentModel {
     public private(set) var objects: [SceneObject] = []
     private var seq: Int = 1
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
+
+    public var undoManager: UndoManager? = UndoManager() {
+        didSet {
+            setupUndoObservers()
+            undoStateVersion += 1
+        }
+    }
+    public private(set) var undoStateVersion: Int = 0
+    public var onUndoRedoMutation: (@MainActor (DocumentMutation) -> Void)?
+    private var activeInteractiveParamEdit: (id: ObjectId, key: String, initialValue: Float)?
+    @ObservationIgnored private var undoObservers: [NSObjectProtocol] = []
 
     public var selectedId: ObjectId? {
         get {
@@ -218,6 +236,131 @@ public final class DocumentModel {
                 transform: Transform(position: SIMD3<Float>(25, 0, 0))
             )
         ]
+        setupUndoObservers()
+    }
+
+    private func setupUndoObservers() {
+        for observer in undoObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        undoObservers.removeAll()
+
+        guard let um = undoManager else { return }
+        let nc = NotificationCenter.default
+        let o1 = nc.addObserver(forName: .NSUndoManagerDidUndoChange, object: um, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.undoStateVersion += 1
+            }
+        }
+        let o2 = nc.addObserver(forName: .NSUndoManagerDidRedoChange, object: um, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.undoStateVersion += 1
+            }
+        }
+        let o3 = nc.addObserver(forName: .NSUndoManagerCheckpoint, object: um, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.undoStateVersion += 1
+            }
+        }
+        undoObservers = [o1, o2, o3]
+    }
+
+    isolated deinit {
+        for observer in undoObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    public var canUndo: Bool {
+        _ = undoStateVersion
+        return undoManager?.canUndo ?? false
+    }
+
+    public var canRedo: Bool {
+        _ = undoStateVersion
+        return undoManager?.canRedo ?? false
+    }
+
+    public var undoActionTitle: String {
+        _ = undoStateVersion
+        guard let title = undoManager?.undoActionName, !title.isEmpty else {
+            return "Undo"
+        }
+        return "Undo \(title)"
+    }
+
+    public var redoActionTitle: String {
+        _ = undoStateVersion
+        guard let title = undoManager?.redoActionName, !title.isEmpty else {
+            return "Redo"
+        }
+        return "Redo \(title)"
+    }
+
+    public var undoTitle: String {
+        undoActionTitle
+    }
+
+    public var redoTitle: String {
+        redoActionTitle
+    }
+
+    public func undo() {
+        undoManager?.undo()
+    }
+
+    public func redo() {
+        undoManager?.redo()
+    }
+
+    public func paramValue(for id: ObjectId, key: String) -> Float? {
+        guard let obj = objects.first(where: { $0.id == id }) else { return nil }
+        switch obj.def {
+        case .box(let p):
+            switch key {
+            case "width": return p.width
+            case "depth": return p.depth
+            case "height": return p.height
+            default: return nil
+            }
+        case .cylinder(let p):
+            switch key {
+            case "radius": return p.radius
+            case "height": return p.height
+            default: return nil
+            }
+        case .imported, .boolean, .part:
+            return nil
+        }
+    }
+
+    public func beginInteractiveParamEdit(id: ObjectId, key: String) {
+        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
+        guard !objects[index].isLocked else { return }
+        guard let currentVal = paramValue(for: id, key: key) else { return }
+        activeInteractiveParamEdit = (id: id, key: key, initialValue: currentVal)
+    }
+
+    public func endInteractiveParamEdit(id: ObjectId, key: String) {
+        guard let active = activeInteractiveParamEdit, active.id == id, active.key == key else {
+            activeInteractiveParamEdit = nil
+            return
+        }
+        activeInteractiveParamEdit = nil
+        guard let finalVal = paramValue(for: id, key: key) else { return }
+        let initialValue = active.initialValue
+        guard finalVal != initialValue else { return }
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.setParam(id: id, key: key, value: initialValue)
+                guard case .success = res else { return }
+                target.undoManager?.setActionName("Change \(key.capitalized)")
+                target.onUndoRedoMutation?(.paramChanged(id, key: key, value: initialValue))
+            }
+        }
+        undoManager?.setActionName("Change \(key.capitalized)")
+        undoStateVersion += 1
     }
     
     public func paramsFor(id: ObjectId) -> ObjectDef? {
@@ -247,7 +390,42 @@ public final class DocumentModel {
         }
         let obj = SceneObject(id: id, name: defaultName, def: clamped, transform: transform)
         objects.append(obj)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.removeObject(id: id)
+                guard case .success = res else { return }
+                target.undoManager?.setActionName("Add \(clamped.kind.capitalized)")
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+        undoManager?.setActionName("Add \(clamped.kind.capitalized)")
+        undoStateVersion += 1
         return id
+    }
+
+    /// Restores a previously removed object at its original index, preserving its identity.
+    @discardableResult
+    public func insertObject(_ obj: SceneObject, at index: Int, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
+        guard !objects.contains(where: { $0.id == obj.id }) else {
+            return .failure(.objectLocked(obj.id))
+        }
+        let targetIndex = min(max(0, index), objects.count)
+        objects.insert(obj, at: targetIndex)
+        selectedId = obj.id
+
+        let undoName = actionName ?? "Delete \(obj.name)"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.removeObject(id: obj.id)
+                guard case .success = res else { return }
+                target.undoManager?.setActionName(undoName)
+                target.onUndoRedoMutation?(.removed(obj.id))
+            }
+        }
+        undoManager?.setActionName(undoName)
+        undoStateVersion += 1
+        return .success(())
     }
 
     /// Adds a scripted `.part.ts` or `.part.js` source file to the document under a fresh `part-<seq>` ID.
@@ -259,6 +437,17 @@ public final class DocumentModel {
         let displayName = name ?? (canonical.lastPathComponent.isEmpty ? id.rawValue : canonical.lastPathComponent)
         let obj = SceneObject(id: id, name: displayName, def: def, transform: transform)
         objects.append(obj)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.removeObject(id: id)
+                guard case .success = res else { return }
+                target.undoManager?.setActionName("Add Part")
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+        undoManager?.setActionName("Add Part")
+        undoStateVersion += 1
         return id
     }
 
@@ -278,10 +467,23 @@ public final class DocumentModel {
         guard !objects[index].isLocked else {
             return .failure(.objectLocked(id))
         }
+        let removedObj = objects[index]
+        let removedIndex = index
         objects.remove(at: index)
         if selectedId == id {
             selectedId = nil
         }
+
+        let redoName = undoManager?.isUndoing == true ? "Add \(removedObj.def.kind.capitalized)" : "Delete \(removedObj.name)"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertObject(removedObj, at: removedIndex, actionName: redoName)
+                target.undoManager?.setActionName(redoName)
+                target.onUndoRedoMutation?(.added(removedObj.id))
+            }
+        }
+        undoManager?.setActionName(redoName)
+        undoStateVersion += 1
         return .success(())
     }
     
@@ -293,6 +495,10 @@ public final class DocumentModel {
         guard !objects[index].isLocked else {
             return .failure(.objectLocked(id))
         }
+        guard let oldValue = paramValue(for: id, key: key) else {
+            return .success(())
+        }
+        let clampedValue: Float
         switch objects[index].def {
         case .box(var params):
             switch key {
@@ -301,6 +507,7 @@ public final class DocumentModel {
             case "height": params.height = DocumentLimits.clampBox(key: "height", value: value)
             default: break
             }
+            clampedValue = (key == "width" ? params.width : (key == "depth" ? params.depth : params.height))
             objects[index].def = .box(params)
             
         case .cylinder(var params):
@@ -309,11 +516,31 @@ public final class DocumentModel {
             case "height": params.height = DocumentLimits.clampCylinder(key: "height", value: value)
             default: break
             }
+            clampedValue = (key == "radius" ? params.radius : params.height)
             objects[index].def = .cylinder(params)
             
         case .imported, .boolean, .part:
-            break
+            return .success(())
         }
+
+        if clampedValue == oldValue {
+            return .success(())
+        }
+
+        if let active = activeInteractiveParamEdit, active.id == id, active.key == key {
+            return .success(())
+        }
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.setParam(id: id, key: key, value: oldValue)
+                guard case .success = res else { return }
+                target.undoManager?.setActionName("Change \(key.capitalized)")
+                target.onUndoRedoMutation?(.paramChanged(id, key: key, value: oldValue))
+            }
+        }
+        undoManager?.setActionName("Change \(key.capitalized)")
+        undoStateVersion += 1
         return .success(())
     }
     
@@ -325,7 +552,22 @@ public final class DocumentModel {
         guard !objects[index].isLocked else {
             return .failure(.objectLocked(id))
         }
+        let oldTransform = objects[index].transform
+        guard oldTransform != transform else {
+            return .success(())
+        }
         objects[index].transform = transform
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.setTransform(id: id, transform: oldTransform)
+                guard case .success = res else { return }
+                target.undoManager?.setActionName("Move Solid")
+                target.onUndoRedoMutation?(.transformChanged(id, transform: oldTransform))
+            }
+        }
+        undoManager?.setActionName("Move Solid")
+        undoStateVersion += 1
         return .success(())
     }
     

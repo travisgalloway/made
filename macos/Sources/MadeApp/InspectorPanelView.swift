@@ -110,12 +110,12 @@ struct InspectorPanelView: View {
         Section {
             switch obj.def {
             case .box(let params):
-                paramField("Width (X)", params.width, DocumentLimits.boxWidth) { workspace.setParam(obj.id, "width", $0) }
-                paramField("Depth (Y)", params.depth, DocumentLimits.boxDepth) { workspace.setParam(obj.id, "depth", $0) }
-                paramField("Height (Z)", params.height, DocumentLimits.boxHeight) { workspace.setParam(obj.id, "height", $0) }
+                paramField("Width (X)", params.width, DocumentLimits.boxWidth, id: obj.id, key: "width") { workspace.setParam(obj.id, "width", $0) }
+                paramField("Depth (Y)", params.depth, DocumentLimits.boxDepth, id: obj.id, key: "depth") { workspace.setParam(obj.id, "depth", $0) }
+                paramField("Height (Z)", params.height, DocumentLimits.boxHeight, id: obj.id, key: "height") { workspace.setParam(obj.id, "height", $0) }
             case .cylinder(let params):
-                paramField("Radius", params.radius, DocumentLimits.cylinderRadius) { workspace.setParam(obj.id, "radius", $0) }
-                paramField("Height (Z)", params.height, DocumentLimits.cylinderHeight) { workspace.setParam(obj.id, "height", $0) }
+                paramField("Radius", params.radius, DocumentLimits.cylinderRadius, id: obj.id, key: "radius") { workspace.setParam(obj.id, "radius", $0) }
+                paramField("Height (Z)", params.height, DocumentLimits.cylinderHeight, id: obj.id, key: "height") { workspace.setParam(obj.id, "height", $0) }
             case .imported(let name):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):
@@ -193,13 +193,32 @@ struct InspectorPanelView: View {
         .labelsHidden()
     }
 
-    /// A typed millimeter value with a 1-mm stepper; `setParam` clamps to the range (invariant 9).
-    private func paramField(_ label: String, _ value: Float, _ range: ParamRange, onChange: @escaping (Float) -> Void) -> some View {
+    /// A typed millimeter value with a slider and a 1-mm stepper; `setParam` clamps to the range (invariant 9).
+    private func paramField(
+        _ label: String,
+        _ value: Float,
+        _ range: ParamRange,
+        id: ObjectId,
+        key: String,
+        onChange: @escaping (Float) -> Void
+    ) -> some View {
         let binding = Binding(get: { Double(value) }, set: { onChange(Float($0)) })
         let spoken = "\(value.formatted(.number.precision(.fractionLength(1)))) millimeters"
         return LabeledContent(label) {
             HStack(spacing: 4) {
-                CommitNumberField(label: label, value: Double(value), width: 64) { onChange(Float($0)) }
+                Slider(value: binding, in: Double(range.min)...Double(range.max), step: 1) {
+                    Text(label)
+                } onEditingChanged: { editing in
+                    if editing {
+                        workspace.beginInteractiveParamEdit(id, key)
+                    } else {
+                        workspace.endInteractiveParamEdit(id, key)
+                    }
+                }
+                .accessibilityLabel(label)
+                .accessibilityValue(spoken)
+
+                CommitNumberField(label: label, value: Double(value), width: 52) { onChange(Float($0)) }
                     .accessibilityLabel(label)
                     .accessibilityValue(spoken)
                 Text("mm").foregroundStyle(.secondary)

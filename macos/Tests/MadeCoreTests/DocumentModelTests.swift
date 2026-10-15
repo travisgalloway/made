@@ -595,5 +595,232 @@ import os
         doc.removeObject(id: firstId)
         #expect(doc.selectedId == midId)
     }
+
+    // MARK: - Undo / Redo Tests (Issue #39, DOC-16)
+
+    @Test func testEmptyUndoStackDisablesUndo() {
+        let doc = DocumentModel()
+        #expect(!doc.canUndo)
+        #expect(!doc.canRedo)
+        #expect(doc.undoActionTitle == "Undo")
+        #expect(doc.redoActionTitle == "Redo")
+        #expect(doc.undoTitle == "Undo")
+        #expect(doc.redoTitle == "Redo")
+    }
+
+    @Test func testUndoRedoParamMutation() {
+        let doc = DocumentModel()
+        let boxId = boxSolidId
+        var recordedMutations: [DocumentMutation] = []
+        doc.onUndoRedoMutation = { recordedMutations.append($0) }
+
+        #expect(!doc.canUndo)
+        let result = doc.setParam(id: boxId, key: "width", value: 60)
+        #expect(result == .success(()))
+        #expect(box(doc, boxId)?.width == 60)
+        #expect(doc.canUndo)
+        #expect(doc.undoActionTitle == "Undo Change Width")
+
+        doc.undo()
+        #expect(box(doc, boxId)?.width == 40)
+        #expect(recordedMutations == [.paramChanged(boxId, key: "width", value: 40)])
+        #expect(!doc.canUndo)
+        #expect(doc.canRedo)
+        #expect(doc.redoActionTitle == "Redo Change Width")
+
+        doc.redo()
+        #expect(box(doc, boxId)?.width == 60)
+        #expect(recordedMutations == [
+            .paramChanged(boxId, key: "width", value: 40),
+            .paramChanged(boxId, key: "width", value: 60)
+        ])
+        #expect(doc.canUndo)
+        #expect(!doc.canRedo)
+    }
+
+    @Test func testUndoRedoTransformMutation() {
+        let doc = DocumentModel()
+        let boxId = boxSolidId
+        guard let initialTransform = doc.objects.first(where: { $0.id == boxId })?.transform else {
+            Issue.record("Default box not found")
+            return
+        }
+        var recordedMutations: [DocumentMutation] = []
+        doc.onUndoRedoMutation = { recordedMutations.append($0) }
+
+        var newTransform = initialTransform
+        newTransform.position = SIMD3<Float>(10, 20, 30)
+
+        let result = doc.setTransform(id: boxId, transform: newTransform)
+        #expect(result == .success(()))
+        #expect(doc.objects.first(where: { $0.id == boxId })?.transform == newTransform)
+        #expect(doc.canUndo)
+        #expect(doc.undoActionTitle == "Undo Move Solid")
+
+        doc.undo()
+        #expect(doc.objects.first(where: { $0.id == boxId })?.transform == initialTransform)
+        #expect(recordedMutations == [.transformChanged(boxId, transform: initialTransform)])
+        #expect(!doc.canUndo)
+        #expect(doc.canRedo)
+        #expect(doc.redoActionTitle == "Redo Move Solid")
+
+        doc.redo()
+        #expect(doc.objects.first(where: { $0.id == boxId })?.transform == newTransform)
+        #expect(recordedMutations == [
+            .transformChanged(boxId, transform: initialTransform),
+            .transformChanged(boxId, transform: newTransform)
+        ])
+        #expect(doc.canUndo)
+        #expect(!doc.canRedo)
+    }
+
+    @Test func testUndoRedoAddObject() {
+        let doc = DocumentModel()
+        var recordedMutations: [DocumentMutation] = []
+        doc.onUndoRedoMutation = { recordedMutations.append($0) }
+
+        let newId = doc.addObject(def: .box(BoxParams(width: 50, depth: 50, height: 50)))
+        #expect(doc.objects.count == 3)
+        #expect(doc.canUndo)
+        #expect(doc.undoActionTitle == "Undo Add Box")
+
+        doc.undo()
+        #expect(doc.objects.count == 2)
+        #expect(!doc.objects.contains(where: { $0.id == newId }))
+        #expect(recordedMutations == [.removed(newId)])
+        #expect(!doc.canUndo)
+        #expect(doc.canRedo)
+        #expect(doc.redoActionTitle == "Redo Add Box")
+
+        doc.redo()
+        #expect(doc.objects.count == 3)
+        #expect(doc.objects.contains(where: { $0.id == newId }))
+        #expect(recordedMutations == [.removed(newId), .added(newId)])
+        #expect(doc.canUndo)
+        #expect(!doc.canRedo)
+    }
+
+    @Test func testUndoRedoRemoveObjectRestoresSameId() {
+        let doc = DocumentModel()
+        guard let initialBox = doc.objects.first(where: { $0.id == boxSolidId }) else {
+            Issue.record("Default box not found")
+            return
+        }
+        var recordedMutations: [DocumentMutation] = []
+        doc.onUndoRedoMutation = { recordedMutations.append($0) }
+
+        let removeResult = doc.removeObject(id: boxSolidId)
+        #expect(removeResult == .success(()))
+        #expect(!doc.objects.contains(where: { $0.id == boxSolidId }))
+        #expect(doc.selectedId == nil)
+        #expect(doc.canUndo)
+        #expect(doc.undoActionTitle == "Undo Delete \(initialBox.name)")
+
+        doc.undo()
+        #expect(doc.objects.contains(where: { $0.id == boxSolidId }))
+        guard let restoredBox = doc.objects.first(where: { $0.id == boxSolidId }) else {
+            Issue.record("Restored box not found")
+            return
+        }
+        #expect(restoredBox.id == initialBox.id)
+        #expect(restoredBox.name == initialBox.name)
+        #expect(restoredBox.def == initialBox.def)
+        #expect(restoredBox.transform == initialBox.transform)
+        #expect(restoredBox.material == initialBox.material)
+        #expect(restoredBox.isVisible == initialBox.isVisible)
+        #expect(restoredBox.isLocked == initialBox.isLocked)
+        #expect(doc.selectedId == boxSolidId)
+        #expect(recordedMutations == [.added(boxSolidId)])
+        #expect(!doc.canUndo)
+        #expect(doc.canRedo)
+        #expect(doc.redoActionTitle == "Redo Delete \(initialBox.name)")
+
+        doc.redo()
+        #expect(!doc.objects.contains(where: { $0.id == boxSolidId }))
+        #expect(doc.selectedId == nil)
+        #expect(recordedMutations == [.added(boxSolidId), .removed(boxSolidId)])
+        #expect(doc.canUndo)
+        #expect(!doc.canRedo)
+    }
+
+    @Test func testRedoClearedAfterNewEdit() {
+        let doc = DocumentModel()
+        doc.setParam(id: boxSolidId, key: "width", value: 50)
+        #expect(doc.canUndo)
+        #expect(!doc.canRedo)
+
+        doc.undo()
+        #expect(!doc.canUndo)
+        #expect(doc.canRedo)
+
+        // A new edit must clear the redo stack
+        doc.setParam(id: boxSolidId, key: "height", value: 35)
+        #expect(doc.canUndo)
+        #expect(!doc.canRedo)
+    }
+
+    @Test func testUndoRedoLockedObjectRejection() {
+        let doc = DocumentModel()
+        var recordedMutations: [DocumentMutation] = []
+        doc.onUndoRedoMutation = { recordedMutations.append($0) }
+
+        doc.setParam(id: boxSolidId, key: "width", value: 60)
+        #expect(doc.canUndo)
+
+        // Lock the object
+        doc.setLocked(id: boxSolidId, isLocked: true)
+
+        // Undo should be rejected because the target solid is locked
+        doc.undo()
+        #expect(box(doc, boxSolidId)?.width == 60)
+        #expect(recordedMutations.isEmpty)
+
+        // Unlock and unlock restore normal undo operation
+        doc.setLocked(id: boxSolidId, isLocked: false)
+
+        // Test locked addition undo rejection
+        let addedId = doc.addObject(def: .box(BoxParams(width: 20, depth: 20, height: 20)))
+        #expect(doc.objects.contains(where: { $0.id == addedId }))
+        doc.setLocked(id: addedId, isLocked: true)
+
+        // Undo should not remove locked object
+        doc.undo()
+        #expect(doc.objects.contains(where: { $0.id == addedId }))
+    }
+
+    @Test func testCoalescedSliderParamEdit() {
+        let doc = DocumentModel()
+        var recordedMutations: [DocumentMutation] = []
+        doc.onUndoRedoMutation = { recordedMutations.append($0) }
+
+        doc.beginInteractiveParamEdit(id: boxSolidId, key: "width")
+        doc.setParam(id: boxSolidId, key: "width", value: 42)
+        doc.setParam(id: boxSolidId, key: "width", value: 48)
+        doc.setParam(id: boxSolidId, key: "width", value: 55)
+        doc.setParam(id: boxSolidId, key: "width", value: 60)
+        doc.endInteractiveParamEdit(id: boxSolidId, key: "width")
+
+        #expect(box(doc, boxSolidId)?.width == 60)
+        #expect(doc.canUndo)
+        #expect(doc.undoActionTitle == "Undo Change Width")
+
+        // Undoing must revert to initial value (40) in a single step
+        doc.undo()
+        #expect(box(doc, boxSolidId)?.width == 40)
+        #expect(recordedMutations == [.paramChanged(boxSolidId, key: "width", value: 40)])
+        #expect(!doc.canUndo)
+        #expect(doc.canRedo)
+        #expect(doc.redoActionTitle == "Redo Change Width")
+
+        // Redoing restores final value (60) in a single step
+        doc.redo()
+        #expect(box(doc, boxSolidId)?.width == 60)
+        #expect(recordedMutations == [
+            .paramChanged(boxSolidId, key: "width", value: 40),
+            .paramChanged(boxSolidId, key: "width", value: 60)
+        ])
+        #expect(doc.canUndo)
+        #expect(!doc.canRedo)
+    }
 }
 

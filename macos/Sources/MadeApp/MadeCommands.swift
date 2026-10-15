@@ -5,6 +5,19 @@ struct EditMenuCommands: Commands {
     var workspace: WorkspaceModel
 
     var body: some Commands {
+        CommandGroup(replacing: .undoRedo) {
+            Button(workspace.undoTitle) {
+                workspace.undo()
+            }
+            .keyboardShortcut(WorkspaceModel.undoShortcutKey, modifiers: WorkspaceModel.undoShortcutModifiers)
+            .disabled(!workspace.canUndo)
+
+            Button(workspace.redoTitle) {
+                workspace.redo()
+            }
+            .keyboardShortcut(WorkspaceModel.redoShortcutKey, modifiers: WorkspaceModel.redoShortcutModifiers)
+            .disabled(!workspace.canRedo)
+        }
         CommandGroup(after: .pasteboard) {
             Button("Delete") {
                 workspace.deleteSelectedObject()
