@@ -22,6 +22,14 @@ public actor FaultInjectingKernelClient: KernelClientProtocol {
         return await inner.request(request)
     }
 
+    public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
+        if let code = pendingFault {
+            pendingFault = nil
+            return .failure(jobId: JobId("export"), error: KernelError(code: code, message: "Forced failure"))
+        }
+        return await inner.exportStep(objects: objects)
+    }
+
     public func cancel(jobId: JobId) async { await inner.cancel(jobId: jobId) }
     public func dispose(solidId: SolidId) async { await inner.dispose(solidId: solidId) }
     public func getStats() async -> KernelStats { await inner.getStats() }

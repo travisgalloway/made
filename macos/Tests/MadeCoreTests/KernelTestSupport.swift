@@ -21,6 +21,10 @@ actor HookedEngine: KernelEngine {
         return await inner.execute(request)
     }
     
+    func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
+        await inner.exportStep(objects: objects)
+    }
+    
     func dispose(solidId: SolidId) async { await inner.dispose(solidId: solidId) }
     func terminate(jobId: JobId) async -> Bool { false }
     nonisolated func restarts() -> AsyncStream<KernelRestart> { inner.restarts() }

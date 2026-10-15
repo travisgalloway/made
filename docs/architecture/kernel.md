@@ -41,11 +41,11 @@ The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the c
 - **Capabilities**: Zero C++ compilation dependencies, memory-safe execution, parametric box/cylinder generators, BSP-tree CSG booleans (`subtract`, `union`, `intersect`), and conversion into indexed vertex arrays (`MeshPayload`).
 - **Use Case**: Real-time parameter scrubbing in the Inspector, interactive modeling, and unit testing without heavy framework dependencies.
 
-### Tier 2: Exact Boundary Representation (OCCTSwift, ADR-D1 #82)
-OpenCASCADE Technology via `SecondMouseAU/OCCTSwift` is integrated as the canonical Tier 2 B-Rep geometry kernel ([ADR-D1](./adr/ADR-D1-canonical-geometry-kernel.md), #82). While Euclid serves as the Tier 1 fast CSG engine (ADR-D9 #247), OCCT provides exact analytic surfaces, topological B-Rep structures, and industrial exchange.
+### Tier 2: Exact Boundary Representation (OCCTSwift, ADR-D1 #82, #38)
+OpenCASCADE Technology via `SecondMouseAU/OCCTSwift` is integrated as the canonical Tier 2 B-Rep geometry kernel ([ADR-D1](./adr/ADR-D1-canonical-geometry-kernel.md), #82, #38). While Euclid serves as the Tier 1 fast CSG engine (ADR-D9 #247), OCCT provides exact analytic surfaces, topological B-Rep structures, and industrial exchange.
 - **Implementation**: [`OCCTEngine.swift`](../../macos/Sources/MadeCore/Kernel/OCCTEngine.swift) and `OCCTSwift` framework dependency linked into `MadeCore`.
-- **Capabilities**: Exact B-Rep topology (`Shape`), ISO 10303 STEP exchange with robust repair and sewing (`loadRobust`), enhanced multi-threaded tessellation (`MeshParameters`), and conversion into page-aligned shared-memory buffers (`MeshPayload` / `MeshStorage`) conforming strictly to Invariants 4 and 6.
-- **Use Case**: STEP solid import via Solid > Import STEP Solid… or File > Import STEP…, surviving XPC service restarts via `KernelRegeneration`. Child tickets deliver STEP export (#38), topological fillets (#35), and IGES exchange.
+- **Capabilities**: Exact B-Rep topology (`Shape`), ISO 10303 STEP exchange with robust repair, sewing (`loadRobust`), and unit scaling (`loadSTEP(from:unitInMeters: 0.001)` to normalize non-millimeter files such as inches or meters into millimeter scene space), multi-solid scene STEP export with affine transform baking via `TransformMatrix3D` and shape compounding (`Shape.compound`), enhanced multi-threaded tessellation (`MeshParameters`), and conversion into page-aligned shared-memory buffers (`MeshPayload` / `MeshStorage`) conforming strictly to Invariants 4 and 6.
+- **Use Case**: STEP solid import via Solid > Import STEP Solid… or File > Import STEP…, full scene or selected solid STEP export via File > Export STEP… (⇧⌘E) or Solid > Export STEP Solid…, surviving XPC service restarts via `KernelRegeneration`. Child tickets deliver topological fillets (#35) and IGES exchange.
 
 ### Tier 3: Declarative CAD DSL (Cadova-Style Scripting)
 - **Implementation**: [`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift).

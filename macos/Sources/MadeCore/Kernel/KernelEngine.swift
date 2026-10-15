@@ -37,10 +37,17 @@ public struct KernelEngineCounts: Equatable, Sendable {
 /// Runs geometry for `KernelClient`, in this process or in the kernel XPC service (invariants 1 and 4).
 public protocol KernelEngine: Actor {
     func execute(_ request: KernelRequest) async -> KernelResult<MeshPayload>
+    func exportStep(objects: [SceneObject]) async -> KernelResult<Data>
     func dispose(solidId: SolidId) async
     /// Ends the job if it is executing; returns false when it is not.
     func terminate(jobId: JobId) async -> Bool
     /// Cache-loss events. One consumer.
     nonisolated func restarts() -> AsyncStream<KernelRestart>
     func storeCounts() async -> KernelEngineCounts
+}
+
+extension KernelEngine {
+    public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
+        .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STEP export not supported by this engine"))
+    }
 }

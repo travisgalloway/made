@@ -41,6 +41,7 @@ private actor ConflatesFirstRequestClient: KernelClientProtocol {
     func cancel(jobId: JobId) async { await inner.cancel(jobId: jobId) }
     func dispose(solidId: SolidId) async { await inner.dispose(solidId: solidId) }
     func getStats() async -> KernelStats { await inner.getStats() }
+    func exportStep(objects: [SceneObject]) async -> KernelResult<Data> { await inner.exportStep(objects: objects) }
 }
 
 @MainActor

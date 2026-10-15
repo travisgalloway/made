@@ -55,6 +55,11 @@ struct SolidMenuCommands: Commands {
                 workspace.promptImportStepFile()
             }
 
+            Button("Export STEP Solid…") {
+                workspace.promptExportStepFile(selectedOnly: workspace.selectedId != nil)
+            }
+            .disabled(workspace.document.objects.isEmpty)
+
             Button("Transform Solid…") {
                 workspace.startTransformCommand()
             }
