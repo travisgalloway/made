@@ -549,10 +549,63 @@ final class WorkspaceModel {
         importStepFile(at: url)
     }
 
+    func promptExportStepFile(selectedOnly: Bool = false) {
+        let panel = NSSavePanel()
+        panel.title = selectedOnly ? "Export STEP Solid" : "Export STEP"
+        panel.canCreateDirectories = true
+        var contentTypes: [UTType] = []
+        if let t1 = UTType(filenameExtension: "step") { contentTypes.append(t1) }
+        if let t2 = UTType(filenameExtension: "stp") { contentTypes.append(t2) }
+        panel.allowedContentTypes = contentTypes.isEmpty ? [.data] : contentTypes
+        let defaultName = (selectedOnly ? selectedObject?.name : nil) ?? "scene"
+        panel.nameFieldStringValue = defaultName.hasSuffix(".step") || defaultName.hasSuffix(".stp") ? defaultName : "\(defaultName).step"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await exportStepFile(to: url, selectedOnly: selectedOnly)
+        }
+    }
+
+    @discardableResult
+    func exportStepFile(to url: URL, selectedOnly: Bool = false) async -> Bool {
+        let candidateObjects: [SceneObject]
+        if selectedOnly {
+            if let obj = selectedObject {
+                candidateObjects = [obj]
+            } else {
+                candidateObjects = []
+            }
+        } else {
+            candidateObjects = document.objects.filter { $0.isVisible }
+        }
+        guard !candidateObjects.isEmpty else {
+            log(.error, "Kernel", "No objects to export")
+            return false
+        }
+        let result = await kernelClient.exportStep(objects: candidateObjects)
+        switch result {
+        case .success(_, let data):
+            do {
+                try data.write(to: url)
+                log(.info, "Kernel", "Exported STEP to \(url.lastPathComponent)")
+                return true
+            } catch {
+                log(.error, "Kernel", "Failed to write STEP file: \(error.localizedDescription)")
+                return false
+            }
+        case .failure(_, let error):
+            log(.error, "Kernel", "Failed to export STEP: \(error.message)")
+            return false
+        }
+    }
+
     @discardableResult
     func importStepFile(at url: URL) -> ObjectId? {
         do {
             let data = try Data(contentsOf: url)
+            guard !data.isEmpty else {
+                log(.error, "Kernel", "STEP file is empty")
+                return nil
+            }
             let id = document.reserveId(for: .imported(name: url.lastPathComponent))
             document.addObject(id, def: .imported(name: url.lastPathComponent, sourceURL: url, data: data))
             selectedId = id
@@ -590,12 +643,15 @@ final class WorkspaceModel {
         pendingDeleteId = nil
     }
 
-    func removeObject(_ id: ObjectId) {
-        guard let obj = document.objects.first(where: { $0.id == id }), !obj.isLocked else { return }
+    @discardableResult
+    func removeObject(_ id: ObjectId) -> Task<Void, Never> {
+        guard let obj = document.objects.first(where: { $0.id == id }), !obj.isLocked else {
+            return Task {}
+        }
         let dependents = document.dependentObjects(of: id)
         partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
-        Task {
+        let task = Task {
             await kernelClient.dispose(solidId: id)
             for depId in dependents {
                 self.recomputeSolid(id: depId)
@@ -607,6 +663,7 @@ final class WorkspaceModel {
         }
         log(.info, "Scene", "Removed object \(id.rawValue)")
         invalidateViewport(.model)
+        return task
     }
 
     var hideToggleTitle: String {
@@ -738,6 +795,14 @@ final class WorkspaceModel {
             // A failure leaves the previous mesh installed; only the message changes.
             if let message = self.recomputeFailures.record(result, for: id) {
                 self.log(.error, "Kernel", message)
+            }
+            if case .failure = result, case .imported = self.document.objects.first(where: { $0.id == id })?.def {
+                self.document.removeObject(id: id)
+                await self.kernelClient.dispose(solidId: id)
+                if self.selectedId == id {
+                    self.selectedId = nil
+                }
+                return
             }
             guard let renderer = self.viewportManager.renderer,
                   SolidMeshApplier.apply(result, to: id, document: self.document, sink: renderer) else { return }

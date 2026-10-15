@@ -405,6 +405,61 @@ import MadeCore
         #expect(model.document.objects.count == initialCount)
     }
 
+    @Test @MainActor func testExportStepFileWritesFile() async throws {
+        let model = WorkspaceModel()
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-export-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportStepFile(to: tempURL, selectedOnly: false)
+        #expect(exported)
+        #expect(FileManager.default.fileExists(atPath: tempURL.path))
+
+        let contents = try String(contentsOf: tempURL, encoding: .utf8)
+        #expect(contents.contains("ISO-10303-21"))
+        #expect(contents.contains("HEADER;"))
+        #expect(contents.contains("END-ISO-10303-21;"))
+    }
+
+    @Test @MainActor func testImportStepEmptyFileLeavesSceneUnchanged() throws {
+        let model = WorkspaceModel()
+        let initialCount = model.document.objects.count
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-empty-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        try Data().write(to: tempURL)
+
+        let resultId = model.importStepFile(at: tempURL)
+        #expect(resultId == nil)
+        #expect(model.document.objects.count == initialCount)
+    }
+
+    @Test @MainActor func testImportStepCorruptFileLeavesSceneUnchanged() async throws {
+        let model = WorkspaceModel()
+        let initialCount = model.document.objects.count
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-corrupt-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let corruptData = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33])
+        try corruptData.write(to: tempURL)
+
+        let resultId = model.importStepFile(at: tempURL)
+        #expect(resultId != nil)
+
+        // Wait for recompute to fail with geometryFailed and roll back
+        if let id = resultId, let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [id])
+        }
+        for _ in 0..<20 {
+            if model.document.objects.count == initialCount { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        #expect(model.document.objects.count == initialCount)
+        if let id = resultId {
+            #expect(!model.document.objects.contains(where: { $0.id == id }))
+        }
+    }
+
     @Test @MainActor func testDeleteSelectedObjectAndEnablement() {
         let model = WorkspaceModel()
         let boxId = ObjectId("box-1")
@@ -1130,15 +1185,24 @@ import MadeCore
         try await Task.sleep(for: .milliseconds(150))
 
         // Remove cylinder-1
-        model.removeObject(cylId)
+        await model.removeObject(cylId).value
 
         if let registry = model.toolRegistry {
             await registry.settleRecomputes(for: [boolId])
         }
-        try await Task.sleep(for: .milliseconds(150))
+
+        var failureMsg = model.recomputeFailures.message(for: boolId)
+        if failureMsg == nil {
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(100))
+                if let msg = model.recomputeFailures.message(for: boolId) {
+                    failureMsg = msg
+                    break
+                }
+            }
+        }
 
         // Dependent boolean should have failed with unknown-solid
-        let failureMsg = model.recomputeFailures.message(for: boolId)
         #expect(failureMsg != nil)
         #expect(failureMsg?.contains("unknown-solid") == true)
         #expect(failureMsg?.contains("Solid B 'cylinder-1' not found") == true)

@@ -25,6 +25,18 @@ public actor LocalKernelEngine: KernelEngine {
             euclidMeshes[sId] = euclid
             let mesh = EuclidEngine.toMeshPayload(euclid)
             solids[sId] = mesh
+            if let shape = Shape.box(
+                origin: SIMD3(
+                    -Double(params.width) / 2.0,
+                    -Double(params.depth) / 2.0,
+                    -Double(params.height) / 2.0
+                ),
+                width: Double(params.width),
+                height: Double(params.depth),
+                depth: Double(params.height)
+            ) {
+                occtShapes[sId] = shape
+            }
             return .success(jobId: jobId, value: mesh)
             
         case .makeCylinder(_, let sId, let params):
@@ -35,6 +47,14 @@ public actor LocalKernelEngine: KernelEngine {
             euclidMeshes[sId] = euclid
             let mesh = EuclidEngine.toMeshPayload(euclid)
             solids[sId] = mesh
+            if let shape = Shape.cylinder(
+                at: SIMD2(0, 0),
+                bottomZ: -Double(params.height) / 2.0,
+                radius: Double(params.radius),
+                height: Double(params.height)
+            ) {
+                occtShapes[sId] = shape
+            }
             return .success(jobId: jobId, value: mesh)
             
         case .booleanOperation(_, let sId, let op, let solidA, let solidB):
@@ -94,6 +114,16 @@ public actor LocalKernelEngine: KernelEngine {
         }
     }
     
+    public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
+        let jobId = JobId("export-\(UUID().uuidString)")
+        do {
+            let data = try OCCTEngine.exportStep(objects: objects, cachedShapes: occtShapes)
+            return .success(jobId: jobId, value: data)
+        } catch {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Export failed: \(error)"))
+        }
+    }
+
     public func dispose(solidId: SolidId) async {
         solids.removeValue(forKey: solidId)
         euclidMeshes.removeValue(forKey: solidId)

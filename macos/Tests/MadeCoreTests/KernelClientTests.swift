@@ -83,6 +83,78 @@ import Foundation
         #expect(result.error?.code == .geometryFailed)
         #expect(result.error?.message == "Failed to parse STEP geometry")
     }
+
+    @Test func testStepRoundTripBox1VolumeAndBoundingBox() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let boxObject = SceneObject(
+            id: SolidId("box-1"),
+            name: "box-1",
+            def: .box(BoxParams(width: 40, depth: 30, height: 20)),
+            transform: Transform(position: SIMD3<Float>(-25, 0, 0))
+        )
+        let exportResult = await client.exportStep(objects: [boxObject])
+        #expect(exportResult.isSuccess)
+        let data = try #require(exportResult.value)
+        #expect(!data.isEmpty)
+
+        let measurement = try OCCTEngine.measureShape(data: data)
+        #expect(abs(measurement.volume - 24000.0) < 0.001)
+        #expect(abs(measurement.min.x - (-45.0)) < 0.001)
+        #expect(abs(measurement.min.y - (-15.0)) < 0.001)
+        #expect(abs(measurement.min.z - (-10.0)) < 0.001)
+        #expect(abs(measurement.max.x - (-5.0)) < 0.001)
+        #expect(abs(measurement.max.y - 15.0) < 0.001)
+        #expect(abs(measurement.max.z - 10.0) < 0.001)
+    }
+
+    @Test func testExportStepMultipleObjectsCompounds() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let box = SceneObject(
+            id: SolidId("box-1"),
+            name: "box-1",
+            def: .box(BoxParams(width: 40, depth: 30, height: 20)),
+            transform: Transform(position: SIMD3<Float>(-25, 0, 0))
+        )
+        let cyl = SceneObject(
+            id: SolidId("cylinder-1"),
+            name: "cylinder-1",
+            def: .cylinder(CylinderParams(radius: 15, height: 40)),
+            transform: Transform(position: SIMD3<Float>(25, 0, 0))
+        )
+        let exportResult = await client.exportStep(objects: [box, cyl])
+        #expect(exportResult.isSuccess)
+        let data = try #require(exportResult.value)
+        #expect(!data.isEmpty)
+
+        let count = try OCCTEngine.solidCount(data: data)
+        #expect(count == 2)
+    }
+
+    @Test func testImportStepNonMmUnitsScaledToMm() async throws {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let baseData = try #require(OCCTEngine.sampleBoxStepData())
+        let stepText = try #require(String(data: baseData, encoding: .utf8))
+
+        // Replace millimeter unit with meter unit: SI_UNIT(.MILLI.,.METRE.) -> SI_UNIT($,.METRE.)
+        guard stepText.contains(".MILLI.,.METRE.") else {
+            Issue.record("Expected STEP text to contain SI_UNIT(.MILLI.,.METRE.)")
+            return
+        }
+        let meterStepText = stepText.replacingOccurrences(of: ".MILLI.,.METRE.", with: "$,.METRE.")
+        let meterData = try #require(meterStepText.data(using: .utf8))
+
+        // Import the 10x10x10 meter STEP box, scaled into millimeter scene space (10 m = 10,000 mm)
+        let solidId = SolidId("meter-box")
+        let result = await client.request(.importStep(jobId: JobId("job-m-1"), solidId: solidId, data: meterData))
+        #expect(result.isSuccess)
+        let payload = try #require(result.value)
+        #expect(payload.triangleCount > 0)
+
+        // Verify that the extent along X is scaled to ~10,000 mm (10 m in mm) instead of 10 mm
+        let xs = stride(from: 0, to: payload.positions.count, by: 3).map { payload.positions[$0] }
+        let extent = (xs.max() ?? 0) - (xs.min() ?? 0)
+        #expect(abs(extent - 10000.0) < 1.0)
+    }
     
     @Test func testRapidRequestsConflateToLatestValue() async {
         let client = KernelClient(debounceDuration: .milliseconds(50))

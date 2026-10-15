@@ -25,6 +25,7 @@ struct KernelStoreCounts: Equatable, Sendable {
 
 public protocol KernelClientProtocol: Sendable {
     func request(_ request: KernelRequest) async -> KernelResult<MeshPayload>
+    func exportStep(objects: [SceneObject]) async -> KernelResult<Data>
     func cancel(jobId: JobId) async
     func dispose(solidId: SolidId) async
     func getStats() async -> KernelStats
@@ -35,6 +36,10 @@ public protocol KernelClientProtocol: Sendable {
 extension KernelClientProtocol {
     public func restarts() async -> AsyncStream<KernelRestart> {
         AsyncStream { $0.finish() }
+    }
+
+    public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
+        .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STEP export not supported by this client"))
     }
 }
 
@@ -62,6 +67,10 @@ public actor KernelClient: KernelClientProtocol {
     
     public func getStats() async -> KernelStats {
         return stats
+    }
+
+    public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
+        await engine.exportStep(objects: objects)
     }
     
     /// A pending job is dropped before it runs. An executing job is ended by the engine, which may stop the service.
