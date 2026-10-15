@@ -25,7 +25,9 @@ import simd
     }
 
     @Test func testDefaultBoxAndCylinderPrimitiveFeatures() {
+        let fixedBoxId = UUID()
         let box = Feature.makeBox(
+            id: fixedBoxId,
             solidId: boxSolidId,
             params: BoxParams(width: 40, depth: 30, height: 20)
         )
@@ -33,25 +35,89 @@ import simd
         #expect(box.inputExpressions["width"]?.value == 40.0)
         #expect(box.inputExpressions["depth"]?.value == 30.0)
         #expect(box.inputExpressions["height"]?.value == 20.0)
-        #expect(box.generatedTopology["face:top"] != nil)
-        #expect(box.generatedTopology["face:bottom"] != nil)
-        #expect(box.generatedTopology["face:front"] != nil)
-        #expect(box.generatedTopology["face:back"] != nil)
-        #expect(box.generatedTopology["face:left"] != nil)
-        #expect(box.generatedTopology["face:right"] != nil)
+        #expect(box.generatedTopology.count == 26)
+
+        // 6 Faces
+        let expectedFaces = ["face:top", "face:bottom", "face:front", "face:back", "face:left", "face:right"]
+        for faceKey in expectedFaces {
+            let ref = box.generatedTopology[faceKey]
+            #expect(ref != nil, "Missing face \(faceKey)")
+            #expect(ref?.elementType == .face)
+            #expect(ref?.disambiguator?.surfaceOrCurveType == "plane")
+        }
         #expect(box.generatedTopology["face:top"]?.disambiguator?.normal == SIMD3<Float>(0, 0, 1))
 
+        // 12 Edges
+        let expectedEdges = [
+            "edge:top-front", "edge:top-back", "edge:top-left", "edge:top-right",
+            "edge:bottom-front", "edge:bottom-back", "edge:bottom-left", "edge:bottom-right",
+            "edge:front-left", "edge:front-right", "edge:back-left", "edge:back-right"
+        ]
+        for edgeKey in expectedEdges {
+            let ref = box.generatedTopology[edgeKey]
+            #expect(ref != nil, "Missing edge \(edgeKey)")
+            #expect(ref?.elementType == .edge)
+            #expect(ref?.disambiguator?.surfaceOrCurveType == "line")
+        }
+
+        // 8 Vertices
+        let expectedVertices = [
+            "vertex:top-front-left", "vertex:top-front-right", "vertex:top-back-left", "vertex:top-back-right",
+            "vertex:bottom-front-left", "vertex:bottom-front-right", "vertex:bottom-back-left", "vertex:bottom-back-right"
+        ]
+        for vertKey in expectedVertices {
+            let ref = box.generatedTopology[vertKey]
+            #expect(ref != nil, "Missing vertex \(vertKey)")
+            #expect(ref?.elementType == .vertex)
+            #expect(ref?.disambiguator?.centroid != nil)
+        }
+
+        // Deterministic ID invariance under dimension change
+        let resizedBox = Feature.makeBox(
+            id: fixedBoxId,
+            solidId: boxSolidId,
+            params: BoxParams(width: 80, depth: 50, height: 35)
+        )
+        #expect(resizedBox.generatedTopology.count == 26)
+        for key in box.generatedTopology.keys {
+            #expect(box.generatedTopology[key]?.id == resizedBox.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
+
+        let fixedCylinderId = UUID()
         let cylinder = Feature.makeCylinder(
+            id: fixedCylinderId,
             solidId: cylinderSolidId,
             params: CylinderParams(radius: 15, height: 40)
         )
         #expect(cylinder.outputSolidId == cylinderSolidId)
         #expect(cylinder.inputExpressions["radius"]?.value == 15.0)
         #expect(cylinder.inputExpressions["height"]?.value == 40.0)
-        #expect(cylinder.generatedTopology["face:top"] != nil)
-        #expect(cylinder.generatedTopology["face:bottom"] != nil)
-        #expect(cylinder.generatedTopology["face:side"] != nil)
+        #expect(cylinder.generatedTopology.count == 8)
+
+        #expect(cylinder.generatedTopology["face:top"]?.elementType == .face)
+        #expect(cylinder.generatedTopology["face:bottom"]?.elementType == .face)
+        #expect(cylinder.generatedTopology["face:side"]?.elementType == .face)
         #expect(cylinder.generatedTopology["face:side"]?.disambiguator?.surfaceOrCurveType == "cylinder")
+
+        #expect(cylinder.generatedTopology["edge:top"]?.elementType == .edge)
+        #expect(cylinder.generatedTopology["edge:bottom"]?.elementType == .edge)
+        #expect(cylinder.generatedTopology["edge:seam"]?.elementType == .edge)
+        #expect(cylinder.generatedTopology["edge:top"]?.disambiguator?.surfaceOrCurveType == "circle")
+        #expect(cylinder.generatedTopology["edge:seam"]?.disambiguator?.surfaceOrCurveType == "line")
+
+        #expect(cylinder.generatedTopology["vertex:top-seam"]?.elementType == .vertex)
+        #expect(cylinder.generatedTopology["vertex:bottom-seam"]?.elementType == .vertex)
+
+        // Cylinder deterministic ID invariance under dimension change
+        let resizedCylinder = Feature.makeCylinder(
+            id: fixedCylinderId,
+            solidId: cylinderSolidId,
+            params: CylinderParams(radius: 30, height: 80)
+        )
+        #expect(resizedCylinder.generatedTopology.count == 8)
+        for key in cylinder.generatedTopology.keys {
+            #expect(cylinder.generatedTopology[key]?.id == resizedCylinder.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
     }
 
     @Test func testAllFeatureOperations() {

@@ -124,6 +124,26 @@ public actor LocalKernelEngine: KernelEngine {
         }
     }
 
+    public func fillet(solidId: SolidId, edgeReference: TopologicalReference, radius: Double) async -> KernelResult<MeshPayload> {
+        let jobId = JobId("fillet-\(UUID().uuidString)")
+        guard let shape = occtShapes[solidId] else {
+            return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid '\(solidId)' not found"))
+        }
+        do {
+            let filletedShape = try OCCTEngine.fillet(shape: shape, edgeReference: edgeReference, radius: radius)
+            guard let payload = OCCTEngine.toMeshPayload(filletedShape) else {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate filleted geometry"))
+            }
+            occtShapes[solidId] = filletedShape
+            solids[solidId] = payload
+            return .success(jobId: jobId, value: payload)
+        } catch let kernelError as KernelError {
+            return .failure(jobId: jobId, error: kernelError)
+        } catch {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Fillet failed: \(error)"))
+        }
+    }
+
     public func dispose(solidId: SolidId) async {
         solids.removeValue(forKey: solidId)
         euclidMeshes.removeValue(forKey: solidId)

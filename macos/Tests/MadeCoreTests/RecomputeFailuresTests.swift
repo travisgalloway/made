@@ -20,6 +20,7 @@ import Foundation
         (.geometryFailed, "box-1 failed to recompute (geometry-failed): boom"),
         (.unknownSolid, "box-1 failed to recompute (unknown-solid): boom"),
         (.workerCrashed, "box-1 failed to recompute (worker-crashed): boom"),
+        (.topologicalReferenceBroken, "box-1 failed to recompute (topological-reference-broken): boom"),
     ])
     func messageMapsEveryErrorCode(code: KernelErrorCode, expected: String) {
         #expect(RecomputeFailures.message(for: KernelError(code: code, message: "boom"), solidId: box) == expected)
