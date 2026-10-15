@@ -4,7 +4,7 @@ import Metal
 @testable import MadeCore
 
 @MainActor
-@Suite final class ViewportStateTests {
+@Suite(.serialized) final class ViewportStateTests {
     
     deinit {
         MetalDeviceProvider.forceNoDeviceSeam = false
