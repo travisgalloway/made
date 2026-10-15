@@ -254,4 +254,75 @@ import simd
         #expect(abs(ortho.columns.1.y - (2.0 / 100.0)) <= 1e-5)
         #expect(abs(ortho.columns.3.w - 1.0) <= 1e-5)
     }
+
+    @Test func testOrthographicZoomScalesViewVolumeWithoutMovingEye() {
+        let camera = Camera(projection: .orthographic)
+        let initialPos = camera.position
+        let initialTarget = camera.target
+        let initialScale = camera.orthographicScale
+        #expect(initialScale == 1.0)
+        
+        // Zoom in by factor > 1: orthographicScale decreases (narrows view volume)
+        let zoomedIn = Camera.zoom(camera: camera, factor: 2.0)
+        #expect(zoomedIn.position == initialPos)
+        #expect(zoomedIn.target == initialTarget)
+        #expect(zoomedIn.orthographicScale < initialScale)
+        #expect(abs(zoomedIn.orthographicScale - 0.5) <= 1e-4)
+        
+        // Zoom out by factor < 1: orthographicScale increases (widens view volume)
+        let zoomedOut = Camera.zoom(camera: camera, factor: 0.5)
+        #expect(zoomedOut.position == initialPos)
+        #expect(zoomedOut.target == initialTarget)
+        #expect(zoomedOut.orthographicScale > initialScale)
+        #expect(abs(zoomedOut.orthographicScale - 2.0) <= 1e-4)
+        
+        // Zoom via deltaDistance: delta < 0 zooms in, delta > 0 zooms out
+        let zoomedDeltaIn = Camera.zoom(camera: camera, deltaDistance: -20.0)
+        #expect(zoomedDeltaIn.position == initialPos)
+        #expect(zoomedDeltaIn.target == initialTarget)
+        #expect(zoomedDeltaIn.orthographicScale < initialScale)
+        
+        let zoomedDeltaOut = Camera.zoom(camera: camera, deltaDistance: 20.0)
+        #expect(zoomedDeltaOut.position == initialPos)
+        #expect(zoomedDeltaOut.target == initialTarget)
+        #expect(zoomedDeltaOut.orthographicScale > initialScale)
+        
+        // Extreme zooms clamp within minDistance and maxDistance effective bounds
+        let forward = camera.position - camera.target
+        let dist = simd_length(forward)
+        let extremeIn = Camera.zoom(camera: camera, factor: 10000.0)
+        #expect(extremeIn.position == initialPos)
+        #expect(extremeIn.target == initialTarget)
+        #expect(abs(extremeIn.orthographicScale * dist - camera.minDistance) <= 1e-3)
+        
+        let extremeOut = Camera.zoom(camera: camera, factor: 0.0001)
+        #expect(extremeOut.position == initialPos)
+        #expect(extremeOut.target == initialTarget)
+        #expect(abs(extremeOut.orthographicScale * dist - camera.maxDistance) <= 1e-3)
+    }
+
+    @Test func testOrbitDragPreservesTargetAcrossProjectionSwitch() {
+        var camera = Camera(projection: .perspective)
+        let initialDist = simd_length(camera.position - camera.target)
+        let initialTarget = camera.target
+        
+        // Orbit in perspective
+        camera = Camera.orbit(camera: camera, deltaAzimuth: 0.4, deltaElevation: 0.2)
+        let distAfterFirstOrbit = simd_length(camera.position - camera.target)
+        #expect(abs(distAfterFirstOrbit - initialDist) <= 1e-3)
+        #expect(camera.target == initialTarget)
+        
+        // Switch projection to orthographic
+        camera.projection = .orthographic
+        
+        // Orbit in orthographic
+        let cameraAfterSwitchOrbit = Camera.orbit(camera: camera, deltaAzimuth: -0.3, deltaElevation: 0.1)
+        let distAfterSecondOrbit = simd_length(cameraAfterSwitchOrbit.position - cameraAfterSwitchOrbit.target)
+        #expect(abs(distAfterSecondOrbit - initialDist) <= 1e-3)
+        #expect(cameraAfterSwitchOrbit.target == initialTarget)
+        #expect(!cameraAfterSwitchOrbit.position.x.isNaN)
+        #expect(!cameraAfterSwitchOrbit.position.y.isNaN)
+        #expect(!cameraAfterSwitchOrbit.position.z.isNaN)
+        #expect(cameraAfterSwitchOrbit.projection == .orthographic)
+    }
 }

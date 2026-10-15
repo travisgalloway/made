@@ -24,6 +24,19 @@ struct ViewportCanvasView: View {
             }
             .font(.callout)
             Spacer()
+            if workspace.viewportManager.state == .ready {
+                Picker("Projection", selection: Binding(
+                    get: { workspace.projectionMode },
+                    set: { workspace.setProjectionMode($0) }
+                )) {
+                    ForEach(CameraProjection.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .frame(width: 170)
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: BarMetrics.height)

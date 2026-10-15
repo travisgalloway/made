@@ -15,6 +15,8 @@ public struct Camera: Sendable, Equatable {
     public var maxDistance: Float
     public var minPitch: Float
     public var maxPitch: Float
+    public var projection: CameraProjection
+    public var orthographicScale: Float
     
     public static let defaultPosition: SIMD3<Float> = Orientation.defaultViewDirection * 150.0
     public static let defaultTarget: SIMD3<Float> = SIMD3<Float>(0, 0, 10)
@@ -29,7 +31,9 @@ public struct Camera: Sendable, Equatable {
         minDistance: Float = defaultMinDistance,
         maxDistance: Float = defaultMaxDistance,
         minPitch: Float = defaultMinPitch,
-        maxPitch: Float = defaultMaxPitch
+        maxPitch: Float = defaultMaxPitch,
+        projection: CameraProjection = .perspective,
+        orthographicScale: Float = 1.0
     ) {
         self.position = position
         self.target = target
@@ -37,6 +41,8 @@ public struct Camera: Sendable, Equatable {
         self.maxDistance = maxDistance
         self.minPitch = minPitch
         self.maxPitch = maxPitch
+        self.projection = projection
+        self.orthographicScale = orthographicScale
     }
     
     /// Pure function: orbits the camera around `target` with the given azimuth (yaw around +Z) and elevation (pitch above XY plane) deltas.
@@ -128,6 +134,13 @@ public struct Camera: Sendable, Equatable {
         if dist < 1e-6 {
             return camera
         }
+        if camera.projection == .orthographic {
+            let currentEffective = dist * camera.orthographicScale
+            let newEffective = min(max(currentEffective / factor, camera.minDistance), camera.maxDistance)
+            var result = camera
+            result.orthographicScale = newEffective / dist
+            return result
+        }
         let dir = simd_normalize(forward)
         let newDist = min(max(dist / factor, camera.minDistance), camera.maxDistance)
         
@@ -150,6 +163,13 @@ public struct Camera: Sendable, Equatable {
         let dist = simd_length(forward)
         if dist < 1e-6 {
             return camera
+        }
+        if camera.projection == .orthographic {
+            let currentEffective = dist * camera.orthographicScale
+            let newEffective = min(max(currentEffective + deltaDistance, camera.minDistance), camera.maxDistance)
+            var result = camera
+            result.orthographicScale = newEffective / dist
+            return result
         }
         let dir = simd_normalize(forward)
         let newDist = min(max(dist + deltaDistance, camera.minDistance), camera.maxDistance)

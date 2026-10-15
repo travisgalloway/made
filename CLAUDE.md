@@ -99,7 +99,7 @@ Enforcement is weaker than the doc's matrix once claimed. Check `docs/architectu
 
 - `MetalRenderer` owns the pipeline and the per-solid `meshes` dictionary. `CADMetalViewRepresentable` hosts the `MTKView`.
 - `RenderInstrumentation.shared` records `renderCount`, `drawCalls`, and the last `InvalidateReason`. Tests and the viewport status bar read it. Publish new viewport telemetry there.
-- The ground grid (#102), axes indicator (#103), selection outline (#40), orbit, pan, and zoom navigation (#87), and viewport object picking (#69) are built.
+- The ground grid (#102), axes indicator (#103), selection outline (#40), orbit, pan, and zoom navigation (#87), viewport object picking (#69), and orthographic projection switching (#128) are built.
 
 ## Coordinate convention: right-handed Z-up
 

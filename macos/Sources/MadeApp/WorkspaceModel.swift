@@ -37,6 +37,7 @@ final class WorkspaceModel {
 
     // Viewport
     private(set) var perspective: ViewportPerspective = .perspective
+    private(set) var projectionMode: CameraProjection = .perspective
     var tool: ViewportTool = .select {
         didSet {
             if tool != oldValue { log(.info, "Viewport", "Selected \(tool.title) tool") }
@@ -339,10 +340,21 @@ final class WorkspaceModel {
 
     // MARK: - Viewport
 
+    func setProjectionMode(_ mode: CameraProjection) {
+        guard mode != projectionMode else { return }
+        projectionMode = mode
+        guard let renderer = viewportManager.renderer else { return }
+        renderer.projectionMode = mode
+        renderer.camera.orthographicScale = 1.0
+        log(.info, "Camera", "Switched projection to \(mode.rawValue)")
+        invalidateViewport(.camera)
+    }
+
     func applyPerspective(_ perspective: ViewportPerspective) {
         self.perspective = perspective
         guard let renderer = viewportManager.renderer else { return }
         renderer.camera = Camera.preset(perspective)
+        renderer.projectionMode = projectionMode
         log(.info, "Camera", "Switched to \(perspective.rawValue) perspective")
         invalidateViewport(.camera)
     }

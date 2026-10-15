@@ -94,7 +94,10 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public var meshes: [SolidId: MetalMesh] = [:] {
         didSet { updateResidency() }
     }
-    public var projectionMode: CameraProjection = .perspective
+    public var projectionMode: CameraProjection {
+        get { camera.projection }
+        set { camera.projection = newValue }
+    }
     public var hiddenSolidIds: Set<SolidId> = []
     public var onDeviceLost: (@Sendable () -> Void)? = nil
     public var onFrameRendered: (@Sendable () -> Void)? = nil
@@ -362,7 +365,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         let viewMatrix = Orientation.makeLookAt(eye: eye, target: target, up: Orientation.worldUp)
         let projMatrix: simd_float4x4
         if projectionMode == .orthographic {
-            let dist = max(10.0, simd_length(eye - target))
+            let baseDist = max(10.0, simd_length(eye - target))
+            let orthoScale = cameraOverride?.orthographicScale ?? camera.orthographicScale
+            let dist = max(1.0, baseDist * orthoScale)
             let halfH = dist * 0.4
             let halfW = halfH * aspect
             projMatrix = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
