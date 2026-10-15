@@ -380,5 +380,23 @@ import os
         doc.removeObject(id: cylinderSolidId)
         #expect(doc.selectedId == boxSolidId)
     }
+
+    @Test func testRemoveUnknownIdIsNoOp() {
+        let doc = DocumentModel()
+        let initialCount = doc.objects.count
+        let initialSelected = doc.selectedId
+        doc.removeObject(id: ObjectId("non-existent"))
+        #expect(doc.objects.count == initialCount)
+        #expect(doc.selectedId == initialSelected)
+    }
+
+    @Test func testRemoveAllObjectsLeavesEmptyScene() {
+        let doc = DocumentModel()
+        for obj in doc.objects {
+            doc.removeObject(id: obj.id)
+        }
+        #expect(doc.objects.isEmpty)
+        #expect(doc.selectedId == nil)
+    }
 }
 

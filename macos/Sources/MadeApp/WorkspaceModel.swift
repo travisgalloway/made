@@ -238,6 +238,7 @@ final class WorkspaceModel {
     }
 
     func removeObject(_ id: ObjectId) {
+        guard document.objects.contains(where: { $0.id == id }) else { return }
         partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
         Task { await kernelClient.dispose(solidId: id) }
