@@ -100,12 +100,19 @@ struct NavigatorSidebarView: View {
         .frame(height: BarMetrics.height)
     }
 
-    private var filteredObjects: [SceneObject] {
-        let query = filterText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return workspace.document.objects }
-        return workspace.document.objects.filter {
-            $0.name.localizedCaseInsensitiveContains(query) || $0.id.rawValue.localizedCaseInsensitiveContains(query)
+    static func filter(objects: [SceneObject], query: String) -> [SceneObject] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return objects }
+        return objects.filter {
+            $0.name.localizedCaseInsensitiveContains(trimmed)
+                || $0.id.rawValue.localizedCaseInsensitiveContains(trimmed)
+                || $0.def.kind.localizedCaseInsensitiveContains(trimmed)
+                || $0.parameterSummary.localizedCaseInsensitiveContains(trimmed)
         }
+    }
+
+    private var filteredObjects: [SceneObject] {
+        Self.filter(objects: workspace.document.objects, query: filterText)
     }
 }
 
@@ -116,14 +123,47 @@ private struct NavigatorRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack {
-            Label {
-                Text(object.name)
-            } icon: {
-                Image(systemName: icon)
-                    .foregroundStyle(tint)
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(object.name)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text(object.def.kind.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                HStack(spacing: 6) {
+                    Text(object.id.rawValue)
+                        .font(.caption2)
+                        .monospaced()
+                        .foregroundStyle(.secondary)
+
+                    Text("•")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+
+                    Text(object.parameterSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-            Spacer()
+
+            Spacer(minLength: 4)
+
             Group {
                 if isHovered || !object.isVisible {
                     Button(object.isVisible ? "Hide Object" : "Show Object",
@@ -144,8 +184,11 @@ private struct NavigatorRow: View {
             }
             .barControl()
         }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
         .onHover { isHovered = $0 }
-        // The row buttons appear only on hover, so VoiceOver gets the same commands as row actions.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(object.name), \(object.def.kind), ID \(object.id.rawValue), \(object.parameterSummary)")
         .accessibilityAction(named: object.isVisible ? "Hide Object" : "Show Object") {
             workspace.toggleVisibility(object.id)
         }

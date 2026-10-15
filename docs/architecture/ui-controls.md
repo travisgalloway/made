@@ -45,9 +45,10 @@ The window uses system primitives for its chrome, and one button style per conte
 - **Status bar**: [`ViewportStatusBar`](../../macos/Sources/MadeApp/ViewportStatusBar.swift) sits under the viewport. It shows Metal 4 status, render count, draw calls, the last invalidation cause, the active tool, and the snap kind. Its trailing button shows or hides the console.
 
 ### 2. Navigator
-- [`NavigatorSidebarView`](../../macos/Sources/MadeApp/NavigatorSidebarView.swift) opens with its tab bar (Scene only). The Scene tab lists the scene objects, one line per row. The list selection is `WorkspaceModel.selectedId`.
+- [`NavigatorSidebarView`](../../macos/Sources/MadeApp/NavigatorSidebarView.swift) opens with its tab bar (Scene only). The Scene tab lists the scene objects in a selectable `List` bound to `workspace.selectedId`. Each row displays the solid's icon, name, kind badge, monospaced ID, and live parameter summary (e.g., dimensions in mm).
+- Tapping or clicking any row selects the object and synchronizes with the Inspector panel.
 - Visibility and lock buttons appear on hover. They stay visible while an object is hidden or locked.
-- The footer holds the Add menu (box or cylinder) and the filter field. A context-menu Delete removes the selected object.
+- The footer holds the Add menu (box, cylinder, or part script) and the search filter field, matching against name, ID, kind, and parameter summary. A context-menu Delete removes the selected object. When the scene is empty, an empty state overlay provides direct action buttons to add solids.
 
 ### 3. Parametric Inspector
 - [`InspectorPanelView`](../../macos/Sources/MadeApp/InspectorPanelView.swift) opens with its tab bar (Properties only). The Properties tab is a columns-style form with Identity, Transform, and Dimensions sections.
