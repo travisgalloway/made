@@ -122,6 +122,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     @Bindable var document: DocumentModel
     var renderer: MetalRenderer
     var tool: ViewportTool
+    var showsGrid: Bool
+    var showsAxes: Bool
+    var showsGizmo: Bool
+    var navigationPreset: NavigationPreset
     var coordinatorBinding: Binding<Coordinator?>?
     var isCommandActive: Bool
     var onCancelCommand: (() -> Void)?
@@ -137,6 +141,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         document: DocumentModel,
         renderer: MetalRenderer,
         tool: ViewportTool = .select,
+        showsGrid: Bool = true,
+        showsAxes: Bool = true,
+        showsGizmo: Bool = true,
+        navigationPreset: NavigationPreset = .defaultPreset,
         coordinator: Binding<Coordinator?>? = nil,
         isCommandActive: Bool = false,
         onCancelCommand: (() -> Void)? = nil,
@@ -151,6 +159,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.document = document
         self.renderer = renderer
         self.tool = tool
+        self.showsGrid = showsGrid
+        self.showsAxes = showsAxes
+        self.showsGizmo = showsGizmo
+        self.navigationPreset = navigationPreset
         self.coordinatorBinding = coordinator
         self.isCommandActive = isCommandActive
         self.onCancelCommand = onCancelCommand
@@ -193,7 +205,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         renderer.selectedId = document.selectedId
         let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
-        renderer.showsGizmo = !isLocked
+        renderer.showsGrid = showsGrid
+        renderer.showsAxes = showsAxes
+        renderer.showsGizmo = showsGizmo && !isLocked
         return view
     }
     
@@ -212,14 +226,22 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
-        let showsGizmo = !isLocked
+        let effectiveGizmo = showsGizmo && !isLocked
         var needsInvalidate = false
         if renderer.selectedId != document.selectedId {
             renderer.selectedId = document.selectedId
             needsInvalidate = true
         }
-        if renderer.showsGizmo != showsGizmo {
-            renderer.showsGizmo = showsGizmo
+        if renderer.showsGrid != showsGrid {
+            renderer.showsGrid = showsGrid
+            needsInvalidate = true
+        }
+        if renderer.showsAxes != showsAxes {
+            renderer.showsAxes = showsAxes
+            needsInvalidate = true
+        }
+        if renderer.showsGizmo != effectiveGizmo {
+            renderer.showsGizmo = effectiveGizmo
             needsInvalidate = true
         }
         if needsInvalidate {
@@ -278,7 +300,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             let pType = pointerType(for: event)
             
             // Gizmo handle hit-test on primary/left button under select tool or pen
-            if button == .left && (parent.tool == .select || pType == .pen),
+            if parent.showsGizmo && button == .left && (parent.tool == .select || pType == .pen),
                let selectedId = parent.document.selectedId,
                let selectedObj = parent.document.objects.first(where: { $0.id == selectedId }),
                !selectedObj.isLocked,
@@ -363,7 +385,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 tool: parent.tool,
                 button: button.pointerButton,
                 option: event.modifierFlags.contains(.option),
-                shift: isShiftDown
+                shift: isShiftDown,
+                control: event.modifierFlags.contains(.control),
+                command: event.modifierFlags.contains(.command),
+                preset: parent.navigationPreset
             )
             activeDragAction = action
             if action == .orbit {
