@@ -54,6 +54,18 @@ public enum KernelRegeneration {
         for feature in document.features {
             guard !feature.isSuppressed else { continue }
             guard feature.outputSolidId != excluded else { continue }
+
+            if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
+                let errorState = FeatureErrorState(
+                    code: "reference-broken",
+                    message: "Reference broken: \(brokenErr.description)"
+                )
+                document.setFeatureError(id: feature.id, error: errorState)
+                continue
+            } else if feature.errorState?.code == "reference-broken" {
+                document.setFeatureError(id: feature.id, error: nil)
+            }
+
             guard let req = request(for: feature, jobId: JobId("regen-\(UUID().uuidString)")) else { continue }
 
             let result = await client.request(req)

@@ -140,7 +140,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
     public var name: String
     public var operation: FeatureOperation
     public var inputExpressions: [String: FeatureExpression]
-    public var references: [TopologicalReference]
+    public var references: [Reference]
     public var isSuppressed: Bool
     public var errorState: FeatureErrorState?
     public var generatedTopology: [String: TopologicalReference]
@@ -155,7 +155,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         name: String,
         operation: FeatureOperation,
         inputExpressions: [String: FeatureExpression] = [:],
-        references: [TopologicalReference] = [],
+        references: [Reference] = [],
         isSuppressed: Bool = false,
         errorState: FeatureErrorState? = nil,
         generatedTopology: [String: TopologicalReference] = [:],
@@ -178,6 +178,72 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.material = material
+    }
+
+    /// Looks up an input reference by semantic role.
+    public func reference(forRole role: String) -> Reference? {
+        references.first(where: { $0.role == role })
+    }
+
+    /// Dictionary mapping semantic role names to their corresponding input references.
+    public var inputReferences: [String: Reference] {
+        var map: [String: Reference] = [:]
+        for ref in references {
+            if let role = ref.role {
+                map[role] = ref
+            }
+        }
+        return map
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case operation
+        case inputExpressions
+        case references
+        case isSuppressed
+        case errorState
+        case generatedTopology
+        case outputSolidId
+        case transform
+        case isVisible
+        case isLocked
+        case material
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.operation = try container.decode(FeatureOperation.self, forKey: .operation)
+        self.inputExpressions = try container.decodeIfPresent([String: FeatureExpression].self, forKey: .inputExpressions) ?? [:]
+        self.references = try container.decodeIfPresent([Reference].self, forKey: .references) ?? []
+        self.isSuppressed = try container.decodeIfPresent(Bool.self, forKey: .isSuppressed) ?? false
+        self.errorState = try container.decodeIfPresent(FeatureErrorState.self, forKey: .errorState)
+        self.generatedTopology = try container.decodeIfPresent([String: TopologicalReference].self, forKey: .generatedTopology) ?? [:]
+        self.outputSolidId = try container.decodeIfPresent(SolidId.self, forKey: .outputSolidId)
+        self.transform = try container.decodeIfPresent(Transform.self, forKey: .transform) ?? .identity
+        self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        self.material = try container.decodeIfPresent(MaterialAttributes.self, forKey: .material) ?? MaterialAttributes()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(operation, forKey: .operation)
+        try container.encode(inputExpressions, forKey: .inputExpressions)
+        try container.encode(references, forKey: .references)
+        try container.encode(isSuppressed, forKey: .isSuppressed)
+        try container.encodeIfPresent(errorState, forKey: .errorState)
+        try container.encode(generatedTopology, forKey: .generatedTopology)
+        try container.encodeIfPresent(outputSolidId, forKey: .outputSolidId)
+        try container.encode(transform, forKey: .transform)
+        try container.encode(isVisible, forKey: .isVisible)
+        try container.encode(isLocked, forKey: .isLocked)
+        try container.encode(material, forKey: .material)
     }
 
     /// Converts this feature into a `SceneObject` if active, non-suppressed, and producing an output solid.
