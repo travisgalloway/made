@@ -83,6 +83,11 @@ public final class GestureArbiter: @unchecked Sendable {
         return snapshot()
     }
     
+    public func lock(to mode: GestureMode) {
+        self.mode = mode
+        self.locked = true
+    }
+    
     private func lock() {
         mode = peakConcurrent > 1 ? .navigate : .manipulate
         locked = true
@@ -93,7 +98,7 @@ public final class GestureArbiter: @unchecked Sendable {
         return GestureDecision(mode: mode, locked: self.locked)
     }
     
-    private func reset() {
+    public func reset() {
         peakConcurrent = 0
         mode = nil
         locked = false

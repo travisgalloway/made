@@ -43,6 +43,9 @@ public final class PointerRouter: @unchecked Sendable {
             case .touch:
                 return arbiter.handle(.move(pointer: pointer))
             case .mouse:
+                if arbiter.current().locked {
+                    return arbiter.current()
+                }
                 guard var state = mouseGestures[pointer.pointerId] else { return .undecided }
                 let dx = pointer.x - state.start.x
                 let dy = pointer.y - state.start.y
@@ -61,6 +64,12 @@ public final class PointerRouter: @unchecked Sendable {
             case .touch:
                 return arbiter.handle(.up(pointerId: pointerId))
             case .mouse:
+                if arbiter.current().locked {
+                    let decision = arbiter.current()
+                    arbiter.reset()
+                    mouseGestures.removeValue(forKey: pointerId)
+                    return decision
+                }
                 guard let state = mouseGestures.removeValue(forKey: pointerId) else { return .undecided }
                 let mode: GestureMode = state.draggedPastThreshold ? .navigate : .manipulate
                 return GestureDecision(mode: mode, locked: true)
@@ -73,6 +82,12 @@ public final class PointerRouter: @unchecked Sendable {
             case .touch:
                 return arbiter.handle(.cancel(pointerId: pointerId))
             case .mouse:
+                if arbiter.current().locked {
+                    let decision = arbiter.current()
+                    arbiter.reset()
+                    mouseGestures.removeValue(forKey: pointerId)
+                    return decision
+                }
                 guard let state = mouseGestures.removeValue(forKey: pointerId) else { return .undecided }
                 let mode: GestureMode = state.draggedPastThreshold ? .navigate : .manipulate
                 return GestureDecision(mode: mode, locked: true)

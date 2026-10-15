@@ -184,6 +184,14 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         // The coordinator outlives this struct, so refresh its copy to pick up the current tool and callbacks.
         context.coordinator.parent = self
         (nsView as? CADMTKView)?.tool = tool
+        
+        // Abort gizmo drag if the selected object was removed from the document
+        if let drag = context.coordinator.dragState {
+            if !document.objects.contains(where: { $0.id == drag.selectedId }) {
+                context.coordinator.abortGizmoDrag()
+            }
+        }
+        
         if renderer.selectedId != document.selectedId {
             renderer.selectedId = document.selectedId
             context.coordinator.invalidate(reason: .interaction)
@@ -205,6 +213,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         public let viewportCoordinator = ViewportCoordinator()
         public let pointerRouter = PointerRouter()
+        public var dragState: GizmoDragState? = nil
         
         private var lastMousePoint: CGPoint = .zero
         private var activeMouseButton: MouseButton? = nil
@@ -235,6 +244,81 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             activeMouseButton = button
             isShiftDown = event.modifierFlags.contains(.shift)
             
+            let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
+            let pType = pointerType(for: event)
+            
+            // Gizmo handle hit-test on primary/left button under select tool or pen
+            if button == .left && (parent.tool == .select || pType == .pen),
+               let selectedId = parent.document.selectedId,
+               let mesh = parent.renderer.meshes[selectedId],
+               !parent.renderer.hiddenSolidIds.contains(selectedId) {
+                let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
+                let isTouch = (pType == .touch)
+                
+                if let hit = gizmoHitTestAtPointer(
+                    pointer: pointerPt,
+                    isTouch: isTouch,
+                    gizmoCenter: mesh.transform.position,
+                    arrowLength: defaultGizmoArrowLength,
+                    ringRadius: defaultGizmoRingRadius,
+                    tolerancePx: defaultGizmoTolerancePx,
+                    viewportSize: view.bounds.size,
+                    viewMatrix: matrices.view,
+                    projectionMatrix: matrices.projection
+                ) {
+                    let testPointer = isTouch ? SIMD2<Float>(pointerPt.x, pointerPt.y + touchPickOffsetPt) : pointerPt
+                    if let startRay = screenPointToRay(
+                        screenPoint: testPointer,
+                        viewportSize: view.bounds.size,
+                        viewMatrix: matrices.view,
+                        projectionMatrix: matrices.projection
+                    ) {
+                        let startParam: Float
+                        let startRadial: SIMD3<Float>
+                        if hit.handle.isTranslation {
+                            startParam = closestPointParamOnAxis(
+                                axisOrigin: mesh.transform.position,
+                                axisDirection: hit.handle.axis,
+                                rayOrigin: startRay.origin,
+                                rayDirection: startRay.direction
+                            ) ?? 0.0
+                            startRadial = .zero
+                        } else {
+                            startParam = 0.0
+                            if let hitPlane = intersectRayPlane(
+                                ray: startRay,
+                                planeCenter: mesh.transform.position,
+                                planeNormal: hit.handle.axis
+                            ) {
+                                startRadial = hitPlane - mesh.transform.position
+                            } else {
+                                startRadial = SIMD3<Float>(1, 0, 0)
+                            }
+                        }
+                        
+                        dragState = GizmoDragState(
+                            selectedId: selectedId,
+                            handle: hit.handle,
+                            initialTransform: mesh.transform,
+                            startPointer: pointerPt,
+                            startRay: startRay,
+                            startAxisParam: startParam,
+                            startRadialVector: startRadial,
+                            hasMoved: false
+                        )
+                        
+                        pointerRouter.arbiter.lock(to: .manipulate)
+                        parent.renderer.activeGizmoHandle = hit.handle
+                        activeDragAction = .manipulate
+                        _ = pointerRouter.handle(.down(pointerType: pType, pointer: pointer))
+                        invalidate(reason: .interaction)
+                        return
+                    }
+                }
+            }
+            
             let action = ViewportTool.dragAction(
                 tool: parent.tool,
                 button: button.pointerButton,
@@ -243,9 +327,6 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             )
             activeDragAction = action
             (view as? CADMTKView)?.beginDragCursor(for: action)
-            
-            let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
-            let pType = pointerType(for: event)
             _ = pointerRouter.handle(.down(pointerType: pType, pointer: pointer))
         }
         
@@ -266,6 +347,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             let deltaX = Float(loc.x - lastMousePoint.x)
             let deltaY = Float(loc.y - lastMousePoint.y)
             lastMousePoint = loc
+            
+            if let _ = dragState {
+                handleGizmoDrag(at: loc, in: view, isTouch: pType == .touch)
+                return
+            }
             
             if decision.mode == .navigate {
                 guard deltaX != 0 || deltaY != 0 else { return }
@@ -357,12 +443,141 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
         }
         
+        private func handleGizmoDrag(at loc: CGPoint, in view: MTKView, isTouch: Bool) {
+            guard var drag = dragState else { return }
+            let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            let testPointer = isTouch ? SIMD2<Float>(pointerPt.x, pointerPt.y + touchPickOffsetPt) : pointerPt
+            let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+            let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+            
+            guard let currentRay = screenPointToRay(
+                screenPoint: testPointer,
+                viewportSize: view.bounds.size,
+                viewMatrix: matrices.view,
+                projectionMatrix: matrices.projection
+            ) else { return }
+            
+            var previewTransform = drag.initialTransform
+            
+            if drag.handle.isTranslation {
+                let axis = drag.handle.axis
+                if let currentParam = closestPointParamOnAxis(
+                    axisOrigin: drag.initialTransform.position,
+                    axisDirection: axis,
+                    rayOrigin: currentRay.origin,
+                    rayDirection: currentRay.direction
+                ) {
+                    var deltaS = currentParam - drag.startAxisParam
+                    
+                    // Snapping: exclude currently dragged solid
+                    let candidates = parent.renderer.candidateMeshes().filter { $0.id != drag.selectedId }
+                    let snap = resolveSnapAtPointer(
+                        meshes: candidates,
+                        pointer: testPointer,
+                        viewportSize: view.bounds.size,
+                        viewMatrix: matrices.view,
+                        projectionMatrix: matrices.projection,
+                        gridSpacing: defaultGridSpacing,
+                        tolerancePx: defaultSnapTolerancePx
+                    )
+                    if let snap {
+                        deltaS = simd_dot(snap.point - drag.initialTransform.position, axis)
+                        if snap != activeSnapResult {
+                            activeSnapResult = snap
+                            parent.renderer.activeSnap = snap
+                            parent.onSnapChanged?(snap)
+                        }
+                    } else if activeSnapResult != nil {
+                        activeSnapResult = nil
+                        parent.renderer.activeSnap = nil
+                        parent.onSnapChanged?(nil)
+                    }
+                    
+                    let deltaT = deltaS * axis
+                    previewTransform.position = drag.initialTransform.position + deltaT
+                }
+            } else {
+                // Rotation handle
+                let axis = drag.handle.axis
+                let center = drag.initialTransform.position
+                
+                var currentRadial: SIMD3<Float>? = nil
+                let candidates = parent.renderer.candidateMeshes().filter { $0.id != drag.selectedId }
+                let snap = resolveSnapAtPointer(
+                    meshes: candidates,
+                    pointer: testPointer,
+                    viewportSize: view.bounds.size,
+                    viewMatrix: matrices.view,
+                    projectionMatrix: matrices.projection,
+                    gridSpacing: defaultGridSpacing,
+                    tolerancePx: defaultSnapTolerancePx
+                )
+                if let snap {
+                    currentRadial = snap.point - center
+                    if snap != activeSnapResult {
+                        activeSnapResult = snap
+                        parent.renderer.activeSnap = snap
+                        parent.onSnapChanged?(snap)
+                    }
+                } else {
+                    if activeSnapResult != nil {
+                        activeSnapResult = nil
+                        parent.renderer.activeSnap = nil
+                        parent.onSnapChanged?(nil)
+                    }
+                    if let p1 = intersectRayPlane(ray: currentRay, planeCenter: center, planeNormal: axis) {
+                        currentRadial = p1 - center
+                    }
+                }
+                
+                if let rad1 = currentRadial {
+                    let rad0 = drag.startRadialVector
+                    let len0 = simd_length(rad0)
+                    let len1 = simd_length(rad1)
+                    if len0 > 1e-4 && len1 > 1e-4 {
+                        let n0 = rad0 / len0
+                        let n1 = rad1 / len1
+                        let sinTheta = simd_dot(simd_cross(n0, n1), axis)
+                        let cosTheta = simd_dot(n0, n1)
+                        let theta = atan2(sinTheta, cosTheta)
+                        let deltaQ = simd_quatf(angle: theta, axis: axis)
+                        previewTransform.rotation = deltaQ * drag.initialTransform.rotation
+                    }
+                }
+            }
+            
+            if previewTransform.position != drag.initialTransform.position ||
+               previewTransform.rotation != drag.initialTransform.rotation {
+                drag.hasMoved = true
+            }
+            self.dragState = drag
+            
+            _ = parent.renderer.updateTransform(previewTransform, for: drag.selectedId)
+            invalidate(reason: .interaction)
+        }
+        
         func handleMouseUp(with event: NSEvent, button: MouseButton) {
             let pType = pointerType(for: event)
             let decision = pointerRouter.handle(.up(pointerType: pType, pointerId: button.pointerId))
             activeMouseButton = nil
             activeDragAction = nil
             (mtkView as? CADMTKView)?.endDragCursor()
+            
+            if let drag = dragState {
+                if drag.hasMoved, let currentMesh = parent.renderer.meshes[drag.selectedId] {
+                    parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                }
+                dragState = nil
+                parent.renderer.activeGizmoHandle = nil
+                if activeSnapResult != nil {
+                    activeSnapResult = nil
+                    parent.renderer.activeSnap = nil
+                    parent.onSnapChanged?(nil)
+                }
+                pointerRouter.arbiter.reset()
+                invalidate(reason: .interaction)
+                return
+            }
             
             if activeSnapResult != nil {
                 activeSnapResult = nil
@@ -400,12 +615,40 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             activeDragAction = nil
             (mtkView as? CADMTKView)?.endDragCursor()
             
+            if let drag = dragState {
+                _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
+                dragState = nil
+                parent.renderer.activeGizmoHandle = nil
+                if activeSnapResult != nil {
+                    activeSnapResult = nil
+                    parent.renderer.activeSnap = nil
+                    parent.onSnapChanged?(nil)
+                }
+                pointerRouter.arbiter.reset()
+                invalidate(reason: .interaction)
+                return
+            }
+            
             if activeSnapResult != nil {
                 activeSnapResult = nil
                 parent.renderer.activeSnap = nil
                 parent.onSnapChanged?(nil)
                 invalidate(reason: .interaction)
             }
+        }
+        
+        public func abortGizmoDrag() {
+            guard let drag = dragState else { return }
+            _ = parent.renderer.removeMesh(for: drag.selectedId)
+            dragState = nil
+            parent.renderer.activeGizmoHandle = nil
+            if activeSnapResult != nil {
+                activeSnapResult = nil
+                parent.renderer.activeSnap = nil
+                parent.onSnapChanged?(nil)
+            }
+            pointerRouter.arbiter.reset()
+            invalidate(reason: .interaction)
         }
         
         func handleScrollWheel(with event: NSEvent) {

@@ -193,7 +193,7 @@ public func projectToScreen(
 }
 
 /// A 3D ray in world space.
-public struct Ray3D: Sendable {
+public struct Ray3D: Sendable, Equatable {
     public let origin: SIMD3<Float>
     public let direction: SIMD3<Float>
     
