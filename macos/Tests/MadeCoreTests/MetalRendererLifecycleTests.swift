@@ -160,4 +160,20 @@ import simd
         )
         #expect(nearZeroTransform.normalMatrix == expected)
     }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testFiftyAddAndRemoveCyclesLeavesMeshesAtStartingCount() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        let payload = makePayload()
+        let startingCount = renderer.meshes.count
+
+        for i in 0..<50 {
+            let solidId = SolidId("box-cycle-\(i)")
+            #expect(renderer.installMesh(payload, for: solidId, transform: .identity, color: SIMD4<Float>(1, 1, 1, 1), isHidden: false))
+            #expect(renderer.removeMesh(for: solidId))
+        }
+
+        #expect(renderer.meshes.count == startingCount)
+    }
 }

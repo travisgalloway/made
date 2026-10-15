@@ -17,7 +17,13 @@ struct NavigatorSidebarView: View {
         }
         .listStyle(.sidebar)
         .overlay {
-            if filteredObjects.isEmpty {
+            if workspace.document.objects.isEmpty {
+                ContentUnavailableView(
+                    "No Objects",
+                    systemImage: "cube.transparent",
+                    description: Text("Add a solid from the + menu below.")
+                )
+            } else if filteredObjects.isEmpty {
                 ContentUnavailableView.search(text: filterText)
             }
         }

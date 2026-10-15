@@ -982,6 +982,54 @@ import Foundation
         #expect(sink.invalidations == 1)
         #expect(sink.failures.message(for: boxSolidId) == nil)
     }
+
+    @Test func testAddSolidDispatchesOnlyNewSolidWithoutRerequestingExisting() async throws {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture()
+        await seedKernel(kernel)
+        let dispatchedBefore = await kernel.getStats().dispatched
+        
+        let result = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("cylinder"),
+            "radius": .double(10),
+            "height": .double(25)
+        ])
+        #expect(result.isError == false)
+        let newId = try #require(doc.objects.last?.id)
+        await registry.settleRecomputes(for: [newId])
+        
+        let statsAfter = await kernel.getStats()
+        #expect(statsAfter.dispatched == dispatchedBefore + 1)
+        #expect(sink.meshes[newId] != nil)
+    }
+
+    @Test func testFiftyAddAndRemoveCyclesLeavesKernelAndMeshSinkAtStartingCounts() async throws {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture()
+        let initialStoreCounts = await kernel.storeCounts()
+        let initialMeshCount = sink.meshes.count
+
+        for _ in 0..<50 {
+            let addResult = await registry.callTool(name: "cad_add_solid", arguments: [
+                "type": .string("box"),
+                "width": .double(20),
+                "depth": .double(20),
+                "height": .double(20)
+            ])
+            #expect(addResult.isError == false)
+            let addedId = try #require(doc.objects.last?.id)
+            await registry.settleRecomputes(for: [addedId])
+            #expect(sink.meshes[addedId] != nil)
+
+            let removeResult = await registry.callTool(name: "cad_remove_solid", arguments: [
+                "id": .string(addedId.rawValue)
+            ])
+            #expect(removeResult.isError == false)
+            #expect(sink.meshes[addedId] == nil)
+        }
+
+        let finalStoreCounts = await kernel.storeCounts()
+        #expect(finalStoreCounts == initialStoreCounts)
+        #expect(sink.meshes.count == initialMeshCount)
+    }
 }
 
 @MainActor

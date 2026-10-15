@@ -112,6 +112,33 @@ import Foundation
         let result = await client.request(.booleanOperation(jobId: JobId("jc"), solidId: SolidId("out"), op: .union, solidA: a, solidB: b))
         #expect(result.error?.code == .unknownSolid)
     }
+
+    @Test func testDisposeReleasesStateAndSubsequentBooleanFails() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        let a = SolidId("dispose-rel-a"), b = SolidId("dispose-rel-b")
+        await makeBox(client, a, "ja")
+        await makeBox(client, b, "jb")
+        
+        #expect(await client.storeCounts().solids == 2)
+        await client.dispose(solidId: a)
+        #expect(await client.storeCounts().solids == 1)
+        
+        let booleanResult = await client.request(.booleanOperation(jobId: JobId("jc"), solidId: SolidId("out"), op: .union, solidA: a, solidB: b))
+        #expect(booleanResult.error?.code == .unknownSolid)
+        
+        let tessellateResult = await client.request(.tessellate(jobId: JobId("jd"), solidId: a))
+        #expect(tessellateResult.error?.code == .unknownSolid)
+    }
+    
+    @Test func testFiftyAddAndDisposeCyclesLeavesStoresEmpty() async {
+        let client = KernelClient(debounceDuration: .milliseconds(5))
+        for i in 0..<50 {
+            let id = SolidId("cycle-50-\(i)")
+            await makeBox(client, id, "cycle-50-job-\(i)")
+            await client.dispose(solidId: id)
+        }
+        #expect(await client.storeCounts() == KernelStoreCounts())
+    }
     
     @Test func testRepeatedAddAndDisposeLeavesStoresEmpty() async {
         let client = KernelClient(debounceDuration: .milliseconds(5))
