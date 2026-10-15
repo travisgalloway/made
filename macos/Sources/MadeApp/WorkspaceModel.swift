@@ -694,20 +694,29 @@ final class WorkspaceModel {
     func setProjectionMode(_ mode: CameraProjection) {
         guard mode != projectionMode else { return }
         projectionMode = mode
-        guard let renderer = viewportManager.renderer else { return }
-        renderer.projectionMode = mode
-        renderer.camera.orthographicScale = 1.0
-        self.camera = renderer.camera
+        if let renderer = viewportManager.renderer {
+            renderer.projectionMode = mode
+            renderer.camera.orthographicScale = 1.0
+            self.camera = renderer.camera
+        } else {
+            self.camera.projection = mode
+            self.camera.orthographicScale = 1.0
+        }
         log(.info, "Camera", "Switched projection to \(mode.rawValue)")
         invalidateViewport(.camera)
     }
 
     func applyPerspective(_ perspective: ViewportPerspective) {
         self.perspective = perspective
-        guard let renderer = viewportManager.renderer else { return }
-        renderer.camera = Camera.preset(perspective)
-        renderer.projectionMode = projectionMode
-        self.camera = renderer.camera
+        var newCamera = Camera.preset(perspective)
+        newCamera.projection = projectionMode
+        if let renderer = viewportManager.renderer {
+            renderer.camera = newCamera
+            renderer.projectionMode = projectionMode
+            self.camera = renderer.camera
+        } else {
+            self.camera = newCamera
+        }
         log(.info, "Camera", "Switched to \(perspective.rawValue) perspective")
         invalidateViewport(.camera)
     }
