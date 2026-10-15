@@ -25,10 +25,23 @@ struct SolidMenuCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.addBoxShortcutKey, modifiers: WorkspaceModel.addBoxShortcutModifiers)
 
+            Button("Add Box Solid…") {
+                workspace.startAddBoxCommand()
+            }
+
             Button("Add Cylinder Solid") {
                 workspace.addDefaultCylinder()
             }
             .keyboardShortcut(WorkspaceModel.addCylinderShortcutKey, modifiers: WorkspaceModel.addCylinderShortcutModifiers)
+
+            Button("Add Cylinder Solid…") {
+                workspace.startAddCylinderCommand()
+            }
+
+            Button("Transform Solid…") {
+                workspace.startTransformCommand()
+            }
+            .disabled(workspace.selectedObject == nil)
 
             Divider()
 

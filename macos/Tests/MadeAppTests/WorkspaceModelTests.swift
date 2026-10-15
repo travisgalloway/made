@@ -528,4 +528,111 @@ import MadeCore
             #expect(!modifiers.intersection(standardModifiers).isEmpty)
         }
     }
+
+    @Test @MainActor func testCommandPanelPlacementPersistence() {
+        let suiteName = "test.command.placement.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        // Default placement is floatingHUD
+        let model1 = WorkspaceModel(defaults: customDefaults)
+        #expect(model1.commandPanelPlacement == .floatingHUD)
+
+        // Change to inspector
+        model1.commandPanelPlacement = .inspector
+        #expect(customDefaults.string(forKey: WorkspaceModel.commandPanelPlacementDefaultsKey) == "Inspector")
+
+        // New model with same defaults restores inspector placement
+        let model2 = WorkspaceModel(defaults: customDefaults)
+        #expect(model2.commandPanelPlacement == .inspector)
+
+        // Switch back to floatingHUD
+        model2.commandPanelPlacement = .floatingHUD
+        #expect(customDefaults.string(forKey: WorkspaceModel.commandPanelPlacementDefaultsKey) == "Floating HUD")
+
+        let model3 = WorkspaceModel(defaults: customDefaults)
+        #expect(model3.commandPanelPlacement == .floatingHUD)
+    }
+
+    @Test @MainActor func testCommandLifecycleTransitions() {
+        let model = WorkspaceModel()
+        #expect(model.activeCommand == nil)
+
+        var cancelCount = 0
+        var commitCount = 0
+
+        let cmd1 = CommandSession(
+            title: "Cmd 1",
+            onCommit: { commitCount += 1 },
+            onCancel: { cancelCount += 1 }
+        )
+
+        model.startCommand(cmd1)
+        #expect(model.activeCommand === cmd1)
+
+        // Starting another command automatically cancels the active command
+        let cmd2 = CommandSession(
+            title: "Cmd 2",
+            onCommit: { commitCount += 1 },
+            onCancel: { cancelCount += 1 }
+        )
+        model.startCommand(cmd2)
+        #expect(cancelCount == 1)
+        #expect(model.activeCommand === cmd2)
+
+        // cancelActiveCommand clears activeCommand and calls cancel
+        model.cancelActiveCommand()
+        #expect(cancelCount == 2)
+        #expect(model.activeCommand == nil)
+
+        // Calling cancelActiveCommand when nil safely no-ops
+        model.cancelActiveCommand()
+        #expect(cancelCount == 2)
+
+        // startCommand and commitActiveCommand
+        model.startCommand(cmd1)
+        #expect(model.activeCommand === cmd1)
+        model.commitActiveCommand()
+        #expect(commitCount == 1)
+        #expect(model.activeCommand == nil)
+    }
+
+    @Test @MainActor func testSelectObjectForActiveCommand() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+
+        let cmd = CommandSession(
+            title: "Slot Test",
+            selectionSlots: [
+                CommandSelectionSlot(id: "slot1", label: "Slot 1", isRequired: true, isActive: true)
+            ]
+        )
+        model.startCommand(cmd)
+        #expect(cmd.selectionSlots[0].selectedObjectId == nil)
+
+        model.selectObjectForActiveCommand(boxId)
+        #expect(cmd.selectionSlots[0].selectedObjectId == boxId)
+        #expect(cmd.selectionSlots[0].selectedObjectName == "box-1")
+    }
+
+    @Test @MainActor func testCommandPanelTriggers() {
+        let model = WorkspaceModel()
+
+        #expect(model.activeCommand == nil)
+        model.startAddBoxCommand()
+        #expect(model.activeCommand?.title == "Add Box")
+
+        model.startAddCylinderCommand()
+        #expect(model.activeCommand?.title == "Add Cylinder")
+
+        model.selectedId = ObjectId("box-1")
+        model.startTransformCommand()
+        #expect(model.activeCommand?.title == "Transform Solid")
+
+        model.cancelActiveCommand()
+        #expect(model.activeCommand == nil)
+    }
 }

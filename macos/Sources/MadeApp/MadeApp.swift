@@ -67,6 +67,11 @@ struct MadeApp: App {
             OpenSourceLicensesView()
         }
         .defaultSize(width: 760, height: 520)
+
+        Settings {
+            SettingsView()
+                .environment(workspace)
+        }
     }
 }
 

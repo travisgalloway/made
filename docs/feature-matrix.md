@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 154 capabilities with their implementation status. The matrix shows 98 Shipped, 39 In progress, 11 Planned, and 6 Deprecated rows.
+Table 1 lists 155 capabilities with their implementation status. The matrix shows 99 Shipped, 39 In progress, 11 Planned, and 6 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -22,6 +22,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69.
 - DOC-8 is Shipped. Interactive viewport gizmo manipulation (translation arrows, rotation rings, and scale cubes with two-physics parameter conversion) with on-demand invalidation and single release commit was implemented under #71 (Phase 4.19) and #72 (Phase 4.20).
 - WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. Each side pane has a tab bar with one tab, and the Inspector's Properties tab is one form, and the viewport header breadcrumb is a static label.
+- WORKSPACE-2 is Shipped. The command panel pattern with dual placement (Inspector vs floating HUD) and non-covering HUD placement algorithm was implemented under #315.
 - UI-1, UI-11, UI-12, UI-13, UI-15, and UI-18 are Deprecated. The Copilot tab and the File and Geometry menu items were removed in #124.
 - AGENT-10, AGENT-11, AGENT-14, AGENT-15, and AGENT-16 are In progress with UI none. `InAppAgentController` has no host view since #124 (decision AGENT-10).
 
@@ -192,5 +193,6 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DSL-13 | A developer or user can evaluate a `.part.ts` or `.part.js` script in a restricted JavaScriptCore runtime on a background thread (`PartRuntime`), with TypeScript type stripping, relative ES module imports inside the part directory, the `made` CAD API (primitives, 2D sketches on planes, extrude, revolve, booleans, transforms, named parameters, and optional `expected` block), source-mapped file/line/column diagnostics, `JobId` cancellation, and bundled `made.d.ts` type definitions | done | done | done | Shipped | #435, #427 | n/a |
 | DSL-14 | A user or agent can open a `.part.ts` or `.part.js` part source file in the window and have edits on disk (including relative helper modules) coalesced with a 60-ms debounce, re-evaluated off the main thread through `PartRuntime` and `KernelClient`, and redrawn once in the viewport on success while keeping the last good model on screen and reporting `file:line:column` diagnostics in the console and Inspector on failure | done | done | done | Shipped | #427 | n/a |
 | WORKSPACE-1 | A user can work in one unified multi-pane window: a `NavigationSplitView` with Navigator sidebar, viewport detail with a header bar and status bar, trailing Inspector, and a resizable bottom console. The matrix prose also names a "multi-tab inspector" and a "3D viewport jump bar"; the Navigator and Inspector each have a tab bar with one tab (Scene, Properties), and the Properties tab is one Form with three sections and the header breadcrumb "Scene > name" is a static label | done | n/a | n/a | In progress | #118 | n/a |
+| WORKSPACE-2 | A user can run a command through a panel with inputs, preview toggle, OK, and Cancel; active commands display selection slots, parameter inputs (numeric, text, toggle, choice), and transient renderer preview; Esc cancels, Return commits; panel inputs display in the Inspector or in a floating HUD anchored near the selection, chosen in Settings (`Cmd+,`), with dynamic 2D screen projection ensuring the HUD never covers the geometry being edited | done | done | done | Shipped | #315 | n/a |
 
 Findings that map to no capability row: None.
