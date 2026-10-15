@@ -37,6 +37,7 @@ struct NavigatorSidebarView: View {
                 Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
                 Divider()
                 Button("Delete", role: .destructive) { workspace.removeObject(id) }
+                    .disabled(obj.isLocked)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {

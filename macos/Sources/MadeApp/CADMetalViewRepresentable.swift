@@ -180,6 +180,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
         }
         renderer.selectedId = document.selectedId
+        let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
+        renderer.showsGizmo = !isLocked
         return view
     }
     
@@ -188,15 +190,27 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         (nsView as? CADMTKView)?.tool = tool
         
-        // Abort gizmo drag if the selected object was removed from the document
+        // Abort gizmo drag if the selected object was removed from the document or locked
         if let drag = context.coordinator.dragState {
-            if !document.objects.contains(where: { $0.id == drag.selectedId }) {
+            if let obj = document.objects.first(where: { $0.id == drag.selectedId }), obj.isLocked {
+                context.coordinator.abortGizmoDrag()
+            } else if !document.objects.contains(where: { $0.id == drag.selectedId }) {
                 context.coordinator.abortGizmoDrag()
             }
         }
         
+        let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
+        let showsGizmo = !isLocked
+        var needsInvalidate = false
         if renderer.selectedId != document.selectedId {
             renderer.selectedId = document.selectedId
+            needsInvalidate = true
+        }
+        if renderer.showsGizmo != showsGizmo {
+            renderer.showsGizmo = showsGizmo
+            needsInvalidate = true
+        }
+        if needsInvalidate {
             context.coordinator.invalidate(reason: .interaction)
         }
         if coordinatorBinding?.wrappedValue !== context.coordinator {
@@ -253,6 +267,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             // Gizmo handle hit-test on primary/left button under select tool or pen
             if button == .left && (parent.tool == .select || pType == .pen),
                let selectedId = parent.document.selectedId,
+               let selectedObj = parent.document.objects.first(where: { $0.id == selectedId }),
+               !selectedObj.isLocked,
                let mesh = parent.renderer.meshes[selectedId],
                !parent.renderer.hiddenSolidIds.contains(selectedId) {
                 let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))

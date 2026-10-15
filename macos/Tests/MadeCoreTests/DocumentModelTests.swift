@@ -262,12 +262,95 @@ import os
         doc.setVisibility(id: boxSolidId, isVisible: false)
         #expect(!doc.objects[0].isVisible)
         
+        let mat = MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1))
+        let matResult = doc.setMaterial(id: boxSolidId, material: mat)
+        #expect(matResult == .success(()))
+        #expect(doc.objects[0].material.color == (SIMD4<Float>(1, 0, 0, 1)))
+
         doc.setLocked(id: boxSolidId, isLocked: true)
         #expect(doc.objects[0].isLocked)
-        
-        let mat = MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1))
-        doc.setMaterial(id: boxSolidId, material: mat)
-        #expect(doc.objects[0].material.color == (SIMD4<Float>(1, 0, 0, 1)))
+    }
+
+    @Test func testLockedObjectRejectsMutations() {
+        let doc = DocumentModel()
+        doc.setLocked(id: boxSolidId, isLocked: true)
+        #expect(doc.objects[0].isLocked)
+
+        let initialBox = box(doc, boxSolidId)
+        let initialTransform = doc.objects[0].transform
+        let initialMaterial = doc.objects[0].material
+
+        let paramResult = doc.setParam(id: boxSolidId, key: "width", value: 60)
+        #expect(paramResult == .failure(.objectLocked(boxSolidId)))
+        #expect(box(doc, boxSolidId) == initialBox)
+
+        var newTransform = initialTransform
+        newTransform.position.x = 100
+        let transformResult = doc.setTransform(id: boxSolidId, transform: newTransform)
+        #expect(transformResult == .failure(.objectLocked(boxSolidId)))
+        #expect(doc.objects[0].transform == initialTransform)
+
+        let newMaterial = MaterialAttributes(color: SIMD4<Float>(0, 1, 0, 1))
+        let materialResult = doc.setMaterial(id: boxSolidId, material: newMaterial)
+        #expect(materialResult == .failure(.objectLocked(boxSolidId)))
+        #expect(doc.objects[0].material == initialMaterial)
+
+        let removeResult = doc.removeObject(id: boxSolidId)
+        #expect(removeResult == .failure(.objectLocked(boxSolidId)))
+        #expect(doc.objects.contains(where: { $0.id == boxSolidId }))
+        #expect(doc.selectedId == boxSolidId)
+    }
+
+    @Test func testLockingAndUnlockingRestoresMutations() {
+        let doc = DocumentModel()
+        doc.setLocked(id: boxSolidId, isLocked: true)
+        #expect(doc.setParam(id: boxSolidId, key: "width", value: 60) == .failure(.objectLocked(boxSolidId)))
+
+        doc.setLocked(id: boxSolidId, isLocked: false)
+        #expect(!doc.objects[0].isLocked)
+
+        let paramResult = doc.setParam(id: boxSolidId, key: "width", value: 60)
+        #expect(paramResult == .success(()))
+        #expect(box(doc, boxSolidId)?.width == 60)
+
+        var t = doc.objects[0].transform
+        t.position.y = 42
+        #expect(doc.setTransform(id: boxSolidId, transform: t) == .success(()))
+        #expect(doc.objects[0].transform.position.y == 42)
+
+        let mat = MaterialAttributes(color: SIMD4<Float>(0, 0, 1, 1))
+        #expect(doc.setMaterial(id: boxSolidId, material: mat) == .success(()))
+        #expect(doc.objects[0].material.color == SIMD4<Float>(0, 0, 1, 1))
+
+        #expect(doc.removeObject(id: boxSolidId) == .success(()))
+        #expect(!doc.objects.contains(where: { $0.id == boxSolidId }))
+    }
+
+    @Test func testUnlockNonExistentIdIsNoOp() {
+        let doc = DocumentModel()
+        let countBefore = doc.objects.count
+        let ghostId = ObjectId("ghost-solid-404")
+        doc.setLocked(id: ghostId, isLocked: false)
+        doc.setLocked(id: ghostId, isLocked: true)
+        #expect(doc.objects.count == countBefore)
+    }
+
+    @Test func testLockHiddenObject() {
+        let doc = DocumentModel()
+        doc.setVisibility(id: boxSolidId, isVisible: false)
+        #expect(!doc.objects[0].isVisible)
+
+        doc.setLocked(id: boxSolidId, isLocked: true)
+        #expect(doc.objects[0].isLocked)
+        #expect(!doc.objects[0].isVisible)
+
+        // Visibility can still be toggled while locked
+        doc.setVisibility(id: boxSolidId, isVisible: true)
+        #expect(doc.objects[0].isVisible)
+        #expect(doc.objects[0].isLocked)
+
+        doc.setVisibility(id: boxSolidId, isVisible: false)
+        #expect(!doc.objects[0].isVisible)
     }
     @Test func testConcurrentAgentMutationsWhileMainActorReads() async {
         let doc = DocumentModel()

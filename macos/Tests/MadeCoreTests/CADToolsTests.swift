@@ -1030,6 +1030,87 @@ import Foundation
         #expect(finalStoreCounts == initialStoreCounts)
         #expect(sink.meshes.count == initialMeshCount)
     }
+
+    @Test func testLockedObjectRejectsCADToolsSetParamSetTransformRemoveSolid() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        doc.setLocked(id: boxSolidId, isLocked: true)
+
+        let initialBox = doc.paramsFor(id: boxSolidId)
+        let initialTransform = doc.objects.first(where: { $0.id == boxSolidId })?.transform
+        let initialCount = doc.objects.count
+
+        // cad_set_param
+        let paramResult = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string("box-1"),
+            "param": .string("width"),
+            "value": .double(60)
+        ])
+        #expect(paramResult.isError == true)
+        #expect(paramResult.content.first?.text?.contains("box-1") == true)
+        #expect(paramResult.content.first?.text?.contains("locked") == true)
+        #expect(doc.paramsFor(id: boxSolidId) == initialBox)
+
+        // cad_set_transform
+        let transformResult = await registry.callTool(name: "cad_set_transform", arguments: [
+            "id": .string("box-1"),
+            "posX": .double(100)
+        ])
+        #expect(transformResult.isError == true)
+        #expect(transformResult.content.first?.text?.contains("box-1") == true)
+        #expect(transformResult.content.first?.text?.contains("locked") == true)
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.transform == initialTransform)
+
+        // cad_remove_solid
+        let removeResult = await registry.callTool(name: "cad_remove_solid", arguments: [
+            "id": .string("box-1")
+        ])
+        #expect(removeResult.isError == true)
+        #expect(removeResult.content.first?.text?.contains("box-1") == true)
+        #expect(removeResult.content.first?.text?.contains("locked") == true)
+        #expect(doc.objects.count == initialCount)
+        #expect(doc.objects.contains(where: { $0.id == boxSolidId }))
+    }
+
+    @Test func testLockedObjectCanBeUsedAsBooleanOperand() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+        doc.setLocked(id: boxSolidId, isLocked: true)
+
+        let count = doc.objects.count
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: booleanArgs("box-1", "cylinder-1", "subtract"))
+        #expect(result.isError == false)
+        #expect(doc.objects.count == count + 1)
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.isLocked == true)
+    }
+
+    @Test func testLockWhileRecomputeInFlightAppliesLastAcceptedValue() async throws {
+        let (doc, _, sink, registry) = makeWindowBoundFixture()
+        // Accept a parameter edit while unlocked
+        let editResult = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string("box-1"),
+            "param": .string("width"),
+            "value": .double(75)
+        ])
+        #expect(editResult.isError == false)
+
+        // Lock solid while recompute is pending or in flight
+        doc.setLocked(id: boxSolidId, isLocked: true)
+
+        // Wait for recomputes to settle
+        await registry.settleRecomputes(for: [boxSolidId])
+
+        // Verify the last accepted value was applied and mesh installed
+        #expect(sink.meshes[boxSolidId] != nil)
+        if case .box(let p) = doc.paramsFor(id: boxSolidId) {
+            #expect(p.width == 75)
+        } else {
+            Issue.record("Expected box definition")
+        }
+    }
 }
 
 @MainActor
