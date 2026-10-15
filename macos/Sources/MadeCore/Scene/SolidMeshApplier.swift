@@ -33,6 +33,10 @@ public enum SolidMeshApplier {
         guard case .success(_, let payload) = result else { return false }
         // A solid removed during the recompute must stay removed.
         guard let object = document.objects.first(where: { $0.id == id }) else { return false }
+        if payload.isEmpty {
+            _ = sink.removeMesh(for: id)
+            return true
+        }
         return sink.installMesh(
             payload,
             for: id,

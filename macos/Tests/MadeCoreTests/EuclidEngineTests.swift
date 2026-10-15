@@ -93,4 +93,43 @@ import Euclid
         #expect(abs(minZ - (-halfHeight)) < epsilon)
         #expect(abs(maxZ - halfHeight) < epsilon)
     }
+
+    @Test func testDisjointIntersectionProducesEmptyMesh() {
+        let boxA = EuclidEngine.makeBox(width: 10, depth: 10, height: 10)
+        let boxB = EuclidEngine.makeBox(width: 10, depth: 10, height: 10).translated(by: Vector(100, 0, 0))
+        let result = EuclidEngine.intersect(boxA, boxB)
+        let payload = EuclidEngine.toMeshPayload(result)
+        #expect(payload.isEmpty)
+        #expect(payload.triangleCount == 0)
+    }
+
+    @Test func testDisjointUnionAndDifferenceRetainExpectedMeshes() {
+        let boxA = EuclidEngine.makeBox(width: 10, depth: 10, height: 10)
+        let boxB = EuclidEngine.makeBox(width: 10, depth: 10, height: 10).translated(by: Vector(100, 0, 0))
+
+        let unionResult = EuclidEngine.union(boxA, boxB)
+        let unionPayload = EuclidEngine.toMeshPayload(unionResult)
+        #expect(!unionPayload.isEmpty)
+        #expect(unionPayload.triangleCount > 0)
+
+        let diffResult = EuclidEngine.subtract(boxA, boxB)
+        let diffPayload = EuclidEngine.toMeshPayload(diffResult)
+        #expect(!diffPayload.isEmpty)
+        #expect(diffPayload.triangleCount > 0)
+    }
+
+    @Test func testCoincidentFacesBoolean() {
+        let boxA = EuclidEngine.makeBox(width: 20, depth: 20, height: 20)
+        let boxB = EuclidEngine.makeBox(width: 20, depth: 20, height: 20).translated(by: Vector(20, 0, 0))
+
+        let unionResult = EuclidEngine.union(boxA, boxB)
+        let unionPayload = EuclidEngine.toMeshPayload(unionResult)
+        #expect(!unionPayload.isEmpty)
+        #expect(unionPayload.triangleCount > 0)
+
+        let diffResult = EuclidEngine.subtract(boxA, boxB)
+        let diffPayload = EuclidEngine.toMeshPayload(diffResult)
+        #expect(!diffPayload.isEmpty)
+        #expect(diffPayload.triangleCount > 0)
+    }
 }

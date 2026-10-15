@@ -891,7 +891,7 @@ import simd
     }
 
     @Test func testWindowBoundSetTransformUpdatesMeshRotation() async throws {
-        let (doc, _, sink, registry) = makeWindowBoundFixture()
+        let (_, _, sink, registry) = makeWindowBoundFixture()
         registry.scheduleRecompute(id: boxSolidId)
         await registry.settleRecomputes(for: [boxSolidId])
         
@@ -960,6 +960,27 @@ import simd
         let booleanId = try #require(await runBoolean(registry, "box-1", addedId.rawValue, op: "subtract"))
         #expect(sink.meshes[addedId] != nil)
         #expect(sink.meshes[booleanId] != nil)
+    }
+
+    @Test func testOperandRemovalCausesBooleanToFailWithUnknownSolid() async throws {
+        let (_, kernel, sink, registry) = makeWindowBoundFixture()
+        await seedKernel(kernel)
+
+        let booleanId = try #require(await runBoolean(registry, "box-1", "cylinder-1", op: "subtract"))
+        #expect(sink.meshes[booleanId] != nil)
+        #expect(sink.failures.message(for: booleanId) == nil)
+
+        // Remove cylinder-1
+        let removeResult = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string("cylinder-1")])
+        #expect(removeResult.isError == false)
+
+        await registry.settleRecomputes(for: [booleanId])
+
+        // Verify the boolean solid has a recorded unknownSolid failure in RecomputeFailures
+        let failureMsg = sink.failures.message(for: booleanId)
+        #expect(failureMsg != nil)
+        #expect(failureMsg?.contains("unknown-solid") == true)
+        #expect(failureMsg?.contains("Solid B 'cylinder-1' not found") == true)
     }
     
     @Test func testAddAndRemoveBeforeRecomputeFinishesInstallsNothingAndDisposesKernel() async throws {

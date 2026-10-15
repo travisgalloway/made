@@ -43,6 +43,11 @@ struct SolidMenuCommands: Commands {
             }
             .disabled(workspace.selectedObject == nil)
 
+            Button("Boolean Operation…") {
+                workspace.startBooleanCommand()
+            }
+            .disabled(workspace.document.objects.count < 2)
+
             Divider()
 
             Button(workspace.hideToggleTitle) {

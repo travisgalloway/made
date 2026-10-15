@@ -18,14 +18,18 @@ import Foundation
         #expect(KernelRegeneration.request(for: object(SolidId("i"), .imported(name: "part.step")), jobId: JobId("j")) == nil)
     }
     
-    @Test func testBooleanObjectsAreSkipped() {
+    @Test func testBooleanObjectsProduceBooleanOperationRequest() {
         let def = ObjectDef.boolean(op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId)
-        #expect(KernelRegeneration.request(for: object(SolidId("boolean-3"), def), jobId: JobId("j")) == nil)
+        let jobId = JobId("j")
+        let id = SolidId("boolean-3")
+        #expect(KernelRegeneration.request(for: object(id, def), jobId: jobId)
+                == .booleanOperation(jobId: jobId, solidId: id, op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId))
     }
     
     @Test func testRegenerateExcludesSolidAndRepopulatesCache() async {
         let document = DocumentModel()
         let kept = document.addObject(def: .cylinder(CylinderParams(radius: 3, height: 4)))
+        let boolSolid = document.addObject(def: .boolean(op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId))
         let culprit = document.addObject(def: .box(BoxParams(width: 1, depth: 1, height: 1)))
         let imported = document.addObject(def: .imported(name: "part.step"))
         // A fresh client stands in for a restarted service: it holds no solids.
@@ -37,6 +41,7 @@ import Foundation
             #expect(await client.request(.tessellate(jobId: JobId("t-\(id)"), solidId: id)).isSuccess)
         }
         #expect(await client.request(.tessellate(jobId: JobId("t-kept"), solidId: kept)).isSuccess)
+        #expect(await client.request(.tessellate(jobId: JobId("t-bool"), solidId: boolSolid)).isSuccess)
         #expect(await client.request(.tessellate(jobId: JobId("t-culprit"), solidId: culprit)).error?.code == .unknownSolid)
         #expect(await client.request(.tessellate(jobId: JobId("t-imported"), solidId: imported)).error?.code == .unknownSolid)
     }

@@ -477,12 +477,16 @@ public final class CADToolRegistry {
         
         let inFlight = inFlightRecomputes.removeValue(forKey: id)
         partReloadController.stopWatching(id: id)
+        let dependents = document.dependentObjects(of: id)
         document.removeObject(id: id)
         if let sink = meshSink, SolidMeshApplier.remove(id: id, from: sink) {
             onViewportInvalidated?()
         }
         await kernelClient.dispose(solidId: id)
         _ = await inFlight?.task.value
+        for depId in dependents {
+            scheduleRecompute(id: depId)
+        }
         return .text("Removed solid '\(idStr)' from scene")
     }
     
@@ -1076,6 +1080,11 @@ public final class CADToolRegistry {
         }
         // A failure leaves the previous mesh installed; only the message changes.
         onRecomputeResult?(result, id)
+        if case .success = result {
+            for depId in document.dependentObjects(of: id) {
+                scheduleRecompute(id: depId)
+            }
+        }
         guard let sink = meshSink,
               SolidMeshApplier.apply(result, to: id, document: document, sink: sink) else { return }
         onViewportInvalidated?()

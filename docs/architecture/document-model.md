@@ -55,16 +55,18 @@ public enum ObjectDef: Sendable, Equatable {
     case cylinder(CylinderParams)        // radius, height
     case imported(name: String)
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
+    case part(url: URL, shape: ShapeNode?)
 }
 ```
 
-Nothing writes `Transform.rotation` or `Transform.scale` yet (#71). The model stores an object name, a visibility flag, a lock flag, and material attributes. Selection is stored in `DocumentModel.selectedId` in `MadeCore` with a no-op on unchanged values (invariant 2), and delegated to by `WorkspaceModel.selectedId` (#69).
+The model stores an object name, a visibility flag, a lock flag, and material attributes. Selection is stored in `DocumentModel.selectedId` in `MadeCore` with a no-op on unchanged values (invariant 2), and delegated to by `WorkspaceModel.selectedId` (#69).
 
 ### Supported Object Types
 1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).
 2. **Imported Placeholder**: `.imported(name:)` carries a name only.
-3. **Boolean Result**: `.boolean(op:solidA:solidB:)` records the operation and both operand IDs of a `cad_boolean_operation` result. `DocumentModel.reserveId(for:)` mints its `boolean-<seq>` ID before the kernel call, so the document and the kernel cache share it, and `addObject(_:def:)` adds it on success and installs its mesh in the viewport (#132). The entry is not replayed on kernel regeneration (#35).
-4. **Planned**: CSG composites that reference parent operations (#35), and B-Rep solids loaded from STEP or IGES files (#38, #82).
+3. **Boolean Result**: `.boolean(op:solidA:solidB:)` records the operation and both operand IDs (`DOC-11`). `DocumentModel.reserveId(for:)` mints its `boolean-<seq>` ID before the kernel call, so the document and the kernel cache share it. `DocumentModel.dependentObjects(of:)` queries direct and transitive dependents in topological order. When operands are edited, recomputations cascade to dependent booleans; when operands are removed, dependent booleans recompute and record typed `unknownSolid` errors. Kernel regeneration replays base solids before recomputing booleans in topological order (#35).
+4. **Scripted Parts**: `.part(url:shape:)` references a `.part.ts` or `.part.js` file on disk with its evaluated shape tree (#427).
+5. **Planned**: B-Rep solids loaded from STEP or IGES files (#38, #82).
 
 ---
 

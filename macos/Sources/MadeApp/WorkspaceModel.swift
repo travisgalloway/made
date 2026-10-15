@@ -412,9 +412,17 @@ final class WorkspaceModel {
         guard let session = activeCommand else { return }
         let name = document.objects.first(where: { $0.id == id })?.name ?? id.rawValue
         if let activeIndex = session.selectionSlots.firstIndex(where: { $0.isActive }) {
-            session.setSlotSelection(slotId: session.selectionSlots[activeIndex].id, objectId: id, objectName: name)
+            let activeSlotId = session.selectionSlots[activeIndex].id
+            session.setSlotSelection(slotId: activeSlotId, objectId: id, objectName: name)
+            if let nextEmpty = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil }) {
+                session.selectSlot(id: session.selectionSlots[nextEmpty].id)
+            }
         } else if let emptyIndex = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil }) {
-            session.setSlotSelection(slotId: session.selectionSlots[emptyIndex].id, objectId: id, objectName: name)
+            let emptySlotId = session.selectionSlots[emptyIndex].id
+            session.setSlotSelection(slotId: emptySlotId, objectId: id, objectName: name)
+            if let nextEmpty = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil }) {
+                session.selectSlot(id: session.selectionSlots[nextEmpty].id)
+            }
         }
     }
 
@@ -428,6 +436,10 @@ final class WorkspaceModel {
 
     func startTransformCommand() {
         startCommand(CommandSession.makeTransform(workspace: self, targetId: selectedId))
+    }
+
+    func startBooleanCommand() {
+        startCommand(CommandSession.makeBoolean(workspace: self, selectedId: selectedId))
     }
 
     // MARK: - Scene editing
@@ -546,9 +558,15 @@ final class WorkspaceModel {
 
     func removeObject(_ id: ObjectId) {
         guard let obj = document.objects.first(where: { $0.id == id }), !obj.isLocked else { return }
+        let dependents = document.dependentObjects(of: id)
         partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
-        Task { await kernelClient.dispose(solidId: id) }
+        Task {
+            await kernelClient.dispose(solidId: id)
+            for depId in dependents {
+                self.recomputeSolid(id: depId)
+            }
+        }
         recomputeFailures.clear(id)
         if let renderer = viewportManager.renderer {
             _ = SolidMeshApplier.remove(id: id, from: renderer)
@@ -570,13 +588,19 @@ final class WorkspaceModel {
     func toggleVisibility(_ id: ObjectId) {
         guard let obj = document.objects.first(where: { $0.id == id }) else { return }
         let visible = !obj.isVisible
-        document.setVisibility(id: id, isVisible: visible)
-        if visible {
+        setVisibility(id, isVisible: visible)
+        log(.info, "Scene", "\(visible ? "Showed" : "Hid") object \(id.rawValue)")
+    }
+
+    func setVisibility(_ id: ObjectId, isVisible: Bool) {
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return }
+        guard obj.isVisible != isVisible else { return }
+        document.setVisibility(id: id, isVisible: isVisible)
+        if isVisible {
             viewportManager.renderer?.hiddenSolidIds.remove(id)
         } else {
             viewportManager.renderer?.hiddenSolidIds.insert(id)
         }
-        log(.info, "Scene", "\(visible ? "Showed" : "Hid") object \(id.rawValue)")
         invalidateViewport(.model)
     }
 
@@ -632,7 +656,9 @@ final class WorkspaceModel {
     /// Drops meshes for objects removed by any path, including MCP agent tools.
     func syncMeshes(removedFrom old: [SceneObject], to new: [SceneObject]) {
         let remaining = Set(new.map(\.id))
+        var removedIds: [ObjectId] = []
         for obj in old where !remaining.contains(obj.id) {
+            removedIds.append(obj.id)
             partReloadController?.stopWatching(id: obj.id)
             Task { await kernelClient.dispose(solidId: obj.id) }
             if let renderer = viewportManager.renderer, SolidMeshApplier.remove(id: obj.id, from: renderer) {
@@ -641,6 +667,11 @@ final class WorkspaceModel {
             recomputeFailures.clear(obj.id)
         }
         partReloadController?.syncWithDocument()
+        for id in removedIds {
+            for depId in document.dependentObjects(of: id) {
+                recomputeSolid(id: depId)
+            }
+        }
     }
 
     func recomputeSolid(id: ObjectId) {
@@ -677,6 +708,11 @@ final class WorkspaceModel {
             guard let renderer = self.viewportManager.renderer,
                   SolidMeshApplier.apply(result, to: id, document: self.document, sink: renderer) else { return }
             self.invalidateViewport(.model)
+            if case .success = result {
+                for depId in self.document.dependentObjects(of: id) {
+                    self.recomputeSolid(id: depId)
+                }
+            }
         }
     }
 
