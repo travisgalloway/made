@@ -914,4 +914,79 @@ import MadeCore
             #expect(!entry.description.isEmpty)
         }
     }
+
+    @Test @MainActor func testEditingOperandParameterRecomputesDependentBooleanOnly() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        // Add an independent box so we can verify it doesn't recompute
+        let independentId = model.document.addObject(def: .box(BoxParams(width: 15, depth: 15, height: 15)))
+        model.recomputeSolid(id: independentId)
+
+        // Add a boolean object combining box-1 and cylinder-1
+        let boolDef = ObjectDef.boolean(op: .subtract, solidA: boxId, solidB: cylId)
+        let boolId = model.document.reserveId(for: boolDef)
+        model.document.addObject(boolId, def: boolDef)
+        model.recomputeSolid(id: boolId)
+
+        // Settle initial recomputes
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId, independentId, boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        await model.updateKernelStats()
+        let statsBefore = await model.kernelClient.getStats()
+
+        // Edit box-1 parameter
+        model.setParam(boxId, "width", 50.0)
+
+        // Settle cascading recomputes
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, boolId, independentId, cylId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        await model.updateKernelStats()
+        let statsAfter = await model.kernelClient.getStats()
+
+        // Exactly 2 dispatches should have occurred: boxId and boolId (not independentId or cylId)
+        #expect(statsAfter.dispatched - statsBefore.dispatched == 2)
+        #expect(statsAfter.completed - statsBefore.completed == 2)
+    }
+
+    @Test @MainActor func testRemovingOperandCausesDependentBooleanToFailWithUnknownSolid() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        // Add a boolean object combining box-1 and cylinder-1
+        let boolDef = ObjectDef.boolean(op: .subtract, solidA: boxId, solidB: cylId)
+        let boolId = model.document.reserveId(for: boolDef)
+        model.document.addObject(boolId, def: boolDef)
+        model.recomputeSolid(id: boolId)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId, boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Remove cylinder-1
+        model.removeObject(cylId)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Dependent boolean should have failed with unknown-solid
+        let failureMsg = model.recomputeFailures.message(for: boolId)
+        #expect(failureMsg != nil)
+        #expect(failureMsg?.contains("unknown-solid") == true)
+        #expect(failureMsg?.contains("Solid B 'cylinder-1' not found") == true)
+    }
 }
+

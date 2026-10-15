@@ -355,4 +355,20 @@ public final class DocumentModel {
         objects[index].material = material
         return .success(())
     }
+
+    /// Returns all direct and transitive dependent objects of `rootId` in topological order.
+    public func dependentObjects(of rootId: ObjectId) -> [ObjectId] {
+        var result: [ObjectId] = []
+        var visited: Set<ObjectId> = [rootId]
+        for obj in objects {
+            if case .boolean(_, let a, let b) = obj.def {
+                if visited.contains(a) || visited.contains(b) {
+                    visited.insert(obj.id)
+                    result.append(obj.id)
+                }
+            }
+        }
+        return result
+    }
 }
+

@@ -420,4 +420,133 @@ extension CommandSession {
 
         return session
     }
+
+    static func makeBoolean(workspace: WorkspaceModel, selectedId: ObjectId? = nil) -> CommandSession {
+        let initialA = selectedId ?? workspace.selectedId
+        let initialAName = initialA.flatMap { id in workspace.document.objects.first(where: { $0.id == id })?.name }
+
+        let session = CommandSession(
+            title: "Boolean Operation",
+            selectionSlots: [
+                CommandSelectionSlot(
+                    id: "solidA",
+                    label: "Target Solid (A)",
+                    isRequired: true,
+                    selectedObjectId: initialA,
+                    selectedObjectName: initialAName,
+                    isActive: initialA == nil
+                ),
+                CommandSelectionSlot(
+                    id: "solidB",
+                    label: "Tool Solid (B)",
+                    isRequired: true,
+                    selectedObjectId: nil,
+                    selectedObjectName: nil,
+                    isActive: initialA != nil
+                )
+            ],
+            inputs: [
+                CommandInput(
+                    id: "operation",
+                    label: "Operation",
+                    value: .choice("Subtract", options: ["Subtract", "Union", "Intersect"])
+                )
+            ],
+            isPreviewEnabled: true
+        )
+
+        session.customValidation = { [weak workspace, weak session] in
+            guard let workspace, let session else { return false }
+            guard let a = session.selectionSlots.first(where: { $0.id == "solidA" })?.selectedObjectId,
+                  let b = session.selectionSlots.first(where: { $0.id == "solidB" })?.selectedObjectId else { return false }
+            guard a != b else { return false }
+            return workspace.document.objects.contains(where: { $0.id == a }) &&
+                   workspace.document.objects.contains(where: { $0.id == b })
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled,
+                  let a = session.selectionSlots.first(where: { $0.id == "solidA" })?.selectedObjectId,
+                  let b = session.selectionSlots.first(where: { $0.id == "solidB" })?.selectedObjectId,
+                  a != b else {
+                if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                    workspace.invalidateViewport(.interaction)
+                }
+                return
+            }
+
+            let opStr = session.choiceValue(for: "operation") ?? "Subtract"
+            let op: BooleanOp = switch opStr.lowercased() {
+            case "union": .union
+            case "intersect": .intersect
+            default: .subtract
+            }
+
+            Task { @MainActor in
+                let req = KernelRequest.booleanOperation(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    op: op,
+                    solidA: a,
+                    solidB: b
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.2, 0.6, 1.0, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                } else {
+                    if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+        session.onParamChanged = { _, _ in
+            updatePreview()
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            guard let a = session.selectionSlots.first(where: { $0.id == "solidA" })?.selectedObjectId,
+                  let b = session.selectionSlots.first(where: { $0.id == "solidB" })?.selectedObjectId else { return }
+
+            let opStr = session.choiceValue(for: "operation") ?? "Subtract"
+            let op: BooleanOp = switch opStr.lowercased() {
+            case "union": .union
+            case "intersect": .intersect
+            default: .subtract
+            }
+
+            let def = ObjectDef.boolean(op: op, solidA: a, solidB: b)
+            let newId = workspace.document.reserveId(for: def)
+
+            // Hide operands but retain in document
+            workspace.setVisibility(a, isVisible: false)
+            workspace.setVisibility(b, isVisible: false)
+
+            workspace.document.addObject(newId, def: def)
+            workspace.selectedId = newId
+            workspace.recomputeSolid(id: newId)
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        return session
+    }
 }

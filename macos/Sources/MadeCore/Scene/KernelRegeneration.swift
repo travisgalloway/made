@@ -11,19 +11,34 @@ public enum KernelRegeneration {
         case .part(_, let shape):
             guard let shape else { return nil }
             return .evaluateShape(jobId: jobId, solidId: object.id, shape: shape)
-        case .imported, .boolean: return nil
+        case .boolean(let op, let solidA, let solidB):
+            return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)
+        case .imported: return nil
         }
     }
     
     /// Resubmits every buildable object except `excluded`, the solid whose job stopped the service.
+    /// Base solids are submitted concurrently, followed by boolean operations in topological order.
     public static func regenerate(document: DocumentModel, client: any KernelClientProtocol, excluding excluded: SolidId?) async {
-        let requests = document.objects
-            .filter { $0.id != excluded }
-            .compactMap { request(for: $0, jobId: JobId("regen-\(UUID().uuidString)")) }
-        await withTaskGroup(of: Void.self) { group in
-            for request in requests {
-                group.addTask { _ = await client.request(request) }
+        let candidateObjects = document.objects.filter { $0.id != excluded }
+        var baseRequests: [KernelRequest] = []
+        var booleanRequests: [KernelRequest] = []
+        for obj in candidateObjects {
+            guard let req = request(for: obj, jobId: JobId("regen-\(UUID().uuidString)")) else { continue }
+            if case .booleanOperation = req {
+                booleanRequests.append(req)
+            } else {
+                baseRequests.append(req)
             }
+        }
+        await withTaskGroup(of: Void.self) { group in
+            for req in baseRequests {
+                group.addTask { _ = await client.request(req) }
+            }
+        }
+        for req in booleanRequests {
+            _ = await client.request(req)
         }
     }
 }
+

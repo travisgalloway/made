@@ -69,6 +69,7 @@ public struct MeshPayload: Sendable {
     public var normals: MeshComponent<Float> { storage.normals }
     public var indices: MeshComponent<UInt32> { storage.indices }
     public var triangleCount: Int { storage.indexCount / 3 }
+    public var isEmpty: Bool { triangleCount == 0 }
     
     public init(storage: MeshStorage) {
         self.storage = storage

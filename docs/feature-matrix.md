@@ -105,7 +105,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-8 | An agent or user can set an object's world transform; the renderer applies full model and normal matrix (position, rotation, scale) with interactive gizmo manipulation and Inspector inputs (Phase 4.19, Phase 4.20) | done | done | done | Shipped | #66, #71, #72 | n/a |
 | DOC-9 | A user can give objects a name and a visibility flag | done | done | done | Shipped |  | n/a |
 | DOC-10 | A user can hold a multi-object selection in the document (`selection: Set<ObjectId>`) | none | none | none | Planned | #69 | n/a |
-| DOC-11 | An agent can create CSG composite objects that reference their parent operations (multi-body boolean operations, ADR-D2) | none | none | none | Planned | #35, #143 | n/a |
+| DOC-11 | An agent or user can create CSG composite objects that reference their parent operations with union, subtract, intersect, topological recomputation, and interactive command session (Phase 4.2, ADR-D2) | done | done | done | Shipped | #35, #143 | n/a |
 | DOC-12 | A user can load imported B-Rep solids from STEP or IGES into the scene | none | none | none | Planned | #38, #82 | n/a |
 | DOC-13 | A user can lock or unlock an object (`isLocked` flag); locked objects reject parameter edits, transform edits, material changes, and removal across core mutators, workspace actions, inspector controls, viewport gizmo manipulation, and MCP tools | done | done | done | Shipped | #127 | n/a |
 | DOC-14 | A user sees each object drawn in its material color (default light blue) and can change a solid's material color in the Inspector; the viewport mesh and stored object follow | done | done | done | Shipped | #137 | n/a |

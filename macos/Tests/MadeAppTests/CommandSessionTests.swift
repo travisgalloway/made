@@ -251,5 +251,55 @@ extension WorkspaceModelTests {
         #expect(updatedTransform?.position.y == -25.0)
         #expect(updatedTransform?.position.z == 10.0)
     }
+
+    @Test @MainActor func testMakeBooleanLifecycle() {
+        let workspace = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+        workspace.selectedId = boxId
+
+        let session = CommandSession.makeBoolean(workspace: workspace, selectedId: boxId)
+        #expect(session.title == "Boolean Operation")
+        #expect(session.selectionSlots.first(where: { $0.id == "solidA" })?.selectedObjectId == boxId)
+        #expect(session.selectionSlots.first(where: { $0.id == "solidA" })?.isActive == false)
+        #expect(session.selectionSlots.first(where: { $0.id == "solidB" })?.selectedObjectId == nil)
+        #expect(session.selectionSlots.first(where: { $0.id == "solidB" })?.isActive == true)
+        #expect(!session.canCommit)
+
+        // Invalid: selecting same solid for both slots
+        session.setSlotSelection(slotId: "solidB", objectId: boxId, objectName: "Box")
+        #expect(!session.canCommit)
+
+        // Valid: selecting different solid
+        session.setSlotSelection(slotId: "solidB", objectId: cylId, objectName: "Cylinder")
+        #expect(session.canCommit)
+
+        // Operation choice
+        #expect(session.choiceValue(for: "operation") == "Subtract")
+        session.setChoiceValue("Union", for: "operation")
+        #expect(session.choiceValue(for: "operation") == "Union")
+
+        // Cancel does not mutate document
+        let initialDocCount = workspace.document.objects.count
+        session.cancel()
+        #expect(workspace.document.objects.count == initialDocCount)
+
+        // Commit creates boolean solid, hides operands, and selects result
+        session.commit()
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        #expect(workspace.document.objects.first(where: { $0.id == boxId })?.isVisible == false)
+        #expect(workspace.document.objects.first(where: { $0.id == cylId })?.isVisible == false)
+
+        if case .boolean(let op, let a, let b)? = added?.def {
+            #expect(op == .union)
+            #expect(a == boxId)
+            #expect(b == cylId)
+        } else {
+            Issue.record("Expected boolean object in DocumentModel")
+        }
+    }
 }
+
 }
