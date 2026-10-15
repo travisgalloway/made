@@ -56,7 +56,7 @@ macos/
   Sources/MadeCore/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, Geometry
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
-    Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement
+    Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo
     Scene/                 DocumentModel (@Observable), SolidMeshApplier, KernelRegeneration
     Agent/                 MCPProtocol, MCPServer, MCPLineFramer (input framing), CADTools (tool registry), HeadlessSnapshotProvider (stdio snapshots), InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
@@ -66,8 +66,8 @@ macos/
   Sources/MadeApp/         MadeApp (@main, sidebar, console, and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView,
-                           CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView
-  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests)
+                           CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView
+  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests)
   Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, and application unit tests
 ```
 

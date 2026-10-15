@@ -206,10 +206,16 @@ public struct Camera: Sendable, Equatable {
             return Camera(position: target + Orientation.defaultViewDirection * distance, target: target)
         case .top:
             return Camera(position: target + SIMD3<Float>(0, 0.001, distance), target: target)
+        case .bottom:
+            return Camera(position: target + SIMD3<Float>(0, 0.001, -distance), target: target)
         case .front:
             return Camera(position: target + SIMD3<Float>(0, -distance, 0), target: target)
+        case .back:
+            return Camera(position: target + SIMD3<Float>(0, distance, 0), target: target)
         case .right:
             return Camera(position: target + SIMD3<Float>(distance, 0, 0), target: target)
+        case .left:
+            return Camera(position: target + SIMD3<Float>(-distance, 0, 0), target: target)
         case .isometric:
             let isoDir = simd_normalize(SIMD3<Float>(1, -1, 1))
             return Camera(position: target + isoDir * distance, target: target)
@@ -220,8 +226,11 @@ public struct Camera: Sendable, Equatable {
 public enum ViewportPerspective: String, CaseIterable, Identifiable, Sendable {
     case perspective = "Perspective"
     case top = "Top"
+    case bottom = "Bottom"
     case front = "Front"
+    case back = "Back"
     case right = "Right"
+    case left = "Left"
     case isometric = "Isometric"
     
     public var id: String { rawValue }

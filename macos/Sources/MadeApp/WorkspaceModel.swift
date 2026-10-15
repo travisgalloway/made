@@ -3,6 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 import MadeCore
 import os
+import simd
 
 /// App-wide workspace state and the actions that change it. Views read it from the environment.
 @Observable
@@ -38,6 +39,7 @@ final class WorkspaceModel {
     var inspectorTab: InspectorTab = .properties
 
     // Viewport
+    private(set) var camera: Camera = Camera()
     private(set) var perspective: ViewportPerspective = .perspective
     private(set) var projectionMode: CameraProjection = .perspective
     var tool: ViewportTool = .select {
@@ -104,6 +106,9 @@ final class WorkspaceModel {
         isSetUp = true
 
         _ = viewportManager.setup()
+        if let renderer = viewportManager.renderer {
+            self.camera = renderer.camera
+        }
         viewportManager.renderer?.onDeviceLost = { [weak viewportManager] in
             Task { @MainActor in viewportManager?.handleDeviceLost() }
         }
@@ -517,6 +522,7 @@ final class WorkspaceModel {
         guard let renderer = viewportManager.renderer else { return }
         renderer.projectionMode = mode
         renderer.camera.orthographicScale = 1.0
+        self.camera = renderer.camera
         log(.info, "Camera", "Switched projection to \(mode.rawValue)")
         invalidateViewport(.camera)
     }
@@ -526,8 +532,97 @@ final class WorkspaceModel {
         guard let renderer = viewportManager.renderer else { return }
         renderer.camera = Camera.preset(perspective)
         renderer.projectionMode = projectionMode
+        self.camera = renderer.camera
         log(.info, "Camera", "Switched to \(perspective.rawValue) perspective")
         invalidateViewport(.camera)
+    }
+
+    func alignNormalTo() {
+        let currentCamera = viewportManager.renderer?.camera ?? camera
+        let target: SIMD3<Float>
+        var normal: SIMD3<Float>
+
+        if let selected = selectedObject {
+            target = selected.transform.position
+            normal = simd_normalize(selected.transform.rotation.act(Orientation.worldUp))
+            let eyeVec = currentCamera.position - target
+            let eyeDist = simd_length(eyeVec)
+            if eyeDist > 1e-4 {
+                let eyeDir = simd_normalize(eyeVec)
+                if simd_dot(eyeDir, normal) > 0.99 {
+                    normal = -normal
+                }
+            }
+        } else {
+            target = currentCamera.target
+            normal = Orientation.groundNormal
+            let eyeVec = currentCamera.position - target
+            let eyeDist = simd_length(eyeVec)
+            if eyeDist > 1e-4 {
+                let eyeDir = simd_normalize(eyeVec)
+                if simd_dot(eyeDir, normal) > 0.99 {
+                    normal = -normal
+                }
+            }
+        }
+
+        let currentDist = max(1.0, simd_length(currentCamera.position - currentCamera.target))
+        var eyePosition = target + normal * currentDist
+
+        // Singular look-at protection: if |normal.z| > 0.999, add 0.001 Y offset
+        if abs(normal.z) > 0.999 {
+            eyePosition.y += 0.001
+        }
+
+        let newCamera = Camera(
+            position: eyePosition,
+            target: target,
+            minDistance: currentCamera.minDistance,
+            maxDistance: currentCamera.maxDistance,
+            minPitch: currentCamera.minPitch,
+            maxPitch: currentCamera.maxPitch,
+            projection: projectionMode,
+            orthographicScale: currentCamera.orthographicScale
+        )
+
+        if let renderer = viewportManager.renderer {
+            renderer.camera = newCamera
+        }
+        self.camera = newCamera
+        log(.info, "Camera", "Aligned normal to \(selectedObject?.name ?? "ground plane")")
+        invalidateViewport(.camera)
+    }
+
+    func applyViewCubeRegion(_ region: ViewCube.Region) {
+        switch region {
+        case .home:
+            resetView()
+        case .face(let f):
+            applyPerspective(f.perspective)
+        case .edge, .corner:
+            let currentCamera = viewportManager.renderer?.camera ?? camera
+            let currentDist = max(1.0, simd_length(currentCamera.position - currentCamera.target))
+            var dir = region.direction
+            if abs(dir.z) > 0.999 && abs(dir.x) < 1e-3 && abs(dir.y) < 1e-3 {
+                dir = simd_normalize(dir + SIMD3<Float>(0, 0.001, 0))
+            }
+            let newCam = Camera(
+                position: currentCamera.target + dir * currentDist,
+                target: currentCamera.target,
+                minDistance: currentCamera.minDistance,
+                maxDistance: currentCamera.maxDistance,
+                minPitch: currentCamera.minPitch,
+                maxPitch: currentCamera.maxPitch,
+                projection: projectionMode,
+                orthographicScale: currentCamera.orthographicScale
+            )
+            if let renderer = viewportManager.renderer {
+                renderer.camera = newCam
+            }
+            self.camera = newCam
+            log(.info, "Camera", "Switched view to \(region.displayName)")
+            invalidateViewport(.camera)
+        }
     }
 
     func resetView() { applyPerspective(.perspective) }
@@ -557,6 +652,9 @@ final class WorkspaceModel {
         )
         if renderStats != nextRenderStats {
             renderStats = nextRenderStats
+        }
+        if let currentCamera = viewportManager.renderer?.camera, camera != currentCamera {
+            camera = currentCamera
         }
         Task { [weak self] in
             await self?.updateKernelStats()
@@ -635,6 +733,15 @@ final class WorkspaceModel {
     static let toolPanShortcutKey: KeyEquivalent = "3"
     static let toolZoomShortcutKey: KeyEquivalent = "4"
     static let toolShortcutModifiers: EventModifiers = [.command, .option]
+
+    // MARK: - View Navigation Shortcuts (BL-VPT-07)
+
+    static let viewShortcutModifiers: EventModifiers = [.control]
+    static let viewFrontShortcutKey: KeyEquivalent = "1"
+    static let viewTopShortcutKey: KeyEquivalent = "2"
+    static let viewRightShortcutKey: KeyEquivalent = "3"
+    static let viewIsometricShortcutKey: KeyEquivalent = "7"
+    static let viewNormalToShortcutKey: KeyEquivalent = "8"
 
     // MARK: - Console
 
