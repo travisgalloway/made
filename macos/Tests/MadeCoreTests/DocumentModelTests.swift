@@ -211,7 +211,48 @@ import os
         #expect(box(doc, boxSolidId) == boxBefore)
         #expect(cylinder(doc, cylinderSolidId) == cylinderBefore)
     }
-    
+
+    @Test func testTypedDimensionEntryThroughSetParam() {
+        let doc = DocumentModel()
+
+        // Setting exact typed value 55.0 mm on box-1 (issue verification scenario)
+        doc.setParam(id: boxSolidId, key: "width", value: 55.0)
+        #expect(box(doc, boxSolidId)?.width == 55.0)
+
+        // Setting exact fractional values
+        doc.setParam(id: boxSolidId, key: "depth", value: 42.5)
+        doc.setParam(id: boxSolidId, key: "height", value: 18.0)
+        #expect(box(doc, boxSolidId)?.depth == 42.5)
+        #expect(box(doc, boxSolidId)?.height == 18.0)
+
+        // Setting exact values on cylinder
+        doc.setParam(id: cylinderSolidId, key: "radius", value: 22.5)
+        doc.setParam(id: cylinderSolidId, key: "height", value: 65.0)
+        #expect(cylinder(doc, cylinderSolidId)?.radius == 22.5)
+        #expect(cylinder(doc, cylinderSolidId)?.height == 65.0)
+
+        // Out-of-range typed values clamp to DocumentLimits
+        doc.setParam(id: boxSolidId, key: "width", value: 999.0)
+        #expect(box(doc, boxSolidId)?.width == DocumentLimits.boxWidth.max)
+        doc.setParam(id: boxSolidId, key: "width", value: -5.0)
+        #expect(box(doc, boxSolidId)?.width == DocumentLimits.boxWidth.min)
+
+        // Setting param on imported mesh is a no-op
+        let importedId = doc.addObject(def: .imported(name: "bracket.step"))
+        doc.setParam(id: importedId, key: "width", value: 55.0)
+        if case .imported(let name) = doc.paramsFor(id: importedId) {
+            #expect(name == "bracket.step")
+        } else {
+            Issue.record("Expected imported definition unchanged")
+        }
+
+        // Safe no-op on non-existent object IDs or invalid parameter keys
+        let boxBefore = box(doc, boxSolidId)
+        doc.setParam(id: ObjectId("missing-id"), key: "width", value: 55.0)
+        doc.setParam(id: boxSolidId, key: "invalid-key", value: 55.0)
+        #expect(box(doc, boxSolidId) == boxBefore)
+    }
+
     @Test func testExtendedDocumentProperties() {
         let doc = DocumentModel()
         
