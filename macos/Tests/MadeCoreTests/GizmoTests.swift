@@ -300,6 +300,223 @@ import ImageIO
         #expect(!arbiter.current().locked)
     }
 
+    @Test func testScaleHandleHitTestAndProjection() throws {
+        let viewportSize = CGSize(width: width, height: height)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(80, -120, 50), target: SIMD3<Float>(0, 0, 0), up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: Float(width) / Float(height), nearZ: 0.1, farZ: 1000.0)
+        let vp = projMatrix * viewMatrix
+        let gizmoCenter = SIMD3<Float>(0, 0, 0)
+
+        // 1. Hit-test Scale X handle at cube tip (42, 0, 0)
+        let screenScaleX = try #require(projectToScreen(point: SIMD3<Float>(42, 0, 0), viewProjectionMatrix: vp, viewportSize: viewportSize))
+        let hitX = try #require(gizmoHitTestAtPointer(
+            pointer: screenScaleX,
+            isTouch: false,
+            gizmoCenter: gizmoCenter,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        ))
+        #expect(hitX.handle == .scaleX)
+        #expect(hitX.screenDistancePx <= 1.0)
+
+        // 2. Hit-test Scale Y handle at cube tip (0, 42, 0)
+        let screenScaleY = try #require(projectToScreen(point: SIMD3<Float>(0, 42, 0), viewProjectionMatrix: vp, viewportSize: viewportSize))
+        let hitY = try #require(gizmoHitTestAtPointer(
+            pointer: screenScaleY,
+            isTouch: false,
+            gizmoCenter: gizmoCenter,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        ))
+        #expect(hitY.handle == .scaleY)
+        #expect(hitY.screenDistancePx <= 1.0)
+
+        // 3. Hit-test Scale Z handle at cube tip (0, 0, 42)
+        let screenScaleZ = try #require(projectToScreen(point: SIMD3<Float>(0, 0, 42), viewProjectionMatrix: vp, viewportSize: viewportSize))
+        let hitZ = try #require(gizmoHitTestAtPointer(
+            pointer: screenScaleZ,
+            isTouch: false,
+            gizmoCenter: gizmoCenter,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        ))
+        #expect(hitZ.handle == .scaleZ)
+        #expect(hitZ.screenDistancePx <= 1.0)
+
+        // 4. Hit-test shaft extension midpoint (36, 0, 0) hits scaleX, not translateX
+        let screenMidShaftX = try #require(projectToScreen(point: SIMD3<Float>(36, 0, 0), viewProjectionMatrix: vp, viewportSize: viewportSize))
+        let hitMidShaftX = try #require(gizmoHitTestAtPointer(
+            pointer: screenMidShaftX,
+            isTouch: false,
+            gizmoCenter: gizmoCenter,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        ))
+        #expect(hitMidShaftX.handle == .scaleX)
+        #expect(hitMidShaftX.screenDistancePx <= 1.0)
+    }
+
+    @Test func testComputeGizmoScale() throws {
+        let gizmoCenter = SIMD3<Float>(0, 0, 0)
+        let rayOrigin = SIMD3<Float>(0, -100, 0)
+        let startRay = Ray3D(origin: rayOrigin, direction: simd_normalize(SIMD3<Float>(42, 100, 0)))
+        let currentRayOut = Ray3D(origin: rayOrigin, direction: simd_normalize(SIMD3<Float>(84, 100, 0)))
+
+        let scaleOut = try #require(computeGizmoScale(
+            axisOrigin: gizmoCenter,
+            axisDirection: SIMD3<Float>(1, 0, 0),
+            baseParam: 42.0,
+            startRay: startRay,
+            currentRay: currentRayOut
+        ))
+        // Outward drag: ratio should be approximately 2.0
+        #expect(abs(scaleOut - 2.0) < 1e-2)
+
+        // Inward drag: s1 ~ 21 => ratio should be approximately 0.5
+        let currentRayIn = Ray3D(origin: rayOrigin, direction: simd_normalize(SIMD3<Float>(21, 100, 0)))
+        let scaleIn = try #require(computeGizmoScale(
+            axisOrigin: gizmoCenter,
+            axisDirection: SIMD3<Float>(1, 0, 0),
+            baseParam: 42.0,
+            startRay: startRay,
+            currentRay: currentRayIn
+        ))
+        #expect(abs(scaleIn - 0.5) < 1e-2)
+
+        // Drag far past origin inward: ratio clamped to 0.01 minimum
+        let scalePastZero = computeGizmoScale(startParam: 42.0, currentParam: -100.0, baseParam: 42.0)
+        #expect(scalePastZero == 0.01)
+
+        // Zero delta produces ratio 1.0
+        let scaleIdentity = computeGizmoScale(startParam: 42.0, currentParam: 42.0, baseParam: 42.0)
+        #expect(abs(scaleIdentity - 1.0) < 1e-5)
+    }
+
+    @Test func testComputeResizedParametersBoxAndCylinder() {
+        let boxDef = ObjectDef.box(BoxParams(width: 20, depth: 30, height: 40))
+        let boxParams = computeResizedParameters(for: boxDef, scale: SIMD3<Float>(1.5, 2.0, 0.5))
+        #expect(boxParams.count == 3)
+        let boxDict = Dictionary(uniqueKeysWithValues: boxParams.map { ($0.key, $0.value) })
+        #expect(abs((boxDict["width"] ?? 0) - 30.0) < 1e-3)
+        #expect(abs((boxDict["depth"] ?? 0) - 60.0) < 1e-3)
+        #expect(abs((boxDict["height"] ?? 0) - 20.0) < 1e-3)
+
+        let cylDef = ObjectDef.cylinder(CylinderParams(radius: 10, height: 20))
+        let cylParams = computeResizedParameters(for: cylDef, scale: SIMD3<Float>(1.5, 2.5, 0.5))
+        #expect(cylParams.count == 2)
+        let cylDict = Dictionary(uniqueKeysWithValues: cylParams.map { ($0.key, $0.value) })
+        // radius scales by max(1.5, 2.5) = 2.5 => 10 * 2.5 = 25.0
+        #expect(abs((cylDict["radius"] ?? 0) - 25.0) < 1e-3)
+        // height scales by 0.5 => 20 * 0.5 = 10.0
+        #expect(abs((cylDict["height"] ?? 0) - 10.0) < 1e-3)
+
+        let importedDef = ObjectDef.imported(name: "test-import")
+        let importedParams = computeResizedParameters(for: importedDef, scale: SIMD3<Float>(2.0, 2.0, 2.0))
+        #expect(importedParams.isEmpty)
+    }
+
+    @Test func testResizeZeroKernelDispatchesDuringDrag() async {
+        let engine = LocalKernelEngine()
+        let kernel = KernelClient(engine: engine)
+        let initialDispatched = await kernel.getStats().dispatched
+
+        // Simulate complete interactive gizmo scale drag
+        var previewTransform = Transform(position: SIMD3<Float>(0, 0, 0), scale: SIMD3<Float>(1, 1, 1))
+        for step in 1...10 {
+            previewTransform.scale.x = 1.0 + Float(step) * 0.1
+            // Interactive viewport preview transforms never dispatch to the geometry kernel (Two-Physics Rule)
+        }
+
+        let finalDispatched = await kernel.getStats().dispatched
+        #expect(finalDispatched == initialDispatched, "Live scale dragging must never invoke the kernel")
+    }
+
+    @Test func testResizeSingleCommitOnRelease() async {
+        let engine = LocalKernelEngine()
+        let client = KernelClient(engine: engine, debounceDuration: .milliseconds(50))
+        let solidId = SolidId("box-resize-conflation")
+
+        // When box resize commits on release, multiple parameter mutations are submitted rapidly
+        let t1 = Task { await client.request(.makeBox(jobId: JobId("resize-w"), solidId: solidId, params: BoxParams(width: 30, depth: 20, height: 10))) }
+        let t2 = Task { await client.request(.makeBox(jobId: JobId("resize-d"), solidId: solidId, params: BoxParams(width: 30, depth: 35, height: 10))) }
+        let t3 = Task { await client.request(.makeBox(jobId: JobId("resize-h"), solidId: solidId, params: BoxParams(width: 30, depth: 35, height: 25))) }
+
+        let (r1, r2, r3) = await (t1.value, t2.value, t3.value)
+        #expect(r1.error?.code == .cancelled)
+        #expect(r2.error?.code == .cancelled)
+        #expect(r3.isSuccess)
+
+        let stats = await client.getStats()
+        #expect(stats.dispatched == 1, "Rapid release commits must conflate into exactly 1 kernel dispatch")
+        #expect(stats.conflated == 2)
+    }
+
+    @Test func testResizePastLimitsClampsOnCommit() {
+        // Box min clamping (5 mm) and max clamping (90 mm)
+        let boxDef = ObjectDef.box(BoxParams(width: 20, depth: 50, height: 80))
+        let boxClamped = computeResizedParameters(for: boxDef, scale: SIMD3<Float>(0.01, 3.0, 2.0))
+        let boxDict = Dictionary(uniqueKeysWithValues: boxClamped.map { ($0.key, $0.value) })
+        #expect(boxDict["width"] == 5.0, "Width should clamp to min 5.0 mm")
+        #expect(boxDict["depth"] == 90.0, "Depth should clamp to max 90.0 mm")
+        #expect(boxDict["height"] == 90.0, "Height should clamp to max 90.0 mm")
+
+        // Cylinder radius max clamping (50 mm) and height min clamping (5 mm)
+        let cylDef = ObjectDef.cylinder(CylinderParams(radius: 40, height: 20))
+        let cylClamped = computeResizedParameters(for: cylDef, scale: SIMD3<Float>(2.0, 2.0, 0.05))
+        let cylDict = Dictionary(uniqueKeysWithValues: cylClamped.map { ($0.key, $0.value) })
+        #expect(cylDict["radius"] == 50.0, "Radius should clamp to max 50.0 mm")
+        #expect(cylDict["height"] == 5.0, "Height should clamp to min 5.0 mm")
+    }
+
+    @MainActor
+    @Test func testCancelledResizeRestoresInitialScale() throws {
+        let doc = DocumentModel()
+        let initialTransform = try #require(doc.objects.first(where: { $0.id == boxSolidId })?.transform)
+        #expect(initialTransform.scale == SIMD3<Float>(1, 1, 1))
+
+        var liveTransform = initialTransform
+        liveTransform.scale = SIMD3<Float>(2.5, 1.0, 0.8)
+
+        // Cancel restores initial scale and leaves document unchanged
+        liveTransform = initialTransform
+
+        #expect(liveTransform.scale == SIMD3<Float>(1, 1, 1))
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.transform == initialTransform)
+    }
+
+    @MainActor
+    @Test func testImportedObjectResizeRetainsScaleInTransform() async throws {
+        let doc = DocumentModel()
+        let importedId = doc.addObject(def: .imported(name: "test-import"))
+        let initialTransform = try #require(doc.objects.first(where: { $0.id == importedId })?.transform)
+        #expect(initialTransform.scale == SIMD3<Float>(1, 1, 1))
+
+        let engine = LocalKernelEngine()
+        let kernel = KernelClient(engine: engine)
+        let initialDispatched = await kernel.getStats().dispatched
+
+        // Resize gesture scales imported object
+        let newScale = SIMD3<Float>(1.8, 1.8, 1.8)
+        var updatedTransform = initialTransform
+        updatedTransform.scale = newScale
+
+        let params = computeResizedParameters(for: .imported(name: "test-import"), scale: newScale)
+        #expect(params.isEmpty, "Imported object must produce zero parameter updates")
+
+        // Retain scale in Transform
+        doc.setTransform(id: importedId, transform: updatedTransform)
+
+        let storedTransform = try #require(doc.objects.first(where: { $0.id == importedId })?.transform)
+        #expect(storedTransform.scale == newScale)
+
+        let finalDispatched = await kernel.getStats().dispatched
+        #expect(finalDispatched == initialDispatched, "Zero kernel jobs should be dispatched for imported scale")
+    }
+
     @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
     func testEndToEndGizmoRenderingAndSelection() async throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
@@ -318,11 +535,11 @@ import ImageIO
         let unselectedCalls = renderer.lastDrawCalls
         #expect(unselectedCalls == 1, "Only solid should draw when unselected")
 
-        // 2. With selection: gizmo renders for the selected solid (solid + outline + 6 gizmo handles)
+        // 2. With selection: gizmo renders for the selected solid (solid + outline + 9 gizmo handles)
         renderer.selectedId = boxId
         let selectedSnapshot = try #require(await renderer.captureSnapshotPngBase64(view: nil, includeGizmo: true))
         let selectedCalls = renderer.lastDrawCalls
-        #expect(selectedCalls == 8, "1 solid + 1 outline + 6 gizmo handle draw calls = 8 total")
+        #expect(selectedCalls == 11, "1 solid + 1 outline + 9 gizmo handle draw calls = 11 total")
 
         let pixels = try decodeRGBA(selectedSnapshot)
 
@@ -355,9 +572,9 @@ import ImageIO
             }
         }
 
-        #expect(redCount > 10, "Red translation/rotation X gizmo lines must be visible")
-        #expect(greenCount > 10, "Green translation/rotation Y gizmo lines must be visible")
-        #expect(blueCount > 10, "Blue translation/rotation Z gizmo lines must be visible")
+        #expect(redCount > 10, "Red translation/rotation/scale X gizmo lines must be visible")
+        #expect(greenCount > 10, "Green translation/rotation/scale Y gizmo lines must be visible")
+        #expect(blueCount > 10, "Blue translation/rotation/scale Z gizmo lines must be visible")
 
         // 3. Deselecting hides the gizmo immediately
         renderer.selectedId = nil

@@ -3,7 +3,12 @@ import Metal
 import simd
 
 extension MetalRenderer {
-    func setupGizmo(arrowLength: Float = defaultGizmoArrowLength, ringRadius: Float = defaultGizmoRingRadius) {
+    func setupGizmo(
+        arrowLength: Float = defaultGizmoArrowLength,
+        ringRadius: Float = defaultGizmoRingRadius,
+        scaleLength: Float = defaultGizmoScaleLength,
+        scaleBoxHalfSize: Float = defaultGizmoScaleBoxHalfSize
+    ) {
         var geometry: [GizmoHandle: GizmoGeometryBuffers] = [:]
         
         // 1. Translation arrow geometry: shaft + 4-barb arrowhead
@@ -96,6 +101,60 @@ extension MetalRenderer {
                 default:
                     continue
                 }
+                positions.append(contentsOf: [p0.x, p0.y, p0.z, p1.x, p1.y, p1.z])
+            }
+            
+            let vCount = positions.count / 3
+            let defaultColor = handle.defaultColor
+            let activeColor = GizmoColors.active
+            
+            let defColors: [SIMD4<Float>] = Array(repeating: defaultColor, count: vCount)
+            let actColors: [SIMD4<Float>] = Array(repeating: activeColor, count: vCount)
+            
+            guard let posBuf = makeBuffer(positions, label: "Gizmo \(handle.rawValue) Positions"),
+                  let defColBuf = makeBuffer(defColors, label: "Gizmo \(handle.rawValue) Default Colors"),
+                  let actColBuf = makeBuffer(actColors, label: "Gizmo \(handle.rawValue) Active Colors") else {
+                continue
+            }
+            geometry[handle] = GizmoGeometryBuffers(
+                positionBuffer: posBuf,
+                defaultColorBuffer: defColBuf,
+                activeColorBuffer: actColBuf,
+                vertexCount: vCount
+            )
+        }
+        
+        // 3. Scale handles: shaft extension (arrowLength to scaleLength - scaleBoxHalfSize) + wireframe cube at tip
+        for handle in [GizmoHandle.scaleX, .scaleY, .scaleZ] {
+            var positions: [Float] = []
+            let axis = handle.axis
+            let startShaft = axis * arrowLength
+            let cubeCenter = axis * scaleLength
+            let endShaft = axis * (scaleLength - scaleBoxHalfSize)
+            
+            // Extension line: arrowLength to near face of cube
+            positions.append(contentsOf: [startShaft.x, startShaft.y, startShaft.z, endShaft.x, endShaft.y, endShaft.z])
+            
+            // 12-segment wireframe cube at tip
+            let s = scaleBoxHalfSize
+            let corners: [SIMD3<Float>] = [
+                cubeCenter + SIMD3<Float>(-s, -s, -s), // 0
+                cubeCenter + SIMD3<Float>(-s, -s,  s), // 1
+                cubeCenter + SIMD3<Float>(-s,  s, -s), // 2
+                cubeCenter + SIMD3<Float>(-s,  s,  s), // 3
+                cubeCenter + SIMD3<Float>( s, -s, -s), // 4
+                cubeCenter + SIMD3<Float>( s, -s,  s), // 5
+                cubeCenter + SIMD3<Float>( s,  s, -s), // 6
+                cubeCenter + SIMD3<Float>( s,  s,  s)  // 7
+            ]
+            let cubeEdges: [(Int, Int)] = [
+                (0, 4), (1, 5), (2, 6), (3, 7), // X parallel
+                (0, 2), (1, 3), (4, 6), (5, 7), // Y parallel
+                (0, 1), (2, 3), (4, 5), (6, 7)  // Z parallel
+            ]
+            for (i0, i1) in cubeEdges {
+                let p0 = corners[i0]
+                let p1 = corners[i1]
                 positions.append(contentsOf: [p0.x, p0.y, p0.z, p1.x, p1.y, p1.z])
             }
             

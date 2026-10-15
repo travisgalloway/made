@@ -20,7 +20,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
 - INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69.
-- DOC-8 is Shipped. Interactive viewport gizmo manipulation (translation arrows and rotation rings) with on-demand invalidation and single release commit was implemented under #71 (Phase 4.19).
+- DOC-8 is Shipped. Interactive viewport gizmo manipulation (translation arrows, rotation rings, and scale cubes with two-physics parameter conversion) with on-demand invalidation and single release commit was implemented under #71 (Phase 4.19) and #72 (Phase 4.20).
 - WORKSPACE-1 is In progress. The unified multi-pane workspace layout (#118) shipped the toolbar, Navigator, viewport header, Inspector, and console drawer. Each side pane has a tab bar with one tab, and the Inspector's Properties tab is one form, and the viewport header breadcrumb is a static label.
 - UI-1, UI-11, UI-12, UI-13, UI-15, and UI-18 are Deprecated. The Copilot tab and the File and Geometry menu items were removed in #124.
 - AGENT-10, AGENT-11, AGENT-14, AGENT-15, and AGENT-16 are In progress with UI none. `InAppAgentController` has no host view since #124 (decision AGENT-10).
@@ -99,7 +99,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | DOC-5 | An agent can add a box, cylinder or imported object and get an ID of the form `<kind>-<seq>` (first new ID is `-2`); a boolean result gets `boolean-<seq>` from the same sequence, and an ID is never reused after removal | none | done | done | Shipped |  | n/a |
 | DOC-6 | An agent can remove an object by ID; removal through the Navigator, `syncMeshes`, or `cad_remove_solid` frees the kernel cache and prunes the renderer mesh | none | done | done | Shipped | #66, #93, #73 | n/a |
 | DOC-7 | A user or agent can set a named parameter on a box or cylinder (unknown keys and imported objects are ignored silently) | done | done | done | Shipped |  | n/a |
-| DOC-8 | An agent or user can set an object's world transform; the renderer applies full model and normal matrix (position, rotation, scale) with interactive gizmo manipulation and Inspector inputs (Phase 4.19) | done | done | done | Shipped | #66, #71 | n/a |
+| DOC-8 | An agent or user can set an object's world transform; the renderer applies full model and normal matrix (position, rotation, scale) with interactive gizmo manipulation and Inspector inputs (Phase 4.19, Phase 4.20) | done | done | done | Shipped | #66, #71, #72 | n/a |
 | DOC-9 | A user can give objects a name and a visibility flag | done | done | done | Shipped |  | n/a |
 | DOC-10 | A user can hold a multi-object selection in the document (`selection: Set<ObjectId>`) | none | none | none | Planned | #69 | n/a |
 | DOC-11 | An agent can create CSG composite objects that reference their parent operations (multi-body boolean operations, ADR-D2) | none | none | none | Planned | #35, #143 | n/a |

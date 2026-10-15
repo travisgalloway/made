@@ -127,6 +127,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onSnapChanged: ((SnapResult?) -> Void)?
     var onToolShortcut: ((ViewportTool) -> Void)?
     var onResetView: (() -> Void)?
+    var onCommitParam: ((ObjectId, String, Float) -> Void)?
     
     public init(
         document: DocumentModel,
@@ -136,7 +137,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onInvalidate: (() -> Void)? = nil,
         onSnapChanged: ((SnapResult?) -> Void)? = nil,
         onToolShortcut: ((ViewportTool) -> Void)? = nil,
-        onResetView: (() -> Void)? = nil
+        onResetView: (() -> Void)? = nil,
+        onCommitParam: ((ObjectId, String, Float) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -146,6 +148,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onSnapChanged = onSnapChanged
         self.onToolShortcut = onToolShortcut
         self.onResetView = onResetView
+        self.onCommitParam = onCommitParam
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -284,6 +287,14 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                                 rayOrigin: startRay.origin,
                                 rayDirection: startRay.direction
                             ) ?? 0.0
+                            startRadial = .zero
+                        } else if hit.handle.isScale {
+                            startParam = closestPointParamOnAxis(
+                                axisOrigin: mesh.transform.position,
+                                axisDirection: hit.handle.axis,
+                                rayOrigin: startRay.origin,
+                                rayDirection: startRay.direction
+                            ) ?? defaultGizmoScaleLength
                             startRadial = .zero
                         } else {
                             startParam = 0.0
@@ -496,6 +507,55 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     let deltaT = deltaS * axis
                     previewTransform.position = drag.initialTransform.position + deltaT
                 }
+            } else if drag.handle.isScale {
+                let axis = drag.handle.axis
+                var currentParam = closestPointParamOnAxis(
+                    axisOrigin: drag.initialTransform.position,
+                    axisDirection: axis,
+                    rayOrigin: currentRay.origin,
+                    rayDirection: currentRay.direction
+                ) ?? drag.startAxisParam
+                
+                // Snapping: exclude currently dragged solid
+                let candidates = parent.renderer.candidateMeshes().filter { $0.id != drag.selectedId }
+                let snap = resolveSnapAtPointer(
+                    meshes: candidates,
+                    pointer: testPointer,
+                    viewportSize: view.bounds.size,
+                    viewMatrix: matrices.view,
+                    projectionMatrix: matrices.projection,
+                    gridSpacing: defaultGridSpacing,
+                    tolerancePx: defaultSnapTolerancePx
+                )
+                if let snap {
+                    currentParam = simd_dot(snap.point - drag.initialTransform.position, axis)
+                    if snap != activeSnapResult {
+                        activeSnapResult = snap
+                        parent.renderer.activeSnap = snap
+                        parent.onSnapChanged?(snap)
+                    }
+                } else if activeSnapResult != nil {
+                    activeSnapResult = nil
+                    parent.renderer.activeSnap = nil
+                    parent.onSnapChanged?(nil)
+                }
+                
+                let scaleRatio = computeGizmoScale(
+                    startParam: drag.startAxisParam,
+                    currentParam: currentParam,
+                    baseParam: defaultGizmoScaleLength
+                )
+                
+                switch drag.handle {
+                case .scaleX:
+                    previewTransform.scale.x = drag.initialTransform.scale.x * scaleRatio
+                case .scaleY:
+                    previewTransform.scale.y = drag.initialTransform.scale.y * scaleRatio
+                case .scaleZ:
+                    previewTransform.scale.z = drag.initialTransform.scale.z * scaleRatio
+                default:
+                    break
+                }
             } else {
                 // Rotation handle
                 let axis = drag.handle.axis
@@ -547,7 +607,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
             
             if previewTransform.position != drag.initialTransform.position ||
-               previewTransform.rotation != drag.initialTransform.rotation {
+               previewTransform.rotation != drag.initialTransform.rotation ||
+               previewTransform.scale != drag.initialTransform.scale {
                 drag.hasMoved = true
             }
             self.dragState = drag
@@ -565,7 +626,39 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             
             if let drag = dragState {
                 if drag.hasMoved, let currentMesh = parent.renderer.meshes[drag.selectedId] {
-                    parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                    if drag.handle.isScale {
+                        if let obj = parent.document.objects.first(where: { $0.id == drag.selectedId }) {
+                            let initScale = drag.initialTransform.scale
+                            let currScale = currentMesh.transform.scale
+                            let relativeScale = SIMD3<Float>(
+                                abs(initScale.x) > 1e-5 ? currScale.x / initScale.x : currScale.x,
+                                abs(initScale.y) > 1e-5 ? currScale.y / initScale.y : currScale.y,
+                                abs(initScale.z) > 1e-5 ? currScale.z / initScale.z : currScale.z
+                            )
+                            let paramsToCommit = computeResizedParameters(for: obj.def, scale: relativeScale)
+                            if !paramsToCommit.isEmpty {
+                                var resetTransform = currentMesh.transform
+                                resetTransform.scale = SIMD3<Float>(1, 1, 1)
+                                _ = parent.renderer.updateTransform(resetTransform, for: drag.selectedId)
+                                
+                                if let onCommit = parent.onCommitParam {
+                                    for (key, val) in paramsToCommit {
+                                        onCommit(drag.selectedId, key, val)
+                                    }
+                                } else {
+                                    for (key, val) in paramsToCommit {
+                                        parent.document.setParam(id: drag.selectedId, key: key, value: val)
+                                    }
+                                }
+                            } else {
+                                parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                            }
+                        }
+                    } else {
+                        parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                    }
+                } else {
+                    _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
                 }
                 dragState = nil
                 parent.renderer.activeGizmoHandle = nil
@@ -719,19 +812,22 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
     var coordinatorBinding: Binding<Coordinator?>?
     var onInvalidate: (() -> Void)?
     var onSnapChanged: ((SnapResult?) -> Void)?
+    var onCommitParam: ((ObjectId, String, Float) -> Void)?
     
     public init(
         document: DocumentModel,
         renderer: MetalRenderer,
         coordinator: Binding<Coordinator?>? = nil,
         onInvalidate: (() -> Void)? = nil,
-        onSnapChanged: ((SnapResult?) -> Void)? = nil
+        onSnapChanged: ((SnapResult?) -> Void)? = nil,
+        onCommitParam: ((ObjectId, String, Float) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
         self.coordinatorBinding = coordinator
         self.onInvalidate = onInvalidate
         self.onSnapChanged = onSnapChanged
+        self.onCommitParam = onCommitParam
     }
     
     public func makeCoordinator() -> Coordinator {
