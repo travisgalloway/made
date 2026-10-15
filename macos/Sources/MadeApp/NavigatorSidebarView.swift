@@ -69,10 +69,10 @@ struct NavigatorSidebarView: View {
         HStack(spacing: 8) {
             Menu("Add Solid", systemImage: "plus") {
                 Button("Box Solid", systemImage: "shippingbox") {
-                    workspace.addObject(.box(BoxParams(width: 30, depth: 30, height: 30)))
+                    workspace.addDefaultBox()
                 }
                 Button("Cylinder Solid", systemImage: "cylinder") {
-                    workspace.addObject(.cylinder(CylinderParams(radius: 12, height: 35)))
+                    workspace.addDefaultCylinder()
                 }
                 Divider()
                 Button("Part Script File…", systemImage: "curlybraces") {

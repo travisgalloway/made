@@ -1,4 +1,5 @@
 import Testing
+import SwiftUI
 @testable import MadeApp
 import MadeCore
 
@@ -323,5 +324,208 @@ import MadeCore
         // Confirming when no delete is pending also safely no-ops
         model.confirmDeleteObject()
         #expect(model.pendingDeleteId == nil)
+    }
+
+    // MARK: - Menu Bar and Shortcuts (BL-MAC-04)
+
+    @Test @MainActor func testAddDefaultSolids() {
+        let model = WorkspaceModel()
+        let initialCount = model.document.objects.count
+
+        model.addDefaultBox()
+        #expect(model.document.objects.count == initialCount + 1)
+        guard let addedBox = model.selectedObject else {
+            Issue.record("Expected newly added box to be selected")
+            return
+        }
+        #expect(model.selectedId == addedBox.id)
+        if case .box(let params) = addedBox.def {
+            #expect(params == WorkspaceModel.defaultBoxParams)
+            #expect(params.width == 30)
+            #expect(params.depth == 30)
+            #expect(params.height == 30)
+        } else {
+            Issue.record("Expected object def to be .box")
+        }
+
+        model.addDefaultCylinder()
+        #expect(model.document.objects.count == initialCount + 2)
+        guard let addedCylinder = model.selectedObject else {
+            Issue.record("Expected newly added cylinder to be selected")
+            return
+        }
+        #expect(model.selectedId == addedCylinder.id)
+        if case .cylinder(let params) = addedCylinder.def {
+            #expect(params == WorkspaceModel.defaultCylinderParams)
+            #expect(params.radius == 12)
+            #expect(params.height == 35)
+        } else {
+            Issue.record("Expected object def to be .cylinder")
+        }
+    }
+
+    @Test @MainActor func testDeleteSelectedObjectAndEnablement() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+
+        // 1. Unlocked object selected -> can delete, triggers pending delete
+        model.selectedId = boxId
+        #expect(model.canDeleteSelectedObject == true)
+        #expect(model.pendingDeleteId == nil)
+        model.deleteSelectedObject()
+        #expect(model.pendingDeleteId == boxId)
+        model.cancelDeleteObject()
+        #expect(model.pendingDeleteId == nil)
+
+        // 2. Locked object selected -> cannot delete, deleteSelectedObject no-ops
+        model.document.setLocked(id: boxId, isLocked: true)
+        #expect(model.canDeleteSelectedObject == false)
+        model.deleteSelectedObject()
+        #expect(model.pendingDeleteId == nil)
+
+        // 3. No selection -> cannot delete, deleteSelectedObject no-ops
+        model.selectedId = nil
+        #expect(model.canDeleteSelectedObject == false)
+        model.deleteSelectedObject()
+        #expect(model.pendingDeleteId == nil)
+    }
+
+    @Test @MainActor func testToggleSelectedObjectVisibilityAndTitles() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+
+        // No selection
+        model.selectedId = nil
+        #expect(model.hideToggleTitle == "Hide Solid")
+
+        // Selected visible object
+        model.selectedId = boxId
+        #expect(model.selectedObject?.isVisible == true)
+        #expect(model.hideToggleTitle == "Hide Solid")
+
+        // Toggle to hidden
+        model.toggleSelectedObjectVisibility()
+        #expect(model.selectedObject?.isVisible == false)
+        #expect(model.hideToggleTitle == "Show Solid")
+
+        // Toggle back to visible
+        model.toggleSelectedObjectVisibility()
+        #expect(model.selectedObject?.isVisible == true)
+        #expect(model.hideToggleTitle == "Hide Solid")
+    }
+
+    @Test @MainActor func testToggleSelectedObjectLockAndTitles() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+
+        // No selection
+        model.selectedId = nil
+        #expect(model.lockToggleTitle == "Lock Solid")
+
+        // Selected unlocked object
+        model.selectedId = boxId
+        #expect(model.selectedObject?.isLocked == false)
+        #expect(model.lockToggleTitle == "Lock Solid")
+
+        // Toggle to locked
+        model.toggleSelectedObjectLock()
+        #expect(model.selectedObject?.isLocked == true)
+        #expect(model.lockToggleTitle == "Unlock Solid")
+
+        // Toggle back to unlocked
+        model.toggleSelectedObjectLock()
+        #expect(model.selectedObject?.isLocked == false)
+        #expect(model.lockToggleTitle == "Lock Solid")
+    }
+
+    @Test @MainActor func testSelectedPartIdAndReloadPart() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+
+        // Primitive solid selected -> selectedPartId is nil, reload safely no-ops
+        model.selectedId = boxId
+        #expect(model.selectedPartId == nil)
+        model.reloadSelectedPart()
+
+        // No selection -> selectedPartId is nil, reload safely no-ops
+        model.selectedId = nil
+        #expect(model.selectedPartId == nil)
+        model.reloadSelectedPart()
+
+        // Part solid selected -> selectedPartId returns object id, reload runs
+        let tempUrl = URL(fileURLWithPath: "/tmp/sample.part.ts")
+        let partId = model.document.addPart(url: tempUrl)
+        model.selectedId = partId
+        #expect(model.selectedPartId == partId)
+        model.reloadSelectedPart()
+    }
+
+    @Test @MainActor func testMCPServerToggleTitle() {
+        let model = WorkspaceModel()
+
+        model.isMCPServerRunning = false
+        #expect(model.mcpServerToggleTitle == "Start MCP Server")
+
+        model.isMCPServerRunning = true
+        #expect(model.mcpServerToggleTitle == "Stop MCP Server")
+    }
+
+    @Test @MainActor func testMenuShortcutConstantsAndModifiers() {
+        // Assert keys
+        #expect(WorkspaceModel.deleteShortcutKey == .delete)
+        #expect(WorkspaceModel.addBoxShortcutKey == "b")
+        #expect(WorkspaceModel.addCylinderShortcutKey == "c")
+        #expect(WorkspaceModel.hideSolidShortcutKey == "h")
+        #expect(WorkspaceModel.lockSolidShortcutKey == "l")
+        #expect(WorkspaceModel.reloadPartShortcutKey == "r")
+        #expect(WorkspaceModel.zoomInShortcutKey == "=")
+        #expect(WorkspaceModel.zoomOutShortcutKey == "-")
+        #expect(WorkspaceModel.zoomToFitShortcutKey == "f")
+        #expect(WorkspaceModel.resetViewShortcutKey == "0")
+        #expect(WorkspaceModel.mcpServerShortcutKey == "m")
+        #expect(WorkspaceModel.toolSelectShortcutKey == "1")
+        #expect(WorkspaceModel.toolOrbitShortcutKey == "2")
+        #expect(WorkspaceModel.toolPanShortcutKey == "3")
+        #expect(WorkspaceModel.toolZoomShortcutKey == "4")
+        #expect(WorkspaceModel.consoleShortcutKey == "y")
+
+        // Assert exact modifier combinations
+        #expect(WorkspaceModel.deleteShortcutModifiers == [.command])
+        #expect(WorkspaceModel.addBoxShortcutModifiers == [.command, .shift])
+        #expect(WorkspaceModel.addCylinderShortcutModifiers == [.command, .shift])
+        #expect(WorkspaceModel.hideSolidShortcutModifiers == [.command, .shift])
+        #expect(WorkspaceModel.lockSolidShortcutModifiers == [.command, .shift])
+        #expect(WorkspaceModel.reloadPartShortcutModifiers == [.control, .command])
+        #expect(WorkspaceModel.zoomInShortcutModifiers == [.command])
+        #expect(WorkspaceModel.zoomOutShortcutModifiers == [.command])
+        #expect(WorkspaceModel.zoomToFitShortcutModifiers == [.command, .shift])
+        #expect(WorkspaceModel.resetViewShortcutModifiers == [.command])
+        #expect(WorkspaceModel.mcpServerShortcutModifiers == [.command, .shift])
+        #expect(WorkspaceModel.toolShortcutModifiers == [.command, .option])
+        #expect(WorkspaceModel.consoleShortcutModifiers == [.command, .shift])
+
+        // Verify Invariant 8: All menu shortcuts strictly include at least one modifier key (.command, .shift, .option, .control)
+        // so they never collide with plain-key viewport tools (V, O, P, Z, F, H, =, -) or intercept text field editing.
+        let allModifierSets: [EventModifiers] = [
+            WorkspaceModel.deleteShortcutModifiers,
+            WorkspaceModel.addBoxShortcutModifiers,
+            WorkspaceModel.addCylinderShortcutModifiers,
+            WorkspaceModel.hideSolidShortcutModifiers,
+            WorkspaceModel.lockSolidShortcutModifiers,
+            WorkspaceModel.reloadPartShortcutModifiers,
+            WorkspaceModel.zoomInShortcutModifiers,
+            WorkspaceModel.zoomOutShortcutModifiers,
+            WorkspaceModel.zoomToFitShortcutModifiers,
+            WorkspaceModel.resetViewShortcutModifiers,
+            WorkspaceModel.mcpServerShortcutModifiers,
+            WorkspaceModel.toolShortcutModifiers,
+            WorkspaceModel.consoleShortcutModifiers
+        ]
+
+        let standardModifiers: EventModifiers = [.command, .shift, .option, .control]
+        for modifiers in allModifierSets {
+            #expect(!modifiers.isEmpty)
+            #expect(!modifiers.intersection(standardModifiers).isEmpty)
+        }
     }
 }
