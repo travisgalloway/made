@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+@testable import MadeCore
 
 /// Invariants 3 and 4 lint: MadeCore is one target, so the compiler cannot stop `Viewport/` from naming an Agent or Scene type,
 /// or `Scripting/` from calling Euclid directly.
@@ -20,15 +21,38 @@ import Foundation
         #expect(found.isEmpty, "Viewport references Agent or Scene types:\n\(found.joined(separator: "\n"))")
     }
 
-    static let scriptingForbidden: Set<String> = ["Euclid", "EuclidEngine", "Mesh", "LocalKernelEngine", "ShapeEvaluator"]
+    static let scriptingForbidden: Set<String> = ["Euclid", "EuclidEngine", "Mesh", "LocalKernelEngine", "ShapeEvaluator", "OCCTSwift", "OCCTEngine", "Shape"]
+    static let occtForbidden: Set<String> = ["OCCTSwift", "OCCTEngine", "Shape", "TopoDS_Shape"]
 
-    @Test func scriptingReferencesNoEuclid() throws {
+    @Test func scriptingReferencesNoKernelInternals() throws {
         var found: [String] = []
         for file in try Self.swiftFiles(in: "Scripting") {
             let source = try String(contentsOf: file, encoding: .utf8)
             found += Self.violations(in: source, file: file.lastPathComponent, forbidden: Self.scriptingForbidden)
         }
         #expect(found.isEmpty, "Scripting references kernel internals:\n\(found.joined(separator: "\n"))")
+    }
+
+    @Test func nonKernelLayersReferenceNoOCCT() throws {
+        var found: [String] = []
+        for dir in ["Viewport", "Scripting", "Scene"] {
+            for file in try Self.swiftFiles(in: dir) {
+                let source = try String(contentsOf: file, encoding: .utf8)
+                found += Self.violations(in: source, file: file.lastPathComponent, forbidden: Self.occtForbidden)
+            }
+        }
+        #expect(found.isEmpty, "Non-kernel layers reference OCCT types:\n\(found.joined(separator: "\n"))")
+    }
+
+    @Test func meshPayloadUsesPageAlignedMeshStorage() {
+        let storage = MeshStorage(positionCount: 3, normalCount: 3, indexCount: 3) { p, n, i in
+            p[0] = 0; p[1] = 0; p[2] = 0
+            n[0] = 0; n[1] = 0; n[2] = 1
+            i[0] = 0; i[1] = 1; i[2] = 2
+        }
+        let payload = MeshPayload(storage: storage)
+        #expect(payload.storage.length > 0)
+        #expect(payload.storage.length % Int(getpagesize()) == 0)
     }
 
     @Test func scanIsNotBlind() throws {

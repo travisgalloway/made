@@ -22,11 +22,11 @@ The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the c
                │                          │
    Tier 1: Fast CSG Engine     Tier 2: Exact B-Rep Engine
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
-│        EuclidEngine        │ │   OCCTSwift (PLANNED)   │
-│   (Pure Swift CSG 0.9.6)   │ │  not in Package.swift   │
+│        EuclidEngine        │ │   OCCTSwift (Tier 2)    │
+│   (Pure Swift CSG 0.9.6)   │ │ (Canonical B-Rep Kernel)│
 │ • Zero C++ dependencies    │ │ • Exact B-Rep topology  │
-│ • Box / cylinder           │ │ • STEP / IGES I/O       │
-│ • CSG booleans             │ │ • Fillets & chamfers    │
+│ • Box / cylinder           │ │ • STEP import / healing │
+│ • CSG booleans             │ │ • Shared-memory meshes  │
 └──────────────┬─────────────┘ └──────────┬──────────────┘
                │                          │
                └───────────┬──────────────┘
@@ -41,11 +41,11 @@ The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the c
 - **Capabilities**: Zero C++ compilation dependencies, memory-safe execution, parametric box/cylinder generators, BSP-tree CSG booleans (`subtract`, `union`, `intersect`), and conversion into indexed vertex arrays (`MeshPayload`).
 - **Use Case**: Real-time parameter scrubbing in the Inspector, interactive modeling, and unit testing without heavy framework dependencies.
 
-### Tier 2: Exact Boundary Representation (OCCTSwift), Planned (#82, ADR-D1)
-Not built. OpenCASCADE Technology via `SecondMouseAU/OCCTSwift` is adopted as the canonical B-rep kernel ([ADR-D1](./adr/ADR-D1-canonical-geometry-kernel.md), #142). Today, `macos/Package.swift` declares only the Euclid dependency, and `KernelClient` answers `importStep` with `geometryFailed` ("STEP import pending OpenCASCADE bridge"). STEP import and export is tracked in #38.
-- **Planned architecture**: Integration via `SecondMouseAU/OCCTSwift` using a pre-built universal `OCCT.xcframework`.
-- **Planned capabilities**: True analytic curves and surfaces (NURBS, B-splines), topological data structures (`TopoDS_Shape`, `TopoDS_Face`, `TopoDS_Edge`), advanced manufacturing operations (fillet, chamfer, draft), and industrial format exchange (STEP, IGES).
-- **Planned use case**: High-precision engineering exchange, production part export, and complex B-Rep fillets.
+### Tier 2: Exact Boundary Representation (OCCTSwift, ADR-D1 #82)
+OpenCASCADE Technology via `SecondMouseAU/OCCTSwift` is integrated as the canonical Tier 2 B-Rep geometry kernel ([ADR-D1](./adr/ADR-D1-canonical-geometry-kernel.md), #82). While Euclid serves as the Tier 1 fast CSG engine (ADR-D9 #247), OCCT provides exact analytic surfaces, topological B-Rep structures, and industrial exchange.
+- **Implementation**: [`OCCTEngine.swift`](../../macos/Sources/MadeCore/Kernel/OCCTEngine.swift) and `OCCTSwift` framework dependency linked into `MadeCore`.
+- **Capabilities**: Exact B-Rep topology (`Shape`), ISO 10303 STEP exchange with robust repair and sewing (`loadRobust`), enhanced multi-threaded tessellation (`MeshParameters`), and conversion into page-aligned shared-memory buffers (`MeshPayload` / `MeshStorage`) conforming strictly to Invariants 4 and 6.
+- **Use Case**: STEP solid import via Solid > Import STEP Solid… or File > Import STEP…, surviving XPC service restarts via `KernelRegeneration`. Child tickets deliver STEP export (#38), topological fillets (#35), and IGES exchange.
 
 ### Tier 3: Declarative CAD DSL (Cadova-Style Scripting)
 - **Implementation**: [`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift).

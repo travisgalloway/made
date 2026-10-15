@@ -535,6 +535,36 @@ final class WorkspaceModel {
         }
     }
 
+    func promptImportStepFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Import STEP Solid"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = []
+        if let t1 = UTType(filenameExtension: "step") { contentTypes.append(t1) }
+        if let t2 = UTType(filenameExtension: "stp") { contentTypes.append(t2) }
+        panel.allowedContentTypes = contentTypes.isEmpty ? [.data] : contentTypes
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        importStepFile(at: url)
+    }
+
+    @discardableResult
+    func importStepFile(at url: URL) -> ObjectId? {
+        do {
+            let data = try Data(contentsOf: url)
+            let id = document.reserveId(for: .imported(name: url.lastPathComponent))
+            document.addObject(id, def: .imported(name: url.lastPathComponent, sourceURL: url, data: data))
+            selectedId = id
+            recomputeSolid(id: id)
+            log(.info, "Kernel", "Importing STEP file \(url.lastPathComponent) (\(id.rawValue))")
+            return id
+        } catch {
+            log(.error, "Kernel", "Failed to import STEP file: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     var canDeleteSelectedObject: Bool {
         guard let obj = selectedObject else { return false }
         return !obj.isLocked

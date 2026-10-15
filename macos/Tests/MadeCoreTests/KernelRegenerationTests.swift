@@ -17,6 +17,26 @@ import Foundation
     @Test func testImportedObjectsAreSkipped() {
         #expect(KernelRegeneration.request(for: object(SolidId("i"), .imported(name: "part.step")), jobId: JobId("j")) == nil)
     }
+
+    @Test func testImportedObjectWithDataProducesImportStepRequest() {
+        let data = Data([1, 2, 3])
+        let id = SolidId("imported-with-data")
+        let jobId = JobId("j")
+        #expect(KernelRegeneration.request(for: object(id, .imported(name: "box.step", data: data)), jobId: jobId)
+                == .importStep(jobId: jobId, solidId: id, data: data))
+    }
+
+    @Test func testImportedObjectWithSourceURLProducesImportStepRequest() throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let sampleData = Data([4, 5, 6])
+        try sampleData.write(to: tempURL)
+        
+        let id = SolidId("imported-with-url")
+        let jobId = JobId("j")
+        #expect(KernelRegeneration.request(for: object(id, .imported(name: "box.step", sourceURL: tempURL)), jobId: jobId)
+                == .importStep(jobId: jobId, solidId: id, data: sampleData))
+    }
     
     @Test func testBooleanObjectsProduceBooleanOperationRequest() {
         let def = ObjectDef.boolean(op: .subtract, solidA: boxSolidId, solidB: cylinderSolidId)

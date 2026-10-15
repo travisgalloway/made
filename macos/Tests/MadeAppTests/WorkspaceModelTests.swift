@@ -365,6 +365,46 @@ import MadeCore
         }
     }
 
+    @Test @MainActor func testImportStepFileAddsObjectAndRecomputes() throws {
+        let model = WorkspaceModel()
+        let initialCount = model.document.objects.count
+        
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-part-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        
+        let dummyStepData = Data("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('STEP AP214'),'1');\nFILE_NAME('test.step','2026-10-15',(''),(''),'','','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n".utf8)
+        try dummyStepData.write(to: tempURL)
+        
+        let importedId = model.importStepFile(at: tempURL)
+        #expect(importedId != nil)
+        #expect(model.document.objects.count == initialCount + 1)
+        #expect(model.selectedId == importedId)
+        
+        guard let obj = model.selectedObject else {
+            Issue.record("Expected imported object to be selected")
+            return
+        }
+        #expect(obj.id == importedId)
+        #expect(obj.name == tempURL.lastPathComponent)
+        if case .imported(let name, let sourceURL, let data) = obj.def {
+            #expect(name == tempURL.lastPathComponent)
+            #expect(sourceURL == tempURL)
+            #expect(data == dummyStepData)
+        } else {
+            Issue.record("Expected object def to be .imported")
+        }
+    }
+
+    @Test @MainActor func testImportStepFileNonExistentURLReturnsNil() {
+        let model = WorkspaceModel()
+        let initialCount = model.document.objects.count
+        let nonExistentURL = URL(fileURLWithPath: "/tmp/non-existent-step-\(UUID().uuidString).step")
+        
+        let importedId = model.importStepFile(at: nonExistentURL)
+        #expect(importedId == nil)
+        #expect(model.document.objects.count == initialCount)
+    }
+
     @Test @MainActor func testDeleteSelectedObjectAndEnablement() {
         let model = WorkspaceModel()
         let boxId = ObjectId("box-1")

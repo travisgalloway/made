@@ -43,6 +43,7 @@ struct MadeApp: App {
             CommandGroup(after: .newItem) {
                 Button("Open Part Script…") { workspace.promptOpenPartFile() }
                     .keyboardShortcut("o", modifiers: [.command])
+                Button("Import STEP…") { workspace.promptImportStepFile() }
                 Button("Reload Part Scripts") { workspace.reloadAllParts() }
                     .keyboardShortcut("r", modifiers: [.command])
             }

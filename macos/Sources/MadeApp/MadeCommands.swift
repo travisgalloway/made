@@ -51,6 +51,10 @@ struct SolidMenuCommands: Commands {
                 workspace.startAddCylinderCommand()
             }
 
+            Button("Import STEP Solid…") {
+                workspace.promptImportStepFile()
+            }
+
             Button("Transform Solid…") {
                 workspace.startTransformCommand()
             }

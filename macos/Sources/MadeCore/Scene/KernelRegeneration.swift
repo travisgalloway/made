@@ -13,7 +13,13 @@ public enum KernelRegeneration {
             return .evaluateShape(jobId: jobId, solidId: object.id, shape: shape)
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)
-        case .imported: return nil
+        case .imported(_, let sourceURL, let data):
+            if let data {
+                return .importStep(jobId: jobId, solidId: object.id, data: data)
+            } else if let sourceURL, FileManager.default.fileExists(atPath: sourceURL.path), let fileData = try? Data(contentsOf: sourceURL) {
+                return .importStep(jobId: jobId, solidId: object.id, data: fileData)
+            }
+            return nil
         }
     }
     
