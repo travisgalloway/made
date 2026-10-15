@@ -442,8 +442,11 @@ import ImageIO
 
         // When box resize commits on release, multiple parameter mutations are submitted rapidly
         let t1 = Task { await client.request(.makeBox(jobId: JobId("resize-w"), solidId: solidId, params: BoxParams(width: 30, depth: 20, height: 10))) }
+        await waitForPending(client, solidId, JobId("resize-w"))
         let t2 = Task { await client.request(.makeBox(jobId: JobId("resize-d"), solidId: solidId, params: BoxParams(width: 30, depth: 35, height: 10))) }
+        await waitForPending(client, solidId, JobId("resize-d"))
         let t3 = Task { await client.request(.makeBox(jobId: JobId("resize-h"), solidId: solidId, params: BoxParams(width: 30, depth: 35, height: 25))) }
+        await waitForPending(client, solidId, JobId("resize-h"))
 
         let (r1, r2, r3) = await (t1.value, t2.value, t3.value)
         #expect(r1.error?.code == .cancelled)
@@ -598,5 +601,13 @@ import ImageIO
         ))
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return pixels
+    }
+
+    private func waitForPending(_ client: KernelClient, _ solidId: SolidId, _ jobId: JobId) async {
+        for _ in 0..<1_000 {
+            if await client.pendingJobId(for: solidId) == jobId { return }
+            await Task.yield()
+        }
+        Issue.record("Job \(jobId) never became pending")
     }
 }
