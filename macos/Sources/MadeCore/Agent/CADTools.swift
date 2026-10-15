@@ -1081,7 +1081,7 @@ public final class CADToolRegistry {
         // A failure leaves the previous mesh installed; only the message changes.
         onRecomputeResult?(result, id)
         if case .success = result {
-            for depId in document.dependentObjects(of: id) {
+            for depId in document.directDependentObjects(of: id) {
                 scheduleRecompute(id: depId)
             }
         }

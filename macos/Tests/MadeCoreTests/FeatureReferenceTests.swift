@@ -349,6 +349,65 @@ import Foundation
         #expect(depFeatureRestored.errorState == nil)
         #expect(client.requestedSolids.contains(SolidId("dep-1")))
     }
+
+    // MARK: - Transitive Dependency Resolution (BL-FND-03)
+
+    @Test func testTransitiveDependentFeaturesLookup() {
+        let doc = DocumentModel(features: [])
+
+        let featA = Feature.makeBox(solidId: SolidId("a"), params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = doc.addFeature(featA)
+
+        let featB = Feature(
+            name: "B",
+            operation: .primitive(.cylinder(CylinderParams(radius: 5, height: 10))),
+            references: [.feature(featA.id)],
+            outputSolidId: SolidId("b")
+        )
+        _ = doc.addFeature(featB)
+
+        let featD = Feature(
+            name: "D",
+            operation: .primitive(.box(BoxParams(width: 5, depth: 5, height: 5))),
+            references: [.feature(featA.id)],
+            outputSolidId: SolidId("d")
+        )
+        _ = doc.addFeature(featD)
+
+        let featC = Feature(
+            name: "C",
+            operation: .primitive(.cylinder(CylinderParams(radius: 2, height: 4))),
+            references: [.feature(featB.id)],
+            outputSolidId: SolidId("c")
+        )
+        _ = doc.addFeature(featC)
+
+        let featE = Feature.makeBox(solidId: SolidId("e"), params: BoxParams(width: 8, depth: 8, height: 8))
+        _ = doc.addFeature(featE)
+
+        // Dependents of A in topological timeline order: B, D, C (E is independent)
+        let depsA = doc.dependentFeatures(referencing: featA.id)
+        #expect(depsA.map(\.id) == [featB.id, featD.id, featC.id])
+
+        // Dependents of B: C
+        let depsB = doc.dependentFeatures(referencing: featB.id)
+        #expect(depsB.map(\.id) == [featC.id])
+
+        // Dependents of D: empty
+        let depsD = doc.dependentFeatures(referencing: featD.id)
+        #expect(depsD.isEmpty)
+
+        // Dependents of C: empty
+        let depsC = doc.dependentFeatures(referencing: featC.id)
+        #expect(depsC.isEmpty)
+
+        // Dependents of non-existent UUID: empty
+        #expect(doc.dependentFeatures(referencing: UUID()).isEmpty)
+
+        // Direct dependent features of A: [B, D] (not transitive C)
+        let directDepsA = doc.directDependentFeatures(referencing: featA.id)
+        #expect(directDepsA.map(\.id) == [featB.id, featD.id])
+    }
 }
 
 private extension Result {

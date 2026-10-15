@@ -663,7 +663,7 @@ public final class DocumentModel {
         features.first(where: { $0.outputSolidId == solidId })
     }
 
-    // MARK: - Reference Resolution (BL-FND-02)
+    // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
     public func resolve(reference: Reference, for feature: Feature? = nil) -> Result<ResolvedReference, ReferenceResolutionError> {
@@ -675,20 +675,69 @@ public final class DocumentModel {
         feature.references
     }
 
-    /// Returns all features in the document that directly or indirectly reference the specified target feature.
-    public func dependentFeatures(referencing targetFeatureId: UUID) -> [Feature] {
-        features.filter { feat in
-            feat.references.contains { ref in
-                if ref.referencedFeatureId == targetFeatureId {
-                    return true
-                }
-                if case .body(let solidId) = ref.target,
-                   self.feature(for: solidId)?.id == targetFeatureId {
-                    return true
-                }
-                return false
+    /// Returns all upstream feature UUIDs directly referenced by the given feature via its references or operations (BL-FND-03).
+    public func directDependencies(of feature: Feature) -> Set<UUID> {
+        var result = Set<UUID>()
+
+        // Explicit references
+        for ref in feature.references {
+            if let id = ref.referencedFeatureId {
+                result.insert(id)
+            }
+            if case .body(let solidId) = ref.target,
+               let targetFeat = self.feature(for: solidId) {
+                result.insert(targetFeat.id)
             }
         }
+
+        // Operation inputs
+        switch feature.operation {
+        case .boolean(let b):
+            if let fA = self.feature(for: b.targetSolidId) {
+                result.insert(fA.id)
+            }
+            if let fB = self.feature(for: b.toolSolidId) {
+                result.insert(fB.id)
+            }
+        case .extrude(let e):
+            if let sId = e.sketchFeatureId {
+                result.insert(sId)
+            }
+        case .sketch(let s):
+            if let planeRef = s.planeReference {
+                result.insert(planeRef.sourceFeatureId)
+            }
+        case .primitive, .part, .imported:
+            break
+        }
+
+        result.remove(feature.id)
+        return result
+    }
+
+    /// Returns all features in the document that directly reference `targetFeatureId` (BL-FND-03).
+    public func directDependentFeatures(referencing targetFeatureId: UUID) -> [Feature] {
+        features.filter { feat in
+            directDependencies(of: feat).contains(targetFeatureId)
+        }
+    }
+
+    /// Returns all features in the document that directly or transitively reference `targetFeatureId` in topological (timeline) order (BL-FND-03).
+    public func dependentFeatures(referencing targetFeatureId: UUID) -> [Feature] {
+        guard let targetIndex = features.firstIndex(where: { $0.id == targetFeatureId }) else {
+            return []
+        }
+        var dirtyIds: Set<UUID> = [targetFeatureId]
+        var dependents: [Feature] = []
+
+        for feature in features[(targetIndex + 1)...] {
+            let deps = directDependencies(of: feature)
+            if !deps.isDisjoint(with: dirtyIds) {
+                dirtyIds.insert(feature.id)
+                dependents.append(feature)
+            }
+        }
+        return dependents
     }
 
     // MARK: - SceneObject Bridged Mutators
@@ -994,8 +1043,25 @@ public final class DocumentModel {
         return .success(())
     }
 
-    /// Returns all direct and transitive dependent objects of `rootId` in topological order.
+    /// Returns all direct dependent objects of `rootId` (BL-FND-03).
+    public func directDependentObjects(of rootId: ObjectId) -> [ObjectId] {
+        if let feat = feature(for: rootId) {
+            return directDependentFeatures(referencing: feat.id).compactMap(\.outputSolidId)
+        }
+        var result: [ObjectId] = []
+        for obj in objects {
+            if case .boolean(_, let a, let b) = obj.def, a == rootId || b == rootId {
+                result.append(obj.id)
+            }
+        }
+        return result
+    }
+
+    /// Returns all direct and transitive dependent objects of `rootId` in topological order (BL-FND-03).
     public func dependentObjects(of rootId: ObjectId) -> [ObjectId] {
+        if let feat = feature(for: rootId) {
+            return dependentFeatures(referencing: feat.id).compactMap(\.outputSolidId)
+        }
         var result: [ObjectId] = []
         var visited: Set<ObjectId> = [rootId]
         for obj in objects {
