@@ -84,7 +84,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | KERN-11 | An agent can cancel a job by ID before it executes; cancelling a job that is executing in the kernel service ends the service and returns `cancelled` | n/a | done | done | In progress | #245 | n/a |
 | KERN-12 | A user gets a superseded in-flight result dropped (honest cancellation); `executePending` awaits the engine, so a newer job for the same solid can start meanwhile and the older result resolves as `cancelled` | n/a | done | n/a | In progress |  | n/a |
 | KERN-13 | A user or agent can dispose a solid's cached payloads, active job, and pending job | n/a | done | done | Shipped | #93 | n/a |
-| KERN-14 | A developer can read dispatched, conflated, dropped and completed job counters | n/a | done | n/a | In progress |  | n/a |
+| KERN-14 | A developer can read dispatched, conflated, dropped and completed job counters | n/a | done | n/a | Shipped | #139 | n/a |
 | KERN-15 | A user can re-fetch a solid's cached mesh with a tessellate request | n/a | done | done | In progress |  | n/a |
 | KERN-16 | A user can import a STEP file (`importStep`); the request always fails with `geometryFailed` "pending OpenCASCADE bridge" | none | none | n/a | In progress | #38 | n/a |
 | KERN-17 | A caller gets typed failures (`kernel-init-failed`, `invalid-params`, `geometry-failed`, `unknown-solid`, `cancelled`, `worker-crashed`) instead of thrown errors; the kernel service produces `kernel-init-failed` (no session, breaker open) and `worker-crashed` (service stopped during the job) | n/a | done | n/a | Shipped | #245 | n/a |

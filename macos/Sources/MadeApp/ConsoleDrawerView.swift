@@ -39,6 +39,7 @@ struct ConsoleDrawerView: View {
             Divider()
 
             HStack(spacing: 8) {
+                telemetrySection
                 Spacer()
                 BarFilterField(text: $filterText)
                     .frame(width: 220)
@@ -50,6 +51,30 @@ struct ConsoleDrawerView: View {
             .frame(height: BarMetrics.height)
             .background(.bar)
         }
+        .onAppear {
+            workspace.updateStats()
+        }
+    }
+
+    private var telemetrySection: some View {
+        HStack(spacing: 8) {
+            Text("Render: \(workspace.renderStats.renderCount)")
+            telemetrySeparator
+            Text("Draw Calls: \(workspace.renderStats.drawCalls)")
+            telemetrySeparator
+            Text("Invalidate: \(workspace.renderStats.lastReason)")
+            telemetrySeparator
+            Text("Dispatched: \(workspace.kernelStats.dispatched)")
+            telemetrySeparator
+            Text("Conflated: \(workspace.kernelStats.conflated)")
+        }
+        .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(.secondary)
+    }
+
+    private var telemetrySeparator: some View {
+        Divider().frame(height: 12)
     }
 
     private var filteredLogs: [ConsoleLogEntry] {

@@ -3,7 +3,7 @@ import os
 
 private let kernelSignposter = OSSignposter(subsystem: "com.made.app", category: "Kernel")
 
-public struct KernelStats: Sendable {
+public struct KernelStats: Equatable, Sendable {
     public var dispatched: Int = 0
     public var conflated: Int = 0
     public var dropped: Int = 0
