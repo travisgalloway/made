@@ -8,6 +8,13 @@ import ImageIO
 import UniformTypeIdentifiers
 import os
 
+struct GizmoGeometryBuffers: @unchecked Sendable {
+    let positionBuffer: MTLBuffer
+    let defaultColorBuffer: MTLBuffer
+    let activeColorBuffer: MTLBuffer
+    let vertexCount: Int
+}
+
 /// Metal 4 renderer for the CAD viewport (invariant 5). Draws on demand only (invariant 2).
 public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     public let device: MTLDevice
@@ -23,14 +30,14 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     // Pipelines and fixed-function state
     private let solidPipeline: MTLRenderPipelineState
-    private let linePipeline: MTLRenderPipelineState
+    let linePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
     private let outlinePipeline: MTLRenderPipelineState
     private let solidDepthState: MTLDepthStencilState
     private let gridDepthState: MTLDepthStencilState
     private let axesDepthState: MTLDepthStencilState
     private let billboardDepthState: MTLDepthStencilState
-    private let snapDepthState: MTLDepthStencilState
+    let snapDepthState: MTLDepthStencilState
     private let outlineDepthState: MTLDepthStencilState
     private let billboardSampler: MTLSamplerState
     private let billboardTexture: MTLTexture?
@@ -71,6 +78,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     public var activeSnap: SnapResult? = nil
     public var selectedId: SolidId? = nil
+    public var activeGizmoHandle: GizmoHandle? = nil
+    public var showsGizmo: Bool = true
+    var gizmoGeometry: [GizmoHandle: GizmoGeometryBuffers] = [:]
     public private(set) var lastDrawCalls: Int = 0
     public var camera: Camera = Camera()
     public var cameraPosition: SIMD3<Float> {
@@ -170,6 +180,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         setupGrid()
         setupAxes()
         setupSnapMarker()
+        setupGizmo()
         queue.addResidencySet(residency)
     }
 
@@ -227,7 +238,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     // MARK: - Static geometry
 
-    private func makeBuffer<T: BitwiseCopyable>(_ values: [T], label: String) -> MTLBuffer? {
+    func makeBuffer<T: BitwiseCopyable>(_ values: [T], label: String) -> MTLBuffer? {
         guard !values.isEmpty else { return nil }
         let buffer = values.withUnsafeBytes { bytes in
             device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
@@ -363,7 +374,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     // MARK: - Residency
 
-    private func updateResidency() {
+    func updateResidency() {
         residencySet.removeAllAllocations()
         var allocations: [MTLAllocation] = frameArenas.map(\.buffer)
         let statics: [MTLBuffer?] = [
@@ -376,13 +387,16 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         for mesh in meshes.values {
             allocations += [mesh.positionBuffer, mesh.normalBuffer, mesh.indexBuffer]
         }
+        for geom in gizmoGeometry.values {
+            allocations += [geom.positionBuffer, geom.defaultColorBuffer, geom.activeColorBuffer]
+        }
         residencySet.addAllocations(allocations)
         residencySet.commit()
     }
 
     // MARK: - Encoding
 
-    private struct EncodeContext {
+    struct EncodeContext {
         let encoder: MTL4RenderCommandEncoder
         let table: MTL4ArgumentTable
         let arena: UniformArena
@@ -400,12 +414,12 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     }
 
     private func requiredArenaCapacity() -> Int {
-        // One block per visible solid, plus outline, grid, axes, labels, and snap marker.
-        UniformArena.capacity(forDraws: meshes.count + 5, blockSize: MemoryLayout<OutlineUniforms>.stride)
+        // One block per visible solid, plus outline, grid, axes, labels, snap marker, and gizmo.
+        UniformArena.capacity(forDraws: meshes.count + 12, blockSize: MemoryLayout<OutlineUniforms>.stride)
     }
 
     @discardableResult
-    private func renderScene(_ ctx: EncodeContext, aspect: Float, cameraOverride: Camera? = nil) -> Int {
+    private func renderScene(_ ctx: EncodeContext, aspect: Float, cameraOverride: Camera? = nil, includeGizmo: Bool = true) -> Int {
         let encoder = ctx.encoder
         encoder.setArgumentTable(ctx.table, stages: [.vertex, .fragment])
         encoder.setRenderPipelineState(solidPipeline)
@@ -547,6 +561,14 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             }
         }
 
+        // Gizmo rendering for selected solid
+        if includeGizmo,
+           let selectedId,
+           let mesh = meshes[selectedId],
+           !hiddenSolidIds.contains(selectedId) {
+            drawGizmo(ctx, mesh: mesh, viewMatrix: viewMatrix, projMatrix: projMatrix, drawCalls: &drawCalls)
+        }
+
         return drawCalls
     }
 
@@ -604,7 +626,11 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             return
         }
         let aspect = Float(max(1.0, view.drawableSize.width) / max(1.0, view.drawableSize.height))
-        let drawCalls = renderScene(EncodeContext(encoder: encoder, table: frameTable, arena: arena), aspect: aspect)
+        let drawCalls = renderScene(
+            EncodeContext(encoder: encoder, table: frameTable, arena: arena),
+            aspect: aspect,
+            includeGizmo: showsGizmo
+        )
         encoder.endEncoding()
         commandBuffer.endCommandBuffer()
 
@@ -622,10 +648,14 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     // MARK: - Snapshot
 
     public func captureSnapshotPngBase64() async -> String? {
-        await captureSnapshotPngBase64(view: nil)
+        await captureSnapshotPngBase64(view: nil, includeGizmo: false)
     }
 
     public func captureSnapshotPngBase64(view: ViewportPerspective?) async -> String? {
+        await captureSnapshotPngBase64(view: view, includeGizmo: false)
+    }
+
+    public func captureSnapshotPngBase64(view: ViewportPerspective?, includeGizmo: Bool) async -> String? {
         let width = 800
         let height = 600
         let colorDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: Self.colorFormat, width: width, height: height, mipmapped: false)
@@ -665,7 +695,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             drawCalls = renderScene(
                 EncodeContext(encoder: encoder, table: snapshotTable, arena: arena),
                 aspect: Float(width) / Float(height),
-                cameraOverride: cameraOverride
+                cameraOverride: cameraOverride,
+                includeGizmo: includeGizmo
             )
             encoder.endEncoding()
             commandBuffer.endCommandBuffer()
