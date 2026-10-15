@@ -28,6 +28,7 @@ struct InspectorPanelView: View {
                     transformSection(selected)
                     dimensionsSection(selected)
                 }
+                .disabled(selected.isLocked)
                 .formStyle(.columns)
                 .controlSize(.small)
                 .padding()

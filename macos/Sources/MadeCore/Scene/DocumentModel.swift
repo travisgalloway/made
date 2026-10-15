@@ -112,6 +112,30 @@ public enum DocumentLimits {
     }
 }
 
+public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConvertible {
+    case objectLocked(ObjectId)
+    case objectNotFound(ObjectId)
+
+    public var description: String {
+        switch self {
+        case .objectLocked(let id):
+            return "Solid '\(id.rawValue)' is locked and cannot be modified"
+        case .objectNotFound(let id):
+            return "Solid '\(id.rawValue)' not found"
+        }
+    }
+}
+
+extension Result where Success == Void, Failure: Equatable {
+    public static func == (lhs: Result<Void, Failure>, rhs: Result<Void, Failure>) -> Bool {
+        switch (lhs, rhs) {
+        case (.success, .success): return true
+        case (.failure(let l), .failure(let r)): return l == r
+        default: return false
+        }
+    }
+}
+
 public let boxSolidId = SolidId("box-1")
 public let cylinderSolidId = SolidId("cylinder-1")
 
@@ -200,16 +224,30 @@ public final class DocumentModel {
             objects[index].def = .part(url: url, shape: shape)
         }
     }
-    
-    public func removeObject(id: ObjectId) {
-        objects.removeAll(where: { $0.id == id })
+
+    @discardableResult
+    public func removeObject(id: ObjectId) -> Result<Void, DocumentMutationError> {
+        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(id))
+        }
+        guard !objects[index].isLocked else {
+            return .failure(.objectLocked(id))
+        }
+        objects.remove(at: index)
         if selectedId == id {
             selectedId = nil
         }
+        return .success(())
     }
     
-    public func setParam(id: ObjectId, key: String, value: Float) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
+    @discardableResult
+    public func setParam(id: ObjectId, key: String, value: Float) -> Result<Void, DocumentMutationError> {
+        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(id))
+        }
+        guard !objects[index].isLocked else {
+            return .failure(.objectLocked(id))
+        }
         switch objects[index].def {
         case .box(var params):
             switch key {
@@ -231,11 +269,19 @@ public final class DocumentModel {
         case .imported, .boolean, .part:
             break
         }
+        return .success(())
     }
     
-    public func setTransform(id: ObjectId, transform: Transform) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
+    @discardableResult
+    public func setTransform(id: ObjectId, transform: Transform) -> Result<Void, DocumentMutationError> {
+        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(id))
+        }
+        guard !objects[index].isLocked else {
+            return .failure(.objectLocked(id))
+        }
         objects[index].transform = transform
+        return .success(())
     }
     
     public func setName(id: ObjectId, name: String) {
@@ -253,8 +299,15 @@ public final class DocumentModel {
         objects[index].isLocked = isLocked
     }
     
-    public func setMaterial(id: ObjectId, material: MaterialAttributes) {
-        guard let index = objects.firstIndex(where: { $0.id == id }) else { return }
+    @discardableResult
+    public func setMaterial(id: ObjectId, material: MaterialAttributes) -> Result<Void, DocumentMutationError> {
+        guard let index = objects.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(id))
+        }
+        guard !objects[index].isLocked else {
+            return .failure(.objectLocked(id))
+        }
         objects[index].material = material
+        return .success(())
     }
 }

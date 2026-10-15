@@ -238,7 +238,7 @@ final class WorkspaceModel {
     }
 
     func removeObject(_ id: ObjectId) {
-        guard document.objects.contains(where: { $0.id == id }) else { return }
+        guard let obj = document.objects.first(where: { $0.id == id }), !obj.isLocked else { return }
         partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
         Task { await kernelClient.dispose(solidId: id) }
@@ -270,7 +270,8 @@ final class WorkspaceModel {
     }
 
     func setTransform(_ id: ObjectId, _ transform: Transform) {
-        document.setTransform(id: id, transform: transform)
+        let result = document.setTransform(id: id, transform: transform)
+        guard case .success = result else { return }
         if let renderer = viewportManager.renderer {
             _ = SolidMeshApplier.applyTransform(to: id, document: document, sink: renderer)
         }
@@ -278,7 +279,8 @@ final class WorkspaceModel {
     }
 
     func setParam(_ id: ObjectId, _ key: String, _ value: Float) {
-        document.setParam(id: id, key: key, value: value)
+        let result = document.setParam(id: id, key: key, value: value)
+        guard case .success = result else { return }
         log(.kernel, "CSG", "Updated \(id.rawValue) \(key) to \(String(format: "%.1f", value))")
         recomputeSolid(id: id)
     }

@@ -91,7 +91,7 @@ document.setTransform(id: boxId, transform: t)
 document.removeObject(id: boxId)
 ```
 
-The model also exposes `setName(id:name:)`, `setVisibility(id:isVisible:)`, `setLocked(id:isLocked:)`, and `setMaterial(id:material:)`. The Navigator calls the first three. No caller uses `setMaterial` yet, and no edit path enforces `isLocked`.
+The model also exposes `setName(id:name:)`, `setVisibility(id:isVisible:)`, `setLocked(id:isLocked:)`, and `setMaterial(id:material:)`. Mutators `setParam`, `setTransform`, `setMaterial`, and `removeObject` guard `!isLocked` and return `Result<Void, DocumentMutationError>`, returning `.failure(.objectLocked(id))` if locked. Non-existent IDs return `.failure(.objectNotFound(id))`.
 
 ### Limits Clamping
 `DocumentLimits` in `DocumentModel.swift` clamps parameter updates made through `setParam` to fixed ranges (a NaN value becomes the minimum):

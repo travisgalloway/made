@@ -339,7 +339,15 @@ public final class CADToolRegistry {
             return .error("Unknown parameter '\(param)' for \(def.kind) solid '\(idStr)'. Supported: \(names)")
         }
         
-        document.setParam(id: id, key: param, value: val)
+        let result = document.setParam(id: id, key: param, value: val)
+        switch result {
+        case .failure(.objectLocked(let lockedId)):
+            return .error("Solid '\(lockedId.rawValue)' is locked and cannot be edited")
+        case .failure(.objectNotFound):
+            return .error("Solid '\(idStr)' not found in scene")
+        case .success:
+            break
+        }
         scheduleRecompute(id: id)
         let stored = document.paramsFor(id: id).flatMap { Self.editableParams(of: $0)?.first(where: { $0.name == param })?.value } ?? val
         return .text("Updated parameter '\(param)' on solid '\(idStr)' to \(stored)")
@@ -410,7 +418,15 @@ public final class CADToolRegistry {
             return .error(error.message)
         }
         
-        document.setTransform(id: id, transform: transform)
+        let result = document.setTransform(id: id, transform: transform)
+        switch result {
+        case .failure(.objectLocked(let lockedId)):
+            return .error("Solid '\(lockedId.rawValue)' is locked and cannot be moved")
+        case .failure(.objectNotFound):
+            return .error("Solid '\(idStr)' not found in scene")
+        case .success:
+            break
+        }
         if let sink = meshSink, SolidMeshApplier.applyTransform(to: id, document: document, sink: sink) {
             onViewportInvalidated?()
         }
@@ -422,8 +438,11 @@ public final class CADToolRegistry {
             return .error("Missing required argument 'id'")
         }
         let id = SolidId(idStr)
-        guard document.objects.contains(where: { $0.id == id }) else {
+        guard let obj = document.objects.first(where: { $0.id == id }) else {
             return .error("Solid '\(idStr)' not found in scene")
+        }
+        guard !obj.isLocked else {
+            return .error("Solid '\(id.rawValue)' is locked and cannot be removed")
         }
         
         let inFlight = inFlightRecomputes.removeValue(forKey: id)
