@@ -71,7 +71,7 @@ struct InspectorPanelView: View {
             LabeledContent("Scale") {
                 vectorFields(obj.transform.scale) { scale in
                     var t = obj.transform
-                    t.scale = simd_max(scale, SIMD3<Float>(repeating: 0.01))
+                    t.scale = simd_max(scale, SIMD3<Float>(repeating: DocumentLimits.scaleFloor))
                     workspace.setTransform(obj.id, t)
                 }
             }

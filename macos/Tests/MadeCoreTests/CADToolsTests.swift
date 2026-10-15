@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import simd
 @testable import MadeCore
 
 @Suite @MainActor struct CADToolsTests {
@@ -287,13 +288,13 @@ import Foundation
     
     private func expectSetRejected(_ args: [String: AnyCodableValue], mentioning key: String) async {
         let doc = DocumentModel()
-        let before = doc.objects.first(where: { $0.id == boxSolidId })?.transform.position
+        let before = doc.objects.first(where: { $0.id == boxSolidId })?.transform
         var full = args
         full["id"] = .string("box-1")
         let result = await setTransform(doc, full)
         #expect(result.isError == true)
         #expect(result.content.first?.text?.contains(key) == true)
-        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.transform.position == before)
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.transform == before)
     }
     
     private func boxPosition(_ doc: DocumentModel) -> SIMD3<Float>? {
@@ -521,6 +522,54 @@ import Foundation
         let result = await setTransform(DocumentModel(), ["id": .string("nope"), "posX": .double(1)])
         #expect(result.isError == true)
         #expect(result.content.first?.text == "Error: Solid 'nope' not found in scene")
+    }
+    
+    @Test func testSetTransformRotation() async {
+        let doc = DocumentModel()
+        let result = await setTransform(doc, [
+            "id": .string("box-1"),
+            "rotX": .double(90),
+            "rotY": .double(0),
+            "rotZ": .double(45)
+        ])
+        #expect(result.isError == false)
+        #expect(result.content.first?.text?.contains("rotation (90.0, 0.0, 45.0)") == true)
+        
+        let degToRad = Float.pi / 180.0
+        let qx = simd_quatf(angle: 90 * degToRad, axis: SIMD3<Float>(1, 0, 0))
+        let qy = simd_quatf(angle: 0 * degToRad, axis: SIMD3<Float>(0, 1, 0))
+        let qz = simd_quatf(angle: 45 * degToRad, axis: SIMD3<Float>(0, 0, 1))
+        let expectedQuat = qz * qy * qx
+        
+        let actualRot = doc.objects.first(where: { $0.id == boxSolidId })?.transform.rotation
+        #expect(actualRot != nil)
+        if let actualRot {
+            #expect(simd_distance(actualRot.vector, expectedQuat.vector) < 1e-5)
+        }
+    }
+    
+    @Test func testSetTransformRotationOmittedAnglesDefaultToZero() async {
+        let doc = DocumentModel()
+        let result = await setTransform(doc, [
+            "id": .string("box-1"),
+            "rotZ": .double(30)
+        ])
+        #expect(result.isError == false)
+        let degToRad = Float.pi / 180.0
+        let expectedQuat = simd_quatf(angle: 30 * degToRad, axis: SIMD3<Float>(0, 0, 1))
+        let actualRot = doc.objects.first(where: { $0.id == boxSolidId })?.transform.rotation
+        if let actualRot {
+            #expect(simd_distance(actualRot.vector, expectedQuat.vector) < 1e-5)
+        }
+    }
+    
+    @Test func testSetTransformRejectsInvalidRotation() async {
+        await expectSetRejected(["rotX": .string("invalid")], mentioning: "rotX")
+        await expectSetRejected(["rotY": .double(.nan)], mentioning: "finite")
+        await expectSetRejected(["rotZ": .double(.infinity)], mentioning: "finite")
+        await expectSetRejected(["rotX": .double(1e39)], mentioning: "finite")
+        await expectSetRejected(["rotY": .null], mentioning: "must be a number")
+        await expectSetRejected(["rotZ": .bool(true)], mentioning: "must be a number")
     }
     
     // MARK: - cad_boolean_operation operand validation (#99)
@@ -756,6 +805,9 @@ import Foundation
         for key in ["posX", "posY", "posZ"] {
             #expect(tool.inputSchema.properties[key]?.description?.contains("10000") == true)
         }
+        for key in ["rotX", "rotY", "rotZ"] {
+            #expect(tool.inputSchema.properties[key]?.description?.contains("degrees") == true)
+        }
     }
     
     // MARK: - Window-bound viewport recompute (#132)
@@ -836,6 +888,49 @@ import Foundation
         #expect(sink.meshes[boxSolidId]?.transform.position == SIMD3<Float>(33, -12, 0))
         #expect(sink.invalidations == 3)
         #expect(doc.objects.first(where: { $0.id == boxSolidId })?.transform.position == SIMD3<Float>(33, -12, 0))
+    }
+
+    @Test func testWindowBoundSetTransformUpdatesMeshRotation() async throws {
+        let (doc, _, sink, registry) = makeWindowBoundFixture()
+        registry.scheduleRecompute(id: boxSolidId)
+        await registry.settleRecomputes(for: [boxSolidId])
+        
+        let result = await registry.callTool(name: "cad_set_transform", arguments: [
+            "id": .string("box-1"),
+            "rotZ": .double(90)
+        ])
+        #expect(result.isError == false)
+        let degToRad = Float.pi / 180.0
+        let expectedQuat = simd_quatf(angle: 90 * degToRad, axis: SIMD3<Float>(0, 0, 1))
+        let installedRot = try #require(sink.meshes[boxSolidId]?.transform.rotation)
+        #expect(simd_distance(installedRot.vector, expectedQuat.vector) < 1e-5)
+        #expect(sink.invalidations >= 2)
+    }
+
+    @Test func testScaleAndRotationEditsIssueZeroKernelDispatches() async throws {
+        let (doc, kernel, sink, registry) = makeWindowBoundFixture()
+        registry.scheduleRecompute(id: boxSolidId)
+        await registry.settleRecomputes(for: [boxSolidId])
+        
+        let dispatchedBefore = await kernel.getStats().dispatched
+        
+        // 1. Scale edit via document & SolidMeshApplier
+        var t = try #require(doc.objects.first(where: { $0.id == boxSolidId })?.transform)
+        t.scale = SIMD3<Float>(2.0, 1.5, 0.5)
+        doc.setTransform(id: boxSolidId, transform: t)
+        _ = SolidMeshApplier.applyTransform(to: boxSolidId, document: doc, sink: sink)
+        
+        // 2. Rotation edit via cad_set_transform tool
+        let rotResult = await registry.callTool(name: "cad_set_transform", arguments: [
+            "id": .string("box-1"),
+            "rotX": .double(45),
+            "rotY": .double(30),
+            "rotZ": .double(15)
+        ])
+        #expect(rotResult.isError == false)
+        
+        let dispatchedAfter = await kernel.getStats().dispatched
+        #expect(dispatchedAfter == dispatchedBefore, "Scale and rotation edits must not dispatch kernel recomputes")
     }
     
     @Test func testWindowBoundBooleanInstallsResultMesh() async throws {

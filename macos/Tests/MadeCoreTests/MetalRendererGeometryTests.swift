@@ -418,6 +418,167 @@ import ImageIO
         #expect(renderer.lastDrawCalls == 0)
     }
 
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testProjectedBoundsGrowWithScale() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+        renderer.camera = Camera.preset(.front)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let baseBounds = projectedBounds(of: payload, transform: .identity, renderer: renderer)
+
+        let scaledTransform = Transform(scale: SIMD3<Float>(2.0, 1.0, 1.0))
+        let scaledBounds = projectedBounds(of: payload, transform: scaledTransform, renderer: renderer)
+
+        let ratio = scaledBounds.width / baseBounds.width
+        #expect(ratio > 1.95 && ratio < 2.05, "Projected bounds width should approximately double when scale.x is 2.0")
+
+        let boxId = SolidId("box")
+        let mesh = try #require(renderer.createMesh(from: payload, solidId: boxId, transform: scaledTransform, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[boxId] = mesh
+
+        let snapshot = try #require(await renderer.captureSnapshotPngBase64())
+        let pixels = try decodeRGBA(snapshot)
+        let background = mostCommonPixel(pixels)
+
+        var insideScaled = 0
+        var outsideScaled = 0
+        var outsideBase = 0
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                let p = (pixels[i], pixels[i + 1], pixels[i + 2])
+                let covered = abs(Int(p.0) - Int(background.0)) > 4
+                    || abs(Int(p.1) - Int(background.1)) > 4
+                    || abs(Int(p.2) - Int(background.2)) > 4
+                guard covered else { continue }
+                let point = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
+                if scaledBounds.insetBy(dx: -2, dy: -2).contains(point) {
+                    insideScaled += 1
+                } else {
+                    outsideScaled += 1
+                }
+                if !baseBounds.insetBy(dx: -2, dy: -2).contains(point) {
+                    outsideBase += 1
+                }
+            }
+        }
+
+        #expect(outsideScaled == 0, "Rendered pixels drawn outside scaled projected bounds")
+        #expect(insideScaled > 0, "Should have rendered pixels inside scaled projected bounds")
+        #expect(outsideBase > 50, "Pixels should extend beyond base bounds due to 2x scale")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testNonUniformScaleWithRotation() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let angle: Float = Float.pi / 4.0
+        let rot = simd_quatf(angle: angle, axis: SIMD3<Float>(0, 0, 1))
+        let scale = SIMD3<Float>(2.0, 0.5, 1.5)
+        let transform = Transform(rotation: rot, scale: scale)
+
+        let rotMatrix = simd_float3x3(rot)
+        let expectedNormalCol0 = rotMatrix.columns.0 * (1.0 / scale.x)
+        let expectedNormalCol1 = rotMatrix.columns.1 * (1.0 / scale.y)
+        let expectedNormalCol2 = rotMatrix.columns.2 * (1.0 / scale.z)
+
+        let nm = transform.normalMatrix
+        #expect(simd_distance(nm.columns.0, expectedNormalCol0) < 1e-5)
+        #expect(simd_distance(nm.columns.1, expectedNormalCol1) < 1e-5)
+        #expect(simd_distance(nm.columns.2, expectedNormalCol2) < 1e-5)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let boxId = SolidId("rot-scale-box")
+        let mesh = try #require(renderer.createMesh(from: payload, solidId: boxId, transform: transform, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[boxId] = mesh
+
+        let snapshot = try #require(await renderer.captureSnapshotPngBase64())
+        let pixels = try decodeRGBA(snapshot)
+        let bounds = projectedBounds(of: payload, transform: transform, renderer: renderer)
+        let background = mostCommonPixel(pixels)
+
+        var outside = 0
+        var inside = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                let p = (pixels[i], pixels[i + 1], pixels[i + 2])
+                let covered = abs(Int(p.0) - Int(background.0)) > 4
+                    || abs(Int(p.1) - Int(background.1)) > 4
+                    || abs(Int(p.2) - Int(background.2)) > 4
+                guard covered else { continue }
+                if bounds.insetBy(dx: -2, dy: -2).contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
+                    inside += 1
+                } else {
+                    outside += 1
+                }
+            }
+        }
+
+        #expect(outside == 0, "Pixels drawn outside projected bounds for rotated non-uniform scaled box")
+        #expect(inside > 0, "Rotated non-uniform scaled box rendered visible pixels")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testScaleAtMinimumFloor() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let minScale = SIMD3<Float>(repeating: DocumentLimits.scaleFloor)
+        let transform = Transform(scale: minScale)
+
+        let nm = transform.normalMatrix
+        #expect(nm.columns.0.x.isFinite)
+        #expect(nm.columns.1.y.isFinite)
+        #expect(nm.columns.2.z.isFinite)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let boxId = SolidId("tiny-box")
+        let mesh = try #require(renderer.createMesh(from: payload, solidId: boxId, transform: transform, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[boxId] = mesh
+
+        let snapshot = try #require(await renderer.captureSnapshotPngBase64())
+        let pixels = try decodeRGBA(snapshot)
+        #expect(pixels.count == width * height * 4)
+        #expect(renderer.lastDrawCalls == 1)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    @MainActor
+    func testHiddenObjectWithScaleEdit() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 40, depth: 30, height: 20))
+        let boxId = SolidId("hidden-box")
+        let mesh = try #require(renderer.createMesh(from: payload, solidId: boxId, transform: .identity, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[boxId] = mesh
+
+        renderer.hiddenSolidIds.insert(boxId)
+
+        let newTransform = Transform(scale: SIMD3<Float>(2.0, 2.0, 2.0))
+        let updated = renderer.updateTransform(newTransform, for: boxId)
+        #expect(updated, "updateTransform should succeed for installed mesh even if hidden")
+        #expect(renderer.meshes[boxId]?.transform.scale == SIMD3<Float>(2.0, 2.0, 2.0))
+
+        let candidates = renderer.candidateMeshes()
+        #expect(!candidates.contains(where: { $0.id == boxId }), "candidateMeshes() must omit hidden solid")
+
+        _ = try #require(await renderer.captureSnapshotPngBase64())
+        #expect(renderer.lastDrawCalls == 0, "Scene render pass must issue 0 draw calls for hidden solid")
+    }
+
     private func viewProjection(_ renderer: MetalRenderer) -> simd_float4x4 {
         let matrices = renderer.viewAndProjectionMatrices(aspect: Float(width) / Float(height))
         return matrices.projection * matrices.view

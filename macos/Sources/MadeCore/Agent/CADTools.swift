@@ -97,13 +97,16 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_set_transform",
-                description: "Updates the world position of an existing solid. Omitted coordinates are unchanged.",
+                description: "Updates the world position and rotation of an existing solid. Omitted coordinates and angles are unchanged.",
                 inputSchema: MCPInputSchema(
                     properties: [
                         "id": MCPProperty(type: "string", description: "The solid ID"),
                         "posX": MCPProperty(type: "number", description: "X position in mm, from -10000 to 10000. Omitted coordinates are unchanged."),
                         "posY": MCPProperty(type: "number", description: "Y position in mm, from -10000 to 10000. Omitted coordinates are unchanged."),
-                        "posZ": MCPProperty(type: "number", description: "Z position in mm, from -10000 to 10000. Omitted coordinates are unchanged.")
+                        "posZ": MCPProperty(type: "number", description: "Z position in mm, from -10000 to 10000. Omitted coordinates are unchanged."),
+                        "rotX": MCPProperty(type: "number", description: "X rotation in degrees. Omitted angles are unchanged."),
+                        "rotY": MCPProperty(type: "number", description: "Y rotation in degrees. Omitted angles are unchanged."),
+                        "rotZ": MCPProperty(type: "number", description: "Z rotation in degrees. Omitted angles are unchanged.")
                     ],
                     required: ["id"]
                 )
@@ -387,6 +390,16 @@ public final class CADToolRegistry {
         }
         return floatVal
     }
+
+    /// An optional rotation angle in degrees, ensuring the value is numeric, finite as a Double, and finite when converted to Float.
+    private static func optionalAngle(_ arguments: [String: AnyCodableValue], _ key: String) throws(ArgumentError) -> Float? {
+        guard let value = try optionalNumber(arguments, key) else { return nil }
+        let floatVal = Float(value)
+        guard floatVal.isFinite else {
+            throw ArgumentError(message: "Argument '\(key)' must be a finite number")
+        }
+        return floatVal
+    }
     
     /// Ordered name-and-value pairs of the parameters an agent may set, or nil for a solid with none.
     private static func editableParams(of def: ObjectDef) -> [(name: String, value: Float)]? {
@@ -407,6 +420,9 @@ public final class CADToolRegistry {
         }
         
         var transform = obj.transform
+        let rotX: Float?
+        let rotY: Float?
+        let rotZ: Float?
         do {
             let x = try Self.optionalPosition(arguments, "posX")
             let y = try Self.optionalPosition(arguments, "posY")
@@ -414,6 +430,17 @@ public final class CADToolRegistry {
             if let x { transform.position.x = x }
             if let y { transform.position.y = y }
             if let z { transform.position.z = z }
+
+            rotX = try Self.optionalAngle(arguments, "rotX")
+            rotY = try Self.optionalAngle(arguments, "rotY")
+            rotZ = try Self.optionalAngle(arguments, "rotZ")
+            if rotX != nil || rotY != nil || rotZ != nil {
+                let degToRad = Float.pi / 180.0
+                let qx = simd_quatf(angle: (rotX ?? 0) * degToRad, axis: SIMD3<Float>(1, 0, 0))
+                let qy = simd_quatf(angle: (rotY ?? 0) * degToRad, axis: SIMD3<Float>(0, 1, 0))
+                let qz = simd_quatf(angle: (rotZ ?? 0) * degToRad, axis: SIMD3<Float>(0, 0, 1))
+                transform.rotation = qz * qy * qx
+            }
         } catch {
             return .error(error.message)
         }
@@ -429,6 +456,9 @@ public final class CADToolRegistry {
         }
         if let sink = meshSink, SolidMeshApplier.applyTransform(to: id, document: document, sink: sink) {
             onViewportInvalidated?()
+        }
+        if rotX != nil || rotY != nil || rotZ != nil {
+            return .text("Updated transform for solid '\(idStr)' to position (\(transform.position.x), \(transform.position.y), \(transform.position.z)) and rotation (\(rotX ?? 0), \(rotY ?? 0), \(rotZ ?? 0))")
         }
         return .text("Updated transform for solid '\(idStr)' to position (\(transform.position.x), \(transform.position.y), \(transform.position.z))")
     }

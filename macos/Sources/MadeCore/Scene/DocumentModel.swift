@@ -81,6 +81,9 @@ public enum DocumentLimits {
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
     
+    /// Minimum scale floor enforced on interactive and scripted scale edits.
+    public static let scaleFloor: Float = 0.01
+    
     public static func clampBox(key: String, value: Float) -> Float {
         switch key {
         case "width": return boxWidth.clamp(value)
