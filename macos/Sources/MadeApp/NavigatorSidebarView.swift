@@ -123,6 +123,8 @@ private struct NavigatorRow: View {
     @State private var isHovered = false
 
     var body: some View {
+        let errorState = workspace.document.feature(for: object.id)?.errorState
+
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: icon)
                 .foregroundStyle(tint)
@@ -143,6 +145,20 @@ private struct NavigatorRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if let errorState {
+                        if errorState.severity == .warning {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption2)
+                                .help(errorState.message)
+                        } else {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundStyle(.red)
+                                .font(.caption2)
+                                .help(errorState.message)
+                        }
+                    }
                 }
 
                 HStack(spacing: 6) {
@@ -188,7 +204,7 @@ private struct NavigatorRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(object.name), \(object.def.kind), ID \(object.id.rawValue), \(object.parameterSummary)")
+        .accessibilityLabel("\(object.name), \(object.def.kind), ID \(object.id.rawValue), \(object.parameterSummary)\(errorState.map { ", \($0.severity == .warning ? "Warning" : "Error"): \($0.message)" } ?? "")")
         .accessibilityAction(named: object.isVisible ? "Hide Object" : "Show Object") {
             workspace.toggleVisibility(object.id)
         }

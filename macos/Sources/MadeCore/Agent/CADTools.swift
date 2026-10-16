@@ -1094,8 +1094,28 @@ public final class CADToolRegistry {
         }
         // A failure leaves the previous mesh installed; only the message changes.
         onRecomputeResult?(result, id)
-        if case .success = result {
+        switch result {
+        case .failure(_, let err):
+            if let feat = document.feature(for: id) {
+                document.setFeatureError(
+                    id: feat.id,
+                    error: FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
+                )
+                for depFeat in document.dependentFeatures(referencing: feat.id) {
+                    document.setFeatureError(
+                        id: depFeat.id,
+                        error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                    )
+                }
+            }
+        case .success:
+            if let feat = document.feature(for: id) {
+                document.setFeatureError(id: feat.id, error: nil)
+            }
             for depId in document.directDependentObjects(of: id) {
+                if let depFeat = document.feature(for: depId), depFeat.errorState?.code == "parent-failed" {
+                    document.setFeatureError(id: depFeat.id, error: nil)
+                }
                 scheduleRecompute(id: depId)
             }
         }

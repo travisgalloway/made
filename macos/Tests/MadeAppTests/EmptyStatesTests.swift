@@ -178,4 +178,40 @@ import MadeCore
             #expect(views.count == 5)
         }
     }
+
+    @Test @MainActor func testViewInstantiationWithFeatureErrorAndWarningStates() {
+        let workspace = WorkspaceModel()
+
+        // Give box-1 an error state
+        if let boxFeat = workspace.document.features.first(where: { $0.outputSolidId == boxSolidId }) {
+            workspace.document.setFeatureError(
+                id: boxFeat.id,
+                error: FeatureErrorState(code: "invalid-params", message: "Invalid box parameter", severity: .error)
+            )
+        }
+
+        // Give cylinder-1 a warning state
+        if let cylFeat = workspace.document.features.first(where: { $0.outputSolidId == cylinderSolidId }) {
+            workspace.document.setFeatureError(
+                id: cylFeat.id,
+                error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+            )
+        }
+
+        workspace.selectedId = boxSolidId
+
+        let viewsWithBoxSelected: [any View] = [
+            NavigatorSidebarView().environment(workspace),
+            InspectorPanelView().environment(workspace)
+        ]
+        #expect(viewsWithBoxSelected.count == 2)
+
+        // Select cylinder-1 to test Inspector under warning state
+        workspace.selectedId = cylinderSolidId
+        let viewsWithCylinderSelected: [any View] = [
+            NavigatorSidebarView().environment(workspace),
+            InspectorPanelView().environment(workspace)
+        ]
+        #expect(viewsWithCylinderSelected.count == 2)
+    }
 }

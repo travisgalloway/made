@@ -268,9 +268,48 @@ import simd
 
         #expect(doc.features[0].errorState?.code == "geometry-failed")
         #expect(doc.features[0].errorState?.message == "Non-manifold boolean result")
+        #expect(doc.features[0].errorState?.severity == .error)
 
         doc.setFeatureError(id: boxFeature.id, error: nil)
         #expect(doc.features[0].errorState == nil)
+    }
+
+    @Test func testFeatureErrorSeverityDefaultAndCustomValues() {
+        let defaultError = FeatureErrorState(code: "invalid-params", message: "Negative width")
+        #expect(defaultError.severity == .error)
+
+        let customWarning = FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+        #expect(customWarning.severity == .warning)
+        #expect(customWarning.code == "parent-failed")
+        #expect(customWarning.message == "parent failed")
+    }
+
+    @Test func testFeatureErrorStateBackwardCompatibleDecoding() throws {
+        let legacyJSON = """
+        {
+          "code": "legacy-error",
+          "message": "Legacy failure message"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(FeatureErrorState.self, from: legacyJSON)
+        #expect(decoded.code == "legacy-error")
+        #expect(decoded.message == "Legacy failure message")
+        #expect(decoded.severity == .error)
+    }
+
+    @Test func testFeatureErrorStateCodableRoundTripWithWarning() throws {
+        let state = FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        let data = try encoder.encode(state)
+        let decoded = try decoder.decode(FeatureErrorState.self, from: data)
+
+        #expect(decoded.code == "parent-failed")
+        #expect(decoded.message == "parent failed")
+        #expect(decoded.severity == .warning)
     }
 
     @Test func testJSONSerializationRoundTrip() throws {

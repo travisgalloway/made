@@ -61,12 +61,34 @@ public enum KernelRegeneration {
             guard !feature.isSuppressed else { continue }
             guard feature.outputSolidId != excluded else { continue }
 
+            // Check upstream parent failures
+            let upstreamIds = document.directDependencies(of: feature)
+            let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
+            if failedParent != nil {
+                let errorState = FeatureErrorState(
+                    code: "parent-failed",
+                    message: "parent failed",
+                    severity: .warning
+                )
+                document.setFeatureError(id: feature.id, error: errorState)
+                continue
+            } else if feature.errorState?.code == "parent-failed" {
+                document.setFeatureError(id: feature.id, error: nil)
+            }
+
             if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
                 let errorState = FeatureErrorState(
                     code: "reference-broken",
-                    message: "Reference broken: \(brokenErr.description)"
+                    message: "Reference broken: \(brokenErr.description)",
+                    severity: .error
                 )
                 document.setFeatureError(id: feature.id, error: errorState)
+                for dep in document.dependentFeatures(referencing: feature.id) {
+                    document.setFeatureError(
+                        id: dep.id,
+                        error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                    )
+                }
                 continue
             } else if feature.errorState?.code == "reference-broken" {
                 document.setFeatureError(id: feature.id, error: nil)
@@ -79,8 +101,14 @@ public enum KernelRegeneration {
             case .success:
                 document.setFeatureError(id: feature.id, error: nil)
             case .failure(_, let err):
-                let errorState = FeatureErrorState(code: err.code.rawValue, message: err.message)
+                let errorState = FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
                 document.setFeatureError(id: feature.id, error: errorState)
+                for dep in document.dependentFeatures(referencing: feature.id) {
+                    document.setFeatureError(
+                        id: dep.id,
+                        error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                    )
+                }
             }
         }
     }
