@@ -221,6 +221,18 @@ public struct MetalMesh: @unchecked Sendable {
         self.vertexBuffer = vertexBuffer
         self.vertexCount = vertexCount
     }
+    
+    public func faceNormal(forFaceId faceId: Int) -> SIMD3<Float>? {
+        var mesh = candidateMesh
+        mesh.transform = self.transform
+        return mesh.faceNormal(forFaceId: faceId)
+    }
+    
+    public func faceCentroid(forFaceId faceId: Int) -> SIMD3<Float>? {
+        var mesh = candidateMesh
+        mesh.transform = self.transform
+        return mesh.faceCentroid(forFaceId: faceId)
+    }
 }
 
 /// An immutable point-in-time capture of viewport scene state for off-main encoding passes.

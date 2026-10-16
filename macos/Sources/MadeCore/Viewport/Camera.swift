@@ -299,6 +299,102 @@ public struct Camera: Sendable, Equatable {
             return Camera(position: target + isoDir * distance, target: target)
         }
     }
+    
+    /// Pure function: computes a camera positioned along +normal * distance looking at target.
+    /// If |normal.z| > 0.999, applies a 0.001 Y offset to eye position to prevent singular look-at.
+    /// If `allowFlip` is true and `currentCamera` is already aligned with `normal`, inverts the normal by 180°.
+    public static func alignedToNormal(
+        _ normal: SIMD3<Float>,
+        target: SIMD3<Float>,
+        distance: Float = 150.0,
+        currentCamera: Camera? = nil,
+        allowFlip: Bool = false,
+        projection: CameraProjection = .perspective
+    ) -> Camera {
+        let len = simd_length(normal)
+        guard len > 1e-6 else { return Camera(target: target) }
+        var norm = normal / len
+        
+        if allowFlip, let current = currentCamera {
+            let eyeVec = current.position - target
+            let eyeDist = simd_length(eyeVec)
+            if eyeDist > 1e-4 {
+                let eyeDir = eyeVec / eyeDist
+                if simd_dot(eyeDir, norm) > 0.99 {
+                    norm = -norm
+                }
+            }
+        }
+        
+        var eyePos = target + norm * distance
+        if abs(norm.z) > 0.999 {
+            eyePos.y += 0.001
+        }
+        
+        return Camera(
+            position: eyePos,
+            target: target,
+            minDistance: currentCamera?.minDistance ?? defaultMinDistance,
+            maxDistance: currentCamera?.maxDistance ?? defaultMaxDistance,
+            minPitch: currentCamera?.minPitch ?? defaultMinPitch,
+            maxPitch: currentCamera?.maxPitch ?? defaultMaxPitch,
+            projection: projection,
+            orthographicScale: currentCamera?.orthographicScale ?? 1.0
+        )
+    }
+    
+    /// Pure function: smoothly interpolates between two cameras.
+    /// Uses smoothstep easing on target and distance, and spherical slerp on viewing direction to prevent camera plunge.
+    public static func interpolate(from: Camera, to: Camera, t: Float) -> Camera {
+        if t <= 0.0 { return from }
+        if t >= 1.0 { return to }
+        
+        let s = t * t * (3.0 - 2.0 * t) // smoothstep
+        let target = (1.0 - s) * from.target + s * to.target
+        let orthoScale = (1.0 - s) * from.orthographicScale + s * to.orthographicScale
+        
+        let vFrom = from.position - from.target
+        let vTo = to.position - to.target
+        let rFrom = simd_length(vFrom)
+        let rTo = simd_length(vTo)
+        let r = (1.0 - s) * rFrom + s * rTo
+        
+        guard rFrom > 1e-6 && rTo > 1e-6 else {
+            let pos = (1.0 - s) * from.position + s * to.position
+            return Camera(position: pos, target: target, projection: to.projection, orthographicScale: orthoScale)
+        }
+        
+        let dFrom = vFrom / rFrom
+        let dTo = vTo / rTo
+        let dotVal = simd_clamp(simd_dot(dFrom, dTo), -1.0, 1.0)
+        
+        let dir: SIMD3<Float>
+        if dotVal > 0.9999 {
+            dir = simd_normalize((1.0 - s) * dFrom + s * dTo)
+        } else if dotVal < -0.9999 {
+            var axis = simd_cross(dFrom, Orientation.worldUp)
+            if simd_length_squared(axis) < 1e-4 {
+                axis = simd_cross(dFrom, SIMD3<Float>(0, 1, 0))
+            }
+            let q = simd_quatf(angle: .pi * s, axis: simd_normalize(axis))
+            dir = q.act(dFrom)
+        } else {
+            let theta = acos(dotVal)
+            let sinTheta = sin(theta)
+            dir = simd_normalize((sin((1.0 - s) * theta) / sinTheta) * dFrom + (sin(s * theta) / sinTheta) * dTo)
+        }
+        
+        return Camera(
+            position: target + dir * r,
+            target: target,
+            minDistance: to.minDistance,
+            maxDistance: to.maxDistance,
+            minPitch: to.minPitch,
+            maxPitch: to.maxPitch,
+            projection: to.projection,
+            orthographicScale: orthoScale
+        )
+    }
 }
 
 public enum ViewportPerspective: String, CaseIterable, Identifiable, Sendable {

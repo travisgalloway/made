@@ -183,6 +183,69 @@ public struct CandidateMesh: Sendable {
             vertexPoints: payload.vertexPoints
         )
     }
+    
+    /// Computes the world-space normal for the specified face ID, applying the mesh transform.
+    public func faceNormal(forFaceId faceId: Int) -> SIMD3<Float>? {
+        let range: Range<Int>?
+        if let fr = faceRanges.first(where: { $0.faceId == faceId }) {
+            range = fr.triangleRange
+        } else if faceRanges.isEmpty && indices.count >= 3 {
+            range = 0..<(indices.count / 3)
+        } else {
+            range = nil
+        }
+        guard let triRange = range, !triRange.isEmpty else { return nil }
+        
+        for t in triRange {
+            let i0 = Int(t * 3)
+            guard i0 + 2 < indices.count else { continue }
+            let idx0 = Int(indices[i0])
+            let idx1 = Int(indices[i0 + 1])
+            let idx2 = Int(indices[i0 + 2])
+            guard idx0 < positions.count && idx1 < positions.count && idx2 < positions.count else { continue }
+            let p0 = positions[idx0]
+            let p1 = positions[idx1]
+            let p2 = positions[idx2]
+            let localNormal = simd_cross(p1 - p0, p2 - p0)
+            let len = simd_length(localNormal)
+            guard len > 1e-6 else { continue }
+            let normalizedLocal = localNormal / len
+            let worldNormal = transform.normalMatrix * normalizedLocal
+            let worldLen = simd_length(worldNormal)
+            guard worldLen > 1e-6 else { continue }
+            return worldNormal / worldLen
+        }
+        return nil
+    }
+
+    /// Computes the world-space centroid for the specified face ID, applying the mesh transform.
+    public func faceCentroid(forFaceId faceId: Int) -> SIMD3<Float>? {
+        let range: Range<Int>?
+        if let fr = faceRanges.first(where: { $0.faceId == faceId }) {
+            range = fr.triangleRange
+        } else if faceRanges.isEmpty && indices.count >= 3 {
+            range = 0..<(indices.count / 3)
+        } else {
+            range = nil
+        }
+        guard let triRange = range, !triRange.isEmpty else { return nil }
+        
+        var sum = SIMD3<Float>.zero
+        var count: Int = 0
+        for t in triRange {
+            let i0 = Int(t * 3)
+            guard i0 + 2 < indices.count else { continue }
+            let idx0 = Int(indices[i0])
+            let idx1 = Int(indices[i0 + 1])
+            let idx2 = Int(indices[i0 + 2])
+            guard idx0 < positions.count && idx1 < positions.count && idx2 < positions.count else { continue }
+            sum += positions[idx0] + positions[idx1] + positions[idx2]
+            count += 3
+        }
+        guard count > 0 else { return nil }
+        let localCentroid = sum / Float(count)
+        return transform.transformPoint(localCentroid)
+    }
 }
 
 public struct ScreenProjection: Sendable {

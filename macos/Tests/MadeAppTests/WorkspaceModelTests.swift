@@ -791,6 +791,87 @@ import MadeCore
         #expect(groundFlippedDir.z < -0.99)
     }
 
+    @Test @MainActor func testAlignNormalToWithSelectedFace() {
+        let model = WorkspaceModel()
+        model.setUp()
+        let boxId = ObjectId("box-1")
+        model.selectedId = boxId
+        
+        // Select face 0 (top face +Z, normal (0, 0, 1))
+        model.document.selectedSubElement = SelectedSubElement(
+            solidId: boxId,
+            elementType: .face,
+            elementId: 0
+        )
+        
+        model.alignNormalTo()
+        // Face 0 centroid for default box (40x30x20 at (-25, 0, 0)) -> (-25, 0, 10)
+        let expectedCentroid = SIMD3<Float>(-25, 0, 10)
+        #expect(abs(model.camera.target.x - expectedCentroid.x) < 1e-3)
+        #expect(abs(model.camera.target.y - expectedCentroid.y) < 1e-3)
+        #expect(abs(model.camera.target.z - expectedCentroid.z) < 1e-3)
+        
+        let viewDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(viewDir.z > 0.99)
+        
+        // Second activation flips 180°
+        model.alignNormalTo()
+        let flippedDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(flippedDir.z < -0.99)
+        
+        // Select face 2 (+X face, normal (1, 0, 0))
+        model.document.selectedSubElement = SelectedSubElement(
+            solidId: boxId,
+            elementType: .face,
+            elementId: 2
+        )
+        model.alignNormalTo()
+        // Face 2 centroid for default box at (-25, 0, 0) with width 40 (half-width 20) -> (-25 + 20, 0, 0) = (-5, 0, 0)
+        let expectedXCentroid = SIMD3<Float>(-5, 0, 0)
+        #expect(abs(model.camera.target.x - expectedXCentroid.x) < 1e-3)
+        #expect(abs(model.camera.target.y - expectedXCentroid.y) < 1e-3)
+        #expect(abs(model.camera.target.z - expectedXCentroid.z) < 1e-3)
+        let xDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(xDir.x > 0.99)
+    }
+
+    @Test @MainActor func testSnapCameraToFace() {
+        let model = WorkspaceModel()
+        model.setUp()
+        let boxId = ObjectId("box-1")
+        
+        // Snap camera directly to face 0 (+Z top face)
+        model.snapCameraToFace(solidId: boxId, faceId: 0)
+        let expectedCentroid = SIMD3<Float>(-25, 0, 10)
+        #expect(abs(model.camera.target.x - expectedCentroid.x) < 1e-3)
+        #expect(abs(model.camera.target.y - expectedCentroid.y) < 1e-3)
+        #expect(abs(model.camera.target.z - expectedCentroid.z) < 1e-3)
+        
+        let viewDir = simd_normalize(model.camera.position - model.camera.target)
+        #expect(viewDir.z > 0.99)
+        
+        // Singular look-at protection: view matrix has valid finite numbers
+        let lookAt = Orientation.makeLookAt(eye: model.camera.position, target: model.camera.target)
+        #expect(!lookAt.columns.0.x.isNaN && !lookAt.columns.0.x.isInfinite)
+        #expect(!lookAt.columns.3.w.isNaN && !lookAt.columns.3.w.isInfinite)
+    }
+
+    @Test @MainActor func testDoubleClickEmptySpaceDoesNothing() {
+        let model = WorkspaceModel()
+        model.setUp()
+        
+        let initialCamera = model.camera
+        
+        // When double-clicking empty space (non-existent solid or element), camera remains unchanged
+        model.snapCameraToFace(solidId: SolidId("non-existent"), faceId: 0)
+        #expect(model.camera.position == initialCamera.position)
+        #expect(model.camera.target == initialCamera.target)
+        
+        // Animation cancellation test
+        model.cancelCameraAnimation()
+        #expect(model.camera.position == initialCamera.position)
+    }
+
     @Test @MainActor func testApplyViewCubeRegion() {
         let model = WorkspaceModel()
         model.setUp()
