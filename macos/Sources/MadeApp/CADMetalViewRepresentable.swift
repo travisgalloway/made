@@ -146,6 +146,8 @@ final class CADMTKView: MTKView {
 public struct CADMetalViewRepresentable: NSViewRepresentable {
     @Bindable var document: DocumentModel
     var renderer: MetalRenderer
+    var selectedId: ObjectId?
+    var selectedSubElement: SelectedSubElement?
     var tool: ViewportTool
     var showsGrid: Bool
     var showsAxes: Bool
@@ -168,6 +170,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     public init(
         document: DocumentModel,
         renderer: MetalRenderer,
+        selectedId: ObjectId? = nil,
+        selectedSubElement: SelectedSubElement? = nil,
         tool: ViewportTool = .select,
         selectionFilter: SelectionFilter = .all,
         showsGrid: Bool = true,
@@ -189,6 +193,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     ) {
         self.document = document
         self.renderer = renderer
+        self.selectedId = selectedId
+        self.selectedSubElement = selectedSubElement
         self.tool = tool
         self.selectionFilter = selectionFilter
         self.showsGrid = showsGrid
@@ -237,25 +243,27 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 coordinator?.handleFrameRendered()
             }
         }
-        renderer.selectedId = document.selectedId
-        renderer.selectedSubElement = document.selectedSubElement
+        let activeSelectedId = selectedId ?? document.selectedId
+        let activeSubElement = selectedSubElement ?? document.selectedSubElement
+        renderer.selectedId = activeSelectedId
+        renderer.selectedSubElement = activeSubElement
         renderer.preselectedSubElement = context.coordinator.preselectedSubElement
-        let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
+        let isLocked = document.objects.first(where: { $0.id == activeSelectedId })?.isLocked ?? false
         renderer.showsGrid = showsGrid
         renderer.showsAxes = showsAxes
         renderer.showsGizmo = showsGizmo && !isLocked
         return view
     }
     
-    public func updateNSView(_ nsView: MTKView, context: Context) {
+    public func update(view: MTKView?, coordinator: Coordinator) {
         // The coordinator outlives this struct, so refresh its copy to pick up the current tool and callbacks.
-        context.coordinator.parent = self
-        (nsView as? CADMTKView)?.tool = tool
+        coordinator.parent = self
+        (view as? CADMTKView)?.tool = tool
         
         // Tool transition, filter restriction, or object deletion/hiding clears preselection highlight
         if !(tool == .select || isCommandActive) {
-            context.coordinator.clearPreselection()
-        } else if let pre = context.coordinator.preselectedSubElement {
+            coordinator.clearPreselection()
+        } else if let pre = coordinator.preselectedSubElement {
             let filterAllows: Bool
             switch pre.elementType {
             case .face: filterAllows = selectionFilter.allowsFaces
@@ -263,25 +271,25 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             case .vertex: filterAllows = selectionFilter.allowsVertices
             }
             if !filterAllows || !document.objects.contains(where: { $0.id == pre.solidId }) || renderer.hiddenSolidIds.contains(pre.solidId) {
-                context.coordinator.clearPreselection()
+                coordinator.clearPreselection()
             }
         }
         
         // Abort gizmo drag if the selected object was removed from the document or locked
-        if let drag = context.coordinator.dragState {
+        if let drag = coordinator.dragState {
             if let obj = document.objects.first(where: { $0.id == drag.selectedId }), obj.isLocked {
-                context.coordinator.abortGizmoDrag()
+                coordinator.abortGizmoDrag()
             } else if !document.objects.contains(where: { $0.id == drag.selectedId }) {
-                context.coordinator.abortGizmoDrag()
+                coordinator.abortGizmoDrag()
             }
         }
         
-        let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
+        let isLocked = document.objects.first(where: { $0.id == selectedId })?.isLocked ?? false
         let effectiveGizmo = showsGizmo && !isLocked
         var needsInvalidate = false
-        if renderer.selectedId != document.selectedId || renderer.selectedSubElement != document.selectedSubElement {
-            renderer.selectedId = document.selectedId
-            renderer.selectedSubElement = document.selectedSubElement
+        if renderer.selectedId != selectedId || renderer.selectedSubElement != selectedSubElement {
+            renderer.selectedId = selectedId
+            renderer.selectedSubElement = selectedSubElement
             needsInvalidate = true
         }
         if renderer.showsGrid != showsGrid {
@@ -297,13 +305,17 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             needsInvalidate = true
         }
         if needsInvalidate {
-            context.coordinator.invalidate(reason: .interaction)
+            coordinator.invalidate(reason: .interaction)
         }
-        if coordinatorBinding?.wrappedValue !== context.coordinator {
+        if coordinatorBinding?.wrappedValue !== coordinator {
             DispatchQueue.main.async {
-                coordinatorBinding?.wrappedValue = context.coordinator
+                coordinatorBinding?.wrappedValue = coordinator
             }
         }
+    }
+
+    public func updateNSView(_ nsView: MTKView, context: Context) {
+        update(view: nsView, coordinator: context.coordinator)
     }
     
     @MainActor
@@ -856,9 +868,19 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     if let hitId, parent.isCommandActive {
                         parent.onSelectObjectForCommand?(hitId)
                     }
+                    let isLocked = parent.document.objects.first(where: { $0.id == hitId })?.isLocked ?? false
+                    let effectiveGizmo = parent.showsGizmo && !isLocked
+                    var needsInvalidate = false
                     if parent.renderer.selectedId != hitId || parent.renderer.selectedSubElement != selectedSub {
                         parent.renderer.selectedId = hitId
                         parent.renderer.selectedSubElement = selectedSub
+                        needsInvalidate = true
+                    }
+                    if parent.renderer.showsGizmo != effectiveGizmo {
+                        parent.renderer.showsGizmo = effectiveGizmo
+                        needsInvalidate = true
+                    }
+                    if needsInvalidate {
                         invalidate(reason: .interaction)
                     }
                     if event.clickCount == 2, let (faceSolidId, faceId) = pickedFace {

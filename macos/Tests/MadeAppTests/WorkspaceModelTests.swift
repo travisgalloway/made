@@ -1735,5 +1735,114 @@ import MadeCore
         #expect(model.selectedBody?.id == cylId)
         #expect(model.selectedFeature?.outputSolidId == cylId)
     }
+
+    // MARK: - Tree & Viewport Selection Sync (BL-SEL-10 / #342)
+
+    @Test @MainActor func testTreeSelectionUpdatesViewportRendererAndInvalidates() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        RenderInstrumentation.shared.reset()
+        let cylId = ObjectId("cylinder-1")
+        model.selectedId = cylId
+
+        #expect(renderer.selectedId == SolidId("cylinder-1"))
+        #expect(RenderInstrumentation.shared.lastReason == .interaction)
+    }
+
+    @Test @MainActor func testTreeSelectionClearsSubElementHighlightInViewport() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        // Set a sub-element on box-1 in renderer and document
+        let sub = SelectedSubElement(solidId: boxId, elementType: .face, elementId: 3)
+        model.document.selectedSubElement = sub
+        renderer.selectedSubElement = sub
+        #expect(renderer.selectedSubElement != nil)
+
+        // Switch selection to cylinder-1 via tree
+        RenderInstrumentation.shared.reset()
+        model.selectedId = cylId
+
+        #expect(model.selectedId == cylId)
+        #expect(renderer.selectedId == SolidId("cylinder-1"))
+        #expect(model.document.selectedSubElement == nil)
+        #expect(renderer.selectedSubElement == nil)
+        #expect(RenderInstrumentation.shared.lastReason == .interaction)
+    }
+
+    @Test @MainActor func testTreeSelectionNoOpDoesNotInvalidateViewport() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        #expect(model.selectedId == boxId)
+        #expect(renderer.selectedId == boxId)
+
+        // Reset instrumentation
+        RenderInstrumentation.shared.reset()
+
+        // Re-selecting the identical active solid should be a no-op (Invariant 2)
+        model.selectedId = boxId
+
+        #expect(RenderInstrumentation.shared.lastReason == nil, "No-op selection change must not invalidate (Invariant 2)")
+    }
+
+    @Test @MainActor func testTreeSelectionLockedObjectHidesGizmo() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        // Lock cylinder
+        model.document.setLocked(id: cylId, isLocked: true)
+
+        // Select box (unlocked) -> showsGizmo should be true
+        model.selectedId = boxId
+        #expect(renderer.selectedId == boxId)
+        #expect(renderer.showsGizmo == true)
+
+        // Select locked cylinder -> showsGizmo should become false, but selectedId is cylinder-1
+        RenderInstrumentation.shared.reset()
+        model.selectedId = cylId
+        #expect(renderer.selectedId == cylId)
+        #expect(renderer.showsGizmo == false)
+        #expect(RenderInstrumentation.shared.lastReason == .interaction)
+    }
+
+    @Test @MainActor func testWorkspaceSetUpInitializesRendererSelection() {
+        let model = WorkspaceModel()
+        #expect(model.selectedId == ObjectId("box-1"))
+        model.setUp()
+
+        guard let renderer = model.viewportManager.renderer else { return }
+        #expect(renderer.selectedId == SolidId("box-1"))
+        #expect(renderer.showsGizmo == true)
+        #expect(renderer.selectedSubElement == nil)
+    }
+
+    @Test @MainActor func testClearingTreeSelectionClearsViewportRenderer() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        #expect(renderer.selectedId == SolidId("box-1"))
+
+        RenderInstrumentation.shared.reset()
+        model.selectedId = nil
+
+        #expect(renderer.selectedId == nil)
+        #expect(renderer.selectedSubElement == nil)
+        #expect(renderer.showsGizmo == true)
+        #expect(RenderInstrumentation.shared.lastReason == .interaction)
+    }
 }
 

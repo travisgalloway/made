@@ -22,7 +22,15 @@ final class WorkspaceModel {
 
     var selectedId: ObjectId? {
         get { document.selectedId }
-        set { document.selectedId = newValue }
+        set {
+            if document.selectedId != newValue {
+                document.selectedId = newValue
+                syncViewportSelection()
+            } else if document.selectedSubElement != nil {
+                document.selectedSubElement = nil
+                syncViewportSelection()
+            }
+        }
     }
     var pendingDeleteId: ObjectId?
     // Document Persistence & State
@@ -345,6 +353,27 @@ final class WorkspaceModel {
 
     // MARK: - Setup
 
+    func syncViewportSelection() {
+        guard let renderer = viewportManager.renderer else { return }
+        var needsInvalidate = false
+        let targetSelectedId = document.selectedId
+        let targetSubElement = document.selectedSubElement
+        if renderer.selectedId != targetSelectedId || renderer.selectedSubElement != targetSubElement {
+            renderer.selectedId = targetSelectedId
+            renderer.selectedSubElement = targetSubElement
+            needsInvalidate = true
+        }
+        let isLocked = selectedObject?.isLocked ?? false
+        let effectiveGizmo = showsGizmo && !isLocked
+        if renderer.showsGizmo != effectiveGizmo {
+            renderer.showsGizmo = effectiveGizmo
+            needsInvalidate = true
+        }
+        if needsInvalidate {
+            invalidateViewport(.interaction)
+        }
+    }
+
     func setUp() {
         guard !isSetUp else { return }
         isSetUp = true
@@ -353,6 +382,8 @@ final class WorkspaceModel {
         if let renderer = viewportManager.renderer {
             renderer.showsGrid = showsGrid
             renderer.showsAxes = showsAxes
+            renderer.selectedId = selectedId
+            renderer.selectedSubElement = document.selectedSubElement
             let isLocked = selectedObject?.isLocked ?? false
             renderer.showsGizmo = showsGizmo && !isLocked
             self.camera = renderer.camera
@@ -623,6 +654,7 @@ final class WorkspaceModel {
         isDocumentModified = false
         syncWindowState()
         syncHiddenSolidIds()
+        syncViewportSelection()
         log(.info, "Document", "Created new document")
 
         for obj in document.objects {
@@ -660,6 +692,7 @@ final class WorkspaceModel {
             isDocumentModified = false
             syncWindowState()
             syncHiddenSolidIds()
+            syncViewportSelection()
             log(.info, "Document", "Opened document from \(url.lastPathComponent)")
 
             for obj in document.objects {
@@ -812,6 +845,7 @@ final class WorkspaceModel {
             isDocumentModified = true
             syncWindowState()
             syncHiddenSolidIds()
+            syncViewportSelection()
             log(.info, "Recovery", "Recovered document from snapshot: \(record.metadata.documentTitle)")
 
             for obj in document.objects {
@@ -1155,6 +1189,7 @@ final class WorkspaceModel {
         let dependents = document.dependentObjects(of: id)
         partReloadController?.stopWatching(id: id)
         document.removeObject(id: id)
+        syncViewportSelection()
         markDocumentModified()
         let task = Task {
             await kernelClient.dispose(solidId: id)
@@ -1214,6 +1249,9 @@ final class WorkspaceModel {
     func toggleLock(_ id: ObjectId) {
         guard let obj = document.objects.first(where: { $0.id == id }) else { return }
         document.setLocked(id: id, isLocked: !obj.isLocked)
+        if id == selectedId {
+            syncViewportSelection()
+        }
         markDocumentModified()
         log(.info, "Scene", "\(obj.isLocked ? "Unlocked" : "Locked") object \(id.rawValue)")
     }

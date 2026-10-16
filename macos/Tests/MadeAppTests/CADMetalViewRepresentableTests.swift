@@ -349,4 +349,49 @@ private enum MetalTestSupport {
         #expect(renderer.preselectedSubElement == nil)
         #expect(getInvalidateCount() == initialInvalidateCount + 1, "Incompatible filter change must invalidate once (Invariant 2)")
     }
+
+    // MARK: - Representable Selection Sync (BL-SEL-10 / #342)
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testRepresentableSelectionChangeUpdatesRendererAndInvalidates() throws {
+        let (_, view, coordinator, renderer, document, getInvalidateCount) = try makeHarness()
+        renderer.selectedId = nil
+        document.selectedId = nil
+        let initialInvalidateCount = getInvalidateCount()
+
+        let cylId = ObjectId("cylinder-1")
+        let updatedRepresentable = CADMetalViewRepresentable(
+            document: document,
+            renderer: renderer,
+            selectedId: cylId,
+            selectedSubElement: nil,
+            onInvalidate: coordinator.parent.onInvalidate
+        )
+        updatedRepresentable.update(view: view, coordinator: coordinator)
+
+        #expect(renderer.selectedId == SolidId("cylinder-1"))
+        #expect(renderer.selectedSubElement == nil)
+        #expect(getInvalidateCount() == initialInvalidateCount + 1)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testRepresentableIdenticalSelectionDoesNotInvalidate() throws {
+        let (_, view, coordinator, renderer, document, getInvalidateCount) = try makeHarness()
+        let boxId = ObjectId("box-1")
+        renderer.selectedId = boxId
+        document.selectedId = boxId
+        let initialInvalidateCount = getInvalidateCount()
+
+        let sameRepresentable = CADMetalViewRepresentable(
+            document: document,
+            renderer: renderer,
+            selectedId: boxId,
+            selectedSubElement: nil,
+            onInvalidate: coordinator.parent.onInvalidate
+        )
+        sameRepresentable.update(view: view, coordinator: coordinator)
+
+        #expect(renderer.selectedId == SolidId("box-1"))
+        #expect(getInvalidateCount() == initialInvalidateCount, "Re-evaluating with identical selection must not invalidate (Invariant 2)")
+    }
 }

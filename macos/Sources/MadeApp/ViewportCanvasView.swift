@@ -55,6 +55,8 @@ struct ViewportCanvasView: View {
                         CADMetalViewRepresentable(
                             document: workspace.document,
                             renderer: renderer,
+                            selectedId: workspace.selectedId,
+                            selectedSubElement: workspace.document.selectedSubElement,
                             tool: workspace.tool,
                             selectionFilter: workspace.selectionFilter,
                             showsGrid: workspace.showsGrid,
