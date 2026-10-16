@@ -302,6 +302,10 @@ public struct MetalMesh: @unchecked Sendable {
         mesh.transform = self.transform
         return mesh.faceCentroid(forFaceId: faceId)
     }
+
+    public var spatialIndex: BodySpatialIndex? {
+        candidateMesh.spatialIndex
+    }
 }
 
 public enum DisplayMode: String, CaseIterable, Identifiable, Sendable {

@@ -21,11 +21,21 @@ public struct SceneBounds: Sendable, Equatable {
         var hi = SIMD3<Float>(repeating: -.infinity)
         var found = false
         for mesh in meshes {
-            for p in mesh.positions {
-                let w = mesh.transform.transformPoint(p)
-                lo = simd_min(lo, w)
-                hi = simd_max(hi, w)
-                found = true
+            guard !mesh.positions.isEmpty else { continue }
+            if let index = mesh.spatialIndex {
+                for c in index.bounds.corners {
+                    let w = mesh.transform.transformPoint(c)
+                    lo = simd_min(lo, w)
+                    hi = simd_max(hi, w)
+                    found = true
+                }
+            } else {
+                for p in mesh.positions {
+                    let w = mesh.transform.transformPoint(p)
+                    lo = simd_min(lo, w)
+                    hi = simd_max(hi, w)
+                    found = true
+                }
             }
         }
         return found ? SceneBounds(min: lo, max: hi) : nil

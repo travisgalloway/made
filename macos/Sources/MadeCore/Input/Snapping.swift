@@ -116,6 +116,7 @@ public struct CandidateMesh: Sendable {
     public let faceRanges: [FaceTriangleRange]
     public let edgePolylines: [EdgePolyline]
     public let vertexPoints: [VertexPoint]
+    public let spatialIndex: BodySpatialIndex?
     
     public init(
         id: SolidId,
@@ -125,7 +126,8 @@ public struct CandidateMesh: Sendable {
         indices: [UInt32] = [],
         faceRanges: [FaceTriangleRange] = [],
         edgePolylines: [EdgePolyline] = [],
-        vertexPoints: [VertexPoint] = []
+        vertexPoints: [VertexPoint] = [],
+        spatialIndex: BodySpatialIndex? = nil
     ) {
         self.id = id
         self.positions = positions
@@ -135,6 +137,20 @@ public struct CandidateMesh: Sendable {
         self.faceRanges = faceRanges
         self.edgePolylines = edgePolylines
         self.vertexPoints = vertexPoints
+        if let spatialIndex = spatialIndex {
+            self.spatialIndex = spatialIndex
+        } else if !positions.isEmpty {
+            self.spatialIndex = BodySpatialIndex(
+                positions: positions,
+                indices: indices,
+                faceRanges: faceRanges,
+                edges: edges,
+                edgePolylines: edgePolylines,
+                vertexPoints: vertexPoints
+            )
+        } else {
+            self.spatialIndex = nil
+        }
     }
     
     public init(
@@ -146,7 +162,6 @@ public struct CandidateMesh: Sendable {
         edgePolylines: [EdgePolyline] = [],
         vertexPoints: [VertexPoint] = []
     ) {
-        self.id = id
         var pts: [SIMD3<Float>] = []
         pts.reserveCapacity(rawPositions.count / 3)
         for i in stride(from: 0, to: rawPositions.count, by: 3) {
@@ -154,7 +169,6 @@ public struct CandidateMesh: Sendable {
                 pts.append(SIMD3<Float>(rawPositions[i], rawPositions[i+1], rawPositions[i+2]))
             }
         }
-        self.positions = pts
         
         var edgeSet = Set<MeshEdge>()
         for i in stride(from: 0, to: indices.count, by: 3) {
@@ -164,12 +178,16 @@ public struct CandidateMesh: Sendable {
                 edgeSet.insert(MeshEdge(indices[i+2], indices[i]))
             }
         }
-        self.edges = Array(edgeSet)
-        self.transform = transform
-        self.indices = indices
-        self.faceRanges = faceRanges
-        self.edgePolylines = edgePolylines
-        self.vertexPoints = vertexPoints
+        self.init(
+            id: id,
+            positions: pts,
+            edges: Array(edgeSet),
+            transform: transform,
+            indices: indices,
+            faceRanges: faceRanges,
+            edgePolylines: edgePolylines,
+            vertexPoints: vertexPoints
+        )
     }
     
     public init(id: SolidId, payload: MeshPayload, transform: Transform = .identity) {
@@ -397,41 +415,64 @@ public struct SnapCandidateGenerator: Sendable {
         tolerancePx: Float = defaultSnapTolerancePx
     ) -> [SnapCandidate] {
         var candidates: [SnapCandidate] = []
+        candidates.reserveCapacity(4096)
         let vp = projectionMatrix * viewMatrix
         
         // 1. Vertex candidates from meshes
         for mesh in meshes {
-            let worldPositions = mesh.positions.map { mesh.transform.transformPoint($0) }
-            
-            for worldPos in worldPositions {
-                guard let screenPos = projectToScreen(point: worldPos, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
-                    continue
-                }
-                let dist = simd_distance(pointer, screenPos)
-                if dist <= tolerancePx {
-                    candidates.append(SnapCandidate(kind: .vertex, point: worldPos, screenDistancePx: dist))
+            if let index = mesh.spatialIndex {
+                index.vertexBVH.querySnapCandidates(
+                    pointer: pointer,
+                    tolerancePx: tolerancePx,
+                    vp: vp,
+                    viewportSize: viewportSize,
+                    transform: mesh.transform,
+                    into: &candidates
+                )
+            } else {
+                let worldPositions = mesh.positions.map { mesh.transform.transformPoint($0) }
+                for worldPos in worldPositions {
+                    guard let screenPos = projectToScreen(point: worldPos, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
+                        continue
+                    }
+                    let dist = simd_distance(pointer, screenPos)
+                    if dist <= tolerancePx {
+                        candidates.append(SnapCandidate(kind: .vertex, point: worldPos, screenDistancePx: dist))
+                    }
                 }
             }
             
             // 2. Edge candidates from meshes
-            for edge in mesh.edges {
-                guard Int(edge.v0) < worldPositions.count && Int(edge.v1) < worldPositions.count else { continue }
-                let p1 = worldPositions[Int(edge.v0)]
-                let p2 = worldPositions[Int(edge.v1)]
-                
-                guard let proj1 = projectToScreenWithW(point: p1, viewProjectionMatrix: vp, viewportSize: viewportSize),
-                      let proj2 = projectToScreenWithW(point: p2, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
-                    continue
-                }
-                
-                let (closestWorld, dist) = closestPointOnSegment(
-                    p1: p1, p2: p2,
-                    s1: proj1.screen, s2: proj2.screen,
-                    screenPointer: pointer,
-                    w1: proj1.w, w2: proj2.w
+            if let index = mesh.spatialIndex {
+                index.edgeBVH.querySnapCandidates(
+                    pointer: pointer,
+                    tolerancePx: tolerancePx,
+                    vp: vp,
+                    viewportSize: viewportSize,
+                    transform: mesh.transform,
+                    into: &candidates
                 )
-                if dist <= tolerancePx {
-                    candidates.append(SnapCandidate(kind: .edge, point: closestWorld, screenDistancePx: dist))
+            } else {
+                let worldPositions = mesh.positions.map { mesh.transform.transformPoint($0) }
+                for edge in mesh.edges {
+                    guard Int(edge.v0) < worldPositions.count && Int(edge.v1) < worldPositions.count else { continue }
+                    let p1 = worldPositions[Int(edge.v0)]
+                    let p2 = worldPositions[Int(edge.v1)]
+                    
+                    guard let proj1 = projectToScreenWithW(point: p1, viewProjectionMatrix: vp, viewportSize: viewportSize),
+                          let proj2 = projectToScreenWithW(point: p2, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
+                        continue
+                    }
+                    
+                    let (closestWorld, dist) = closestPointOnSegment(
+                        p1: p1, p2: p2,
+                        s1: proj1.screen, s2: proj2.screen,
+                        screenPointer: pointer,
+                        w1: proj1.w, w2: proj2.w
+                    )
+                    if dist <= tolerancePx {
+                        candidates.append(SnapCandidate(kind: .edge, point: closestWorld, screenDistancePx: dist))
+                    }
                 }
             }
         }

@@ -4,7 +4,7 @@ Date: 2026-10-11
 Scope: macos/ (Swift 6 package, targets MadeCore and MadeApp)
 Audit run: 20261011-195134
 
-Table 1 lists 158 capabilities with their implementation status. The matrix shows 103 Shipped, 39 In progress, 11 Planned, and 5 Deprecated rows.
+Table 1 lists 159 capabilities with their implementation status. The matrix shows 104 Shipped, 39 In progress, 11 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -19,6 +19,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - VIEW-28 is Shipped. Antialiased B-rep boundary edge rendering with quad ribbons and GPU-evaluated dynamic silhouettes on curved surfaces with a viewport edge visibility toggle was implemented under #382 (BL-VPT-04).
 - VIEW-29 is Shipped. Five viewport display modes (Shaded with Edges, Shaded, Wireframe, Hidden Line Removed, Hidden Lines Visible) across core render types, Metal shaders and depth states, WorkspaceModel state and UserDefaults persistence (`com.made.display.mode`), and UI controls (ViewportCanvasView, MadeCommands, SettingsView) were implemented under #383 (BL-VPT-05).
+- VIEW-30 is Shipped. Spatial indexing for picking, snapping, camera framing, interference detection, and geometric measurement via hierarchical AABB BVH trees (TriangleBVH, EdgeBVH, VertexBVH, BodySpatialIndex) with zero-rebuild transform persistence, sub-2ms 1M-triangle candidate search, and strict Swift 6 Sendable concurrency was implemented under #396 (BL-VPT-23).
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87, and cursor-centered orbit (geometry, selection, ground plane precedence) and cursor-centered zoom (perspective and orthographic) under #385.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
 - INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69, and sub-element picking (faces, edges, vertices with GPU offscreen pass, depth bias precedence vertex > edge > face, and CPU raycast fallback) under #202 (BL-SEL-02).
@@ -70,6 +71,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | VIEW-27 | A user sees the selected solid drawn with an outline (amber fringe) and selected or hovered sub-elements highlighted (amber selection, cyan preselection on hover) in the Metal viewport | done | n/a | n/a | Shipped | #40, #337 | n/a |
 | VIEW-28 | A user sees antialiased B-rep boundary edges and GPU-evaluated dynamic silhouettes on curved surfaces with a viewport edge visibility toggle | done | done | n/a | Shipped | #382 | n/a |
 | VIEW-29 | A user can switch between five viewport display modes (Shaded with Edges, Shaded, Wireframe, Hidden Line Removed, Hidden Lines Visible) from the viewport header, View menu, and Settings, persisting the choice with zero re-tessellation | done | done | n/a | Shipped | #383 | n/a |
+| VIEW-30 | A user gets BVH spatial-indexed picking, snapping, framing, interference checking, and surface measurement with sub-2ms query performance on 1M-triangle meshes and zero rebuild on transform updates | n/a | done | done | Shipped | #396 | n/a |
 | INPUT-1 | A user can have a gesture classified as navigate (more than one pointer) or manipulate (one pointer), locked on the first move and held until all pointers lift; `GestureArbiter` is reached only by the `.touch` path of `PointerRouter`, and the macOS view feeds only `.mouse` and `.pen` events | done | done | n/a | In progress | #87 | n/a |
 | INPUT-2 | A user can lift the last pointer on a pure tap and have the mode locked at the peak pointer count | done | done | n/a | In progress | #87 | n/a |
 | INPUT-3 | A user can use Apple Pencil input that always routes to manipulate and never to navigate; the macOS view reuses the `.pen` channel for non-navigating mouse drags (A/CADMetalViewRepresentable.swift:247), and no Pencil source exists | none | done | n/a | In progress | #87 | n/a |
