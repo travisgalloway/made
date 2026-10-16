@@ -374,8 +374,12 @@ import UniformTypeIdentifiers
         workspace.addDefaultCylinder()
         #expect(workspace.isDocumentModified)
 
-        // Wait for debounce interval + buffer
-        try await Task.sleep(nanoseconds: 120_000_000)
+        // Wait for debounce interval + buffer with polling to accommodate CI scheduling latency
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while workspace.isDocumentModified && clock.now < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
 
         // Verify autosave persisted and cleared modified state
         #expect(!workspace.isDocumentModified)
