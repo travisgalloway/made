@@ -9,7 +9,11 @@ public enum MadeDocumentError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .unsupportedSchemaVersion(let version):
-            return "Unsupported document schema version: \(version). This version of Made only supports schema version 1."
+            if version > MadeManifest.currentSchemaVersion {
+                return "This document was created by a newer version of Made (schema version \(version)). This version of Made supports schema versions up to \(MadeManifest.currentSchemaVersion). Please update Made to open this file."
+            } else {
+                return "Unsupported document schema version: \(version). This version of Made supports schema versions from \(MadeManifest.minimumSupportedSchemaVersion) to \(MadeManifest.currentSchemaVersion)."
+            }
         case .corruptDocument(let details):
             return "Corrupt document: \(details)"
         case .missingFile(let filename):
@@ -48,37 +52,14 @@ public struct MadePackage: Sendable, Equatable {
 
         // 1. Read manifest.json
         guard let manifestWrapper = children["manifest.json"],
-              let manifestData = manifestWrapper.regularFileContents else {
+              let rawManifestData = manifestWrapper.regularFileContents else {
             throw MadeDocumentError.missingFile("manifest.json")
         }
 
-        let decodedManifest: MadeManifest
-        do {
-            decodedManifest = try JSONDecoder().decode(MadeManifest.self, from: manifestData)
-        } catch {
-            throw MadeDocumentError.corruptDocument("manifest.json is invalid: \(error.localizedDescription)")
-        }
-
-        if decodedManifest.schemaVersion > 1 {
-            throw MadeDocumentError.unsupportedSchemaVersion(decodedManifest.schemaVersion)
-        }
-        self.manifest = decodedManifest
-
         // 2. Read document.json
         guard let docWrapper = children["document.json"],
-              let docData = docWrapper.regularFileContents else {
+              let rawDocData = docWrapper.regularFileContents else {
             throw MadeDocumentError.missingFile("document.json")
-        }
-
-        var decodedDoc: DocumentData
-        do {
-            decodedDoc = try DocumentModelCoder.decode(from: docData)
-        } catch {
-            throw MadeDocumentError.corruptDocument("document.json is invalid: \(error.localizedDescription)")
-        }
-
-        if decodedDoc.schemaVersion > 1 {
-            throw MadeDocumentError.unsupportedSchemaVersion(decodedDoc.schemaVersion)
         }
 
         // 3. Read assets/
@@ -90,7 +71,84 @@ public struct MadePackage: Sendable, Equatable {
                 }
             }
         }
-        self.assets = loadedAssets
+
+        // 4. Read parts/
+        var loadedParts: [String: Data] = [:]
+        if let partsWrapper = children["parts"], partsWrapper.isDirectory, let partFiles = partsWrapper.fileWrappers {
+            for (filename, wrapper) in partFiles {
+                if let data = wrapper.regularFileContents {
+                    loadedParts[filename] = data
+                }
+            }
+        }
+
+        // 5. Inspect schema version
+        struct ManifestHeader: Decodable {
+            let schemaVersion: Int?
+        }
+        let manifestHeader: ManifestHeader
+        do {
+            manifestHeader = try JSONDecoder().decode(ManifestHeader.self, from: rawManifestData)
+        } catch {
+            throw MadeDocumentError.corruptDocument("manifest.json is invalid: \(error.localizedDescription)")
+        }
+
+        let rawVersion = manifestHeader.schemaVersion ?? 1
+        if rawVersion > MadeManifest.currentSchemaVersion {
+            throw MadeDocumentError.unsupportedSchemaVersion(rawVersion)
+        }
+        if rawVersion < MadeManifest.minimumSupportedSchemaVersion {
+            throw MadeDocumentError.unsupportedSchemaVersion(rawVersion)
+        }
+
+        struct DocumentHeader: Decodable {
+            let schemaVersion: Int?
+        }
+        if let docHeader = try? JSONDecoder().decode(DocumentHeader.self, from: rawDocData),
+           let docVersion = docHeader.schemaVersion,
+           docVersion > MadeManifest.currentSchemaVersion {
+            throw MadeDocumentError.unsupportedSchemaVersion(docVersion)
+        }
+
+        var manifestData = rawManifestData
+        var docData = rawDocData
+
+        if rawVersion < MadeManifest.currentSchemaVersion {
+            var packageData = DocumentPackageData(
+                manifestData: manifestData,
+                documentData: docData,
+                assets: loadedAssets,
+                parts: loadedParts
+            )
+            try DocumentMigrator.shared.migrate(
+                package: &packageData,
+                from: rawVersion,
+                to: MadeManifest.currentSchemaVersion
+            )
+            manifestData = packageData.manifestData
+            docData = packageData.documentData
+            loadedAssets = packageData.assets
+            loadedParts = packageData.parts
+        }
+
+        let decodedManifest: MadeManifest
+        do {
+            decodedManifest = try JSONDecoder().decode(MadeManifest.self, from: manifestData)
+        } catch {
+            throw MadeDocumentError.corruptDocument("manifest.json is invalid: \(error.localizedDescription)")
+        }
+        self.manifest = decodedManifest
+
+        var decodedDoc: DocumentData
+        do {
+            decodedDoc = try DocumentModelCoder.decode(from: docData)
+        } catch {
+            throw MadeDocumentError.corruptDocument("document.json is invalid: \(error.localizedDescription)")
+        }
+
+        if decodedDoc.schemaVersion > MadeManifest.currentSchemaVersion {
+            throw MadeDocumentError.unsupportedSchemaVersion(decodedDoc.schemaVersion)
+        }
 
         // Link assets into .imported solids where present
         for i in 0..<decodedDoc.objects.count {
@@ -148,17 +206,8 @@ public struct MadePackage: Sendable, Equatable {
             decodedDoc.features = features
         }
 
-        // 4. Read parts/
-        var loadedParts: [String: Data] = [:]
-        if let partsWrapper = children["parts"], partsWrapper.isDirectory, let partFiles = partsWrapper.fileWrappers {
-            for (filename, wrapper) in partFiles {
-                if let data = wrapper.regularFileContents {
-                    loadedParts[filename] = data
-                }
-            }
-        }
+        self.assets = loadedAssets
         self.parts = loadedParts
-
         self.documentData = decodedDoc
     }
 

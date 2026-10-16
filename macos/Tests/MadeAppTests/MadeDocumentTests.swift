@@ -12,9 +12,9 @@ import UniformTypeIdentifiers
     }
 
     @Test func testMadePackageGenerationAndFileWrapper() throws {
-        let manifest = MadeManifest(schemaVersion: 1, appVersion: "0.1")
+        let manifest = MadeManifest(schemaVersion: MadeManifest.currentSchemaVersion, appVersion: "0.1")
         let docData = DocumentData(
-            schemaVersion: 1,
+            schemaVersion: DocumentData.currentSchemaVersion,
             objects: [
                 SceneObject(id: ObjectId("box-1"), def: .box(BoxParams(width: 30, depth: 30, height: 30)))
             ],
@@ -50,7 +50,7 @@ import UniformTypeIdentifiers
 
         // Verify round-trip through FileWrapper
         let readPackage = try MadePackage(fileWrapper: wrapper)
-        #expect(readPackage.manifest.schemaVersion == 1)
+        #expect(readPackage.manifest.schemaVersion == MadeManifest.currentSchemaVersion)
         #expect(readPackage.documentData.objects.count == 1)
         #expect(readPackage.documentData.objects.first?.id == ObjectId("box-1"))
         #expect(readPackage.assets["test.step"] == "STEP_DATA".data(using: .utf8)!)
@@ -151,10 +151,165 @@ import UniformTypeIdentifiers
 
         let workspace = WorkspaceModel()
         let initialObjects = workspace.document.objects
+        let initialSelected = workspace.selectedId
+        let initialURL = workspace.currentDocumentURL
+
         let openResult = workspace.openDocument(at: futurePackageURL)
         #expect(!openResult)
         #expect(workspace.document.objects == initialObjects)
-        #expect(workspace.logs.contains(where: { $0.subsystem == "Document" && $0.level == .error }))
+        #expect(workspace.selectedId == initialSelected)
+        #expect(workspace.currentDocumentURL == initialURL)
+        #expect(workspace.logs.contains(where: {
+            $0.subsystem == "Document" &&
+            $0.level == .error &&
+            $0.message.contains("This document was created by a newer version of Made (schema version 99)")
+        }))
+    }
+
+    @Test func testOpenV1PackageMigratesToV2InMemory() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("V1Package.made")
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        let manifestData = "{\"schemaVersion\": 1, \"appVersion\": \"0.1\"}\n".data(using: .utf8)!
+        try manifestData.write(to: packageURL.appendingPathComponent("manifest.json"))
+        let docData = """
+        {
+          "schemaVersion": 1,
+          "objects": [
+            {
+              "id": "box-1",
+              "def": {
+                "kind": "box",
+                "params": {
+                  "width": 30.0,
+                  "depth": 20.0,
+                  "height": 10.0
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        try docData.write(to: packageURL.appendingPathComponent("document.json"))
+
+        let package = try MadePackage(directoryURL: packageURL)
+        #expect(package.manifest.schemaVersion == MadeManifest.currentSchemaVersion)
+        #expect(package.documentData.schemaVersion == DocumentData.currentSchemaVersion)
+        #expect(package.documentData.objects.count == 1)
+        #expect(package.documentData.features?.count == 1)
+        #expect(package.documentData.objects.first?.id == ObjectId("box-1"))
+    }
+
+    @Test func testOpenV1PackageLeavesDiskUnmodified() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("DiskUnmodified.made")
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        let manifestPath = packageURL.appendingPathComponent("manifest.json")
+        let docPath = packageURL.appendingPathComponent("document.json")
+        let originalManifest = "{\"schemaVersion\": 1, \"appVersion\": \"0.1\"}\n".data(using: .utf8)!
+        let originalDoc = "{\"schemaVersion\": 1, \"objects\": []}\n".data(using: .utf8)!
+        try originalManifest.write(to: manifestPath)
+        try originalDoc.write(to: docPath)
+
+        let workspace = WorkspaceModel()
+        let openResult = workspace.openDocument(at: packageURL)
+        #expect(openResult)
+
+        // Read directly from disk to confirm on-disk contents were untouched
+        let onDiskManifest = try Data(contentsOf: manifestPath)
+        let onDiskDoc = try Data(contentsOf: docPath)
+        #expect(onDiskManifest == originalManifest)
+        #expect(onDiskDoc == originalDoc)
+    }
+
+    @Test func testSaveMigratedDocumentPersistsV2ToDisk() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("MigratedSave.made")
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        let manifestPath = packageURL.appendingPathComponent("manifest.json")
+        let docPath = packageURL.appendingPathComponent("document.json")
+        let originalManifest = "{\"schemaVersion\": 1, \"appVersion\": \"0.1\"}\n".data(using: .utf8)!
+        let originalDoc = """
+        {
+          "schemaVersion": 1,
+          "objects": [
+            {
+              "id": "box-1",
+              "def": {
+                "kind": "box",
+                "params": {
+                  "width": 30.0,
+                  "depth": 20.0,
+                  "height": 10.0
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        try originalManifest.write(to: manifestPath)
+        try originalDoc.write(to: docPath)
+
+        let workspace = WorkspaceModel()
+        let openResult = workspace.openDocument(at: packageURL)
+        #expect(openResult)
+
+        let saveResult = workspace.saveDocument()
+        #expect(saveResult)
+
+        // Verify on-disk files are now updated to current schema version (v2)
+        let onDiskManifestData = try Data(contentsOf: manifestPath)
+        let onDiskManifest = try JSONDecoder().decode(MadeManifest.self, from: onDiskManifestData)
+        #expect(onDiskManifest.schemaVersion == MadeManifest.currentSchemaVersion)
+
+        let onDiskDocData = try Data(contentsOf: docPath)
+        let onDiskDoc = try DocumentModelCoder.decode(from: onDiskDocData)
+        #expect(onDiskDoc.schemaVersion == DocumentData.currentSchemaVersion)
+        #expect(onDiskDoc.features?.count == 1)
+        #expect(onDiskDoc.objects.count == 1)
+    }
+
+    @Test func testFutureDocumentVersionInV1ManifestThrowsUnsupportedSchemaVersion() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("FutureDoc.made")
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        let manifestData = "{\"schemaVersion\": 1, \"appVersion\": \"0.1\"}\n".data(using: .utf8)!
+        try manifestData.write(to: packageURL.appendingPathComponent("manifest.json"))
+        let docData = "{\"schemaVersion\": 99, \"objects\": []}\n".data(using: .utf8)!
+        try docData.write(to: packageURL.appendingPathComponent("document.json"))
+
+        #expect(throws: MadeDocumentError.unsupportedSchemaVersion(99)) {
+            _ = try MadePackage(directoryURL: packageURL)
+        }
+    }
+
+    @Test func testUnversionedManifestMigratesGracefully() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("Unversioned.made")
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        let manifestData = "{\"appVersion\": \"0.1\"}\n".data(using: .utf8)!
+        try manifestData.write(to: packageURL.appendingPathComponent("manifest.json"))
+        let docData = "{\"objects\": []}\n".data(using: .utf8)!
+        try docData.write(to: packageURL.appendingPathComponent("document.json"))
+
+        let package = try MadePackage(directoryURL: packageURL)
+        #expect(package.manifest.schemaVersion == MadeManifest.currentSchemaVersion)
+        #expect(package.documentData.schemaVersion == DocumentData.currentSchemaVersion)
     }
 
     @Test func testMissingAssetsLoadsWithoutCrashing() throws {

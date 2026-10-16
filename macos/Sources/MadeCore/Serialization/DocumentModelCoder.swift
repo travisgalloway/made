@@ -2,6 +2,8 @@ import Foundation
 
 /// Canonical scene data representation stored as `document.json` inside a `.made` package.
 public struct DocumentData: Codable, Sendable, Equatable {
+    public static let currentSchemaVersion: Int = MadeManifest.currentSchemaVersion
+
     public var schemaVersion: Int
     public var features: [Feature]?
     public var objects: [SceneObject]
@@ -9,7 +11,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var rollbackIndex: Int?
 
     public init(
-        schemaVersion: Int = 1,
+        schemaVersion: Int = DocumentData.currentSchemaVersion,
         features: [Feature]? = nil,
         objects: [SceneObject]? = nil,
         selectedId: ObjectId? = nil,
@@ -36,7 +38,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.selectedId = selectedId
     }
 
-    public init(schemaVersion: Int = 1, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
         self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex)
     }
 
@@ -100,6 +102,18 @@ public enum DocumentModelCoder {
         return data
     }
 
+    /// Formats a JSON-serializable object into canonical UTF-8 JSON with sorted keys, 2-space indentation, unescaped slashes, and a trailing newline.
+    public static func canonicalJSONData(from object: Any) throws -> Data {
+        var data = try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
+        if !data.isEmpty && data.last != UInt8(ascii: "\n") {
+            data.append(UInt8(ascii: "\n"))
+        }
+        return data
+    }
+
     /// Decodes `DocumentData` from JSON data, applying DocumentLimits clamping to all solids.
     public static func decode(from data: Data) throws -> DocumentData {
         let decoder = makeJSONDecoder()
@@ -108,7 +122,7 @@ public enum DocumentModelCoder {
 
     /// Convenience encoder for `DocumentModel`.
     @MainActor
-    public static func encode(document: DocumentModel, schemaVersion: Int = 1) throws -> Data {
+    public static func encode(document: DocumentModel, schemaVersion: Int = DocumentData.currentSchemaVersion) throws -> Data {
         let docData = DocumentData(
             schemaVersion: schemaVersion,
             features: document.features,

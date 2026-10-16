@@ -568,13 +568,13 @@ final class WorkspaceModel {
 
         do {
             let manifest = MadeManifest(
-                schemaVersion: 1,
+                schemaVersion: MadeManifest.currentSchemaVersion,
                 appVersion: "0.1",
                 units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
                 tolerances: kernelTolerances
             )
             let docData = DocumentData(
-                schemaVersion: 1,
+                schemaVersion: DocumentData.currentSchemaVersion,
                 features: document.features,
                 objects: document.objects,
                 selectedId: selectedId,
