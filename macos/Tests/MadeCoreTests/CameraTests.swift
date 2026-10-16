@@ -548,4 +548,137 @@ import simd
         let extremeOut = Camera.zoom(camera: camera, factor: 0.0001, cursorRay: cursorRay)
         #expect(abs(extremeOut.orthographicScale * effectiveDist - camera.maxDistance) <= 1e-3)
     }
+    
+    // MARK: - View Snapping & Normal Alignment Tests
+    
+    @Test func testCameraAlignedToNormal() {
+        let target = SIMD3<Float>(10, 20, 30)
+        let distance: Float = 150.0
+        
+        let testNormals: [SIMD3<Float>] = [
+            SIMD3<Float>(1, 0, 0),
+            SIMD3<Float>(-1, 0, 0),
+            SIMD3<Float>(0, 1, 0),
+            SIMD3<Float>(0, -1, 0),
+            SIMD3<Float>(0, 0, 1),
+            SIMD3<Float>(0, 0, -1),
+            simd_normalize(SIMD3<Float>(1, 1, 1)),
+            simd_normalize(SIMD3<Float>(-0.5, 0.8, -0.3)),
+            simd_normalize(SIMD3<Float>(0.0001, 0.0001, 0.9999))
+        ]
+        
+        for normal in testNormals {
+            let camera = Camera.alignedToNormal(normal, target: target, distance: distance)
+            #expect(camera.target == target)
+            
+            let viewDir = simd_normalize(camera.target - camera.position)
+            let diff = simd_length(viewDir - (-normal))
+            #expect(diff < 0.001, "View direction differs from negated normal by \(diff) for normal \(normal)")
+            
+            let lookAt = Orientation.makeLookAt(eye: camera.position, target: camera.target)
+            #expect(!lookAt.columns.0.x.isNaN && !lookAt.columns.0.x.isInfinite)
+            #expect(!lookAt.columns.1.y.isNaN && !lookAt.columns.1.y.isInfinite)
+            #expect(!lookAt.columns.2.z.isNaN && !lookAt.columns.2.z.isInfinite)
+            #expect(!lookAt.columns.3.w.isNaN && !lookAt.columns.3.w.isInfinite)
+        }
+        
+        let topNormal = SIMD3<Float>(0, 0, 1)
+        let cam1 = Camera.alignedToNormal(topNormal, target: target, distance: distance, allowFlip: true)
+        let dir1 = simd_normalize(cam1.position - target)
+        #expect(dir1.z > 0.99)
+        
+        let cam2 = Camera.alignedToNormal(topNormal, target: target, distance: distance, currentCamera: cam1, allowFlip: true)
+        let dir2 = simd_normalize(cam2.position - target)
+        #expect(dir2.z < -0.99)
+        
+        let cam3 = Camera.alignedToNormal(topNormal, target: target, distance: distance, currentCamera: cam2, allowFlip: true)
+        let dir3 = simd_normalize(cam3.position - target)
+        #expect(dir3.z > 0.99)
+        
+        let camNoFlip = Camera.alignedToNormal(topNormal, target: target, distance: distance, currentCamera: cam1, allowFlip: false)
+        let dirNoFlip = simd_normalize(camNoFlip.position - target)
+        #expect(dirNoFlip.z > 0.99)
+        
+        let degenerate = Camera.alignedToNormal(.zero, target: target)
+        #expect(degenerate.target == target)
+    }
+    
+    @Test func testCameraInterpolate() {
+        let fromTarget = SIMD3<Float>(0, 0, 0)
+        let toTarget = SIMD3<Float>(10, 20, 30)
+        let from = Camera(position: SIMD3<Float>(150, 0, 0), target: fromTarget)
+        let to = Camera(position: toTarget + SIMD3<Float>(0, 150, 0), target: toTarget)
+        
+        let c0 = Camera.interpolate(from: from, to: to, t: 0.0)
+        #expect(c0.position == from.position)
+        #expect(c0.target == from.target)
+        
+        let cNeg = Camera.interpolate(from: from, to: to, t: -0.5)
+        #expect(cNeg.position == from.position)
+        
+        let c1 = Camera.interpolate(from: from, to: to, t: 1.0)
+        #expect(c1.position == to.position)
+        #expect(c1.target == to.target)
+        
+        let cOver = Camera.interpolate(from: from, to: to, t: 1.5)
+        #expect(cOver.position == to.position)
+        
+        let cHalf = Camera.interpolate(from: from, to: to, t: 0.5)
+        #expect(abs(cHalf.target.x - 5.0) < 1e-4)
+        #expect(abs(cHalf.target.y - 10.0) < 1e-4)
+        #expect(abs(cHalf.target.z - 15.0) < 1e-4)
+        
+        let distAtHalf = simd_length(cHalf.position - cHalf.target)
+        #expect(abs(distAtHalf - 150.0) < 1e-3, "Camera distance plunged to \(distAtHalf)")
+        
+        let camFront = Camera(position: SIMD3<Float>(0, -150, 0), target: .zero)
+        let camBack = Camera(position: SIMD3<Float>(0, 150, 0), target: .zero)
+        let camFlipMid = Camera.interpolate(from: camFront, to: camBack, t: 0.5)
+        let distFlipMid = simd_length(camFlipMid.position - camFlipMid.target)
+        #expect(abs(distFlipMid - 150.0) < 1e-3, "180° flip plunged through origin to distance \(distFlipMid)")
+        #expect(!camFlipMid.position.x.isNaN && !camFlipMid.position.y.isNaN && !camFlipMid.position.z.isNaN)
+    }
+    
+    @Test func testCandidateMeshFaceNormalAndCentroid() {
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let candidate = CandidateMesh(id: SolidId("box"), payload: payload)
+        
+        let n0 = try! #require(candidate.faceNormal(forFaceId: 0))
+        #expect(abs(n0.x) < 1e-4 && abs(n0.y) < 1e-4 && abs(n0.z - 1.0) < 1e-4)
+        let c0 = try! #require(candidate.faceCentroid(forFaceId: 0))
+        #expect(abs(c0.x) < 1e-4 && abs(c0.y) < 1e-4 && abs(c0.z - 10.0) < 1e-4)
+        
+        let n1 = try! #require(candidate.faceNormal(forFaceId: 1))
+        #expect(abs(n1.x) < 1e-4 && abs(n1.y) < 1e-4 && abs(n1.z - (-1.0)) < 1e-4)
+        let c1 = try! #require(candidate.faceCentroid(forFaceId: 1))
+        #expect(abs(c1.x) < 1e-4 && abs(c1.y) < 1e-4 && abs(c1.z - (-10.0)) < 1e-4)
+        
+        let n2 = try! #require(candidate.faceNormal(forFaceId: 2))
+        #expect(abs(n2.x - 1.0) < 1e-4 && abs(n2.y) < 1e-4 && abs(n2.z) < 1e-4)
+        let c2 = try! #require(candidate.faceCentroid(forFaceId: 2))
+        #expect(abs(c2.x - 20.0) < 1e-4 && abs(c2.y) < 1e-4 && abs(c2.z) < 1e-4)
+        
+        let n3 = try! #require(candidate.faceNormal(forFaceId: 3))
+        #expect(abs(n3.x - (-1.0)) < 1e-4 && abs(n3.y) < 1e-4 && abs(n3.z) < 1e-4)
+        
+        let n4 = try! #require(candidate.faceNormal(forFaceId: 4))
+        #expect(abs(n4.x) < 1e-4 && abs(n4.y - 1.0) < 1e-4 && abs(n4.z) < 1e-4)
+        
+        let n5 = try! #require(candidate.faceNormal(forFaceId: 5))
+        #expect(abs(n5.x) < 1e-4 && abs(n5.y - (-1.0)) < 1e-4 && abs(n5.z) < 1e-4)
+        
+        #expect(candidate.faceNormal(forFaceId: 99) == nil)
+        #expect(candidate.faceCentroid(forFaceId: 99) == nil)
+        
+        let rotX = simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(1, 0, 0))
+        let transformed = CandidateMesh(
+            id: SolidId("box"),
+            payload: payload,
+            transform: Transform(position: SIMD3<Float>(10, 20, 30), rotation: rotX)
+        )
+        let tn0 = try! #require(transformed.faceNormal(forFaceId: 0))
+        #expect(abs(tn0.x) < 1e-4 && abs(tn0.y - (-1.0)) < 1e-4 && abs(tn0.z) < 1e-4)
+        let tc0 = try! #require(transformed.faceCentroid(forFaceId: 0))
+        #expect(abs(tc0.x - 10.0) < 1e-4 && abs(tc0.y - 10.0) < 1e-4 && abs(tc0.z - 30.0) < 1e-4)
+    }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import QuartzCore
 import UniformTypeIdentifiers
 import MadeCore
 import os
@@ -50,6 +51,7 @@ final class WorkspaceModel {
 
     // Viewport
     private(set) var camera: Camera = Camera()
+    @ObservationIgnored private var cameraAnimationTask: Task<Void, Never>?
     private(set) var perspective: ViewportPerspective = .perspective
     private(set) var projectionMode: CameraProjection = .perspective
     var tool: ViewportTool = .select {
@@ -1133,60 +1135,148 @@ final class WorkspaceModel {
         invalidateViewport(.camera)
     }
 
-    func alignNormalTo() {
-        let currentCamera = viewportManager.renderer?.camera ?? camera
-        let target: SIMD3<Float>
-        var normal: SIMD3<Float>
+    func cancelCameraAnimation() {
+        cameraAnimationTask?.cancel()
+        cameraAnimationTask = nil
+    }
 
-        if let selected = selectedObject {
-            target = selected.transform.position
-            normal = simd_normalize(selected.transform.rotation.act(Orientation.worldUp))
-            let eyeVec = currentCamera.position - target
-            let eyeDist = simd_length(eyeVec)
-            if eyeDist > 1e-4 {
-                let eyeDir = simd_normalize(eyeVec)
-                if simd_dot(eyeDir, normal) > 0.99 {
-                    normal = -normal
-                }
-            }
-        } else {
-            target = currentCamera.target
-            normal = Orientation.groundNormal
-            let eyeVec = currentCamera.position - target
-            let eyeDist = simd_length(eyeVec)
-            if eyeDist > 1e-4 {
-                let eyeDir = simd_normalize(eyeVec)
-                if simd_dot(eyeDir, normal) > 0.99 {
-                    normal = -normal
-                }
-            }
-        }
-
-        let currentDist = max(1.0, simd_length(currentCamera.position - currentCamera.target))
-        var eyePosition = target + normal * currentDist
-
-        // Singular look-at protection: if |normal.z| > 0.999, add 0.001 Y offset
-        if abs(normal.z) > 0.999 {
-            eyePosition.y += 0.001
-        }
-
-        let newCamera = Camera(
-            position: eyePosition,
-            target: target,
-            minDistance: currentCamera.minDistance,
-            maxDistance: currentCamera.maxDistance,
-            minPitch: currentCamera.minPitch,
-            maxPitch: currentCamera.maxPitch,
-            projection: projectionMode,
-            orthographicScale: currentCamera.orthographicScale
-        )
-
+    private func setCameraImmediate(_ newCamera: Camera) {
         if let renderer = viewportManager.renderer {
             renderer.camera = newCamera
         }
         self.camera = newCamera
-        log(.info, "Camera", "Aligned normal to \(selectedObject?.name ?? "ground plane")")
         invalidateViewport(.camera)
+    }
+
+    func animateCamera(to targetCamera: Camera, duration: TimeInterval = 0.25) {
+        cancelCameraAnimation()
+
+        guard duration > 0, viewportManager.renderer != nil, coordinator != nil else {
+            setCameraImmediate(targetCamera)
+            return
+        }
+
+        let startCamera = viewportManager.renderer?.camera ?? camera
+        let startTime = CACurrentMediaTime()
+
+        cameraAnimationTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let elapsed = CACurrentMediaTime() - startTime
+                let progress = Float(min(max(elapsed / duration, 0.0), 1.0))
+
+                guard let self else { return }
+
+                if progress >= 1.0 {
+                    self.setCameraImmediate(targetCamera)
+                    self.cameraAnimationTask = nil
+                    return
+                } else {
+                    let current = Camera.interpolate(from: startCamera, to: targetCamera, t: progress)
+                    if let renderer = self.viewportManager.renderer {
+                        renderer.camera = current
+                    }
+                    self.camera = current
+                    self.invalidateViewport(.camera)
+                }
+
+                do {
+                    try await Task.sleep(nanoseconds: 16_666_667)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    func snapCameraToFace(solidId: SolidId, faceId: Int, animated: Bool = true) {
+        let currentCamera = viewportManager.renderer?.camera ?? camera
+
+        let normal: SIMD3<Float>?
+        let centroid: SIMD3<Float>?
+
+        if let mesh = viewportManager.renderer?.meshes[solidId] {
+            normal = mesh.faceNormal(forFaceId: faceId)
+            centroid = mesh.faceCentroid(forFaceId: faceId)
+        } else if let obj = document.objects.first(where: { $0.id == solidId }) {
+            // Headless fallback if renderer mesh is unavailable
+            let candidate: CandidateMesh?
+            switch obj.def {
+            case .box(let p):
+                let payload = NativeGeometryGenerator.generateBox(width: p.width, depth: p.depth, height: p.height)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .cylinder(let p):
+                let payload = NativeGeometryGenerator.generateCylinder(radius: p.radius, height: p.height)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            default:
+                candidate = nil
+            }
+            normal = candidate?.faceNormal(forFaceId: faceId)
+            centroid = candidate?.faceCentroid(forFaceId: faceId)
+        } else {
+            normal = nil
+            centroid = nil
+        }
+
+        guard let norm = normal, let center = centroid else {
+            log(.error, "Camera", "Could not determine face normal or centroid for face \(faceId) on solid \(solidId)")
+            return
+        }
+
+        let currentDist = max(1.0, simd_length(currentCamera.position - currentCamera.target))
+        let targetCamera = Camera.alignedToNormal(
+            norm,
+            target: center,
+            distance: currentDist,
+            currentCamera: currentCamera,
+            allowFlip: true,
+            projection: projectionMode
+        )
+
+        log(.info, "Camera", "Squaring camera to face \(faceId) of solid \(solidId)")
+        if animated && viewportManager.renderer != nil && coordinator != nil {
+            animateCamera(to: targetCamera)
+        } else {
+            setCameraImmediate(targetCamera)
+        }
+    }
+
+    func alignNormalTo(animated: Bool = true) {
+        if let subElement = document.selectedSubElement, subElement.elementType == .face {
+            snapCameraToFace(solidId: subElement.solidId, faceId: subElement.elementId, animated: animated)
+            return
+        }
+
+        let currentCamera = viewportManager.renderer?.camera ?? camera
+        let target: SIMD3<Float>
+        let normal: SIMD3<Float>
+        let solidName: String
+
+        if let selected = selectedObject {
+            target = selected.transform.position
+            normal = simd_normalize(selected.transform.rotation.act(Orientation.worldUp))
+            solidName = selected.name
+        } else {
+            target = currentCamera.target
+            normal = Orientation.groundNormal
+            solidName = "ground plane"
+        }
+
+        let currentDist = max(1.0, simd_length(currentCamera.position - currentCamera.target))
+        let targetCamera = Camera.alignedToNormal(
+            normal,
+            target: target,
+            distance: currentDist,
+            currentCamera: currentCamera,
+            allowFlip: true,
+            projection: projectionMode
+        )
+
+        log(.info, "Camera", "Aligned normal to \(solidName)")
+        if animated && viewportManager.renderer != nil && coordinator != nil {
+            animateCamera(to: targetCamera)
+        } else {
+            setCameraImmediate(targetCamera)
+        }
     }
 
     func applyViewCubeRegion(_ region: ViewCube.Region) {

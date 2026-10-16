@@ -136,6 +136,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onToolShortcut: ((ViewportTool) -> Void)?
     var onResetView: (() -> Void)?
     var onCommitParam: ((ObjectId, String, Float) -> Void)?
+    var onDoubleTapFace: ((SolidId, Int) -> Void)?
+    var onCancelAnimation: (() -> Void)?
     
     public init(
         document: DocumentModel,
@@ -154,7 +156,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onSnapChanged: ((SnapResult?) -> Void)? = nil,
         onToolShortcut: ((ViewportTool) -> Void)? = nil,
         onResetView: (() -> Void)? = nil,
-        onCommitParam: ((ObjectId, String, Float) -> Void)? = nil
+        onCommitParam: ((ObjectId, String, Float) -> Void)? = nil,
+        onDoubleTapFace: ((SolidId, Int) -> Void)? = nil,
+        onCancelAnimation: (() -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -173,6 +177,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onToolShortcut = onToolShortcut
         self.onResetView = onResetView
         self.onCommitParam = onCommitParam
+        self.onDoubleTapFace = onDoubleTapFace
+        self.onCancelAnimation = onCancelAnimation
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -292,6 +298,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleMouseDown(with event: NSEvent, button: MouseButton) {
+            parent.onCancelAnimation?()
             guard let view = mtkView else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
             lastMousePoint = loc
@@ -778,6 +785,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         parent.renderer.selectedSubElement = selectedSub
                         invalidate(reason: .interaction)
                     }
+                    if event.clickCount == 2, let pick = pickResult, pick.elementType == .face {
+                        parent.onDoubleTapFace?(pick.solidId, pick.elementId)
+                    }
                 }
             }
         }
@@ -827,6 +837,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleScrollWheel(with event: NSEvent) {
+            parent.onCancelAnimation?()
             guard let view = mtkView else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
             let ray = unprojectCursorRay(at: loc, in: view)
@@ -866,6 +877,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleMagnify(with event: NSEvent) {
+            parent.onCancelAnimation?()
             let mag = Float(event.magnification)
             guard mag != 0 else { return }
             

@@ -69,7 +69,9 @@ struct ViewportCanvasView: View {
                             onSnapChanged: { workspace.handleSnapChanged($0) },
                             onToolShortcut: { workspace.tool = $0 },
                             onResetView: { workspace.resetView() },
-                            onCommitParam: { id, key, value in workspace.setParam(id, key, value) }
+                            onCommitParam: { id, key, value in workspace.setParam(id, key, value) },
+                            onDoubleTapFace: { solidId, faceId in workspace.snapCameraToFace(solidId: solidId, faceId: faceId) },
+                            onCancelAnimation: { workspace.cancelCameraAnimation() }
                         )
 
                         if workspace.document.objects.isEmpty {
