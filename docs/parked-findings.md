@@ -96,3 +96,6 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 - [2026-10-15] `macos/Tests/MadeAppTests/SettingsViewTests.swift:21,25`, `#expect(view != nil)` compares non-optional `some View` to nil triggering compiler warnings.
   Found while working on #400. Severity, low (compiler warning).
 
+- [2026-10-16] `macos/Tests/MadeCoreTests/MCPServerTests.swift:436`, `testStopClosesConnectedClientAndSubsequentToolsCallReceivesNoResponse` intermittently fails with empty `initResp` under full-suite parallel execution due to a 2-second connection timeout under CPU load.
+  Found while working on #397. Severity, low (flaky test).
+

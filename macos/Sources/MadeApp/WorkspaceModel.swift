@@ -51,6 +51,33 @@ final class WorkspaceModel {
     private(set) var renderStats = RenderStats()
     private(set) var kernelStats = KernelStats()
     var activeSnapKind: SnapKind?
+    /// Current sketch degrees-of-freedom constraint status (ADR-D4, BL-WSP-10).
+    var sketchDOFStatus: SketchDOFStatus = .inactive
+    /// Duration of the most recent solid kernel recomputation (BL-WSP-10).
+    private(set) var lastRegenerationDuration: Duration? = nil
+
+    /// Formatted string representing the last kernel regeneration duration (BL-WSP-10).
+    var formattedRegenerationDuration: String {
+        guard let duration = lastRegenerationDuration else { return "--" }
+        let (seconds, attoseconds) = duration.components
+        let ms = Double(seconds) * 1000.0 + Double(attoseconds) / 1_000_000_000_000_000.0
+        if ms < 1.0 {
+            return "< 1 ms"
+        } else if ms < 1000.0 {
+            return String(format: "%.0f ms", ms)
+        } else {
+            return String(format: "%.2f s", ms / 1000.0)
+        }
+    }
+
+    func setSketchDOFStatus(_ status: SketchDOFStatus) {
+        sketchDOFStatus = status
+    }
+
+    func setLastRegenerationDuration(_ duration: Duration?) {
+        lastRegenerationDuration = duration
+    }
+
     /// Last failed recompute per solid, shown in the Inspector (invariant 3: panels only).
     private(set) var recomputeFailures = RecomputeFailures()
 
@@ -1467,19 +1494,27 @@ final class WorkspaceModel {
         }
         if let registry = toolRegistry {
             let task = registry.scheduleRecompute(id: id)
+            let clock = ContinuousClock()
+            let start = clock.now
             Task { [weak self] in
                 await Task.yield()
                 await self?.updateKernelStats()
                 _ = await task?.value
+                let elapsed = clock.now - start
+                self?.lastRegenerationDuration = elapsed
                 await self?.updateKernelStats()
             }
             return
         }
         guard let request = KernelRegeneration.request(for: obj, jobId: JobId("job-\(UUID().uuidString)")) else { return }
 
+        let clock = ContinuousClock()
+        let start = clock.now
         Task { [weak self] in
             guard let self else { return }
             let result = await self.kernelClient.request(request)
+            let elapsed = clock.now - start
+            self.lastRegenerationDuration = elapsed
             await self.updateKernelStats()
             // The solid was removed while the request was in flight; release what it repopulated.
             guard self.document.objects.contains(where: { $0.id == id }) else {
