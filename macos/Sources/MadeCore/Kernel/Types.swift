@@ -141,12 +141,26 @@ public struct EdgePolyline: Sendable, Codable, Equatable {
     }
 }
 
+/// Discrete 3D vertex position mapped to vertex ID.
+public struct VertexPoint: Sendable, Codable, Equatable {
+    public let vertexId: Int
+    public let position: SIMD3<Float>
+    public let deterministicId: UUID?
+
+    public init(vertexId: Int, position: SIMD3<Float>, deterministicId: UUID? = nil) {
+        self.vertexId = vertexId
+        self.position = position
+        self.deterministicId = deterministicId
+    }
+}
+
 /// A triangle mesh held in one page-aligned shared-memory region, so it can cross XPC without a copy (invariant 6).
 public struct MeshPayload: Sendable {
     public let storage: MeshStorage
     public let faceRanges: [FaceTriangleRange]
     public let edgePolylines: [EdgePolyline]
     public let edgeSegmentRanges: [EdgeSegmentRange]
+    public let vertexPoints: [VertexPoint]
 
     public var positions: MeshComponent<Float> { storage.positions }
     public var normals: MeshComponent<Float> { storage.normals }
@@ -158,12 +172,14 @@ public struct MeshPayload: Sendable {
         storage: MeshStorage,
         faceRanges: [FaceTriangleRange] = [],
         edgePolylines: [EdgePolyline] = [],
-        edgeSegmentRanges: [EdgeSegmentRange] = []
+        edgeSegmentRanges: [EdgeSegmentRange] = [],
+        vertexPoints: [VertexPoint] = []
     ) {
         self.storage = storage
         self.faceRanges = faceRanges
         self.edgePolylines = edgePolylines
         self.edgeSegmentRanges = edgeSegmentRanges
+        self.vertexPoints = vertexPoints
     }
     
     public init(
@@ -172,7 +188,8 @@ public struct MeshPayload: Sendable {
         indices: [UInt32],
         faceRanges: [FaceTriangleRange] = [],
         edgePolylines: [EdgePolyline] = [],
-        edgeSegmentRanges: [EdgeSegmentRange] = []
+        edgeSegmentRanges: [EdgeSegmentRange] = [],
+        vertexPoints: [VertexPoint] = []
     ) {
         self.storage = MeshStorage(positionCount: positions.count, normalCount: normals.count, indexCount: indices.count) { p, n, i in
             _ = p.initialize(from: positions)
@@ -182,6 +199,12 @@ public struct MeshPayload: Sendable {
         self.faceRanges = faceRanges
         self.edgePolylines = edgePolylines
         self.edgeSegmentRanges = edgeSegmentRanges
+        self.vertexPoints = vertexPoints
+    }
+
+    /// Returns the vertex point for the given vertex ID.
+    public func vertexPoint(forVertex vertexId: Int) -> VertexPoint? {
+        vertexPoints.first(where: { $0.vertexId == vertexId })
     }
 
     /// Resolves the source B-Rep face ID for a triangle index in this mesh, or nil if unmapped or out of bounds.

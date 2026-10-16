@@ -40,12 +40,18 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     let linePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
     private let outlinePipeline: MTLRenderPipelineState
+    private let pickFacePipeline: MTLRenderPipelineState
+    private let pickEdgePipeline: MTLRenderPipelineState
+    private let pickVertexPipeline: MTLRenderPipelineState
     private let solidDepthState: MTLDepthStencilState
     private let gridDepthState: MTLDepthStencilState
     private let axesDepthState: MTLDepthStencilState
     private let billboardDepthState: MTLDepthStencilState
     let snapDepthState: MTLDepthStencilState
     private let outlineDepthState: MTLDepthStencilState
+    private let pickFaceDepthState: MTLDepthStencilState
+    private let pickEdgeDepthState: MTLDepthStencilState
+    private let pickVertexDepthState: MTLDepthStencilState
     private let billboardSampler: MTLSamplerState
     private let billboardTexture: MTLTexture?
 
@@ -61,6 +67,13 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private let snapshotAllocator: MTL4CommandAllocator
     private let snapshotTable: MTL4ArgumentTable
     private let snapshotLock = NSLock()
+
+    // GPU picking resources (BL-SEL-02)
+    private let pickAllocator: MTL4CommandAllocator
+    private let pickTable: MTL4ArgumentTable
+    private let pickLock = NSLock()
+    private var pickColorTexture: MTLTexture?
+    private var pickDepthTexture: MTLTexture?
 
     /// Every buffer and texture the renderer binds; Metal 4 requires explicit residency.
     private let residencySet: MTLResidencySet
@@ -85,6 +98,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     public var activeSnap: SnapResult? = nil
     public var selectedId: SolidId? = nil
+    public var selectedSubElement: SelectedSubElement? = nil
     public var activeGizmoHandle: GizmoHandle? = nil
     public var showsGrid: Bool = true
     public var showsAxes: Bool = true
@@ -133,11 +147,13 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         guard let queue = device.makeMTL4CommandQueue(),
               let residency = try? device.makeResidencySet(descriptor: MTLResidencySetDescriptor()),
               let event = device.makeSharedEvent(),
-              let snapshotAllocator = device.makeCommandAllocator() else { return nil }
+              let snapshotAllocator = device.makeCommandAllocator(),
+              let pickAllocator = device.makeCommandAllocator() else { return nil }
         self.commandQueue = queue
         self.residencySet = residency
         self.frameEvent = event
         self.snapshotAllocator = snapshotAllocator
+        self.pickAllocator = pickAllocator
 
         var allocators: [MTL4CommandAllocator] = []
         var arenas: [UniformArena] = []
@@ -152,13 +168,15 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         self.frameArenas = arenas
 
         let tableDescriptor = MTL4ArgumentTableDescriptor()
-        tableDescriptor.maxBufferBindCount = 5
+        tableDescriptor.maxBufferBindCount = 8
         tableDescriptor.maxTextureBindCount = 1
         tableDescriptor.maxSamplerStateBindCount = 1
         guard let frameTable = try? device.makeArgumentTable(descriptor: tableDescriptor),
-              let snapshotTable = try? device.makeArgumentTable(descriptor: tableDescriptor) else { return nil }
+              let snapshotTable = try? device.makeArgumentTable(descriptor: tableDescriptor),
+              let pickTable = try? device.makeArgumentTable(descriptor: tableDescriptor) else { return nil }
         self.frameTable = frameTable
         self.snapshotTable = snapshotTable
+        self.pickTable = pickTable
 
         // Shaders are compiled at build time into the MadeCore bundle's default library.
         do {
@@ -170,6 +188,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             self.linePipeline = try Self.makePipeline(compiler, library, vertex: "gridVertexShader", fragment: "gridFragmentShader")
             self.billboardPipeline = try Self.makePipeline(compiler, library, vertex: "billboardVertexShader", fragment: "billboardFragmentShader", alphaBlend: true)
             self.outlinePipeline = try Self.makePipeline(compiler, library, vertex: "outlineVertexShader", fragment: "outlineFragmentShader")
+            self.pickFacePipeline = try Self.makePickPipeline(compiler, library, vertex: "pickFaceVertexShader", fragment: "pickFaceFragmentShader")
+            self.pickEdgePipeline = try Self.makePickPipeline(compiler, library, vertex: "pickEdgeVertexShader", fragment: "pickEdgeFragmentShader")
+            self.pickVertexPipeline = try Self.makePickPipeline(compiler, library, vertex: "pickVertexVertexShader", fragment: "pickVertexFragmentShader")
         } catch {
             Self.log.error("Failed to build Metal 4 pipelines: \(error.localizedDescription, privacy: .public)")
             return nil
@@ -181,13 +202,19 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
               let axesDepth = Self.makeDepthState(device, .lessEqual, write: true),
               let billboardDepth = Self.makeDepthState(device, .lessEqual, write: false),
               let snapDepth = Self.makeDepthState(device, .always, write: false),
-              let outlineDepth = Self.makeDepthState(device, .lessEqual, write: false) else { return nil }
+              let outlineDepth = Self.makeDepthState(device, .lessEqual, write: false),
+              let pickFaceDepth = Self.makeDepthState(device, .less, write: true),
+              let pickEdgeDepth = Self.makeDepthState(device, .lessEqual, write: true),
+              let pickVertexDepth = Self.makeDepthState(device, .lessEqual, write: true) else { return nil }
         self.solidDepthState = solidDepth
         self.gridDepthState = gridDepth
         self.axesDepthState = axesDepth
         self.billboardDepthState = billboardDepth
         self.snapDepthState = snapDepth
         self.outlineDepthState = outlineDepth
+        self.pickFaceDepthState = pickFaceDepth
+        self.pickEdgeDepthState = pickEdgeDepth
+        self.pickVertexDepthState = pickVertexDepth
 
         let samplerDescriptor = MTLSamplerDescriptor()
         samplerDescriptor.minFilter = .linear
@@ -213,12 +240,37 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         "cadVertexShader", "cadFragmentShader",
         "gridVertexShader", "gridFragmentShader",
         "billboardVertexShader", "billboardFragmentShader",
-        "outlineVertexShader", "outlineFragmentShader"
+        "outlineVertexShader", "outlineFragmentShader",
+        "pickFaceVertexShader", "pickFaceFragmentShader",
+        "pickEdgeVertexShader", "pickEdgeFragmentShader",
+        "pickVertexVertexShader", "pickVertexFragmentShader"
     ]
 
     /// Loads the build-time `default.metallib` from the MadeCore resource bundle. Works on any Metal device.
     public static func makeShaderLibrary(device: MTLDevice) throws -> MTLLibrary {
         try device.makeDefaultLibrary(bundle: .module)
+    }
+
+    private static func makePickPipeline(
+        _ compiler: MTL4Compiler,
+        _ library: MTLLibrary,
+        vertex: String,
+        fragment: String
+    ) throws -> MTLRenderPipelineState {
+        let vertexFunction = MTL4LibraryFunctionDescriptor()
+        vertexFunction.name = vertex
+        vertexFunction.library = library
+        let fragmentFunction = MTL4LibraryFunctionDescriptor()
+        fragmentFunction.name = fragment
+        fragmentFunction.library = library
+
+        let descriptor = MTL4RenderPipelineDescriptor()
+        descriptor.label = vertex
+        descriptor.vertexFunctionDescriptor = vertexFunction
+        descriptor.fragmentFunctionDescriptor = fragmentFunction
+        let color = descriptor.colorAttachments[0]!
+        color.pixelFormat = .rgba32Uint
+        return try compiler.makeRenderPipelineState(descriptor: descriptor)
     }
 
     private static func makePipeline(
@@ -354,6 +406,64 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         guard let positions = makeBuffer(payload.positions, label: "\(solidId) Positions"),
               let normals = makeBuffer(payload.normals, label: "\(solidId) Normals"),
               let indices = makeBuffer(payload.indices, label: "\(solidId) Indices") else { return nil }
+
+        // Build triangleFaceIdBuffer
+        let triangleCount = payload.triangleCount
+        let faceIdBuffer: MTLBuffer?
+        if triangleCount > 0 {
+            var faceIds = [UInt32](repeating: 0, count: triangleCount)
+            for range in payload.faceRanges {
+                for tri in range.triangleRange {
+                    if tri >= 0 && tri < triangleCount {
+                        faceIds[tri] = UInt32(range.faceId)
+                    }
+                }
+            }
+            faceIdBuffer = device.makeBuffer(bytes: faceIds, length: faceIds.count * MemoryLayout<UInt32>.stride, options: .storageModeShared)
+            faceIdBuffer?.label = "\(solidId) FaceIds"
+        } else {
+            faceIdBuffer = nil
+        }
+
+        // Build edgeSegmentBuffer
+        var edgeSegments: [EdgeSegmentData] = []
+        for polyline in payload.edgePolylines {
+            let pts = polyline.points
+            guard pts.count >= 2 else { continue }
+            for i in 0..<(pts.count - 1) {
+                edgeSegments.append(EdgeSegmentData(
+                    start: pts[i],
+                    end: pts[i + 1],
+                    edgeId: UInt32(polyline.edgeId)
+                ))
+            }
+        }
+        let edgeSegmentCount = edgeSegments.count
+        let edgeSegmentBuffer: MTLBuffer?
+        if edgeSegmentCount > 0 {
+            edgeSegmentBuffer = device.makeBuffer(bytes: edgeSegments, length: edgeSegments.count * MemoryLayout<EdgeSegmentData>.stride, options: .storageModeShared)
+            edgeSegmentBuffer?.label = "\(solidId) EdgeSegments"
+        } else {
+            edgeSegmentBuffer = nil
+        }
+
+        // Build vertexBuffer
+        var vertexDatas: [VertexData] = []
+        for vp in payload.vertexPoints {
+            vertexDatas.append(VertexData(
+                position: vp.position,
+                vertexId: UInt32(vp.vertexId)
+            ))
+        }
+        let vertexCount = vertexDatas.count
+        let vertexBuffer: MTLBuffer?
+        if vertexCount > 0 {
+            vertexBuffer = device.makeBuffer(bytes: vertexDatas, length: vertexDatas.count * MemoryLayout<VertexData>.stride, options: .storageModeShared)
+            vertexBuffer?.label = "\(solidId) Vertices"
+        } else {
+            vertexBuffer = nil
+        }
+
         return MetalMesh(
             positionBuffer: positions,
             normalBuffer: normals,
@@ -361,7 +471,15 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             indexCount: payload.indices.count,
             transform: transform,
             color: color,
-            candidateMesh: CandidateMesh(id: solidId, payload: payload, transform: transform)
+            candidateMesh: CandidateMesh(id: solidId, payload: payload, transform: transform),
+            faceRanges: payload.faceRanges,
+            edgePolylines: payload.edgePolylines,
+            vertexPoints: payload.vertexPoints,
+            triangleFaceIdBuffer: faceIdBuffer,
+            edgeSegmentBuffer: edgeSegmentBuffer,
+            edgeSegmentCount: edgeSegmentCount,
+            vertexBuffer: vertexBuffer,
+            vertexCount: vertexCount
         )
     }
 
@@ -420,6 +538,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         if let billboardTexture { allocations.append(billboardTexture) }
         for mesh in meshes.values {
             allocations += [mesh.positionBuffer, mesh.normalBuffer, mesh.indexBuffer]
+            if let tf = mesh.triangleFaceIdBuffer { allocations.append(tf) }
+            if let es = mesh.edgeSegmentBuffer { allocations.append(es) }
+            if let vb = mesh.vertexBuffer { allocations.append(vb) }
         }
         for geom in gizmoGeometry.values {
             allocations += [geom.positionBuffer, geom.defaultColorBuffer, geom.activeColorBuffer]
@@ -826,5 +947,289 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return (data as Data).base64EncodedString()
+    }
+
+    // MARK: - Sub-element Picking (BL-SEL-02)
+
+    /// Offscreen GPU sub-element picking at the specified pointer coordinate.
+    /// Encodes face, edge, and vertex passes into a 1x1 scissored .rgba32Uint render target,
+    /// and reads back the resulting sub-element identity.
+    public func pickSubElement(
+        at pointer: SIMD2<Float>,
+        viewportSize: CGSize
+    ) -> SubElementPickResult? {
+        let width = Int(viewportSize.width)
+        let height = Int(viewportSize.height)
+        guard width > 0, height > 0 else { return nil }
+
+        let px = Int(pointer.x)
+        let py = Int(pointer.y)
+        guard px >= 0, px < width, py >= 0, py < height else { return nil }
+
+        let aspect = Float(width) / Float(height)
+        let matrices = viewAndProjectionMatrices(aspect: aspect)
+        let viewMatrix = matrices.view
+        let projMatrix = matrices.projection
+
+        let visibleEntries = meshes.filter { !hiddenSolidIds.contains($0.key) }
+        guard !visibleEntries.isEmpty else { return nil }
+
+        var solidTable: [SolidId] = []
+        for (id, _) in visibleEntries {
+            solidTable.append(id)
+        }
+
+        let requiredCapacity = UniformArena.capacity(
+            forDraws: solidTable.count * 3 + 4,
+            blockSize: MemoryLayout<PickUniforms>.stride
+        )
+
+        let result: SubElementPickResult? = pickLock.withLock { () -> SubElementPickResult? in
+            if pickColorTexture?.width != width || pickColorTexture?.height != height {
+                let colorDesc = MTLTextureDescriptor.texture2DDescriptor(
+                    pixelFormat: .rgba32Uint,
+                    width: width,
+                    height: height,
+                    mipmapped: false
+                )
+                colorDesc.usage = [.renderTarget]
+                colorDesc.storageMode = .shared
+                pickColorTexture = device.makeTexture(descriptor: colorDesc)
+
+                let depthDesc = MTLTextureDescriptor.texture2DDescriptor(
+                    pixelFormat: Self.depthFormat,
+                    width: width,
+                    height: height,
+                    mipmapped: false
+                )
+                depthDesc.usage = [.renderTarget]
+                depthDesc.storageMode = .private
+                pickDepthTexture = device.makeTexture(descriptor: depthDesc)
+            }
+
+            guard let colorTexture = pickColorTexture,
+                  let depthTexture = pickDepthTexture,
+                  let arena = UniformArena(device: device, capacity: requiredCapacity),
+                  let pickResidency = try? device.makeResidencySet(descriptor: MTLResidencySetDescriptor()),
+                  let commandBuffer = device.makeCommandBuffer() else {
+                return MadeCore.pickSubElement(
+                    ray: screenPointToRay(screenPoint: pointer, viewportSize: viewportSize, viewMatrix: viewMatrix, projectionMatrix: projMatrix) ?? Ray3D(origin: .zero, direction: SIMD3(0, 0, -1)),
+                    candidateMeshes: candidateMeshes(),
+                    viewportSize: viewportSize,
+                    viewMatrix: viewMatrix,
+                    projectionMatrix: projMatrix
+                )
+            }
+
+            pickResidency.addAllocations([colorTexture, depthTexture, arena.buffer])
+            for id in solidTable {
+                if let mesh = meshes[id] {
+                    pickResidency.addAllocations([mesh.positionBuffer, mesh.indexBuffer])
+                    if let tf = mesh.triangleFaceIdBuffer { pickResidency.addAllocations([tf]) }
+                    if let es = mesh.edgeSegmentBuffer { pickResidency.addAllocations([es]) }
+                    if let vb = mesh.vertexBuffer { pickResidency.addAllocations([vb]) }
+                }
+            }
+            pickResidency.commit()
+
+            let pass = MTL4RenderPassDescriptor()
+            pass.colorAttachments[0].texture = colorTexture
+            pass.colorAttachments[0].loadAction = .clear
+            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+            pass.colorAttachments[0].storeAction = .store
+            pass.depthAttachment.texture = depthTexture
+            pass.depthAttachment.loadAction = .clear
+            pass.depthAttachment.clearDepth = 1.0
+            pass.depthAttachment.storeAction = .dontCare
+
+            pickAllocator.reset()
+            commandBuffer.beginCommandBuffer(allocator: pickAllocator)
+            commandBuffer.useResidencySet(pickResidency)
+            guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else {
+                commandBuffer.endCommandBuffer()
+                return nil
+            }
+
+            encoder.setArgumentTable(pickTable, stages: [.vertex, .fragment])
+            encoder.setScissorRect(MTLScissorRect(x: px, y: py, width: 1, height: 1))
+
+            // PASS 1: Faces
+            encoder.setRenderPipelineState(pickFacePipeline)
+            encoder.setDepthStencilState(pickFaceDepthState)
+            encoder.setFrontFacing(.counterClockwise)
+            encoder.setCullMode(.back)
+
+            for (idx, solidId) in solidTable.enumerated() {
+                guard let mesh = meshes[solidId], mesh.indexCount > 0 else { continue }
+                let solidIndex = UInt32(idx + 1)
+                let uniforms = PickUniforms(
+                    modelMatrix: mesh.transform.matrix,
+                    viewMatrix: viewMatrix,
+                    projectionMatrix: projMatrix,
+                    solidIndex: solidIndex,
+                    subelementType: 1,
+                    elementId: 0,
+                    viewportWidth: Float(width),
+                    viewportHeight: Float(height),
+                    tolerancePx: 8.0,
+                    depthBias: 0.005
+                )
+                guard let uAddr = arena.push(uniforms) else { continue }
+                pickTable.setAddress(mesh.positionBuffer.gpuAddress, index: 0)
+                pickTable.setAddress(uAddr, index: 1)
+                if let tf = mesh.triangleFaceIdBuffer {
+                    pickTable.setAddress(tf.gpuAddress, index: 2)
+                }
+                encoder.drawIndexedPrimitives(
+                    primitiveType: .triangle,
+                    indexCount: mesh.indexCount,
+                    indexType: .uint32,
+                    indexBuffer: mesh.indexBuffer.gpuAddress,
+                    indexBufferLength: mesh.indexBuffer.length
+                )
+            }
+
+            // PASS 2: Edges
+            encoder.setRenderPipelineState(pickEdgePipeline)
+            encoder.setDepthStencilState(pickEdgeDepthState)
+            encoder.setCullMode(.none)
+
+            for (idx, solidId) in solidTable.enumerated() {
+                guard let mesh = meshes[solidId], mesh.edgeSegmentCount > 0, let eb = mesh.edgeSegmentBuffer else { continue }
+                let solidIndex = UInt32(idx + 1)
+                let uniforms = PickUniforms(
+                    modelMatrix: mesh.transform.matrix,
+                    viewMatrix: viewMatrix,
+                    projectionMatrix: projMatrix,
+                    solidIndex: solidIndex,
+                    subelementType: 2,
+                    elementId: 0,
+                    viewportWidth: Float(width),
+                    viewportHeight: Float(height),
+                    tolerancePx: 8.0,
+                    depthBias: 0.005
+                )
+                guard let uAddr = arena.push(uniforms) else { continue }
+                pickTable.setAddress(uAddr, index: 1)
+                pickTable.setAddress(eb.gpuAddress, index: 3)
+                encoder.drawPrimitives(
+                    primitiveType: .triangle,
+                    vertexStart: 0,
+                    vertexCount: 6,
+                    instanceCount: mesh.edgeSegmentCount
+                )
+            }
+
+            // PASS 3: Vertices
+            encoder.setRenderPipelineState(pickVertexPipeline)
+            encoder.setDepthStencilState(pickVertexDepthState)
+            encoder.setCullMode(.none)
+
+            for (idx, solidId) in solidTable.enumerated() {
+                guard let mesh = meshes[solidId], mesh.vertexCount > 0, let vb = mesh.vertexBuffer else { continue }
+                let solidIndex = UInt32(idx + 1)
+                let uniforms = PickUniforms(
+                    modelMatrix: mesh.transform.matrix,
+                    viewMatrix: viewMatrix,
+                    projectionMatrix: projMatrix,
+                    solidIndex: solidIndex,
+                    subelementType: 3,
+                    elementId: 0,
+                    viewportWidth: Float(width),
+                    viewportHeight: Float(height),
+                    tolerancePx: 8.0,
+                    depthBias: 0.005
+                )
+                guard let uAddr = arena.push(uniforms) else { continue }
+                pickTable.setAddress(uAddr, index: 1)
+                pickTable.setAddress(vb.gpuAddress, index: 4)
+                encoder.drawPrimitives(
+                    primitiveType: .triangle,
+                    vertexStart: 0,
+                    vertexCount: 6,
+                    instanceCount: mesh.vertexCount
+                )
+            }
+
+            encoder.endEncoding()
+            commandBuffer.endCommandBuffer()
+
+            let semaphore = DispatchSemaphore(value: 0)
+            commandQueue.commit([commandBuffer], options: makeCommitOptions { _ in
+                semaphore.signal()
+            })
+            semaphore.wait()
+
+            var pixel = SIMD4<UInt32>(0, 0, 0, 0)
+            colorTexture.getBytes(
+                &pixel,
+                bytesPerRow: width * MemoryLayout<SIMD4<UInt32>>.stride,
+                from: MTLRegionMake2D(px, py, 1, 1),
+                mipmapLevel: 0
+            )
+
+            guard pixel.x > 0 else {
+                return nil
+            }
+
+            let solidTableIndex = Int(pixel.x) - 1
+            guard solidTableIndex >= 0 && solidTableIndex < solidTable.count else { return nil }
+            let solidId = solidTable[solidTableIndex]
+            guard let mesh = meshes[solidId] else { return nil }
+
+            let elementType: SubelementType
+            switch pixel.y {
+            case 1: elementType = .face
+            case 2: elementType = .edge
+            case 3: elementType = .vertex
+            default: elementType = .face
+            }
+
+            let elementId = Int(pixel.z)
+
+            let deterministicId: UUID?
+            switch elementType {
+            case .face:
+                deterministicId = mesh.faceRanges.first(where: { $0.faceId == elementId })?.deterministicId
+            case .edge:
+                deterministicId = mesh.edgePolylines.first(where: { $0.edgeId == elementId })?.deterministicId
+            case .vertex:
+                deterministicId = mesh.vertexPoints.first(where: { $0.vertexId == elementId })?.deterministicId
+            }
+
+            let ray = screenPointToRay(
+                screenPoint: pointer,
+                viewportSize: viewportSize,
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix
+            )
+
+            let hitPoint: SIMD3<Float>
+            let distance: Float
+            if let ray {
+                if elementType == .vertex, let vp = mesh.vertexPoints.first(where: { $0.vertexId == elementId }) {
+                    let w4 = mesh.transform.matrix * SIMD4<Float>(vp.position, 1.0)
+                    let p = SIMD3<Float>(w4.x, w4.y, w4.z)
+                    hitPoint = p
+                    distance = simd_dot(p - ray.origin, ray.direction)
+                } else {
+                    hitPoint = ray.origin + ray.direction * 10.0
+                    distance = 10.0
+                }
+            } else {
+                hitPoint = .zero
+                distance = 0.0
+            }
+
+            return SubElementPickResult(
+                solidId: solidId,
+                elementType: elementType,
+                elementId: elementId,
+                deterministicId: deterministicId,
+                distance: distance,
+                hitPoint: hitPoint
+            )
+        }
+        return result
     }
 }

@@ -19,7 +19,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
 - INPUT-8 is Shipped. Orbit, pan, and zoom navigation with mouse and trackpad was implemented under #87, and cursor-centered orbit (geometry, selection, ground plane precedence) and cursor-centered zoom (perspective and orthographic) under #385.
 - INPUT-6, INPUT-7, and INPUT-10 are Shipped. Viewport drag snapping to vertices, edges, and ground grid was implemented under #88.
-- INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69.
+- INPUT-9 is Shipped. Viewport ray picking against candidate mesh bounds and selection state in DocumentModel was implemented under #69, and sub-element picking (faces, edges, vertices with GPU offscreen pass, depth bias precedence vertex > edge > face, and CPU raycast fallback) under #202 (BL-SEL-02).
 - DOC-8 is Shipped. Interactive viewport gizmo manipulation (translation arrows, rotation rings, and scale cubes with two-physics parameter conversion) with on-demand invalidation and single release commit was implemented under #71 (Phase 4.19) and #72 (Phase 4.20).
 - DOC-16 is Shipped. Document model undo/redo registration for parameter, transform, add, and remove edits with Edit menu commands (⌘Z / ⇧⌘Z), selective re-tessellation, zero-kernel transform updates, and continuous slider drag coalescing was implemented under #39.
 - KERN-19 is In progress. STEP import (#82), STEP export (#38), persistent topological naming and deterministic sub-element identification (#152, ADR-D3), and B-Rep tessellation with tolerance control (#201) are delivered.
@@ -72,7 +72,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-11. Source: capabili
 | INPUT-6 | A user can snap a point to a 10 mm XY grid with Z unchanged (doc states a 1 mm or 5 mm pitch in earlier text) | done | done | n/a | Shipped | #88, #102 | n/a |
 | INPUT-7 | A user can resolve snap candidates by strict priority vertex over edge over grid inside a 20 px tolerance (doc states a 10 mm radius in earlier text) | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-8 | A user can orbit, pan and zoom the camera with trackpad (two-finger scroll pans, Option or Command scroll and pinch zoom), mouse (wheel zooms) or modifier and button drags, with orbit centered about cursor geometry/selection/ground plane and zoom directed toward the cursor in perspective and orthographic projections; multi-touch is not wired | done | done | n/a | Shipped | #87, #385 | n/a |
-| INPUT-9 | A user can click or tap a solid in the viewport to select it (picking) | done | done | n/a | Shipped | #69 | n/a |
+| INPUT-9 | A user can click or tap a solid in the viewport to select it (picking), and click to select individual faces, edges, or vertices (sub-element picking with vertex > edge > face precedence) | done | done | n/a | Shipped | #69, #202 | n/a |
 | INPUT-10 | A user can snap to vertices and edges of existing solids while manipulating | done | done | n/a | Shipped | #88 | n/a |
 | INPUT-11 | A user can two-finger tap to trigger context actions | none | none | n/a | Planned | #42 | n/a |
 | INPUT-12 | A user can pick a Select, Orbit, Pan or Zoom tool from the toolbar or with V, O, P and Z, and a plain left-drag follows the tool while modifier navigation keeps working | done | done | n/a | Shipped |  | n/a |

@@ -261,4 +261,87 @@ import simd
         )
         #expect(nilRayPivot == fallbackTarget, "Nil ray must fall back to target")
     }
+
+    // MARK: - Sub-Element Picking Tests (BL-SEL-02)
+
+    @Test func testPickSubElementFace() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        // Ray aimed directly into the center of the front face (y = -10)
+        let ray = Ray3D(origin: SIMD3<Float>(0, -50, 0), direction: SIMD3<Float>(0, 1, 0))
+        let result = pickSubElement(ray: ray, candidateMeshes: [mesh])
+
+        #expect(result != nil)
+        #expect(result?.solidId == SolidId("box-1"))
+        #expect(result?.elementType == SubelementType.face)
+        #expect(abs((result?.distance ?? 0) - 40.0) < 1e-4)
+    }
+
+    @Test func testPickSubElementEdgePrecedence() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        let eye = SIMD3<Float>(0, -50, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: .zero, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 1000.0)
+        let viewport = CGSize(width: 800, height: 600)
+
+        // Point on top-front edge: (0, -10, 10)
+        let edgeMidpoint = SIMD3<Float>(0, -10, 10)
+        let screenPt = projectToScreen(point: edgeMidpoint, viewProjectionMatrix: projMatrix * viewMatrix, viewportSize: viewport)!
+        let ray = screenPointToRay(screenPoint: screenPt, viewportSize: viewport, viewMatrix: viewMatrix, projectionMatrix: projMatrix)!
+
+        let result = pickSubElement(
+            ray: ray,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        )
+
+        #expect(result != nil)
+        #expect(result?.solidId == SolidId("box-1"))
+        #expect(result?.elementType == SubelementType.edge)
+    }
+
+    @Test func testPickSubElementVertexPrecedence() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        let eye = SIMD3<Float>(0, -50, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: .zero, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 1000.0)
+        let viewport = CGSize(width: 800, height: 600)
+
+        // Corner vertex at (10, -10, 10)
+        let cornerVertex = SIMD3<Float>(10, -10, 10)
+        let screenPt = projectToScreen(point: cornerVertex, viewProjectionMatrix: projMatrix * viewMatrix, viewportSize: viewport)!
+        let ray = screenPointToRay(screenPoint: screenPt, viewportSize: viewport, viewMatrix: viewMatrix, projectionMatrix: projMatrix)!
+
+        let result = pickSubElement(
+            ray: ray,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix
+        )
+
+        #expect(result != nil)
+        #expect(result?.solidId == SolidId("box-1"))
+        #expect(result?.elementType == SubelementType.vertex)
+    }
+
+    @Test func testPickSubElementMiss() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        // Ray pointing completely away
+        let ray = Ray3D(origin: SIMD3<Float>(0, -50, 50), direction: SIMD3<Float>(0, 1, 0))
+        let result = pickSubElement(ray: ray, candidateMeshes: [mesh])
+
+        #expect(result == nil)
+    }
 }

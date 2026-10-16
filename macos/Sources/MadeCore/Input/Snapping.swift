@@ -112,15 +112,40 @@ public struct CandidateMesh: Sendable {
     public let positions: [SIMD3<Float>]
     public let edges: [MeshEdge]
     public var transform: Transform
+    public let indices: [UInt32]
+    public let faceRanges: [FaceTriangleRange]
+    public let edgePolylines: [EdgePolyline]
+    public let vertexPoints: [VertexPoint]
     
-    public init(id: SolidId, positions: [SIMD3<Float>], edges: [MeshEdge], transform: Transform = .identity) {
+    public init(
+        id: SolidId,
+        positions: [SIMD3<Float>],
+        edges: [MeshEdge],
+        transform: Transform = .identity,
+        indices: [UInt32] = [],
+        faceRanges: [FaceTriangleRange] = [],
+        edgePolylines: [EdgePolyline] = [],
+        vertexPoints: [VertexPoint] = []
+    ) {
         self.id = id
         self.positions = positions
         self.edges = edges
         self.transform = transform
+        self.indices = indices
+        self.faceRanges = faceRanges
+        self.edgePolylines = edgePolylines
+        self.vertexPoints = vertexPoints
     }
     
-    public init(id: SolidId, rawPositions: [Float], indices: [UInt32], transform: Transform = .identity) {
+    public init(
+        id: SolidId,
+        rawPositions: [Float],
+        indices: [UInt32],
+        transform: Transform = .identity,
+        faceRanges: [FaceTriangleRange] = [],
+        edgePolylines: [EdgePolyline] = [],
+        vertexPoints: [VertexPoint] = []
+    ) {
         self.id = id
         var pts: [SIMD3<Float>] = []
         pts.reserveCapacity(rawPositions.count / 3)
@@ -141,10 +166,22 @@ public struct CandidateMesh: Sendable {
         }
         self.edges = Array(edgeSet)
         self.transform = transform
+        self.indices = indices
+        self.faceRanges = faceRanges
+        self.edgePolylines = edgePolylines
+        self.vertexPoints = vertexPoints
     }
     
     public init(id: SolidId, payload: MeshPayload, transform: Transform = .identity) {
-        self.init(id: id, rawPositions: Array(payload.positions), indices: Array(payload.indices), transform: transform)
+        self.init(
+            id: id,
+            rawPositions: Array(payload.positions),
+            indices: Array(payload.indices),
+            transform: transform,
+            faceRanges: payload.faceRanges,
+            edgePolylines: payload.edgePolylines,
+            vertexPoints: payload.vertexPoints
+        )
     }
 }
 

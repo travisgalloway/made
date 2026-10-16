@@ -37,6 +37,12 @@ import OCCTSwift
             #expect(poly.points.count == 2)
             #expect(poly.segmentRange.count == 1)
         }
+
+        // A box has 8 vertices
+        #expect(payload.vertexPoints.count == 8)
+        for vp in payload.vertexPoints {
+            #expect(payload.vertexPoint(forVertex: vp.vertexId) != nil)
+        }
     }
 
     @Test func testCylinderToleranceScalingChordal() throws {
@@ -158,15 +164,18 @@ import OCCTSwift
         }
         let deterministicFaceId = UUID()
         let deterministicEdgeId = UUID()
+        let deterministicVertexId = UUID()
         let faceRanges = [FaceTriangleRange(faceId: 42, triangleRange: 0..<1, deterministicId: deterministicFaceId)]
         let edgePolylines = [EdgePolyline(edgeId: 7, points: [SIMD3<Float>(0, 0, 0), SIMD3<Float>(1, 0, 0)], segmentRange: 0..<1, deterministicId: deterministicEdgeId)]
         let edgeSegmentRanges = [EdgeSegmentRange(edgeId: 7, segmentRange: 0..<1, deterministicId: deterministicEdgeId)]
+        let vertexPoints = [VertexPoint(vertexId: 99, position: SIMD3<Float>(1, 2, 3), deterministicId: deterministicVertexId)]
         
         let originalPayload = MeshPayload(
             storage: storage,
             faceRanges: faceRanges,
             edgePolylines: edgePolylines,
-            edgeSegmentRanges: edgeSegmentRanges
+            edgeSegmentRanges: edgeSegmentRanges,
+            vertexPoints: vertexPoints
         )
         
         let jobId = JobId("wire-roundtrip-test")
@@ -178,8 +187,10 @@ import OCCTSwift
         #expect(decodedPayload.faceRanges == faceRanges)
         #expect(decodedPayload.edgePolylines == edgePolylines)
         #expect(decodedPayload.edgeSegmentRanges == edgeSegmentRanges)
+        #expect(decodedPayload.vertexPoints == vertexPoints)
         #expect(decodedPayload.faceId(atTriangle: 0) == 42)
         #expect(decodedPayload.edgeId(atSegment: 0) == 7)
+        #expect(decodedPayload.vertexPoint(forVertex: 99)?.position == SIMD3<Float>(1, 2, 3))
     }
 
     @Test func testNonBRepFallbackDegradesGracefully() {
@@ -197,5 +208,6 @@ import OCCTSwift
         #expect(payload.totalEdgeSegments == 0)
         #expect(payload.edgeSegments.isEmpty)
         #expect(payload.edgeId(atSegment: 0) == nil)
+        #expect(payload.vertexPoints.count == 8)
     }
 }

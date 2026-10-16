@@ -41,12 +41,26 @@ public enum EuclidEngine {
                 }
             }
         }
+        var seenPositions = Set<SIMD3<Float>>()
+        var vertexPoints: [VertexPoint] = []
+        var nextVertexId = 0
+        for polygon in polygons {
+            for v in polygon.vertices {
+                let p = SIMD3<Float>(Float(v.position.x), Float(v.position.y), Float(v.position.z))
+                if seenPositions.insert(p).inserted {
+                    vertexPoints.append(VertexPoint(vertexId: nextVertexId, position: p))
+                    nextVertexId += 1
+                }
+            }
+        }
+
         let faceRanges: [FaceTriangleRange] = triangleCount > 0 ? [FaceTriangleRange(faceId: 0, triangleRange: 0..<triangleCount)] : []
         return MeshPayload(
             storage: storage,
             faceRanges: faceRanges,
             edgePolylines: [],
-            edgeSegmentRanges: []
+            edgeSegmentRanges: [],
+            vertexPoints: vertexPoints
         )
     }
     

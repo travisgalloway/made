@@ -207,6 +207,17 @@ enum OCCTEngine {
             edgeSegmentRanges.append(EdgeSegmentRange(edgeId: item.edgeIndex, segmentRange: segRange))
         }
 
+        // Extract vertices
+        let rawVertices = shape.vertices()
+        var vertexPoints: [VertexPoint] = []
+        vertexPoints.reserveCapacity(rawVertices.count)
+        for (idx, v) in rawVertices.enumerated() {
+            vertexPoints.append(VertexPoint(
+                vertexId: idx,
+                position: SIMD3<Float>(Float(v.x), Float(v.y), Float(v.z))
+            ))
+        }
+
         let storage = MeshStorage(
             positionCount: vertexData.count,
             normalCount: normalData.count,
@@ -230,7 +241,8 @@ enum OCCTEngine {
             storage: storage,
             faceRanges: faceRanges,
             edgePolylines: edgePolylines,
-            edgeSegmentRanges: edgeSegmentRanges
+            edgeSegmentRanges: edgeSegmentRanges,
+            vertexPoints: vertexPoints
         )
     }
 

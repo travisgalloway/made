@@ -204,6 +204,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
         }
         renderer.selectedId = document.selectedId
+        renderer.selectedSubElement = document.selectedSubElement
         let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
         renderer.showsGrid = showsGrid
         renderer.showsAxes = showsAxes
@@ -228,8 +229,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
         let effectiveGizmo = showsGizmo && !isLocked
         var needsInvalidate = false
-        if renderer.selectedId != document.selectedId {
+        if renderer.selectedId != document.selectedId || renderer.selectedSubElement != document.selectedSubElement {
             renderer.selectedId = document.selectedId
+            renderer.selectedSubElement = document.selectedSubElement
             needsInvalidate = true
         }
         if renderer.showsGrid != showsGrid {
@@ -755,22 +757,25 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 if parent.tool == .select || pType == .pen {
                     guard let view = mtkView else { return }
                     let loc = view.convert(event.locationInWindow, from: nil)
-                    let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
-                    let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
                     let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
-                    let hitId = pickSolidAtPointer(
-                        pointer: pointer,
-                        viewportSize: view.bounds.size,
-                        viewMatrix: matrices.view,
-                        projectionMatrix: matrices.projection,
-                        candidateMeshes: parent.renderer.candidateMeshes()
-                    )
+                    let pickResult = parent.renderer.pickSubElement(at: pointer, viewportSize: view.bounds.size)
+                    let hitId = pickResult?.solidId
+                    let selectedSub = pickResult.map {
+                        SelectedSubElement(
+                            solidId: $0.solidId,
+                            elementType: $0.elementType,
+                            elementId: $0.elementId,
+                            deterministicId: $0.deterministicId
+                        )
+                    }
                     parent.document.selectedId = hitId
+                    parent.document.selectedSubElement = selectedSub
                     if let hitId, parent.isCommandActive {
                         parent.onSelectObjectForCommand?(hitId)
                     }
-                    if parent.renderer.selectedId != hitId {
+                    if parent.renderer.selectedId != hitId || parent.renderer.selectedSubElement != selectedSub {
                         parent.renderer.selectedId = hitId
+                        parent.renderer.selectedSubElement = selectedSub
                         invalidate(reason: .interaction)
                     }
                 }
