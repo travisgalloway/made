@@ -4,6 +4,8 @@ import MadeCore
 struct NavigatorSidebarView: View {
     @Environment(WorkspaceModel.self) private var workspace
     @State private var filterText = ""
+    @State private var renamingTarget: (id: ObjectId, name: String)? = nil
+    @State private var renamingText = ""
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -52,11 +54,34 @@ struct NavigatorSidebarView: View {
                     Button("Roll Back to Here") { workspace.rollBack(to: id) }
                     Button("Roll Back Before") { workspace.rollBack(before: id) }
                     Divider()
+                    Button("Rename…") {
+                        renamingText = obj.name
+                        renamingTarget = (id: id, name: obj.name)
+                    }
+                    .disabled(obj.isLocked)
                     Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
                     Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
                     Divider()
                     Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
                         .disabled(obj.isLocked)
+                }
+            }
+            .alert(
+                "Rename “\(renamingTarget?.name ?? "Solid")”",
+                isPresented: Binding(
+                    get: { renamingTarget != nil },
+                    set: { if !$0 { renamingTarget = nil } }
+                )
+            ) {
+                TextField("Name", text: $renamingText)
+                Button("Rename") {
+                    if let target = renamingTarget {
+                        workspace.setName(id: target.id, name: renamingText)
+                        renamingTarget = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    renamingTarget = nil
                 }
             }
             .confirmationDialog(

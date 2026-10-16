@@ -1518,5 +1518,69 @@ import MadeCore
         #expect(model.isDocumentModified)
         #expect(model.document.settings == allSettings)
     }
+
+    // MARK: - Feature & Body Mutators and Hidden Solid Synchronization (BL-FND-13, #240)
+
+    @Test @MainActor func testWorkspaceFeatureAndBodyMutators() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+        let boxFeat = model.document.features[0]
+        let boxFeatId = boxFeat.id
+
+        model.selectedId = boxId
+        #expect(model.selectedBody?.name == "box-1")
+        #expect(model.selectedFeature?.name == "box-1")
+
+        // Feature mutators
+        model.setFeatureName(id: boxFeatId, name: "Workspace Box Feat")
+        #expect(model.selectedFeature?.name == "Workspace Box Feat")
+        #expect(model.isDocumentModified)
+
+        model.isDocumentModified = false
+        model.setFeatureVisibility(id: boxFeatId, isVisible: false)
+        #expect(model.selectedFeature?.isVisible == false)
+        #expect(model.isDocumentModified)
+
+        model.toggleFeatureVisibility(boxFeatId)
+        #expect(model.selectedFeature?.isVisible == true)
+
+        // Body mutators
+        model.isDocumentModified = false
+        model.setBodyName(id: boxId, name: "Workspace Box Body")
+        #expect(model.selectedBody?.name == "Workspace Box Body")
+        #expect(model.isDocumentModified)
+
+        model.isDocumentModified = false
+        model.setBodyVisibility(id: boxId, isVisible: false)
+        #expect(model.selectedBody?.isVisible == false)
+        #expect(model.isDocumentModified)
+
+        model.toggleBodyVisibility(boxId)
+        #expect(model.selectedBody?.isVisible == true)
+    }
+
+    @Test @MainActor func testWorkspaceUndoRedoSyncsHiddenSolidIds() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        #expect(!renderer.hiddenSolidIds.contains(boxId))
+
+        // Hide solid via body mutator
+        model.setBodyVisibility(id: boxId, isVisible: false)
+        #expect(renderer.hiddenSolidIds.contains(boxId))
+        #expect(model.document.body(for: boxId)?.isVisible == false)
+
+        // Undo
+        model.undo()
+        #expect(!renderer.hiddenSolidIds.contains(boxId))
+        #expect(model.document.body(for: boxId)?.isVisible == true)
+
+        // Redo
+        model.redo()
+        #expect(renderer.hiddenSolidIds.contains(boxId))
+        #expect(model.document.body(for: boxId)?.isVisible == false)
+    }
 }
 

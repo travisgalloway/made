@@ -1447,5 +1447,243 @@ import simd
         let cutDeps = doc.directDependencies(of: cutFeat)
         #expect(cutDeps.contains(boxFeat.id))
     }
+
+    // MARK: - Feature Naming & Visibility (BL-FND-13, #240)
+
+    @Test func testFeatureNamingAndVisibility() {
+        let doc = DocumentModel()
+        let boxFeat = doc.features.first(where: { $0.outputSolidId == boxSolidId })!
+        let boxFeatId = boxFeat.id
+
+        // Initial state
+        #expect(boxFeat.name == "box-1")
+        #expect(boxFeat.isVisible == true)
+        #expect(boxFeat.isLocked == false)
+        #expect(doc.body(for: boxSolidId)?.name == "box-1")
+        #expect(doc.body(for: boxSolidId)?.isVisible == true)
+        #expect(doc.body(for: boxSolidId)?.isLocked == false)
+
+        // Rename feature
+        let renameRes = doc.setFeatureName(id: boxFeatId, name: "Base Extrude")
+        #expect(renameRes == .success(()))
+        #expect(doc.feature(for: boxFeatId)?.name == "Base Extrude")
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.name == "Base Extrude")
+        #expect(doc.body(for: boxSolidId)?.name == "Base Extrude")
+
+        // Set visibility
+        let hideRes = doc.setFeatureVisibility(id: boxFeatId, isVisible: false)
+        #expect(hideRes == .success(()))
+        #expect(doc.feature(for: boxFeatId)?.isVisible == false)
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.isVisible == false)
+        #expect(doc.body(for: boxSolidId)?.isVisible == false)
+
+        // Set locked
+        let lockRes = doc.setFeatureLocked(id: boxFeatId, isLocked: true)
+        #expect(lockRes == .success(()))
+        #expect(doc.feature(for: boxFeatId)?.isLocked == true)
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.isLocked == true)
+        #expect(doc.body(for: boxSolidId)?.isLocked == true)
+    }
+
+    @Test func testFeatureRenameEmptyNameRejection() {
+        let doc = DocumentModel()
+        let boxFeatId = doc.features[0].id
+
+        let initialName = doc.features[0].name
+        #expect(doc.setFeatureName(id: boxFeatId, name: "") == .success(()))
+        #expect(doc.features[0].name == initialName)
+
+        #expect(doc.setFeatureName(id: boxFeatId, name: "    \t\n   ") == .success(()))
+        #expect(doc.features[0].name == initialName)
+
+        // Whitespace trimming on valid name
+        #expect(doc.setFeatureName(id: boxFeatId, name: "  Clean Name  ") == .success(()))
+        #expect(doc.features[0].name == "Clean Name")
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.name == "Clean Name")
+    }
+
+    @Test func testLockedFeatureRejectsRename() {
+        let doc = DocumentModel()
+        let boxFeatId = doc.features[0].id
+        _ = doc.setFeatureLocked(id: boxFeatId, isLocked: true)
+
+        let initialName = doc.features[0].name
+        let result = doc.setFeatureName(id: boxFeatId, name: "Should Fail")
+        #expect(result == .failure(.objectLocked(boxSolidId)))
+        #expect(doc.features[0].name == initialName)
+
+        // Locked feature allows visibility toggle
+        let visResult = doc.setFeatureVisibility(id: boxFeatId, isVisible: false)
+        #expect(visResult == .success(()))
+        #expect(doc.features[0].isVisible == false)
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.isVisible == false)
+        #expect(doc.body(for: boxSolidId)?.isVisible == false)
+    }
+
+    @Test func testUndoRedoFeatureMutations() {
+        let doc = DocumentModel()
+        let boxFeatId = doc.features[0].id
+        let initialName = doc.features[0].name
+
+        // Rename undo/redo
+        _ = doc.setFeatureName(id: boxFeatId, name: "New Feature Name")
+        #expect(doc.features[0].name == "New Feature Name")
+        #expect(doc.canUndo)
+        #expect(doc.undoActionTitle == "Undo Rename Feature")
+
+        doc.undo()
+        #expect(doc.features[0].name == initialName)
+        #expect(doc.canRedo)
+        #expect(doc.redoActionTitle == "Redo Rename Feature")
+
+        doc.redo()
+        #expect(doc.features[0].name == "New Feature Name")
+
+        // Visibility hide undo/redo
+        _ = doc.setFeatureVisibility(id: boxFeatId, isVisible: false)
+        #expect(doc.features[0].isVisible == false)
+        #expect(doc.canUndo)
+        #expect(doc.undoActionTitle == "Undo Hide Feature")
+
+        doc.undo()
+        #expect(doc.features[0].isVisible == true)
+        #expect(doc.canRedo)
+        #expect(doc.redoActionTitle == "Redo Hide Feature")
+
+        doc.redo()
+        #expect(doc.features[0].isVisible == false)
+
+        // Visibility show undo/redo
+        _ = doc.setFeatureVisibility(id: boxFeatId, isVisible: true)
+        #expect(doc.features[0].isVisible == true)
+        #expect(doc.undoActionTitle == "Undo Show Feature")
+
+        doc.undo()
+        #expect(doc.features[0].isVisible == false)
+        #expect(doc.redoActionTitle == "Redo Show Feature")
+
+        doc.redo()
+        #expect(doc.features[0].isVisible == true)
+    }
+
+    @Test func testNonSolidFeatureNamingAndVisibility() {
+        let doc = DocumentModel()
+        let sketchFeat = Feature(
+            name: "Sketch 1",
+            operation: .sketch(SketchFeatureData()),
+            outputSolidId: nil
+        )
+        let sketchId = sketchFeat.id
+        doc.addFeature(sketchFeat)
+
+        let initialObjectsCount = doc.objects.count
+        let initialBodiesCount = doc.bodies.count
+
+        // Rename non-solid feature
+        let renameRes = doc.setFeatureName(id: sketchId, name: "Base Profile")
+        #expect(renameRes == .success(()))
+        #expect(doc.feature(for: sketchId)?.name == "Base Profile")
+        #expect(doc.objects.count == initialObjectsCount)
+        #expect(doc.bodies.count == initialBodiesCount)
+
+        // Visibility toggle on non-solid feature
+        let hideRes = doc.setFeatureVisibility(id: sketchId, isVisible: false)
+        #expect(hideRes == .success(()))
+        #expect(doc.feature(for: sketchId)?.isVisible == false)
+        #expect(doc.objects.count == initialObjectsCount)
+        #expect(doc.bodies.count == initialBodiesCount)
+    }
+
+    @Test func testObjectAndBodyRenameEmptyNameRejection() {
+        let doc = DocumentModel()
+
+        // setName rejects empty / whitespace
+        doc.setName(id: boxSolidId, name: "")
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.name == "box-1")
+        doc.setName(id: boxSolidId, name: "   \t\n  ")
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.name == "box-1")
+
+        // setName trims valid input
+        doc.setName(id: boxSolidId, name: "  Clean Box  ")
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.name == "Clean Box")
+
+        // setBodyName rejects empty / whitespace
+        doc.setBodyName(id: cylinderSolidId, name: "")
+        #expect(doc.body(for: cylinderSolidId)?.name == "cylinder-1")
+        doc.setBodyName(id: cylinderSolidId, name: "   ")
+        #expect(doc.body(for: cylinderSolidId)?.name == "cylinder-1")
+
+        // setBodyName trims valid input
+        doc.setBodyName(id: cylinderSolidId, name: "  Clean Cylinder  ")
+        #expect(doc.body(for: cylinderSolidId)?.name == "Clean Cylinder")
+    }
+
+    @Test func testLockedObjectRejectsRename() {
+        let doc = DocumentModel()
+        doc.setLocked(id: boxSolidId, isLocked: true)
+
+        // setName on locked object is rejected
+        doc.setName(id: boxSolidId, name: "Renamed While Locked")
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.name == "box-1")
+
+        // setBodyName on locked body is rejected
+        doc.setBodyName(id: boxSolidId, name: "Body Renamed While Locked")
+        #expect(doc.body(for: boxSolidId)?.name == "box-1")
+    }
+
+    @Test func testDocumentModelSerializationPreservesFeatureAndBodyNamingAndVisibility() throws {
+        let doc = DocumentModel()
+
+        // Customize box
+        _ = doc.setFeatureName(id: doc.features[0].id, name: "Base Extrude Plate")
+        _ = doc.setFeatureVisibility(id: doc.features[0].id, isVisible: false)
+        _ = doc.setFeatureLocked(id: doc.features[0].id, isLocked: true)
+
+        // Customize cylinder
+        doc.setBodyName(id: cylinderSolidId, name: "Pin Body")
+
+        // Add non-solid sketch
+        let sketchFeat = Feature(
+            name: "Mounting Holes Sketch",
+            operation: .sketch(SketchFeatureData()),
+            outputSolidId: nil,
+            isVisible: false,
+            isLocked: true
+        )
+        doc.addFeature(sketchFeat)
+
+        // Encode
+        let encodedData = try DocumentModelCoder.encode(document: doc)
+
+        // Decode into fresh DocumentModel
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encodedData)
+
+        // Verify box feature, object, and body
+        let restoredBoxFeat = restoredDoc.feature(for: doc.features[0].id)
+        #expect(restoredBoxFeat?.name == "Base Extrude Plate")
+        #expect(restoredBoxFeat?.isVisible == false)
+        #expect(restoredBoxFeat?.isLocked == true)
+
+        let restoredBoxObj = restoredDoc.objects.first(where: { $0.id == boxSolidId })
+        #expect(restoredBoxObj?.name == "Base Extrude Plate")
+        #expect(restoredBoxObj?.isVisible == false)
+        #expect(restoredBoxObj?.isLocked == true)
+
+        let restoredBoxBody = restoredDoc.body(for: boxSolidId)
+        #expect(restoredBoxBody?.name == "Base Extrude Plate")
+        #expect(restoredBoxBody?.isVisible == false)
+        #expect(restoredBoxBody?.isLocked == true)
+
+        // Verify cylinder body
+        let restoredCylBody = restoredDoc.body(for: cylinderSolidId)
+        #expect(restoredCylBody?.name == "Pin Body")
+
+        // Verify sketch feature
+        let restoredSketch = restoredDoc.feature(for: sketchFeat.id)
+        #expect(restoredSketch?.name == "Mounting Holes Sketch")
+        #expect(restoredSketch?.isVisible == false)
+        #expect(restoredSketch?.isLocked == true)
+    }
 }
 

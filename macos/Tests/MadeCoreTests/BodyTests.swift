@@ -202,4 +202,21 @@ import simd
         #expect(doc.bodies.count == 2)
         #expect(doc.bodies.map(\.id) == [boxSolidId, cylinderSolidId])
     }
+
+    @Test func testBodyRenameWhitespaceTrimming() {
+        let doc = DocumentModel()
+        let initialName = doc.body(for: boxSolidId)!.name
+
+        // Whitespace-only name is rejected
+        doc.setBodyName(id: boxSolidId, name: "   \t\n  ")
+        #expect(doc.body(for: boxSolidId)?.name == initialName)
+
+        // Empty string is rejected
+        doc.setBodyName(id: boxSolidId, name: "")
+        #expect(doc.body(for: boxSolidId)?.name == initialName)
+
+        // Leading and trailing whitespace is trimmed
+        doc.setBodyName(id: boxSolidId, name: "   Trimmed Body   ")
+        #expect(doc.body(for: boxSolidId)?.name == "Trimmed Body")
+    }
 }

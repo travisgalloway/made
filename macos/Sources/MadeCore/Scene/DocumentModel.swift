@@ -918,6 +918,73 @@ public final class DocumentModel {
         features[index].errorState = error
     }
 
+    @discardableResult
+    public func setFeatureName(id: UUID, name: String) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(ObjectId(id.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(id.uuidString)))
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .success(()) }
+        let oldName = features[index].name
+        guard oldName != trimmed else { return .success(()) }
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.setFeatureName(id: id, name: oldName)
+                target.undoManager?.setActionName("Rename Feature")
+            }
+        }
+        undoManager?.setActionName("Rename Feature")
+        undoStateVersion += 1
+        features[index].name = trimmed
+        return .success(())
+    }
+
+    @discardableResult
+    public func setFeatureVisibility(id: UUID, isVisible: Bool) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(ObjectId(id.uuidString)))
+        }
+        let oldVisible = features[index].isVisible
+        guard oldVisible != isVisible else { return .success(()) }
+
+        let actionTitle = isVisible ? "Show Feature" : "Hide Feature"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.setFeatureVisibility(id: id, isVisible: oldVisible)
+                target.undoManager?.setActionName(actionTitle)
+            }
+        }
+        undoManager?.setActionName(actionTitle)
+        undoStateVersion += 1
+        features[index].isVisible = isVisible
+        return .success(())
+    }
+
+    @discardableResult
+    public func setFeatureLocked(id: UUID, isLocked: Bool) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(ObjectId(id.uuidString)))
+        }
+        let oldLocked = features[index].isLocked
+        guard oldLocked != isLocked else { return .success(()) }
+
+        let actionTitle = isLocked ? "Lock Feature" : "Unlock Feature"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.setFeatureLocked(id: id, isLocked: oldLocked)
+                target.undoManager?.setActionName(actionTitle)
+            }
+        }
+        undoManager?.setActionName(actionTitle)
+        undoStateVersion += 1
+        features[index].isLocked = isLocked
+        return .success(())
+    }
+
     public func feature(for id: UUID) -> Feature? {
         features.first(where: { $0.id == id })
     }
@@ -1329,7 +1396,11 @@ public final class DocumentModel {
     
     public func setName(id: ObjectId, name: String) {
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
-        features[index].name = name
+        guard !features[index].isLocked else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard features[index].name != trimmed else { return }
+        features[index].name = trimmed
     }
     
     public func setVisibility(id: ObjectId, isVisible: Bool) {
@@ -1374,8 +1445,10 @@ public final class DocumentModel {
     public func setBodyName(id: BodyId, name: String) {
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
         guard !features[index].isLocked else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         let oldName = features[index].name
-        guard oldName != name else { return }
+        guard oldName != trimmed else { return }
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 target.setBodyName(id: id, name: oldName)
@@ -1384,7 +1457,7 @@ public final class DocumentModel {
         }
         undoManager?.setActionName("Rename Body")
         undoStateVersion += 1
-        setName(id: id, name: name)
+        setName(id: id, name: trimmed)
     }
 
     @discardableResult
