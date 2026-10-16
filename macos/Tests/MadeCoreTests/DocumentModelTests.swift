@@ -1408,5 +1408,44 @@ import simd
         doc.reset(with: [SceneObject](), settings: custom)
         #expect(doc.settings == custom)
     }
+
+    // MARK: - Body Operation Dependency Tracking (BL-FND-12)
+
+    @Test func testDirectDependenciesTracksTargetBodyId() {
+        let doc = DocumentModel()
+        let boxFeat = doc.feature(for: boxSolidId)!
+
+        // Create feature (no target dependency)
+        let createFeat = Feature(
+            name: "New Solid",
+            operation: .primitive(.box(BoxParams(width: 10, depth: 10, height: 10))),
+            outputSolidId: SolidId("new-solid-1"),
+            bodyOperation: .create,
+            targetBodyId: nil
+        )
+        #expect(doc.directDependencies(of: createFeat).isEmpty)
+
+        // Add operation targeting box-1
+        let addFeat = Feature(
+            name: "Boss Feature",
+            operation: .primitive(.cylinder(CylinderParams(radius: 5, height: 10))),
+            outputSolidId: SolidId("boss-1"),
+            bodyOperation: .add,
+            targetBodyId: boxSolidId
+        )
+        let addDeps = doc.directDependencies(of: addFeat)
+        #expect(addDeps.contains(boxFeat.id))
+
+        // Cut operation targeting box-1
+        let cutFeat = Feature(
+            name: "Pocket Feature",
+            operation: .primitive(.cylinder(CylinderParams(radius: 4, height: 8))),
+            outputSolidId: SolidId("pocket-1"),
+            bodyOperation: .cut,
+            targetBodyId: boxSolidId
+        )
+        let cutDeps = doc.directDependencies(of: cutFeat)
+        #expect(cutDeps.contains(boxFeat.id))
+    }
 }
 

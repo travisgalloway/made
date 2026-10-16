@@ -9,13 +9,15 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var objects: [SceneObject]
     public var selectedId: ObjectId?
     public var rollbackIndex: Int?
+    public var bodies: [Body]?
 
     public init(
         schemaVersion: Int = DocumentData.currentSchemaVersion,
         features: [Feature]? = nil,
         objects: [SceneObject]? = nil,
         selectedId: ObjectId? = nil,
-        rollbackIndex: Int? = nil
+        rollbackIndex: Int? = nil,
+        bodies: [Body]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.rollbackIndex = rollbackIndex
@@ -27,19 +29,23 @@ public struct DocumentData: Codable, Sendable, Equatable {
             }
             self.objects = clamped
             self.features = features ?? clamped.map { Feature(from: $0) }
+            self.bodies = bodies ?? clamped.map { Body(from: $0) }
         } else if let features {
             self.features = features
             let effectiveIndex = rollbackIndex ?? features.count
-            self.objects = Array(features.prefix(effectiveIndex)).compactMap { $0.toSceneObject() }
+            let active = Array(features.prefix(effectiveIndex)).compactMap { $0.toSceneObject() }
+            self.objects = active
+            self.bodies = bodies ?? active.map { Body(from: $0) }
         } else {
             self.features = []
             self.objects = []
+            self.bodies = bodies ?? []
         }
         self.selectedId = selectedId
     }
 
-    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex)
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -48,6 +54,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case objects
         case selectedId
         case rollbackIndex
+        case bodies
     }
 
     public init(from decoder: Decoder) throws {
@@ -68,6 +75,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
             self.features = clampedObjects.map { Feature(from: $0) }
         }
         self.selectedId = try container.decodeIfPresent(ObjectId.self, forKey: .selectedId)
+        self.bodies = try container.decodeIfPresent([Body].self, forKey: .bodies) ?? self.objects.map { Body(from: $0) }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -77,6 +85,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encode(objects, forKey: .objects)
         try container.encodeIfPresent(selectedId, forKey: .selectedId)
         try container.encodeIfPresent(rollbackIndex, forKey: .rollbackIndex)
+        try container.encodeIfPresent(bodies, forKey: .bodies)
     }
 }
 
@@ -128,7 +137,8 @@ public enum DocumentModelCoder {
             features: document.features,
             objects: document.objects,
             selectedId: document.selectedId,
-            rollbackIndex: document.rollbackIndex
+            rollbackIndex: document.rollbackIndex,
+            bodies: document.bodies
         )
         return try encode(docData)
     }

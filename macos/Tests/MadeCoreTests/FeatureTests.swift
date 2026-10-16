@@ -496,4 +496,61 @@ import simd
         #expect(decoded.objects.count == 1)
         #expect(decoded.features?.count == 1)
     }
+
+    // MARK: - Body Operation & Target Body Tests (BL-FND-12)
+
+    @Test func testFeatureBodyOperationAndTargetDefaults() {
+        let f = Feature.makeBox(solidId: boxSolidId, params: BoxParams(width: 10, depth: 10, height: 10))
+        #expect(f.bodyOperation == .create)
+        #expect(f.targetBodyId == nil)
+
+        let fCut = Feature.makeCylinder(
+            solidId: SolidId("cut-1"),
+            params: CylinderParams(radius: 5, height: 10),
+            bodyOperation: .cut,
+            targetBodyId: boxSolidId
+        )
+        #expect(fCut.bodyOperation == .cut)
+        #expect(fCut.targetBodyId == boxSolidId)
+    }
+
+    @Test func testFeatureBodyOperationSerializationRoundTrip() throws {
+        let feature = Feature(
+            name: "Boolean Add",
+            operation: .primitive(.box(BoxParams(width: 20, depth: 20, height: 20))),
+            outputSolidId: SolidId("box-add"),
+            bodyOperation: .add,
+            targetBodyId: SolidId("target-solid-1")
+        )
+
+        let encoder = DocumentModelCoder.makeJSONEncoder()
+        let data = try encoder.encode(feature)
+        let decoder = DocumentModelCoder.makeJSONDecoder()
+        let decoded = try decoder.decode(Feature.self, from: data)
+
+        #expect(decoded.bodyOperation == .add)
+        #expect(decoded.targetBodyId == SolidId("target-solid-1"))
+        #expect(decoded.name == "Boolean Add")
+    }
+
+    @Test func testFeatureLegacyPayloadDecodesWithDefaultBodyOperationAndNilTargetBodyId() throws {
+        let boxFeature = Feature.makeBox(
+            solidId: boxSolidId,
+            params: BoxParams(width: 40, depth: 30, height: 20)
+        )
+        let encoder = DocumentModelCoder.makeJSONEncoder()
+        let data = try encoder.encode(boxFeature)
+        var dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        dict.removeValue(forKey: "bodyOperation")
+        dict.removeValue(forKey: "targetBodyId")
+        let legacyData = try JSONSerialization.data(withJSONObject: dict)
+
+        let decoder = DocumentModelCoder.makeJSONDecoder()
+        let decoded = try decoder.decode(Feature.self, from: legacyData)
+
+        #expect(decoded.bodyOperation == .create)
+        #expect(decoded.targetBodyId == nil)
+        #expect(decoded.outputSolidId == boxSolidId)
+        #expect(decoded.name == boxFeature.name)
+    }
 }
