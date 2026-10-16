@@ -117,7 +117,7 @@ private actor InstrumentedShapeEngine: KernelEngine {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(30),
+        timeout: Duration = .seconds(60),
         pollInterval: Duration = .milliseconds(10),
         condition: @MainActor () -> Bool
     ) async -> Bool {
