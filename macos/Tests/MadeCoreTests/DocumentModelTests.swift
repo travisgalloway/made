@@ -1111,5 +1111,33 @@ import simd
         #expect(qAltKeyed.real == 1.0)
         #expect(qAltKeyed.imag == SIMD3<Float>(0, 0, 0))
     }
+
+    @Test func testSelectedSubElementLifecycle() {
+        let doc = DocumentModel()
+        #expect(doc.selectedSubElement == nil)
+
+        // Select a sub-element
+        doc.selectedSubElement = SelectedSubElement(solidId: boxSolidId, elementType: .face, elementId: 2)
+        #expect(doc.selectedSubElement?.solidId == boxSolidId)
+        #expect(doc.selectedSubElement?.elementType == .face)
+        #expect(doc.selectedSubElement?.elementId == 2)
+
+        // Switching selectedId resets selectedSubElement
+        doc.selectedId = cylinderSolidId
+        #expect(doc.selectedSubElement == nil)
+
+        // Select edge
+        doc.selectedSubElement = SelectedSubElement(solidId: cylinderSolidId, elementType: .edge, elementId: 0)
+        #expect(doc.selectedSubElement?.elementType == .edge)
+
+        // Clearing selectedId resets selectedSubElement
+        doc.selectedId = nil
+        #expect(doc.selectedSubElement == nil)
+
+        // doc.reset resets selectedSubElement
+        doc.selectedSubElement = SelectedSubElement(solidId: boxSolidId, elementType: .vertex, elementId: 1)
+        doc.reset(with: [SceneObject]())
+        #expect(doc.selectedSubElement == nil)
+    }
 }
 

@@ -334,6 +334,7 @@ public final class DocumentModel {
     public private(set) var objects: [SceneObject] = []
     private var seq: Int = 1
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
+    @ObservationIgnored private var _selectedSubElement: SelectedSubElement? = nil
 
     public var undoManager: UndoManager? = UndoManager() {
         didSet {
@@ -355,6 +356,22 @@ public final class DocumentModel {
             guard _selectedId != newValue else { return }
             withMutation(keyPath: \.selectedId) {
                 _selectedId = newValue
+            }
+            if newValue == nil || _selectedSubElement?.solidId != newValue {
+                selectedSubElement = nil
+            }
+        }
+    }
+
+    public var selectedSubElement: SelectedSubElement? {
+        get {
+            access(keyPath: \.selectedSubElement)
+            return _selectedSubElement
+        }
+        set {
+            guard _selectedSubElement != newValue else { return }
+            withMutation(keyPath: \.selectedSubElement) {
+                _selectedSubElement = newValue
             }
         }
     }
@@ -399,6 +416,7 @@ public final class DocumentModel {
         features = newFeatures
         seq = Self.computeMaxSequence(features: newFeatures)
         self.selectedId = selectedId ?? newFeatures.compactMap(\.outputSolidId).first
+        self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         undoStateVersion += 1
     }
@@ -408,6 +426,7 @@ public final class DocumentModel {
         features = newObjects.map { Feature(from: $0) }
         seq = Self.computeMaxSequence(objects: newObjects)
         self.selectedId = selectedId ?? newObjects.first?.id
+        self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         undoStateVersion += 1
     }

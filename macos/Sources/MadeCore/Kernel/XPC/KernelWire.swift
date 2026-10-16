@@ -21,6 +21,7 @@ struct KernelWireReply: Codable, Sendable, Equatable {
     var faceRanges: [FaceTriangleRange] = []
     var edgePolylines: [EdgePolyline] = []
     var edgeSegmentRanges: [EdgeSegmentRange] = []
+    var vertexPoints: [VertexPoint] = []
 }
 
 /// Encodes the kernel wire contract into XPC dictionaries. The Codable XPC encoder has no shared-memory type,
@@ -51,6 +52,7 @@ enum KernelWire {
             header.faceRanges = payload.faceRanges
             header.edgePolylines = payload.edgePolylines
             header.edgeSegmentRanges = payload.edgeSegmentRanges
+            header.vertexPoints = payload.vertexPoints
             if let base = storage.base {
                 dictionary[meshKey] = xpc_shmem_create(base, storage.length)
             }
@@ -78,7 +80,8 @@ enum KernelWire {
                 indices: [],
                 faceRanges: header.faceRanges,
                 edgePolylines: header.edgePolylines,
-                edgeSegmentRanges: header.edgeSegmentRanges
+                edgeSegmentRanges: header.edgeSegmentRanges,
+                vertexPoints: header.vertexPoints
             ))
         }
         guard let shmem = dictionary[meshKey, as: XPC_TYPE_SHMEM] else { return malformed(jobId, "mesh region missing") }
@@ -95,7 +98,8 @@ enum KernelWire {
             storage: storage,
             faceRanges: header.faceRanges,
             edgePolylines: header.edgePolylines,
-            edgeSegmentRanges: header.edgeSegmentRanges
+            edgeSegmentRanges: header.edgeSegmentRanges,
+            vertexPoints: header.vertexPoints
         ))
     }
     

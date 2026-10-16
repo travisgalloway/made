@@ -82,7 +82,39 @@ public enum NativeGeometryGenerator {
             normal: SIMD3<Float>(0, -1, 0)
         )
         
-        return MeshPayload(positions: positions, normals: normals, indices: indices)
+        let faceRanges = (0..<6).map { FaceTriangleRange(faceId: $0, triangleRange: ($0 * 2)..<($0 * 2 + 2)) }
+        let vPositions: [SIMD3<Float>] = [
+            SIMD3<Float>(-hx, -hy, -hz),
+            SIMD3<Float>( hx, -hy, -hz),
+            SIMD3<Float>( hx,  hy, -hz),
+            SIMD3<Float>(-hx,  hy, -hz),
+            SIMD3<Float>(-hx, -hy,  hz),
+            SIMD3<Float>( hx, -hy,  hz),
+            SIMD3<Float>( hx,  hy,  hz),
+            SIMD3<Float>(-hx,  hy,  hz)
+        ]
+        let vertexPoints = vPositions.enumerated().map { VertexPoint(vertexId: $0.offset, position: $0.element) }
+        let edgePairs: [(Int, Int)] = [
+            (0, 1), (1, 2), (2, 3), (3, 0),
+            (4, 5), (5, 6), (6, 7), (7, 4),
+            (0, 4), (1, 5), (2, 6), (3, 7)
+        ]
+        let edgePolylines = edgePairs.enumerated().map { idx, pair in
+            EdgePolyline(edgeId: idx, points: [vPositions[pair.0], vPositions[pair.1]], segmentRange: idx..<(idx + 1))
+        }
+        let edgeSegmentRanges = edgePairs.enumerated().map { idx, _ in
+            EdgeSegmentRange(edgeId: idx, segmentRange: idx..<(idx + 1))
+        }
+
+        return MeshPayload(
+            positions: positions,
+            normals: normals,
+            indices: indices,
+            faceRanges: faceRanges,
+            edgePolylines: edgePolylines,
+            edgeSegmentRanges: edgeSegmentRanges,
+            vertexPoints: vertexPoints
+        )
     }
     
     /// Generates an indexed triangular mesh for a cylinder aligned with +Z height.
@@ -150,7 +182,47 @@ public enum NativeGeometryGenerator {
         for i in 0..<UInt32(segCount) {
             indices.append(contentsOf: [bottomCenterIndex, bottomRimBase + i + 1, bottomRimBase + i])
         }
+
+        let sideTriCount = segCount * 2
+        let capTriCount = segCount
+        let faceRanges = [
+            FaceTriangleRange(faceId: 0, triangleRange: 0..<sideTriCount),
+            FaceTriangleRange(faceId: 1, triangleRange: sideTriCount..<(sideTriCount + capTriCount)),
+            FaceTriangleRange(faceId: 2, triangleRange: (sideTriCount + capTriCount)..<(sideTriCount + capTriCount * 2))
+        ]
+
+        var topCirclePts: [SIMD3<Float>] = []
+        var bottomCirclePts: [SIMD3<Float>] = []
+        for i in 0...segCount {
+            let angle = Float(i) * angleStep
+            topCirclePts.append(SIMD3<Float>(radius * cos(angle), radius * sin(angle), hz))
+            bottomCirclePts.append(SIMD3<Float>(radius * cos(angle), radius * sin(angle), -hz))
+        }
+
+        let edge0 = EdgePolyline(edgeId: 0, points: topCirclePts, segmentRange: 0..<segCount)
+        let edge1 = EdgePolyline(edgeId: 1, points: bottomCirclePts, segmentRange: segCount..<(segCount * 2))
+        let edge2 = EdgePolyline(edgeId: 2, points: [bottomCirclePts[0], topCirclePts[0]], segmentRange: (segCount * 2)..<(segCount * 2 + 1))
+        let edgePolylines = [edge0, edge1, edge2]
+        let edgeSegmentRanges = [
+            EdgeSegmentRange(edgeId: 0, segmentRange: 0..<segCount),
+            EdgeSegmentRange(edgeId: 1, segmentRange: segCount..<(segCount * 2)),
+            EdgeSegmentRange(edgeId: 2, segmentRange: (segCount * 2)..<(segCount * 2 + 1))
+        ]
+
+        var vertexPoints: [VertexPoint] = []
+        for i in 0..<segCount {
+            vertexPoints.append(VertexPoint(vertexId: i, position: topCirclePts[i]))
+            vertexPoints.append(VertexPoint(vertexId: segCount + i, position: bottomCirclePts[i]))
+        }
         
-        return MeshPayload(positions: positions, normals: normals, indices: indices)
+        return MeshPayload(
+            positions: positions,
+            normals: normals,
+            indices: indices,
+            faceRanges: faceRanges,
+            edgePolylines: edgePolylines,
+            edgeSegmentRanges: edgeSegmentRanges,
+            vertexPoints: vertexPoints
+        )
     }
 }

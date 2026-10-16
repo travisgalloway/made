@@ -176,3 +176,164 @@ vertex OutlineVertexOut outlineVertexShader(
 fragment float4 outlineFragmentShader(OutlineVertexOut in [[stage_in]]) {
     return in.color;
 }
+
+// MARK: - Sub-element GPU Pick Shaders (BL-SEL-02)
+
+struct PickUniforms {
+    float4x4 modelMatrix;
+    float4x4 viewMatrix;
+    float4x4 projectionMatrix;
+    uint solidIndex;
+    uint subelementType; // 1 = face, 2 = edge, 3 = vertex
+    uint elementId;
+    float viewportWidth;
+    float viewportHeight;
+    float tolerancePx;   // 6.0 to 8.0
+    float depthBias;     // negative offset for edge / vertex
+    float _padding;
+};
+
+struct EdgeSegmentData {
+    packed_float3 start;
+    packed_float3 end;
+    uint edgeId;
+    uint _padding;
+};
+
+struct VertexData {
+    packed_float3 position;
+    uint vertexId;
+};
+
+struct PickFaceVertexOut {
+    float4 position [[position]];
+};
+
+vertex PickFaceVertexOut pickFaceVertexShader(
+    uint vertexID [[vertex_id]],
+    constant packed_float3 *positions [[buffer(0)]],
+    constant PickUniforms &uniforms [[buffer(1)]]
+) {
+    PickFaceVertexOut out;
+    float3 pos = float3(positions[vertexID]);
+    out.position = uniforms.projectionMatrix * uniforms.viewMatrix * uniforms.modelMatrix * float4(pos, 1.0);
+    return out;
+}
+
+fragment uint4 pickFaceFragmentShader(
+    PickFaceVertexOut in [[stage_in]],
+    uint primitiveID [[primitive_id]],
+    constant PickUniforms &uniforms [[buffer(1)]],
+    constant uint *triangleFaceIds [[buffer(2)]]
+) {
+    uint faceId = triangleFaceIds != nullptr ? triangleFaceIds[primitiveID] : 0;
+    return uint4(uniforms.solidIndex, 1, faceId, 0);
+}
+
+struct PickEdgeVertexOut {
+    float4 position [[position]];
+    uint edgeId;
+};
+
+vertex PickEdgeVertexOut pickEdgeVertexShader(
+    uint vertexID [[vertex_id]],
+    uint instanceID [[instance_id]],
+    constant PickUniforms &uniforms [[buffer(1)]],
+    constant EdgeSegmentData *segments [[buffer(3)]]
+) {
+    PickEdgeVertexOut out;
+    EdgeSegmentData seg = segments[instanceID];
+    out.edgeId = seg.edgeId;
+
+    float4 aWorld = uniforms.modelMatrix * float4(float3(seg.start), 1.0);
+    float4 bWorld = uniforms.modelMatrix * float4(float3(seg.end), 1.0);
+
+    float4 aClip = uniforms.projectionMatrix * uniforms.viewMatrix * aWorld;
+    float4 bClip = uniforms.projectionMatrix * uniforms.viewMatrix * bWorld;
+
+    float wA = max(aClip.w, 1e-4);
+    float wB = max(bClip.w, 1e-4);
+
+    float2 aNdc = aClip.xy / wA;
+    float2 bNdc = bClip.xy / wB;
+
+    float2 aScreen = float2((aNdc.x + 1.0) * 0.5 * uniforms.viewportWidth, (aNdc.y + 1.0) * 0.5 * uniforms.viewportHeight);
+    float2 bScreen = float2((bNdc.x + 1.0) * 0.5 * uniforms.viewportWidth, (bNdc.y + 1.0) * 0.5 * uniforms.viewportHeight);
+
+    float2 dir = bScreen - aScreen;
+    float len = length(dir);
+    float2 nScreen = len > 1e-4 ? float2(-dir.y, dir.x) / len : float2(0.0, 1.0);
+
+    float halfTol = max(uniforms.tolerancePx * 0.5, 1.0);
+
+    // Quad vertex indices (2 triangles = 6 vertices):
+    // 0: A - N, 1: B - N, 2: A + N
+    // 3: A + N, 4: B - N, 5: B + N
+    bool isB = (vertexID == 1 || vertexID == 4 || vertexID == 5);
+    float signN = (vertexID == 2 || vertexID == 3 || vertexID == 5) ? 1.0 : -1.0;
+
+    float4 baseClip = isB ? bClip : aClip;
+    float baseW = isB ? wB : wA;
+
+    float2 offsetScreen = nScreen * (signN * halfTol);
+    float2 offsetNdc = float2(2.0 * offsetScreen.x / max(uniforms.viewportWidth, 1.0),
+                              2.0 * offsetScreen.y / max(uniforms.viewportHeight, 1.0));
+
+    float4 pClip = baseClip;
+    pClip.xy += offsetNdc * baseW;
+    pClip.z -= uniforms.depthBias * baseW;
+
+    out.position = pClip;
+    return out;
+}
+
+fragment uint4 pickEdgeFragmentShader(
+    PickEdgeVertexOut in [[stage_in]],
+    constant PickUniforms &uniforms [[buffer(1)]]
+) {
+    return uint4(uniforms.solidIndex, 2, in.edgeId, 0);
+}
+
+struct PickVertexVertexOut {
+    float4 position [[position]];
+    uint vertexId;
+};
+
+vertex PickVertexVertexOut pickVertexVertexShader(
+    uint vertexID [[vertex_id]],
+    uint instanceID [[instance_id]],
+    constant PickUniforms &uniforms [[buffer(1)]],
+    constant VertexData *vertices [[buffer(4)]]
+) {
+    PickVertexVertexOut out;
+    VertexData v = vertices[instanceID];
+    out.vertexId = v.vertexId;
+
+    float4 vWorld = uniforms.modelMatrix * float4(float3(v.position), 1.0);
+    float4 vClip = uniforms.projectionMatrix * uniforms.viewMatrix * vWorld;
+    float wV = max(vClip.w, 1e-4);
+
+    float halfTol = max(uniforms.tolerancePx * 0.5, 1.0);
+
+    // 6 vertices per vertex instance forming camera-facing quad
+    float signX = (vertexID == 1 || vertexID == 4 || vertexID == 5) ? 1.0 : -1.0;
+    float signY = (vertexID == 2 || vertexID == 3 || vertexID == 5) ? 1.0 : -1.0;
+
+    float2 offsetScreen = float2(signX * halfTol, signY * halfTol);
+    float2 offsetNdc = float2(2.0 * offsetScreen.x / max(uniforms.viewportWidth, 1.0),
+                              2.0 * offsetScreen.y / max(uniforms.viewportHeight, 1.0));
+
+    float4 pClip = vClip;
+    pClip.xy += offsetNdc * wV;
+    pClip.z -= (uniforms.depthBias * 1.5) * wV;
+
+    out.position = pClip;
+    return out;
+}
+
+fragment uint4 pickVertexFragmentShader(
+    PickVertexVertexOut in [[stage_in]],
+    constant PickUniforms &uniforms [[buffer(1)]]
+) {
+    return uint4(uniforms.solidIndex, 3, in.vertexId, 0);
+}
