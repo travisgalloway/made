@@ -128,6 +128,7 @@ final class WorkspaceModel {
     public static let showsAxesDefaultsKey = "com.made.display.showsAxes"
     public static let showsGizmoDefaultsKey = "com.made.display.showsGizmo"
     public static let showsEdgesDefaultsKey = "viewport.showsEdges"
+    public static let displayModeDefaultsKey = "com.made.display.mode"
     public static let linearToleranceDefaultsKey = "com.made.tolerances.linear"
     public static let angularToleranceDefaultsKey = "com.made.tolerances.angular"
     public static let chordalToleranceDefaultsKey = "com.made.tolerances.chordal"
@@ -203,6 +204,15 @@ final class WorkspaceModel {
             defaults.set(showsEdges, forKey: Self.showsEdgesDefaultsKey)
             if let renderer = viewportManager.renderer {
                 renderer.showsEdges = showsEdges
+                invalidateViewport(.interaction)
+            }
+        }
+    }
+    var displayMode: DisplayMode {
+        didSet {
+            defaults.set(displayMode.rawValue, forKey: Self.displayModeDefaultsKey)
+            if let renderer = viewportManager.renderer {
+                renderer.displayMode = displayMode
                 invalidateViewport(.interaction)
             }
         }
@@ -294,6 +304,13 @@ final class WorkspaceModel {
             self.showsEdges = true
         }
 
+        if let raw = defaults.string(forKey: Self.displayModeDefaultsKey),
+           let mode = DisplayMode(rawValue: raw) {
+            self.displayMode = mode
+        } else {
+            self.displayMode = .shadedWithEdges
+        }
+
         let linear = defaults.object(forKey: Self.linearToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.linearToleranceDefaultsKey) : KernelTolerances.defaultLinearTolerance
         let angular = defaults.object(forKey: Self.angularToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.angularToleranceDefaultsKey) : KernelTolerances.defaultAngularTolerance
         let chordal = defaults.object(forKey: Self.chordalToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.chordalToleranceDefaultsKey) : KernelTolerances.defaultChordalTolerance
@@ -333,7 +350,16 @@ final class WorkspaceModel {
         showsAxes = true
         showsGizmo = true
         showsEdges = true
+        displayMode = .shadedWithEdges
         kernelTolerances = KernelTolerances.default
+    }
+
+    func resetDisplaySettings() {
+        showsGrid = true
+        showsAxes = true
+        showsGizmo = true
+        showsEdges = true
+        displayMode = .shadedWithEdges
     }
 
     func resetTolerancesToDefaults() {
@@ -391,21 +417,25 @@ final class WorkspaceModel {
         }
     }
 
+    func connectViewport() {
+        guard let renderer = viewportManager.renderer else { return }
+        renderer.showsGrid = showsGrid
+        renderer.showsAxes = showsAxes
+        renderer.showsEdges = showsEdges
+        renderer.displayMode = displayMode
+        renderer.selectedId = selectedId
+        renderer.selectedSubElement = document.selectedSubElement
+        let isLocked = selectedObject?.isLocked ?? false
+        renderer.showsGizmo = showsGizmo && !isLocked
+        self.camera = renderer.camera
+    }
+
     func setUp() {
         guard !isSetUp else { return }
         isSetUp = true
 
         _ = viewportManager.setup()
-        if let renderer = viewportManager.renderer {
-            renderer.showsGrid = showsGrid
-            renderer.showsAxes = showsAxes
-            renderer.showsEdges = showsEdges
-            renderer.selectedId = selectedId
-            renderer.selectedSubElement = document.selectedSubElement
-            let isLocked = selectedObject?.isLocked ?? false
-            renderer.showsGizmo = showsGizmo && !isLocked
-            self.camera = renderer.camera
-        }
+        connectViewport()
         if defaultProjection != .perspective {
             setProjectionMode(defaultProjection)
         }
@@ -1602,6 +1632,11 @@ final class WorkspaceModel {
     #endif
 
     // MARK: - Viewport
+
+    func setDisplayMode(_ mode: DisplayMode) {
+        guard mode != displayMode else { return }
+        displayMode = mode
+    }
 
     func setProjectionMode(_ mode: CameraProjection) {
         guard mode != projectionMode else { return }
