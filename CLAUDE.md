@@ -113,9 +113,10 @@ Enforcement is weaker than the doc's matrix once claimed. Check `docs/architectu
 - `PointerRouter` chooses the channel. A pen always manipulates. A mouse decides click or drag at `mouseClickThresholdPx` (6 px).
 - `GestureArbiter` locks navigate or manipulate on the first move.
 - `Snapping` resolves vertex, then edge, then grid, by strict priority.
-- `Picking` tests rays against candidate mesh bounds for nearest-hit solid selection.
+- `Picking` tests rays against candidate mesh bounds for nearest-hit solid selection and sub-element picking.
+- `SelectionFilter` defines option sets restricting picking and preselection to faces, edges, vertices, bodies, sketch entities, and components.
 
-All four are pure and unit-tested. `CADMetalViewRepresentable` calls them for mouse and pen input and object picking. The touch path remains unwired.
+All five are pure and unit-tested. `CADMetalViewRepresentable` calls them for mouse and pen input, object and sub-element picking, and selection filter enforcement. The touch path remains unwired.
 
 ## Document model and agent API
 

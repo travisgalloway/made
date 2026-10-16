@@ -150,6 +150,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var showsGrid: Bool
     var showsAxes: Bool
     var showsGizmo: Bool
+    var selectionFilter: SelectionFilter
     var navigationPreset: NavigationPreset
     var coordinatorBinding: Binding<Coordinator?>?
     var isCommandActive: Bool
@@ -168,6 +169,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         document: DocumentModel,
         renderer: MetalRenderer,
         tool: ViewportTool = .select,
+        selectionFilter: SelectionFilter = .all,
         showsGrid: Bool = true,
         showsAxes: Bool = true,
         showsGizmo: Bool = true,
@@ -188,6 +190,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.document = document
         self.renderer = renderer
         self.tool = tool
+        self.selectionFilter = selectionFilter
         self.showsGrid = showsGrid
         self.showsAxes = showsAxes
         self.showsGizmo = showsGizmo
@@ -249,11 +252,17 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         (nsView as? CADMTKView)?.tool = tool
         
-        // Tool transition or object deletion/hiding clears preselection highlight
+        // Tool transition, filter restriction, or object deletion/hiding clears preselection highlight
         if !(tool == .select || isCommandActive) {
             context.coordinator.clearPreselection()
         } else if let pre = context.coordinator.preselectedSubElement {
-            if !document.objects.contains(where: { $0.id == pre.solidId }) || renderer.hiddenSolidIds.contains(pre.solidId) {
+            let filterAllows: Bool
+            switch pre.elementType {
+            case .face: filterAllows = selectionFilter.allowsFaces
+            case .edge: filterAllows = selectionFilter.allowsEdges
+            case .vertex: filterAllows = selectionFilter.allowsVertices
+            }
+            if !filterAllows || !document.objects.contains(where: { $0.id == pre.solidId }) || renderer.hiddenSolidIds.contains(pre.solidId) {
                 context.coordinator.clearPreselection()
             }
         }
@@ -804,16 +813,44 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     guard let view = mtkView else { return }
                     let loc = view.convert(event.locationInWindow, from: nil)
                     let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
-                    let pickResult = parent.renderer.pickSubElement(at: pointer, viewportSize: view.bounds.size)
-                    let hitId = pickResult?.solidId
-                    let selectedSub = pickResult.map {
-                        SelectedSubElement(
-                            solidId: $0.solidId,
-                            elementType: $0.elementType,
-                            elementId: $0.elementId,
-                            deterministicId: $0.deterministicId
+
+                    var hitId: SolidId? = nil
+                    var selectedSub: SelectedSubElement? = nil
+                    var pickedFace: (SolidId, Int)? = nil
+
+                    if parent.selectionFilter.allowsSubElements {
+                        let pickResult = parent.renderer.pickSubElement(
+                            at: pointer,
+                            viewportSize: view.bounds.size,
+                            filter: parent.selectionFilter
                         )
+                        if let pick = pickResult {
+                            hitId = pick.solidId
+                            selectedSub = SelectedSubElement(
+                                solidId: pick.solidId,
+                                elementType: pick.elementType,
+                                elementId: pick.elementId,
+                                deterministicId: pick.deterministicId
+                            )
+                            if pick.elementType == .face {
+                                pickedFace = (pick.solidId, pick.elementId)
+                            }
+                        }
                     }
+
+                    if hitId == nil && parent.selectionFilter.allowsBodies {
+                        let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                        let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                        hitId = pickSolidAtPointer(
+                            pointer: pointer,
+                            viewportSize: view.bounds.size,
+                            viewMatrix: matrices.view,
+                            projectionMatrix: matrices.projection,
+                            candidateMeshes: parent.renderer.candidateMeshes()
+                        )
+                        selectedSub = nil
+                    }
+
                     parent.document.selectedId = hitId
                     parent.document.selectedSubElement = selectedSub
                     if let hitId, parent.isCommandActive {
@@ -824,8 +861,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         parent.renderer.selectedSubElement = selectedSub
                         invalidate(reason: .interaction)
                     }
-                    if event.clickCount == 2, let pick = pickResult, pick.elementType == .face {
-                        parent.onDoubleTapFace?(pick.solidId, pick.elementId)
+                    if event.clickCount == 2, let (faceSolidId, faceId) = pickedFace {
+                        parent.onDoubleTapFace?(faceSolidId, faceId)
                     }
                 }
             }
@@ -840,6 +877,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 clearPreselection()
                 return
             }
+            guard parent.selectionFilter.allowsSubElements else {
+                clearPreselection()
+                return
+            }
             guard let view = mtkView else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
             if let lastHover = lastHoverLocation {
@@ -851,7 +892,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
             lastHoverLocation = loc
             let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
-            let pickResult = parent.renderer.pickSubElement(at: pointer, viewportSize: view.bounds.size)
+            let pickResult = parent.renderer.pickSubElement(at: pointer, viewportSize: view.bounds.size, filter: parent.selectionFilter)
             let newPreselection = pickResult.map {
                 SelectedSubElement(
                     solidId: $0.solidId,

@@ -80,6 +80,53 @@ struct EditMenuCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.deleteShortcutKey, modifiers: WorkspaceModel.deleteShortcutModifiers)
             .disabled(!workspace.canDeleteSelectedObject)
+
+            Divider()
+
+            Menu("Selection Filters") {
+                Toggle("Faces", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.faces) },
+                    set: { workspace.toggleSelectionFilter(.faces, enabled: $0) }
+                ))
+                .keyboardShortcut(WorkspaceModel.filterFaceShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
+
+                Toggle("Edges", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.edges) },
+                    set: { workspace.toggleSelectionFilter(.edges, enabled: $0) }
+                ))
+                .keyboardShortcut(WorkspaceModel.filterEdgeShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
+
+                Toggle("Vertices", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.vertices) },
+                    set: { workspace.toggleSelectionFilter(.vertices, enabled: $0) }
+                ))
+                .keyboardShortcut(WorkspaceModel.filterVertexShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
+
+                Toggle("Bodies", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.bodies) },
+                    set: { workspace.toggleSelectionFilter(.bodies, enabled: $0) }
+                ))
+                .keyboardShortcut(WorkspaceModel.filterBodyShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
+
+                Toggle("Sketch Entities", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.sketchEntities) },
+                    set: { workspace.toggleSelectionFilter(.sketchEntities, enabled: $0) }
+                ))
+                .keyboardShortcut(WorkspaceModel.filterSketchShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
+
+                Toggle("Components", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.components) },
+                    set: { workspace.toggleSelectionFilter(.components, enabled: $0) }
+                ))
+                .keyboardShortcut(WorkspaceModel.filterComponentShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
+
+                Divider()
+
+                Button("All Filters") {
+                    workspace.resetSelectionFilters()
+                }
+                .keyboardShortcut(WorkspaceModel.filterAllShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
+            }
         }
     }
 }

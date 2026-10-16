@@ -77,12 +77,13 @@ import MadeCore
 
     @Test @MainActor func testTelemetryReadsFromRenderInstrumentationAndKernelClient() async {
         let model = WorkspaceModel()
+        _ = await model.kernelClient.request(.makeBox(jobId: JobId("telemetry-read-box"), solidId: SolidId("t-box"), params: BoxParams(width: 10, depth: 10, height: 10)))
+        await model.updateKernelStats()
+
         RenderInstrumentation.shared.reset()
         RenderInstrumentation.shared.recordRender(drawCalls: 7)
         RenderInstrumentation.shared.recordInvalidation(reason: .camera)
 
-        _ = await model.kernelClient.request(.makeBox(jobId: JobId("telemetry-read-box"), solidId: SolidId("t-box"), params: BoxParams(width: 10, depth: 10, height: 10)))
-        await model.updateKernelStats()
         model.updateStats()
         await model.updateKernelStats()
 
@@ -97,10 +98,11 @@ import MadeCore
         let model = WorkspaceModel()
         model.isConsoleVisible = false
 
+        _ = await model.kernelClient.request(.makeBox(jobId: JobId("drawer-hidden-box"), solidId: SolidId("dh-box"), params: BoxParams(width: 12, depth: 12, height: 12)))
+
         RenderInstrumentation.shared.reset()
         RenderInstrumentation.shared.recordRender(drawCalls: 4)
         RenderInstrumentation.shared.recordInvalidation(reason: .model)
-        _ = await model.kernelClient.request(.makeBox(jobId: JobId("drawer-hidden-box"), solidId: SolidId("dh-box"), params: BoxParams(width: 12, depth: 12, height: 12)))
 
         model.updateStats()
         await model.updateKernelStats()
@@ -1166,6 +1168,63 @@ import MadeCore
 
         #expect(shortcuts.contains(where: { $0.title == "Undo" && $0.shortcut == "⌘Z" }))
         #expect(shortcuts.contains(where: { $0.title == "Redo" && $0.shortcut == "⇧⌘Z" }))
+
+        // Selection filter shortcuts (BL-SEL-06)
+        #expect(shortcuts.contains(where: { $0.title == "Filter Faces" && $0.shortcut == "⌥F" }))
+        #expect(shortcuts.contains(where: { $0.title == "Filter Edges" && $0.shortcut == "⌥E" }))
+        #expect(shortcuts.contains(where: { $0.title == "Filter Vertices" && $0.shortcut == "⌥V" }))
+        #expect(shortcuts.contains(where: { $0.title == "Filter Bodies" && $0.shortcut == "⌥B" }))
+        #expect(shortcuts.contains(where: { $0.title == "Filter Sketch Entities" && $0.shortcut == "⌥S" }))
+        #expect(shortcuts.contains(where: { $0.title == "Filter Components" && $0.shortcut == "⌥C" }))
+        #expect(shortcuts.contains(where: { $0.title == "All Filters" && $0.shortcut == "⌥A" }))
+    }
+
+    @Test @MainActor func testSelectionFilterMutations() {
+        let model = WorkspaceModel()
+        #expect(model.selectionFilter == .all)
+
+        // Toggle individual filter off
+        model.toggleSelectionFilter(.faces, enabled: false)
+        #expect(!model.selectionFilter.contains(.faces))
+        #expect(model.selectionFilter.contains(.edges))
+
+        // Toggle individual filter on
+        model.toggleSelectionFilter(.faces, enabled: true)
+        #expect(model.selectionFilter.contains(.faces))
+
+        // Toggle without explicit boolean
+        model.toggleSelectionFilter(.faces)
+        #expect(!model.selectionFilter.contains(.faces))
+        model.toggleSelectionFilter(.faces)
+        #expect(model.selectionFilter.contains(.faces))
+
+        // Empty set fallback to .all
+        model.selectionFilter = [.faces]
+        model.toggleSelectionFilter(.faces, enabled: false)
+        #expect(model.selectionFilter == .all, "Empty filter set must automatically fall back to .all")
+
+        // Isolate filter
+        model.isolateSelectionFilter(.edges)
+        #expect(model.selectionFilter == .edges)
+
+        // Isolating again toggles back to .all
+        model.isolateSelectionFilter(.edges)
+        #expect(model.selectionFilter == .all)
+
+        // Reset
+        model.selectionFilter = [.vertices]
+        model.resetSelectionFilters()
+        #expect(model.selectionFilter == .all)
+
+        // Verify static shortcut keys and modifiers
+        #expect(WorkspaceModel.filterFaceShortcutKey == "f")
+        #expect(WorkspaceModel.filterEdgeShortcutKey == "e")
+        #expect(WorkspaceModel.filterVertexShortcutKey == "v")
+        #expect(WorkspaceModel.filterBodyShortcutKey == "b")
+        #expect(WorkspaceModel.filterSketchShortcutKey == "s")
+        #expect(WorkspaceModel.filterComponentShortcutKey == "c")
+        #expect(WorkspaceModel.filterAllShortcutKey == "a")
+        #expect(WorkspaceModel.filterShortcutModifiers == [.option])
     }
 
     @Test @MainActor func testWorkspaceUndoRedoMenuCommands() {

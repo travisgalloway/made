@@ -1110,8 +1110,10 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     /// and reads back the resulting sub-element identity.
     public func pickSubElement(
         at pointer: SIMD2<Float>,
-        viewportSize: CGSize
+        viewportSize: CGSize,
+        filter: SelectionFilter = .all
     ) -> SubElementPickResult? {
+        guard filter.allowsSubElements else { return nil }
         let width = Int(viewportSize.width)
         let height = Int(viewportSize.height)
         guard width > 0, height > 0 else { return nil }
@@ -1171,7 +1173,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
                     candidateMeshes: candidateMeshes(),
                     viewportSize: viewportSize,
                     viewMatrix: viewMatrix,
-                    projectionMatrix: projMatrix
+                    projectionMatrix: projMatrix,
+                    filter: filter
                 )
             }
 
@@ -1208,101 +1211,107 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             encoder.setScissorRect(MTLScissorRect(x: px, y: py, width: 1, height: 1))
 
             // PASS 1: Faces
-            encoder.setRenderPipelineState(pickFacePipeline)
-            encoder.setDepthStencilState(pickFaceDepthState)
-            encoder.setFrontFacing(.counterClockwise)
-            encoder.setCullMode(.back)
+            if filter.allowsFaces {
+                encoder.setRenderPipelineState(pickFacePipeline)
+                encoder.setDepthStencilState(pickFaceDepthState)
+                encoder.setFrontFacing(.counterClockwise)
+                encoder.setCullMode(.back)
 
-            for (idx, solidId) in solidTable.enumerated() {
-                guard let mesh = meshes[solidId], mesh.indexCount > 0 else { continue }
-                let solidIndex = UInt32(idx + 1)
-                let uniforms = PickUniforms(
-                    modelMatrix: mesh.transform.matrix,
-                    viewMatrix: viewMatrix,
-                    projectionMatrix: projMatrix,
-                    solidIndex: solidIndex,
-                    subelementType: 1,
-                    elementId: 0,
-                    viewportWidth: Float(width),
-                    viewportHeight: Float(height),
-                    tolerancePx: 8.0,
-                    depthBias: 0.005
-                )
-                guard let uAddr = arena.push(uniforms) else { continue }
-                pickTable.setAddress(mesh.positionBuffer.gpuAddress, index: 0)
-                pickTable.setAddress(uAddr, index: 1)
-                if let tf = mesh.triangleFaceIdBuffer {
-                    pickTable.setAddress(tf.gpuAddress, index: 2)
+                for (idx, solidId) in solidTable.enumerated() {
+                    guard let mesh = meshes[solidId], mesh.indexCount > 0 else { continue }
+                    let solidIndex = UInt32(idx + 1)
+                    let uniforms = PickUniforms(
+                        modelMatrix: mesh.transform.matrix,
+                        viewMatrix: viewMatrix,
+                        projectionMatrix: projMatrix,
+                        solidIndex: solidIndex,
+                        subelementType: 1,
+                        elementId: 0,
+                        viewportWidth: Float(width),
+                        viewportHeight: Float(height),
+                        tolerancePx: 8.0,
+                        depthBias: 0.005
+                    )
+                    guard let uAddr = arena.push(uniforms) else { continue }
+                    pickTable.setAddress(mesh.positionBuffer.gpuAddress, index: 0)
+                    pickTable.setAddress(uAddr, index: 1)
+                    if let tf = mesh.triangleFaceIdBuffer {
+                        pickTable.setAddress(tf.gpuAddress, index: 2)
+                    }
+                    encoder.drawIndexedPrimitives(
+                        primitiveType: .triangle,
+                        indexCount: mesh.indexCount,
+                        indexType: .uint32,
+                        indexBuffer: mesh.indexBuffer.gpuAddress,
+                        indexBufferLength: mesh.indexBuffer.length
+                    )
                 }
-                encoder.drawIndexedPrimitives(
-                    primitiveType: .triangle,
-                    indexCount: mesh.indexCount,
-                    indexType: .uint32,
-                    indexBuffer: mesh.indexBuffer.gpuAddress,
-                    indexBufferLength: mesh.indexBuffer.length
-                )
             }
 
             // PASS 2: Edges
-            encoder.setRenderPipelineState(pickEdgePipeline)
-            encoder.setDepthStencilState(pickEdgeDepthState)
-            encoder.setCullMode(.none)
+            if filter.allowsEdges {
+                encoder.setRenderPipelineState(pickEdgePipeline)
+                encoder.setDepthStencilState(pickEdgeDepthState)
+                encoder.setCullMode(.none)
 
-            for (idx, solidId) in solidTable.enumerated() {
-                guard let mesh = meshes[solidId], mesh.edgeSegmentCount > 0, let eb = mesh.edgeSegmentBuffer else { continue }
-                let solidIndex = UInt32(idx + 1)
-                let uniforms = PickUniforms(
-                    modelMatrix: mesh.transform.matrix,
-                    viewMatrix: viewMatrix,
-                    projectionMatrix: projMatrix,
-                    solidIndex: solidIndex,
-                    subelementType: 2,
-                    elementId: 0,
-                    viewportWidth: Float(width),
-                    viewportHeight: Float(height),
-                    tolerancePx: 8.0,
-                    depthBias: 0.005
-                )
-                guard let uAddr = arena.push(uniforms) else { continue }
-                pickTable.setAddress(uAddr, index: 1)
-                pickTable.setAddress(eb.gpuAddress, index: 3)
-                encoder.drawPrimitives(
-                    primitiveType: .triangle,
-                    vertexStart: 0,
-                    vertexCount: 6,
-                    instanceCount: mesh.edgeSegmentCount
-                )
+                for (idx, solidId) in solidTable.enumerated() {
+                    guard let mesh = meshes[solidId], mesh.edgeSegmentCount > 0, let eb = mesh.edgeSegmentBuffer else { continue }
+                    let solidIndex = UInt32(idx + 1)
+                    let uniforms = PickUniforms(
+                        modelMatrix: mesh.transform.matrix,
+                        viewMatrix: viewMatrix,
+                        projectionMatrix: projMatrix,
+                        solidIndex: solidIndex,
+                        subelementType: 2,
+                        elementId: 0,
+                        viewportWidth: Float(width),
+                        viewportHeight: Float(height),
+                        tolerancePx: 8.0,
+                        depthBias: 0.005
+                    )
+                    guard let uAddr = arena.push(uniforms) else { continue }
+                    pickTable.setAddress(uAddr, index: 1)
+                    pickTable.setAddress(eb.gpuAddress, index: 3)
+                    encoder.drawPrimitives(
+                        primitiveType: .triangle,
+                        vertexStart: 0,
+                        vertexCount: 6,
+                        instanceCount: mesh.edgeSegmentCount
+                    )
+                }
             }
 
             // PASS 3: Vertices
-            encoder.setRenderPipelineState(pickVertexPipeline)
-            encoder.setDepthStencilState(pickVertexDepthState)
-            encoder.setCullMode(.none)
+            if filter.allowsVertices {
+                encoder.setRenderPipelineState(pickVertexPipeline)
+                encoder.setDepthStencilState(pickVertexDepthState)
+                encoder.setCullMode(.none)
 
-            for (idx, solidId) in solidTable.enumerated() {
-                guard let mesh = meshes[solidId], mesh.vertexCount > 0, let vb = mesh.vertexBuffer else { continue }
-                let solidIndex = UInt32(idx + 1)
-                let uniforms = PickUniforms(
-                    modelMatrix: mesh.transform.matrix,
-                    viewMatrix: viewMatrix,
-                    projectionMatrix: projMatrix,
-                    solidIndex: solidIndex,
-                    subelementType: 3,
-                    elementId: 0,
-                    viewportWidth: Float(width),
-                    viewportHeight: Float(height),
-                    tolerancePx: 8.0,
-                    depthBias: 0.005
-                )
-                guard let uAddr = arena.push(uniforms) else { continue }
-                pickTable.setAddress(uAddr, index: 1)
-                pickTable.setAddress(vb.gpuAddress, index: 4)
-                encoder.drawPrimitives(
-                    primitiveType: .triangle,
-                    vertexStart: 0,
-                    vertexCount: 6,
-                    instanceCount: mesh.vertexCount
-                )
+                for (idx, solidId) in solidTable.enumerated() {
+                    guard let mesh = meshes[solidId], mesh.vertexCount > 0, let vb = mesh.vertexBuffer else { continue }
+                    let solidIndex = UInt32(idx + 1)
+                    let uniforms = PickUniforms(
+                        modelMatrix: mesh.transform.matrix,
+                        viewMatrix: viewMatrix,
+                        projectionMatrix: projMatrix,
+                        solidIndex: solidIndex,
+                        subelementType: 3,
+                        elementId: 0,
+                        viewportWidth: Float(width),
+                        viewportHeight: Float(height),
+                        tolerancePx: 8.0,
+                        depthBias: 0.005
+                    )
+                    guard let uAddr = arena.push(uniforms) else { continue }
+                    pickTable.setAddress(uAddr, index: 1)
+                    pickTable.setAddress(vb.gpuAddress, index: 4)
+                    encoder.drawPrimitives(
+                        primitiveType: .triangle,
+                        vertexStart: 0,
+                        vertexCount: 6,
+                        instanceCount: mesh.vertexCount
+                    )
+                }
             }
 
             encoder.endEncoding()

@@ -63,6 +63,37 @@ final class WorkspaceModel {
             if tool != oldValue { log(.info, "Viewport", "Selected \(tool.title) tool") }
         }
     }
+    var selectionFilter: SelectionFilter = .all {
+        didSet {
+            if selectionFilter != oldValue {
+                log(.info, "Viewport", "Selection filter updated: \(selectionFilter.rawValue)")
+            }
+        }
+    }
+
+    func toggleSelectionFilter(_ filter: SelectionFilter, enabled: Bool? = nil) {
+        let shouldEnable = enabled ?? !selectionFilter.contains(filter)
+        if shouldEnable {
+            selectionFilter.insert(filter)
+        } else {
+            selectionFilter.remove(filter)
+        }
+        if selectionFilter.isEmpty {
+            selectionFilter = .all
+        }
+    }
+
+    func isolateSelectionFilter(_ filter: SelectionFilter) {
+        if selectionFilter == filter {
+            selectionFilter = .all
+        } else {
+            selectionFilter = filter
+        }
+    }
+
+    func resetSelectionFilters() {
+        selectionFilter = .all
+    }
 
     // Console
     private(set) var logs: [ConsoleLogEntry] = [
@@ -1870,6 +1901,17 @@ final class WorkspaceModel {
     static let toolZoomShortcutKey: KeyEquivalent = "4"
     static let toolShortcutModifiers: EventModifiers = [.command, .option]
 
+    // MARK: - Selection Filter Shortcuts (BL-SEL-06)
+
+    static let filterFaceShortcutKey: KeyEquivalent = "f"
+    static let filterEdgeShortcutKey: KeyEquivalent = "e"
+    static let filterVertexShortcutKey: KeyEquivalent = "v"
+    static let filterBodyShortcutKey: KeyEquivalent = "b"
+    static let filterSketchShortcutKey: KeyEquivalent = "s"
+    static let filterComponentShortcutKey: KeyEquivalent = "c"
+    static let filterAllShortcutKey: KeyEquivalent = "a"
+    static let filterShortcutModifiers: EventModifiers = [.option]
+
     // MARK: - View Navigation Shortcuts (BL-VPT-07)
 
     static let viewShortcutModifiers: EventModifiers = [.control]
@@ -1915,6 +1957,14 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Orbit", shortcut: "O / ⌥⌘2", category: .tools, description: "Orbit tool — orbit camera view around target or cursor"),
         ShortcutCheatsheetEntry(title: "Pan", shortcut: "P / ⌥⌘3", category: .tools, description: "Pan tool — pan camera view parallel to screen"),
         ShortcutCheatsheetEntry(title: "Zoom", shortcut: "Z / ⌥⌘4", category: .tools, description: "Zoom tool — drag to smoothly zoom in or out"),
+
+        ShortcutCheatsheetEntry(title: "Filter Faces", shortcut: "⌥F", category: .editing, description: "Filter selection to faces"),
+        ShortcutCheatsheetEntry(title: "Filter Edges", shortcut: "⌥E", category: .editing, description: "Filter selection to edges"),
+        ShortcutCheatsheetEntry(title: "Filter Vertices", shortcut: "⌥V", category: .editing, description: "Filter selection to vertices"),
+        ShortcutCheatsheetEntry(title: "Filter Bodies", shortcut: "⌥B", category: .editing, description: "Filter selection to solid bodies"),
+        ShortcutCheatsheetEntry(title: "Filter Sketch Entities", shortcut: "⌥S", category: .editing, description: "Filter selection to sketch entities"),
+        ShortcutCheatsheetEntry(title: "Filter Components", shortcut: "⌥C", category: .editing, description: "Filter selection to components"),
+        ShortcutCheatsheetEntry(title: "All Filters", shortcut: "⌥A", category: .editing, description: "Reset selection filters to allow all entities"),
 
         ShortcutCheatsheetEntry(title: "Reset View", shortcut: "⌘0", category: .navigation, description: "Reset camera to default perspective view"),
         ShortcutCheatsheetEntry(title: "Zoom to Fit", shortcut: "⇧⌘F", category: .navigation, description: "Frame all visible solids within viewport"),

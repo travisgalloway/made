@@ -86,6 +86,45 @@ struct ContentView: View {
         }
 
         ToolbarItemGroup {
+            Menu {
+                Toggle("Faces", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.faces) },
+                    set: { workspace.toggleSelectionFilter(.faces, enabled: $0) }
+                ))
+                Toggle("Edges", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.edges) },
+                    set: { workspace.toggleSelectionFilter(.edges, enabled: $0) }
+                ))
+                Toggle("Vertices", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.vertices) },
+                    set: { workspace.toggleSelectionFilter(.vertices, enabled: $0) }
+                ))
+                Toggle("Bodies", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.bodies) },
+                    set: { workspace.toggleSelectionFilter(.bodies, enabled: $0) }
+                ))
+                Toggle("Sketch Entities", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.sketchEntities) },
+                    set: { workspace.toggleSelectionFilter(.sketchEntities, enabled: $0) }
+                ))
+                Toggle("Components", isOn: Binding(
+                    get: { workspace.selectionFilter.contains(.components) },
+                    set: { workspace.toggleSelectionFilter(.components, enabled: $0) }
+                ))
+                Divider()
+                Button("All Filters") {
+                    workspace.resetSelectionFilters()
+                }
+            } label: {
+                Label(
+                    "Selection Filters",
+                    systemImage: workspace.selectionFilter == .all
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill"
+                )
+            }
+            .help("Selection Filters")
+
             Picker("View Angle", systemImage: "camera.viewfinder", selection: Binding(
                 get: { workspace.perspective },
                 set: { workspace.applyPerspective($0) }
