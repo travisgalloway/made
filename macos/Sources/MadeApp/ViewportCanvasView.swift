@@ -25,6 +25,17 @@ struct ViewportCanvasView: View {
             .font(.callout)
             Spacer()
             if workspace.viewportManager.state == .ready {
+                Picker("Display Mode", selection: Binding(
+                    get: { workspace.displayMode },
+                    set: { workspace.setDisplayMode($0) }
+                )) {
+                    ForEach(DisplayMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+
                 Picker("Projection", selection: Binding(
                     get: { workspace.projectionMode },
                     set: { workspace.setProjectionMode($0) }
@@ -63,6 +74,7 @@ struct ViewportCanvasView: View {
                             showsAxes: workspace.showsAxes,
                             showsGizmo: workspace.showsGizmo,
                             showsEdges: workspace.showsEdges,
+                            displayMode: workspace.displayMode,
                             navigationPreset: workspace.navigationPreset,
                             coordinator: $workspace.coordinator,
                             isCommandActive: workspace.activeCommand != nil,

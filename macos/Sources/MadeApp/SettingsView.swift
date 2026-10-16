@@ -247,6 +247,18 @@ struct DisplaySettingsTab: View {
                 }
             }
 
+            Section("Display Mode") {
+                Picker("Display Mode", selection: $workspace.displayMode) {
+                    ForEach(DisplayMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+
+                Text("Choose between shaded, shaded with edges, wireframe, hidden lines removed (HLR), and hidden lines visible (HLV) viewport rendering.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Viewport Overlays") {
                 Toggle("Show Ground Grid (Z = 0)", isOn: $workspace.showsGrid)
                 Toggle("Show Origin Axes (XYZ)", isOn: $workspace.showsAxes)

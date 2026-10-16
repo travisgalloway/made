@@ -304,6 +304,16 @@ public struct MetalMesh: @unchecked Sendable {
     }
 }
 
+public enum DisplayMode: String, CaseIterable, Identifiable, Sendable {
+    case shadedWithEdges = "Shaded with Edges"
+    case shaded = "Shaded"
+    case wireframe = "Wireframe"
+    case hiddenLineRemoved = "Hidden Lines Removed"
+    case hiddenLinesVisible = "Hidden Lines Visible"
+
+    public var id: String { rawValue }
+}
+
 /// An immutable point-in-time capture of viewport scene state for off-main encoding passes.
 public struct SceneSnapshot: Sendable {
     public let meshes: [SolidId: MetalMesh]
@@ -315,6 +325,7 @@ public struct SceneSnapshot: Sendable {
     public let activeSnap: SnapResult?
     public let activeGizmoHandle: GizmoHandle?
     public let showsEdges: Bool
+    public let displayMode: DisplayMode
 
     public init(
         meshes: [SolidId: MetalMesh] = [:],
@@ -325,7 +336,8 @@ public struct SceneSnapshot: Sendable {
         preselectedSubElement: SelectedSubElement? = nil,
         activeSnap: SnapResult? = nil,
         activeGizmoHandle: GizmoHandle? = nil,
-        showsEdges: Bool = true
+        showsEdges: Bool = true,
+        displayMode: DisplayMode = .shadedWithEdges
     ) {
         self.meshes = meshes
         self.hiddenSolidIds = hiddenSolidIds
@@ -336,5 +348,7 @@ public struct SceneSnapshot: Sendable {
         self.activeSnap = activeSnap
         self.activeGizmoHandle = activeGizmoHandle
         self.showsEdges = showsEdges
+        self.displayMode = displayMode
     }
 }
+

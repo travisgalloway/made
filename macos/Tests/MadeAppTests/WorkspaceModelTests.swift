@@ -1013,6 +1013,7 @@ import MadeCore
         #expect(model1.showsAxes == true)
         #expect(model1.showsGizmo == true)
         #expect(model1.showsEdges == true)
+        #expect(model1.displayMode == .shadedWithEdges)
         #expect(model1.kernelTolerances == KernelTolerances.default)
 
         // Mutate all settings
@@ -1026,6 +1027,7 @@ import MadeCore
         model1.showsAxes = false
         model1.showsGizmo = false
         model1.showsEdges = false
+        model1.displayMode = .wireframe
         model1.kernelTolerances = KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.5, chordalTolerance: 0.05)
 
         // Verify stored in customDefaults
@@ -1039,6 +1041,7 @@ import MadeCore
         #expect(customDefaults.bool(forKey: WorkspaceModel.showsAxesDefaultsKey) == false)
         #expect(customDefaults.bool(forKey: WorkspaceModel.showsGizmoDefaultsKey) == false)
         #expect(customDefaults.bool(forKey: WorkspaceModel.showsEdgesDefaultsKey) == false)
+        #expect(customDefaults.string(forKey: WorkspaceModel.displayModeDefaultsKey) == DisplayMode.wireframe.rawValue)
         #expect(customDefaults.double(forKey: WorkspaceModel.linearToleranceDefaultsKey) == 0.005)
         #expect(customDefaults.double(forKey: WorkspaceModel.angularToleranceDefaultsKey) == 0.5)
         #expect(customDefaults.double(forKey: WorkspaceModel.chordalToleranceDefaultsKey) == 0.05)
@@ -1055,6 +1058,7 @@ import MadeCore
         #expect(model2.showsAxes == false)
         #expect(model2.showsGizmo == false)
         #expect(model2.showsEdges == false)
+        #expect(model2.displayMode == .wireframe)
         #expect(model2.kernelTolerances == KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.5, chordalTolerance: 0.05))
     }
 
@@ -1078,6 +1082,7 @@ import MadeCore
         model.showsAxes = false
         model.showsGizmo = false
         model.showsEdges = false
+        model.displayMode = .hiddenLineRemoved
         model.kernelTolerances = KernelTolerances(linearTolerance: 0.05, angularTolerance: 1.0, chordalTolerance: 0.1)
 
         // Reset
@@ -1094,6 +1099,7 @@ import MadeCore
         #expect(model.showsAxes == true)
         #expect(model.showsGizmo == true)
         #expect(model.showsEdges == true)
+        #expect(model.displayMode == .shadedWithEdges)
         #expect(model.kernelTolerances == KernelTolerances.default)
 
         // Check fresh model picks up reset defaults
@@ -1102,6 +1108,55 @@ import MadeCore
         #expect(modelRestored.lengthUnit == .millimeters)
         #expect(modelRestored.showsGrid == true)
         #expect(modelRestored.showsEdges == true)
+        #expect(modelRestored.displayMode == .shadedWithEdges)
+    }
+
+    @Test @MainActor func testDisplayModePersistenceAndDefaults() {
+        let suiteName = "test.display.mode.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        let model = WorkspaceModel(defaults: customDefaults)
+        #expect(model.displayMode == .shadedWithEdges)
+
+        for mode in DisplayMode.allCases where mode != .shadedWithEdges {
+            model.setDisplayMode(mode)
+            #expect(model.displayMode == mode)
+            #expect(customDefaults.string(forKey: WorkspaceModel.displayModeDefaultsKey) == mode.rawValue)
+
+            let restored = WorkspaceModel(defaults: customDefaults)
+            #expect(restored.displayMode == mode)
+        }
+
+        model.setDisplayMode(.shadedWithEdges)
+        #expect(model.displayMode == .shadedWithEdges)
+        #expect(customDefaults.string(forKey: WorkspaceModel.displayModeDefaultsKey) == DisplayMode.shadedWithEdges.rawValue)
+        let restored = WorkspaceModel(defaults: customDefaults)
+        #expect(restored.displayMode == .shadedWithEdges)
+    }
+
+    @Test @MainActor func testResetDisplaySettingsRestoresDisplayMode() {
+        let suiteName = "test.display.reset.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        let model = WorkspaceModel(defaults: customDefaults)
+        model.setDisplayMode(.hiddenLinesVisible)
+        model.showsEdges = false
+        model.showsGrid = false
+        #expect(model.displayMode == .hiddenLinesVisible)
+
+        model.resetDisplaySettings()
+        #expect(model.displayMode == .shadedWithEdges)
+        #expect(model.showsEdges == true)
+        #expect(model.showsGrid == true)
+        #expect(customDefaults.string(forKey: WorkspaceModel.displayModeDefaultsKey) == DisplayMode.shadedWithEdges.rawValue)
     }
 
     @Test @MainActor func testResetTolerancesToDefaults() {

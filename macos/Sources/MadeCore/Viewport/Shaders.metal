@@ -77,6 +77,10 @@ fragment float4 cadFragmentShader(VertexOut in [[stage_in]]) {
     return float4(finalRgb, in.color.a);
 }
 
+fragment float4 unshadedFragmentShader(VertexOut in [[stage_in]]) {
+    return in.color;
+}
+
 struct GridUniforms {
     float4x4 viewProjectionMatrix;
 };

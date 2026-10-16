@@ -38,6 +38,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     // Pipelines and fixed-function state
     private let solidPipeline: MTLRenderPipelineState
     private let cadEdgePipeline: MTLRenderPipelineState
+    private let unshadedPipeline: MTLRenderPipelineState
     let linePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
     private let outlinePipeline: MTLRenderPipelineState
@@ -48,6 +49,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private let pickVertexPipeline: MTLRenderPipelineState
     private let solidDepthState: MTLDepthStencilState
     private let cadEdgeDepthState: MTLDepthStencilState
+    private let cadEdgeHiddenDepthState: MTLDepthStencilState
+    private let cadEdgeWireframeDepthState: MTLDepthStencilState
     private let gridDepthState: MTLDepthStencilState
     private let axesDepthState: MTLDepthStencilState
     private let billboardDepthState: MTLDepthStencilState
@@ -111,6 +114,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public var showsAxes: Bool = true
     public var showsGizmo: Bool = true
     public var showsEdges: Bool = true
+    public var displayMode: DisplayMode = .shadedWithEdges
     var gizmoGeometry: [GizmoHandle: GizmoGeometryBuffers] = [:]
     public private(set) var lastDrawCalls: Int = 0
     public var camera: Camera = Camera()
@@ -144,7 +148,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             preselectedSubElement: preselectedSubElement,
             activeSnap: activeSnap,
             activeGizmoHandle: activeGizmoHandle,
-            showsEdges: showsEdges
+            showsEdges: showsEdges,
+            displayMode: displayMode
         )
     }
 
@@ -197,6 +202,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             let compiler = try device.makeCompiler(descriptor: MTL4CompilerDescriptor())
             self.solidPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "cadFragmentShader")
             self.cadEdgePipeline = try Self.makePipeline(compiler, library, vertex: "cadEdgeVertexShader", fragment: "cadEdgeFragmentShader", alphaBlend: true)
+            self.unshadedPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "unshadedFragmentShader")
             self.linePipeline = try Self.makePipeline(compiler, library, vertex: "gridVertexShader", fragment: "gridFragmentShader")
             self.billboardPipeline = try Self.makePipeline(compiler, library, vertex: "billboardVertexShader", fragment: "billboardFragmentShader", alphaBlend: true)
             self.outlinePipeline = try Self.makePipeline(compiler, library, vertex: "outlineVertexShader", fragment: "outlineFragmentShader")
@@ -212,6 +218,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
         guard let solidDepth = Self.makeDepthState(device, .less, write: true),
               let cadEdgeDepth = Self.makeDepthState(device, .lessEqual, write: false),
+              let cadEdgeHiddenDepth = Self.makeDepthState(device, .greater, write: false),
+              let cadEdgeWireframeDepth = Self.makeDepthState(device, .always, write: false),
               let gridDepth = Self.makeDepthState(device, .less, write: true),
               // .lessEqual so the axes pass the depth test where they are coplanar with the Z = 0 grid
               let axesDepth = Self.makeDepthState(device, .lessEqual, write: true),
@@ -225,6 +233,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
               let pickVertexDepth = Self.makeDepthState(device, .lessEqual, write: true) else { return nil }
         self.solidDepthState = solidDepth
         self.cadEdgeDepthState = cadEdgeDepth
+        self.cadEdgeHiddenDepthState = cadEdgeHiddenDepth
+        self.cadEdgeWireframeDepthState = cadEdgeWireframeDepth
         self.gridDepthState = gridDepth
         self.axesDepthState = axesDepth
         self.billboardDepthState = billboardDepth
@@ -257,7 +267,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     /// Shader entry points the renderer links; tests check the bundled library against this list.
     public static let shaderFunctionNames = [
-        "cadVertexShader", "cadFragmentShader",
+        "cadVertexShader", "cadFragmentShader", "unshadedFragmentShader",
         "cadEdgeVertexShader", "cadEdgeFragmentShader",
         "gridVertexShader", "gridFragmentShader",
         "billboardVertexShader", "billboardFragmentShader",
@@ -593,7 +603,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private func requiredArenaCapacity(meshCount: Int? = nil) -> Int {
         // One block per visible solid, plus edge passes, outline, grid, axes, labels, snap marker, gizmo, and sub-element highlights.
         let count = meshCount ?? meshes.count
-        return UniformArena.capacity(forDraws: count * 2 + 16, blockSize: MemoryLayout<OutlineUniforms>.stride)
+        return UniformArena.capacity(forDraws: count * 3 + 16, blockSize: MemoryLayout<OutlineUniforms>.stride)
     }
 
     private func drawSubElementHighlight(
@@ -702,6 +712,46 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
     }
 
+    private func drawEdgePass(
+        _ ctx: EncodeContext,
+        scene: SceneSnapshot,
+        depthState: MTLDepthStencilState,
+        color: SIMD4<Float>,
+        lineWidth: Float = 1.2,
+        depthBias: Float = 0.003,
+        viewMatrix: simd_float4x4,
+        projMatrix: simd_float4x4,
+        viewportSize: CGSize,
+        drawCalls: inout Int
+    ) {
+        let encoder = ctx.encoder
+        encoder.setRenderPipelineState(cadEdgePipeline)
+        encoder.setDepthStencilState(depthState)
+        encoder.setCullMode(.none)
+        for (id, mesh) in scene.meshes where !scene.hiddenSolidIds.contains(id) && mesh.edgeSegmentCount > 0 {
+            guard let segBuf = mesh.edgeSegmentBuffer else { continue }
+            let edgeUniforms = CadEdgeUniforms(
+                modelMatrix: mesh.transform.matrix,
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix,
+                color: color,
+                viewportWidth: Float(max(viewportSize.width, 1.0)),
+                viewportHeight: Float(max(viewportSize.height, 1.0)),
+                lineWidth: lineWidth,
+                depthBias: depthBias
+            )
+            guard ctx.bindUniforms(edgeUniforms, at: 2) else { break }
+            ctx.bind(segBuf, at: 3)
+            encoder.drawPrimitives(
+                primitiveType: .triangle,
+                vertexStart: 0,
+                vertexCount: 6,
+                instanceCount: mesh.edgeSegmentCount
+            )
+            drawCalls += 1
+        }
+    }
+
     @discardableResult
     private func renderScene(
         _ ctx: EncodeContext,
@@ -713,11 +763,6 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     ) -> Int {
         let encoder = ctx.encoder
         encoder.setArgumentTable(ctx.table, stages: [.vertex, .fragment])
-        encoder.setRenderPipelineState(solidPipeline)
-        encoder.setDepthStencilState(solidDepthState)
-        // Euclid emits counter-clockwise triangles; Metal assumes clockwise unless told otherwise.
-        encoder.setFrontFacing(.counterClockwise)
-        encoder.setCullMode(.back)
 
         let activeCamera = cameraOverride ?? scene.camera
         let matrices = viewAndProjectionMatrices(aspect: aspect, camera: activeCamera)
@@ -725,54 +770,104 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         let projMatrix = matrices.projection
 
         var drawCalls = 0
-        for (id, mesh) in scene.meshes where !scene.hiddenSolidIds.contains(id) {
-            let uniforms = RenderUniforms(
-                modelMatrix: mesh.transform.matrix,
-                viewMatrix: viewMatrix,
-                projectionMatrix: projMatrix,
-                normalMatrix: mesh.transform.normalMatrix,
-                color: mesh.color
-            )
-            guard ctx.bindUniforms(uniforms, at: 2) else { break }
-            ctx.bind(mesh.positionBuffer, at: 0)
-            ctx.bind(mesh.normalBuffer, at: 1)
-            encoder.drawIndexedPrimitives(
-                primitiveType: .triangle,
-                indexCount: mesh.indexCount,
-                indexType: .uint32,
-                indexBuffer: mesh.indexBuffer.gpuAddress,
-                indexBufferLength: mesh.indexBuffer.length
-            )
-            drawCalls += 1
-        }
 
-        // B-rep edge rendering pass (instanced screen-space quad ribbons with depth bias)
-        if scene.showsEdges {
-            encoder.setRenderPipelineState(cadEdgePipeline)
-            encoder.setDepthStencilState(cadEdgeDepthState)
-            encoder.setCullMode(.none)
-            for (id, mesh) in scene.meshes where !scene.hiddenSolidIds.contains(id) && mesh.edgeSegmentCount > 0 {
-                guard let segBuf = mesh.edgeSegmentBuffer else { continue }
-                let edgeUniforms = CadEdgeUniforms(
+        // Solid face rendering pass
+        if scene.displayMode != .wireframe {
+            let isUnshaded = scene.displayMode == .hiddenLineRemoved || scene.displayMode == .hiddenLinesVisible
+            encoder.setRenderPipelineState(solidPipeline)
+            encoder.setDepthStencilState(solidDepthState)
+            // Euclid emits counter-clockwise triangles; Metal assumes clockwise unless told otherwise.
+            encoder.setFrontFacing(.counterClockwise)
+            encoder.setCullMode(.back)
+
+            let viewportBgColor = SIMD4<Float>(0.12, 0.12, 0.14, 1.0)
+            for (id, mesh) in scene.meshes where !scene.hiddenSolidIds.contains(id) {
+                let color = isUnshaded ? viewportBgColor : mesh.color
+                let uniforms = RenderUniforms(
                     modelMatrix: mesh.transform.matrix,
                     viewMatrix: viewMatrix,
                     projectionMatrix: projMatrix,
-                    color: SIMD4<Float>(0.15, 0.15, 0.18, 1.0),
-                    viewportWidth: Float(max(viewportSize.width, 1.0)),
-                    viewportHeight: Float(max(viewportSize.height, 1.0)),
-                    lineWidth: 1.2,
-                    depthBias: 0.003
+                    normalMatrix: mesh.transform.normalMatrix,
+                    color: color
                 )
-                guard ctx.bindUniforms(edgeUniforms, at: 2) else { break }
-                ctx.bind(segBuf, at: 3)
-                encoder.drawPrimitives(
+                guard ctx.bindUniforms(uniforms, at: 2) else { break }
+                ctx.bind(mesh.positionBuffer, at: 0)
+                ctx.bind(mesh.normalBuffer, at: 1)
+                encoder.drawIndexedPrimitives(
                     primitiveType: .triangle,
-                    vertexStart: 0,
-                    vertexCount: 6,
-                    instanceCount: mesh.edgeSegmentCount
+                    indexCount: mesh.indexCount,
+                    indexType: .uint32,
+                    indexBuffer: mesh.indexBuffer.gpuAddress,
+                    indexBufferLength: mesh.indexBuffer.length
                 )
                 drawCalls += 1
             }
+        }
+
+        // B-rep edge rendering pass
+        switch scene.displayMode {
+        case .shadedWithEdges:
+            if scene.showsEdges {
+                drawEdgePass(
+                    ctx,
+                    scene: scene,
+                    depthState: cadEdgeDepthState,
+                    color: SIMD4<Float>(0.15, 0.15, 0.18, 1.0),
+                    viewMatrix: viewMatrix,
+                    projMatrix: projMatrix,
+                    viewportSize: viewportSize,
+                    drawCalls: &drawCalls
+                )
+            }
+        case .shaded:
+            break
+        case .wireframe:
+            drawEdgePass(
+                ctx,
+                scene: scene,
+                depthState: cadEdgeWireframeDepthState,
+                color: SIMD4<Float>(0.85, 0.85, 0.88, 1.0),
+                viewMatrix: viewMatrix,
+                projMatrix: projMatrix,
+                viewportSize: viewportSize,
+                drawCalls: &drawCalls
+            )
+        case .hiddenLineRemoved:
+            drawEdgePass(
+                ctx,
+                scene: scene,
+                depthState: cadEdgeDepthState,
+                color: SIMD4<Float>(0.85, 0.85, 0.88, 1.0),
+                viewMatrix: viewMatrix,
+                projMatrix: projMatrix,
+                viewportSize: viewportSize,
+                drawCalls: &drawCalls
+            )
+        case .hiddenLinesVisible:
+            // Pass 1: Occluded / hidden edges behind front faces
+            drawEdgePass(
+                ctx,
+                scene: scene,
+                depthState: cadEdgeHiddenDepthState,
+                color: SIMD4<Float>(0.4, 0.4, 0.45, 0.5),
+                depthBias: 0.0,
+                viewMatrix: viewMatrix,
+                projMatrix: projMatrix,
+                viewportSize: viewportSize,
+                drawCalls: &drawCalls
+            )
+            // Pass 2: Visible edges in front of front faces
+            drawEdgePass(
+                ctx,
+                scene: scene,
+                depthState: cadEdgeDepthState,
+                color: SIMD4<Float>(0.85, 0.85, 0.88, 1.0),
+                depthBias: 0.003,
+                viewMatrix: viewMatrix,
+                projMatrix: projMatrix,
+                viewportSize: viewportSize,
+                drawCalls: &drawCalls
+            )
         }
 
         // Selection outline pass for the selected solid (cull .front, depth test .lessEqual, write: false)

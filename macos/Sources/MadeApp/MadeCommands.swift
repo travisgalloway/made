@@ -347,6 +347,14 @@ struct ViewNavigationCommands: Commands {
                     workspace.setProjectionMode(.orthographic)
                 }
             }
+
+            Menu("Display Mode") {
+                ForEach(DisplayMode.allCases) { mode in
+                    Button(mode.rawValue) {
+                        workspace.setDisplayMode(mode)
+                    }
+                }
+            }
         }
     }
 }
