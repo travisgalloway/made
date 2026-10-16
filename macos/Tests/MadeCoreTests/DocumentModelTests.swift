@@ -885,7 +885,7 @@ import simd
 
         // Decode
         let decodedData = try DocumentModelCoder.decode(from: encodedData)
-        #expect(decodedData.schemaVersion == 1)
+        #expect(decodedData.schemaVersion == DocumentData.currentSchemaVersion)
         #expect(decodedData.selectedId == boolId)
         #expect(decodedData.objects.count == doc.objects.count)
 
