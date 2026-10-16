@@ -62,6 +62,7 @@ struct ViewportCanvasView: View {
                             showsGrid: workspace.showsGrid,
                             showsAxes: workspace.showsAxes,
                             showsGizmo: workspace.showsGizmo,
+                            showsEdges: workspace.showsEdges,
                             navigationPreset: workspace.navigationPreset,
                             coordinator: $workspace.coordinator,
                             isCommandActive: workspace.activeCommand != nil,

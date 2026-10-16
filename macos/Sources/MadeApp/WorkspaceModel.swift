@@ -127,6 +127,7 @@ final class WorkspaceModel {
     public static let showsGridDefaultsKey = "com.made.display.showsGrid"
     public static let showsAxesDefaultsKey = "com.made.display.showsAxes"
     public static let showsGizmoDefaultsKey = "com.made.display.showsGizmo"
+    public static let showsEdgesDefaultsKey = "viewport.showsEdges"
     public static let linearToleranceDefaultsKey = "com.made.tolerances.linear"
     public static let angularToleranceDefaultsKey = "com.made.tolerances.angular"
     public static let chordalToleranceDefaultsKey = "com.made.tolerances.chordal"
@@ -193,6 +194,15 @@ final class WorkspaceModel {
             if let renderer = viewportManager.renderer {
                 let isLocked = selectedObject?.isLocked ?? false
                 renderer.showsGizmo = showsGizmo && !isLocked
+                invalidateViewport(.interaction)
+            }
+        }
+    }
+    var showsEdges: Bool {
+        didSet {
+            defaults.set(showsEdges, forKey: Self.showsEdgesDefaultsKey)
+            if let renderer = viewportManager.renderer {
+                renderer.showsEdges = showsEdges
                 invalidateViewport(.interaction)
             }
         }
@@ -278,6 +288,12 @@ final class WorkspaceModel {
             self.showsGizmo = true
         }
 
+        if defaults.object(forKey: Self.showsEdgesDefaultsKey) != nil {
+            self.showsEdges = defaults.bool(forKey: Self.showsEdgesDefaultsKey)
+        } else {
+            self.showsEdges = true
+        }
+
         let linear = defaults.object(forKey: Self.linearToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.linearToleranceDefaultsKey) : KernelTolerances.defaultLinearTolerance
         let angular = defaults.object(forKey: Self.angularToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.angularToleranceDefaultsKey) : KernelTolerances.defaultAngularTolerance
         let chordal = defaults.object(forKey: Self.chordalToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.chordalToleranceDefaultsKey) : KernelTolerances.defaultChordalTolerance
@@ -316,6 +332,7 @@ final class WorkspaceModel {
         showsGrid = true
         showsAxes = true
         showsGizmo = true
+        showsEdges = true
         kernelTolerances = KernelTolerances.default
     }
 
@@ -382,6 +399,7 @@ final class WorkspaceModel {
         if let renderer = viewportManager.renderer {
             renderer.showsGrid = showsGrid
             renderer.showsAxes = showsAxes
+            renderer.showsEdges = showsEdges
             renderer.selectedId = selectedId
             renderer.selectedSubElement = document.selectedSubElement
             let isLocked = selectedObject?.isLocked ?? false

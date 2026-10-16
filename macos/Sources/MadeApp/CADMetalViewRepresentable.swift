@@ -152,6 +152,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var showsGrid: Bool
     var showsAxes: Bool
     var showsGizmo: Bool
+    var showsEdges: Bool
     var selectionFilter: SelectionFilter
     var navigationPreset: NavigationPreset
     var coordinatorBinding: Binding<Coordinator?>?
@@ -177,6 +178,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         showsGrid: Bool = true,
         showsAxes: Bool = true,
         showsGizmo: Bool = true,
+        showsEdges: Bool = true,
         navigationPreset: NavigationPreset = .defaultPreset,
         coordinator: Binding<Coordinator?>? = nil,
         isCommandActive: Bool = false,
@@ -200,6 +202,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.showsGrid = showsGrid
         self.showsAxes = showsAxes
         self.showsGizmo = showsGizmo
+        self.showsEdges = showsEdges
         self.navigationPreset = navigationPreset
         self.coordinatorBinding = coordinator
         self.isCommandActive = isCommandActive
@@ -251,6 +254,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         let isLocked = document.objects.first(where: { $0.id == activeSelectedId })?.isLocked ?? false
         renderer.showsGrid = showsGrid
         renderer.showsAxes = showsAxes
+        renderer.showsEdges = showsEdges
         renderer.showsGizmo = showsGizmo && !isLocked
         return view
     }
@@ -298,6 +302,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         if renderer.showsAxes != showsAxes {
             renderer.showsAxes = showsAxes
+            needsInvalidate = true
+        }
+        if renderer.showsEdges != showsEdges {
+            renderer.showsEdges = showsEdges
             needsInvalidate = true
         }
         if renderer.showsGizmo != effectiveGizmo {
