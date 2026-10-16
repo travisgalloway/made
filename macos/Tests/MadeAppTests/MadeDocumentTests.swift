@@ -397,4 +397,87 @@ import UniformTypeIdentifiers
         #expect(WorkspaceModel.saveAsDocumentShortcutKey == "s")
         #expect(WorkspaceModel.saveAsDocumentShortcutModifiers == [.command, .shift])
     }
+
+    // MARK: - Document Settings Package Persistence Tests (BL-FND-11)
+
+    @Test func testDocumentSettingsPersistenceInPackageManifest() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("SettingsTest.made")
+
+        let customSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: .inches, angleUnit: .radians, decimalPrecision: 4),
+            tolerances: KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.25, chordalTolerance: 0.02),
+            defaultMaterial: MaterialAttributes(color: SIMD4<Float>(0.7, 0.3, 0.1, 1.0))
+        )
+
+        let workspace = WorkspaceModel()
+        workspace.setDocumentSettings(customSettings)
+        #expect(workspace.isDocumentModified)
+
+        let saveResult = workspace.saveDocument(to: packageURL)
+        #expect(saveResult)
+
+        // Verify package on disk contains manifest with settings
+        let readPackage = try MadePackage(directoryURL: packageURL)
+        #expect(readPackage.manifest.units == customSettings.units)
+        #expect(readPackage.manifest.tolerances == customSettings.tolerances)
+        #expect(readPackage.manifest.defaultMaterial == customSettings.defaultMaterial)
+        #expect(readPackage.manifest.documentSettings == customSettings)
+
+        // Verify opening in fresh workspace restores document settings
+        let workspace2 = WorkspaceModel()
+        let openResult = workspace2.openDocument(at: packageURL)
+        #expect(openResult)
+        #expect(workspace2.document.settings == customSettings)
+    }
+
+    @Test func testPackageDecodingWithMissingDefaultMaterialFallback() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("LegacyManifest.made")
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+
+        let legacyManifest = """
+        {
+          "schemaVersion": 2,
+          "appVersion": "0.1",
+          "units": {
+            "lengthUnit": "cm",
+            "angleUnit": "deg",
+            "decimalPrecision": 3
+          },
+          "tolerances": {
+            "linearTolerance": 0.002,
+            "angularTolerance": 0.05,
+            "chordalTolerance": 0.01
+          }
+        }
+        """.data(using: .utf8)!
+        try legacyManifest.write(to: packageURL.appendingPathComponent("manifest.json"))
+
+        let docData = """
+        {
+          "schemaVersion": 2,
+          "objects": []
+        }
+        """.data(using: .utf8)!
+        try docData.write(to: packageURL.appendingPathComponent("document.json"))
+
+        let package = try MadePackage(directoryURL: packageURL)
+        #expect(package.manifest.units.lengthUnit == .centimeters)
+        #expect(package.manifest.units.decimalPrecision == 3)
+        #expect(package.manifest.tolerances.linearTolerance == 0.002)
+        #expect(package.manifest.defaultMaterial == MaterialAttributes())
+
+        let workspace = WorkspaceModel()
+        let openResult = workspace.openDocument(at: packageURL)
+        #expect(openResult)
+        #expect(workspace.document.settings.units.lengthUnit == .centimeters)
+        #expect(workspace.document.settings.defaultMaterial == MaterialAttributes())
+    }
 }

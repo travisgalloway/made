@@ -33,6 +33,11 @@ struct FileMenuCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.saveAsDocumentShortcutKey, modifiers: WorkspaceModel.saveAsDocumentShortcutModifiers)
 
+            Button("Document Settings…") {
+                workspace.isInspectorPresented = true
+                workspace.inspectorTab = .document
+            }
+
             Divider()
 
             Button("Import STEP…") {

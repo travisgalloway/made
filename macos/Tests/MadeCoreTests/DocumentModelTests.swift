@@ -1310,5 +1310,103 @@ import simd
         // selectedId was cylinder-1, which is now rolled back, so it should be cleared
         #expect(doc.selectedId == nil)
     }
+
+    // MARK: - Document Settings Tests (BL-FND-11)
+
+    @Test func testDocumentSettingsMutationsAndUndoRedo() {
+        let doc = DocumentModel()
+        #expect(doc.settings == DocumentSettings())
+
+        let customSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: .inches, angleUnit: .radians, decimalPrecision: 4),
+            tolerances: KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.2, chordalTolerance: 0.02),
+            defaultMaterial: MaterialAttributes(color: SIMD4<Float>(0.8, 0.2, 0.2, 1.0))
+        )
+
+        doc.setSettings(customSettings)
+        #expect(doc.settings == customSettings)
+        #expect(doc.canUndo)
+        #expect(doc.undoTitle.contains("Change Document Settings"))
+
+        // Undo restores initial settings
+        doc.undo()
+        #expect(doc.settings == DocumentSettings())
+        #expect(doc.canRedo)
+
+        // Redo reapplies custom settings
+        doc.redo()
+        #expect(doc.settings == customSettings)
+
+        // Test convenience mutator setUnits
+        let newUnits = UnitSettings(lengthUnit: .meters, angleUnit: .degrees, decimalPrecision: 3)
+        doc.setUnits(newUnits)
+        #expect(doc.settings.units == newUnits)
+        #expect(doc.settings.tolerances == customSettings.tolerances)
+        #expect(doc.settings.defaultMaterial == customSettings.defaultMaterial)
+
+        doc.undo()
+        #expect(doc.settings.units == customSettings.units)
+
+        // Test convenience mutator setTolerances
+        let newTols = KernelTolerances(linearTolerance: 0.01, angularTolerance: 0.5, chordalTolerance: 0.05)
+        doc.setTolerances(newTols)
+        #expect(doc.settings.tolerances == newTols.clamped())
+
+        doc.undo()
+        #expect(doc.settings.tolerances == customSettings.tolerances)
+
+        // Test convenience mutator setDefaultMaterial
+        let newMat = MaterialAttributes(color: SIMD4<Float>(0.1, 0.9, 0.1, 1.0))
+        doc.setDefaultMaterial(newMat)
+        #expect(doc.settings.defaultMaterial == newMat)
+
+        doc.undo()
+        #expect(doc.settings.defaultMaterial == customSettings.defaultMaterial)
+    }
+
+    @Test func testNewObjectsInheritDefaultMaterial() {
+        let doc = DocumentModel()
+        let customColor = SIMD4<Float>(0.9, 0.1, 0.5, 1.0)
+        let customMaterial = MaterialAttributes(color: customColor)
+        doc.setDefaultMaterial(customMaterial)
+
+        // Newly added box without explicit material inherits document default material
+        let boxId = doc.addObject(def: .box(BoxParams(width: 20, depth: 20, height: 20)))
+        let boxObj = doc.objects.first(where: { $0.id == boxId })
+        #expect(boxObj?.material == customMaterial)
+
+        // Newly added cylinder with explicit material preserves explicit material
+        let explicitColor = SIMD4<Float>(0.1, 0.2, 0.3, 1.0)
+        let explicitMaterial = MaterialAttributes(color: explicitColor)
+        let cylId = doc.addObject(def: .cylinder(CylinderParams(radius: 10, height: 25)), material: explicitMaterial)
+        let cylObj = doc.objects.first(where: { $0.id == cylId })
+        #expect(cylObj?.material == explicitMaterial)
+    }
+
+    @Test func testAddPartInheritsDefaultMaterial() {
+        let doc = DocumentModel()
+        let customColor = SIMD4<Float>(0.3, 0.7, 0.2, 1.0)
+        let customMaterial = MaterialAttributes(color: customColor)
+        doc.setDefaultMaterial(customMaterial)
+
+        let tempURL = URL(fileURLWithPath: "/tmp/test.part.ts")
+        let partId = doc.addPart(url: tempURL)
+        let partObj = doc.objects.first(where: { $0.id == partId })
+        #expect(partObj?.material == customMaterial)
+        let partFeat = doc.features.first(where: { $0.outputSolidId == partId })
+        #expect(partFeat?.material == customMaterial)
+    }
+
+    @Test func testResetPreservesOrUpdatesSettings() {
+        let doc = DocumentModel()
+        let custom = DocumentSettings(
+            units: UnitSettings(lengthUnit: .feet, angleUnit: .radians, decimalPrecision: 1),
+            tolerances: KernelTolerances(linearTolerance: 0.1, angularTolerance: 1.0, chordalTolerance: 0.1),
+            defaultMaterial: MaterialAttributes(color: SIMD4<Float>(0.5, 0.5, 0.5, 1.0))
+        )
+
+        doc.reset(with: [SceneObject](), settings: custom)
+        #expect(doc.settings == custom)
+    }
 }
 

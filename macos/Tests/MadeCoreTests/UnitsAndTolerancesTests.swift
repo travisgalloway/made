@@ -152,4 +152,51 @@ import Foundation
         let decodedUnit = try decoder.decode(UnitSettings.self, from: unitData)
         #expect(origUnit == decodedUnit)
     }
+
+    // MARK: - DocumentSettings Tests (BL-FND-11)
+
+    @Test func testDocumentSettingsDefaultsAndClamping() {
+        let defaultSettings = DocumentSettings()
+        #expect(defaultSettings.units == UnitSettings())
+        #expect(defaultSettings.tolerances == KernelTolerances.default)
+        #expect(defaultSettings.defaultMaterial == MaterialAttributes())
+
+        // Non-finite and out-of-bounds tolerances clamp during initialization
+        let unclampedTolerances = KernelTolerances(
+            linearTolerance: Double.nan,
+            angularTolerance: -5.0,
+            chordalTolerance: 100.0
+        )
+        let settingsWithClamped = DocumentSettings(
+            units: UnitSettings(lengthUnit: .inches, angleUnit: .radians, decimalPrecision: 5),
+            tolerances: unclampedTolerances,
+            defaultMaterial: MaterialAttributes(color: SIMD4<Float>(1, 0, 0, 1))
+        )
+        #expect(settingsWithClamped.units.lengthUnit == .inches)
+        #expect(settingsWithClamped.units.decimalPrecision == 5)
+        #expect(settingsWithClamped.tolerances.linearTolerance == KernelTolerances.defaultLinearTolerance)
+        #expect(settingsWithClamped.tolerances.angularTolerance == KernelTolerances.minAngularTolerance)
+        #expect(settingsWithClamped.tolerances.chordalTolerance == KernelTolerances.maxChordalTolerance)
+        #expect(settingsWithClamped.tolerances.isValid)
+        #expect(settingsWithClamped.defaultMaterial.color == SIMD4<Float>(1, 0, 0, 1))
+    }
+
+    @Test func testDocumentSettingsCodableRoundtrip() throws {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        let orig = DocumentSettings(
+            units: UnitSettings(lengthUnit: .feet, angleUnit: .radians, decimalPrecision: 4),
+            tolerances: KernelTolerances(linearTolerance: 0.05, angularTolerance: 0.5, chordalTolerance: 0.05),
+            defaultMaterial: MaterialAttributes(color: SIMD4<Float>(0.2, 0.4, 0.6, 1.0))
+        )
+        let data = try encoder.encode(orig)
+        let decoded = try decoder.decode(DocumentSettings.self, from: data)
+        #expect(orig == decoded)
+
+        // Decoding with missing fields gracefully defaults
+        let emptyJSON = "{}".data(using: .utf8)!
+        let defaultDecoded = try decoder.decode(DocumentSettings.self, from: emptyJSON)
+        #expect(defaultDecoded == DocumentSettings())
+    }
 }

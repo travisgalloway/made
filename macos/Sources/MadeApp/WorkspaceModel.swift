@@ -239,6 +239,13 @@ final class WorkspaceModel {
         let chordal = defaults.object(forKey: Self.chordalToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.chordalToleranceDefaultsKey) : KernelTolerances.defaultChordalTolerance
         self.kernelTolerances = KernelTolerances(linearTolerance: linear, angularTolerance: angular, chordalTolerance: chordal).clamped()
 
+        let initialSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: self.lengthUnit, angleUnit: self.angleUnit, decimalPrecision: self.decimalPrecision),
+            tolerances: self.kernelTolerances
+        )
+        self.document.setSettings(initialSettings, registerUndo: false)
+        self.document.undoManager?.removeAllActions()
+
         self.document.onUndoRedoMutation = { [weak self] mutation in
             self?.handleUndoRedoMutation(mutation)
         }
@@ -500,19 +507,25 @@ final class WorkspaceModel {
         autosaveTask?.cancel()
         autosaveTask = nil
 
+        let initialSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
+            tolerances: kernelTolerances
+        )
         let defaultObjects = [
             SceneObject(
                 id: boxSolidId,
                 def: .box(BoxParams(width: 40, depth: 30, height: 20)),
-                transform: Transform(position: SIMD3<Float>(-25, 0, 0))
+                transform: Transform(position: SIMD3<Float>(-25, 0, 0)),
+                material: initialSettings.defaultMaterial
             ),
             SceneObject(
                 id: cylinderSolidId,
                 def: .cylinder(CylinderParams(radius: 15, height: 40)),
-                transform: Transform(position: SIMD3<Float>(25, 0, 0))
+                transform: Transform(position: SIMD3<Float>(25, 0, 0)),
+                material: initialSettings.defaultMaterial
             )
         ]
-        document.reset(with: defaultObjects, selectedId: boxSolidId)
+        document.reset(with: defaultObjects, selectedId: boxSolidId, settings: initialSettings)
         currentDocumentURL = nil
         isDocumentModified = false
         syncWindowState()
@@ -531,15 +544,11 @@ final class WorkspaceModel {
             autosaveTask?.cancel()
             autosaveTask = nil
 
-            self.lengthUnit = package.manifest.units.lengthUnit
-            self.angleUnit = package.manifest.units.angleUnit
-            self.decimalPrecision = package.manifest.units.decimalPrecision
-            self.kernelTolerances = package.manifest.tolerances
-
+            let docSettings = package.manifest.documentSettings
             if let features = package.documentData.features {
-                document.reset(with: features, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex)
+                document.reset(with: features, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
             } else {
-                document.reset(with: package.documentData.objects, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex)
+                document.reset(with: package.documentData.objects, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
             }
             currentDocumentURL = url
             isDocumentModified = false
@@ -570,8 +579,7 @@ final class WorkspaceModel {
             let manifest = MadeManifest(
                 schemaVersion: MadeManifest.currentSchemaVersion,
                 appVersion: "0.1",
-                units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
-                tolerances: kernelTolerances
+                documentSettings: document.settings
             )
             let docData = DocumentData(
                 schemaVersion: DocumentData.currentSchemaVersion,
@@ -1003,6 +1011,28 @@ final class WorkspaceModel {
         }
         log(.info, "Scene", "Updated material for \(id.rawValue)")
         invalidateViewport(.model)
+    }
+
+    // MARK: - Document Settings (BL-FND-11)
+
+    func setDocumentSettings(_ newSettings: DocumentSettings) {
+        document.setSettings(newSettings)
+        markDocumentModified()
+    }
+
+    func setDocumentUnits(_ units: UnitSettings) {
+        document.setUnits(units)
+        markDocumentModified()
+    }
+
+    func setDocumentTolerances(_ tolerances: KernelTolerances) {
+        document.setTolerances(tolerances)
+        markDocumentModified()
+    }
+
+    func setDocumentDefaultMaterial(_ material: MaterialAttributes) {
+        document.setDefaultMaterial(material)
+        markDocumentModified()
     }
 
     func setParam(_ id: ObjectId, _ key: String, _ value: Float) {

@@ -74,4 +74,18 @@ import MadeCore
         #expect(model.kernelTolerances.chordalTolerance == KernelTolerances.minChordalTolerance)
         #expect(model.kernelTolerances.isValid)
     }
+
+    // MARK: - Inspector Document Tab Tests (BL-FND-11)
+
+    @Test @MainActor func testInspectorTabEnumerationAndDocumentTab() {
+        #expect(InspectorTab.allCases.count == 2)
+        #expect(InspectorTab.allCases.contains(.properties))
+        #expect(InspectorTab.allCases.contains(.document))
+        #expect(InspectorTab.document.title == "Document")
+        #expect(InspectorTab.document.systemImage == "doc.text")
+
+        let model = WorkspaceModel()
+        let view = DocumentSettingsInspectorView().environment(model)
+        _ = view
+    }
 }
