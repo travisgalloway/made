@@ -35,6 +35,7 @@ enum MouseButton: Int {
 
 final class CADMTKView: MTKView {
     weak var coordinator: CADMetalViewRepresentable.Coordinator?
+    private var trackingArea: NSTrackingArea?
     
     var tool: ViewportTool = .select {
         didSet {
@@ -43,6 +44,22 @@ final class CADMTKView: MTKView {
     }
     
     override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let options: NSTrackingArea.Options = [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect]
+        let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(area)
+        self.trackingArea = area
+    }
     
     static func cursor(for tool: ViewportTool) -> NSCursor {
         switch tool {
@@ -115,6 +132,14 @@ final class CADMTKView: MTKView {
     
     override func magnify(with event: NSEvent) {
         coordinator?.handleMagnify(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        coordinator?.handleMouseMoved(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        coordinator?.handleMouseExited(with: event)
     }
 }
 
@@ -211,6 +236,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         renderer.selectedId = document.selectedId
         renderer.selectedSubElement = document.selectedSubElement
+        renderer.preselectedSubElement = context.coordinator.preselectedSubElement
         let isLocked = document.objects.first(where: { $0.id == document.selectedId })?.isLocked ?? false
         renderer.showsGrid = showsGrid
         renderer.showsAxes = showsAxes
@@ -222,6 +248,15 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         // The coordinator outlives this struct, so refresh its copy to pick up the current tool and callbacks.
         context.coordinator.parent = self
         (nsView as? CADMTKView)?.tool = tool
+        
+        // Tool transition or object deletion/hiding clears preselection highlight
+        if !(tool == .select || isCommandActive) {
+            context.coordinator.clearPreselection()
+        } else if let pre = context.coordinator.preselectedSubElement {
+            if !document.objects.contains(where: { $0.id == pre.solidId }) || renderer.hiddenSolidIds.contains(pre.solidId) {
+                context.coordinator.clearPreselection()
+            }
+        }
         
         // Abort gizmo drag if the selected object was removed from the document or locked
         if let drag = context.coordinator.dragState {
@@ -274,6 +309,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         public let pointerRouter = PointerRouter()
         public var dragState: GizmoDragState? = nil
         public var activeOrbitPivot: SIMD3<Float>? = nil
+        public private(set) var preselectedSubElement: SelectedSubElement? = nil
+        private var lastHoverLocation: CGPoint? = nil
         
         private var lastMousePoint: CGPoint = .zero
         private var activeMouseButton: MouseButton? = nil
@@ -298,6 +335,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleMouseDown(with event: NSEvent, button: MouseButton) {
+            clearPreselection()
             parent.onCancelAnimation?()
             guard let view = mtkView else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
@@ -415,6 +453,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleMouseDragged(with event: NSEvent, button: MouseButton) {
+            clearPreselection()
             guard let view = mtkView, let action = activeDragAction else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
             let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
@@ -789,6 +828,55 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         parent.onDoubleTapFace?(pick.solidId, pick.elementId)
                     }
                 }
+            }
+        }
+
+        func handleMouseMoved(with event: NSEvent) {
+            guard activeMouseButton == nil, dragState == nil, activeDragAction == nil else {
+                clearPreselection()
+                return
+            }
+            guard parent.tool == .select || parent.isCommandActive else {
+                clearPreselection()
+                return
+            }
+            guard let view = mtkView else { return }
+            let loc = view.convert(event.locationInWindow, from: nil)
+            if let lastHover = lastHoverLocation {
+                let dx = loc.x - lastHover.x
+                let dy = loc.y - lastHover.y
+                if hypot(dx, dy) < 1.0 {
+                    return
+                }
+            }
+            lastHoverLocation = loc
+            let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            let pickResult = parent.renderer.pickSubElement(at: pointer, viewportSize: view.bounds.size)
+            let newPreselection = pickResult.map {
+                SelectedSubElement(
+                    solidId: $0.solidId,
+                    elementType: $0.elementType,
+                    elementId: $0.elementId,
+                    deterministicId: $0.deterministicId
+                )
+            }
+            if preselectedSubElement != newPreselection {
+                preselectedSubElement = newPreselection
+                parent.renderer.preselectedSubElement = newPreselection
+                invalidate(reason: .interaction)
+            }
+        }
+
+        func handleMouseExited(with event: NSEvent) {
+            clearPreselection()
+        }
+
+        public func clearPreselection() {
+            lastHoverLocation = nil
+            if preselectedSubElement != nil || parent.renderer.preselectedSubElement != nil {
+                preselectedSubElement = nil
+                parent.renderer.preselectedSubElement = nil
+                invalidate(reason: .interaction)
             }
         }
         

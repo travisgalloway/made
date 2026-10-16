@@ -337,3 +337,85 @@ fragment uint4 pickVertexFragmentShader(
 ) {
     return uint4(uniforms.solidIndex, 3, in.vertexId, 0);
 }
+
+// MARK: - Sub-element Edge Highlight Shaders (BL-SEL-04)
+
+struct EdgeHighlightUniforms {
+    float4x4 modelMatrix;
+    float4x4 viewMatrix;
+    float4x4 projectionMatrix;
+    float4 color;
+    float viewportWidth;
+    float viewportHeight;
+    float lineWidth;
+    uint targetEdgeId;
+    float depthBias;
+    float3 _padding;
+};
+
+struct EdgeHighlightVertexOut {
+    float4 position [[position]];
+};
+
+vertex EdgeHighlightVertexOut edgeHighlightVertexShader(
+    uint vertexID [[vertex_id]],
+    uint instanceID [[instance_id]],
+    constant EdgeHighlightUniforms &uniforms [[buffer(2)]],
+    constant EdgeSegmentData *segments [[buffer(3)]]
+) {
+    EdgeHighlightVertexOut out;
+    EdgeSegmentData seg = segments[instanceID];
+    if (seg.edgeId != uniforms.targetEdgeId) {
+        out.position = float4(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+
+    float4 aWorld = uniforms.modelMatrix * float4(float3(seg.start), 1.0);
+    float4 bWorld = uniforms.modelMatrix * float4(float3(seg.end), 1.0);
+
+    float4 aClip = uniforms.projectionMatrix * uniforms.viewMatrix * aWorld;
+    float4 bClip = uniforms.projectionMatrix * uniforms.viewMatrix * bWorld;
+
+    float wA = max(aClip.w, 1e-4);
+    float wB = max(bClip.w, 1e-4);
+
+    float2 aNdc = aClip.xy / wA;
+    float2 bNdc = bClip.xy / wB;
+
+    float2 aScreen = float2((aNdc.x + 1.0) * 0.5 * uniforms.viewportWidth, (aNdc.y + 1.0) * 0.5 * uniforms.viewportHeight);
+    float2 bScreen = float2((bNdc.x + 1.0) * 0.5 * uniforms.viewportWidth, (bNdc.y + 1.0) * 0.5 * uniforms.viewportHeight);
+
+    float2 dir = bScreen - aScreen;
+    float len = length(dir);
+    float2 nScreen = len > 1e-4 ? float2(-dir.y, dir.x) / len : float2(0.0, 1.0);
+
+    float halfWidth = max(uniforms.lineWidth * 0.5, 0.5);
+
+    // Quad vertex indices (2 triangles = 6 vertices):
+    // 0: A - N, 1: B - N, 2: A + N
+    // 3: A + N, 4: B - N, 5: B + N
+    bool isB = (vertexID == 1 || vertexID == 4 || vertexID == 5);
+    float signN = (vertexID == 2 || vertexID == 3 || vertexID == 5) ? 1.0 : -1.0;
+
+    float4 baseClip = isB ? bClip : aClip;
+    float baseW = isB ? wB : wA;
+
+    float2 offsetScreen = nScreen * (signN * halfWidth);
+    float2 offsetNdc = float2(2.0 * offsetScreen.x / max(uniforms.viewportWidth, 1.0),
+                              2.0 * offsetScreen.y / max(uniforms.viewportHeight, 1.0));
+
+    float4 pClip = baseClip;
+    pClip.xy += offsetNdc * baseW;
+    pClip.z -= uniforms.depthBias * baseW;
+
+    out.position = pClip;
+    return out;
+}
+
+fragment float4 edgeHighlightFragmentShader(
+    EdgeHighlightVertexOut in [[stage_in]],
+    constant EdgeHighlightUniforms &uniforms [[buffer(2)]]
+) {
+    return uniforms.color;
+}
+
