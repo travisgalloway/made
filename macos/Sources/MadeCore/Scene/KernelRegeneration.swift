@@ -59,6 +59,7 @@ public enum KernelRegeneration {
         for feat in features {
             let feature = document.feature(for: feat.id) ?? feat
             guard !feature.isSuppressed else { continue }
+            guard document.isFeatureActive(id: feature.id) else { continue }
             guard feature.outputSolidId != excluded else { continue }
 
             // Check upstream parent failures
@@ -120,8 +121,10 @@ public enum KernelRegeneration {
         client: any KernelClientProtocol,
         excluding excluded: SolidId? = nil
     ) async {
-        guard let rootFeature = document.feature(for: featureId) else { return }
+        guard let rootFeature = document.feature(for: featureId),
+              document.isFeatureActive(id: featureId) else { return }
         let dependents = document.dependentFeatures(referencing: featureId)
+            .filter { document.isFeatureActive(id: $0.id) }
         await regenerate(features: [rootFeature] + dependents, in: document, client: client, excluding: excluded)
     }
 
@@ -132,7 +135,7 @@ public enum KernelRegeneration {
         client: any KernelClientProtocol,
         excluding excluded: SolidId? = nil
     ) async {
-        await regenerate(features: document.features, in: document, client: client, excluding: excluded)
+        await regenerate(features: document.activeFeatures, in: document, client: client, excluding: excluded)
     }
 }
 

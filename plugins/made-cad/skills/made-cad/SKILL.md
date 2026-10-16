@@ -137,7 +137,7 @@ Only the keys `volume`, `area`, `surfaceArea`, `bounds`, and `tolerance` are val
 
 ## 4. MCP Tools Reference
 
-`made` registers 11 MCP tools in `CADToolRegistry`:
+`made` registers 12 MCP tools in `CADToolRegistry`:
 
 | Tool Name | Purpose | Arguments |
 | --- | --- | --- |
@@ -152,6 +152,7 @@ Only the keys `volume`, `area`, `surfaceArea`, `bounds`, and `tolerance` are val
 | `cad_set_transform` | Set the 3D world position of a solid. | `id: string` (required), `posX?: number`, `posY?: number`, `posZ?: number`. |
 | `cad_remove_solid` | Remove a solid from the scene (and stop its file watcher if it is a part). | `id: string` (required). |
 | `cad_boolean_operation` | Combine two existing scene solids using CSG `union`, `subtract`, or `intersect`. | `operation: "union" \| "subtract" \| "intersect"`, `solidA: string`, `solidB: string`, `name?: string`. |
+| `cad_rollback` | Roll the timeline marker backward or forward. Features after the marker are excluded from scene projection and evaluation. | `index?: number` (0-based feature index), `solidId?: string` (solid UUID or "end"). |
 
 ## 5. The Agent Workflow Loop: Edit -> Reload -> Diagnostics -> Verify -> Snapshot -> Repair
 

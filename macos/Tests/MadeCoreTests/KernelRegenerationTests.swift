@@ -539,6 +539,80 @@ import Foundation
         #expect(client.requestedSolids == [solidA])
     }
 
+    @Test func testSequentialRegenerationSkipsRolledBackFeatures() async {
+        let document = DocumentModel(features: [])
+        let solidA = SolidId("box-a")
+        let featA = Feature(
+            name: "Box A",
+            operation: .primitive(.box(BoxParams(width: 10, depth: 10, height: 10))),
+            outputSolidId: solidA
+        )
+        _ = document.addFeature(featA)
+
+        let solidB = SolidId("box-b")
+        let featB = Feature(
+            name: "Box B",
+            operation: .primitive(.box(BoxParams(width: 12, depth: 12, height: 12))),
+            outputSolidId: solidB
+        )
+        _ = document.addFeature(featB)
+
+        let solidC = SolidId("box-c")
+        let featC = Feature(
+            name: "Box C",
+            operation: .primitive(.box(BoxParams(width: 14, depth: 14, height: 14))),
+            outputSolidId: solidC
+        )
+        _ = document.addFeature(featC)
+
+        // Roll back to 2 features (featA and featB active, featC rolled back)
+        document.rollBack(to: 2)
+        #expect(document.activeFeatures.count == 2)
+        #expect(document.rolledBackFeatures.count == 1)
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerate(document: document, client: client)
+
+        #expect(client.requestedSolids == [solidA, solidB])
+    }
+
+    @Test func testIncrementalRegenerationSkipsRolledBackFeatures() async {
+        let document = DocumentModel(features: [])
+        let solidA = SolidId("box-a")
+        let featA = Feature(
+            name: "Box A",
+            operation: .primitive(.box(BoxParams(width: 10, depth: 10, height: 10))),
+            outputSolidId: solidA
+        )
+        _ = document.addFeature(featA)
+
+        let solidB = SolidId("box-b")
+        let featB = Feature(
+            name: "Box B",
+            operation: .primitive(.box(BoxParams(width: 12, depth: 12, height: 12))),
+            references: [.feature(featA.id)],
+            outputSolidId: solidB
+        )
+        _ = document.addFeature(featB)
+
+        let solidC = SolidId("box-c")
+        let featC = Feature(
+            name: "Box C",
+            operation: .primitive(.box(BoxParams(width: 14, depth: 14, height: 14))),
+            references: [.feature(featB.id)],
+            outputSolidId: solidC
+        )
+        _ = document.addFeature(featC)
+
+        // Roll back to 2 features (featA and featB active, featC rolled back)
+        document.rollBack(to: 2)
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerateIncremental(from: featA.id, in: document, client: client)
+
+        #expect(client.requestedSolids == [solidA, solidB])
+    }
+
     private func object(_ id: SolidId, _ def: ObjectDef) -> SceneObject {
         SceneObject(id: id, name: id.rawValue, def: def)
     }

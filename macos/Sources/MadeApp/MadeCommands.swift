@@ -145,6 +145,22 @@ struct SolidMenuCommands: Commands {
 
             Divider()
 
+            Button("Roll Back to Selected") {
+                if let sel = workspace.selectedId {
+                    workspace.rollBack(to: sel)
+                }
+            }
+            .keyboardShortcut(WorkspaceModel.rollBackToSelectedShortcutKey, modifiers: WorkspaceModel.rollBackToSelectedShortcutModifiers)
+            .disabled(workspace.selectedObject == nil)
+
+            Button("Roll Forward to End") {
+                workspace.rollForwardToEnd()
+            }
+            .keyboardShortcut(WorkspaceModel.rollForwardToEndShortcutKey, modifiers: WorkspaceModel.rollForwardToEndShortcutModifiers)
+            .disabled(!workspace.document.isRolledBack)
+
+            Divider()
+
             Button("Delete Solid") {
                 workspace.deleteSelectedObject()
             }

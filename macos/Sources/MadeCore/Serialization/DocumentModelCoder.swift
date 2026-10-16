@@ -6,14 +6,17 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var features: [Feature]?
     public var objects: [SceneObject]
     public var selectedId: ObjectId?
+    public var rollbackIndex: Int?
 
     public init(
         schemaVersion: Int = 1,
         features: [Feature]? = nil,
         objects: [SceneObject]? = nil,
-        selectedId: ObjectId? = nil
+        selectedId: ObjectId? = nil,
+        rollbackIndex: Int? = nil
     ) {
         self.schemaVersion = schemaVersion
+        self.rollbackIndex = rollbackIndex
         if let objects {
             let clamped = objects.map { obj in
                 var copy = obj
@@ -24,7 +27,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
             self.features = features ?? clamped.map { Feature(from: $0) }
         } else if let features {
             self.features = features
-            self.objects = features.compactMap { $0.toSceneObject() }
+            let effectiveIndex = rollbackIndex ?? features.count
+            self.objects = Array(features.prefix(effectiveIndex)).compactMap { $0.toSceneObject() }
         } else {
             self.features = []
             self.objects = []
@@ -32,8 +36,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.selectedId = selectedId
     }
 
-    public init(schemaVersion: Int = 1, objects: [SceneObject], selectedId: ObjectId? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId)
+    public init(schemaVersion: Int = 1, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -41,11 +45,13 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case features
         case objects
         case selectedId
+        case rollbackIndex
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        self.rollbackIndex = try container.decodeIfPresent(Int.self, forKey: .rollbackIndex)
         let decodedFeatures = try container.decodeIfPresent([Feature].self, forKey: .features)
         let rawObjects = try container.decodeIfPresent([SceneObject].self, forKey: .objects) ?? []
         let clampedObjects = rawObjects.map { obj in
@@ -68,6 +74,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encodeIfPresent(features, forKey: .features)
         try container.encode(objects, forKey: .objects)
         try container.encodeIfPresent(selectedId, forKey: .selectedId)
+        try container.encodeIfPresent(rollbackIndex, forKey: .rollbackIndex)
     }
 }
 
@@ -106,7 +113,8 @@ public enum DocumentModelCoder {
             schemaVersion: schemaVersion,
             features: document.features,
             objects: document.objects,
-            selectedId: document.selectedId
+            selectedId: document.selectedId,
+            rollbackIndex: document.rollbackIndex
         )
         return try encode(docData)
     }
@@ -116,9 +124,9 @@ public enum DocumentModelCoder {
     public static func decode(into document: DocumentModel, from data: Data) throws {
         let docData = try decode(from: data)
         if let features = docData.features {
-            document.reset(with: features, selectedId: docData.selectedId)
+            document.reset(with: features, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex)
         } else {
-            document.reset(with: docData.objects, selectedId: docData.selectedId)
+            document.reset(with: docData.objects, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex)
         }
     }
 }

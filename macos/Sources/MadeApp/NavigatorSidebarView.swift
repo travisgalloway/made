@@ -8,65 +8,74 @@ struct NavigatorSidebarView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        List(selection: $workspace.selectedId) {
-            Section("Scene") {
-                ForEach(filteredObjects) { obj in
-                    NavigatorRow(object: obj).tag(obj.id)
-                }
+        VStack(spacing: 0) {
+            if workspace.document.isRolledBack {
+                rollbackBanner
             }
-        }
-        .listStyle(.sidebar)
-        .overlay {
-            if workspace.document.objects.isEmpty {
-                ContentUnavailableView {
-                    Label("No Objects", systemImage: "cube.transparent")
-                } description: {
-                    Text("Add a 3D solid primitive or open a part script to begin modeling.")
-                } actions: {
-                    VStack(spacing: 8) {
-                        Button("Add Box", systemImage: "shippingbox") {
-                            workspace.addDefaultBox()
-                        }
-                        Button("Add Cylinder", systemImage: "cylinder") {
-                            workspace.addDefaultCylinder()
-                        }
+
+            List(selection: $workspace.selectedId) {
+                Section("Scene") {
+                    ForEach(filteredObjects) { obj in
+                        NavigatorRow(object: obj).tag(obj.id)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
-            } else if filteredObjects.isEmpty {
-                ContentUnavailableView.search(text: filterText)
             }
-        }
-        .contextMenu(forSelectionType: ObjectId.self) { ids in
-            if let id = ids.first, let obj = workspace.document.objects.first(where: { $0.id == id }) {
-                if case .part = obj.def {
-                    Button("Reload Part") { workspace.reloadPart(id) }
+            .listStyle(.sidebar)
+            .overlay {
+                if workspace.document.objects.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Objects", systemImage: "cube.transparent")
+                    } description: {
+                        Text("Add a 3D solid primitive or open a part script to begin modeling.")
+                    } actions: {
+                        VStack(spacing: 8) {
+                            Button("Add Box", systemImage: "shippingbox") {
+                                workspace.addDefaultBox()
+                            }
+                            Button("Add Cylinder", systemImage: "cylinder") {
+                                workspace.addDefaultCylinder()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                } else if filteredObjects.isEmpty {
+                    ContentUnavailableView.search(text: filterText)
+                }
+            }
+            .contextMenu(forSelectionType: ObjectId.self) { ids in
+                if let id = ids.first, let obj = workspace.document.objects.first(where: { $0.id == id }) {
+                    if case .part = obj.def {
+                        Button("Reload Part") { workspace.reloadPart(id) }
+                        Divider()
+                    }
+                    Button("Roll Back to Here") { workspace.rollBack(to: id) }
+                    Button("Roll Back Before") { workspace.rollBack(before: id) }
                     Divider()
+                    Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
+                    Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
+                    Divider()
+                    Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
+                        .disabled(obj.isLocked)
                 }
-                Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
-                Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
-                Divider()
-                Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
-                    .disabled(obj.isLocked)
             }
-        }
-        .confirmationDialog(
-            "Delete “\(workspace.objectPendingDeletion?.name ?? "Solid")”?",
-            isPresented: Binding(
-                get: { workspace.pendingDeleteId != nil },
-                set: { if !$0 { workspace.cancelDeleteObject() } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                workspace.confirmDeleteObject()
+            .confirmationDialog(
+                "Delete “\(workspace.objectPendingDeletion?.name ?? "Solid")”?",
+                isPresented: Binding(
+                    get: { workspace.pendingDeleteId != nil },
+                    set: { if !$0 { workspace.cancelDeleteObject() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    workspace.confirmDeleteObject()
+                }
+                Button("Cancel", role: .cancel) {
+                    workspace.cancelDeleteObject()
+                }
+            } message: {
+                Text("Are you sure you want to delete “\(workspace.objectPendingDeletion?.name ?? "this solid")”? This action cannot be undone.")
             }
-            Button("Cancel", role: .cancel) {
-                workspace.cancelDeleteObject()
-            }
-        } message: {
-            Text("Are you sure you want to delete “\(workspace.objectPendingDeletion?.name ?? "this solid")”? This action cannot be undone.")
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             PaneTabBar(label: "Navigator", selection: $workspace.navigatorTab)
@@ -74,6 +83,26 @@ struct NavigatorSidebarView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             footer
         }
+    }
+
+    private var rollbackBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
+            Text("Rolled Back (\(workspace.document.rolledBackFeatures.count) features hidden)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Roll to End") {
+                workspace.rollForwardToEnd()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.12))
     }
 
     private var footer: some View {

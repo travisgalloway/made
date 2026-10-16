@@ -399,4 +399,101 @@ import simd
         #expect(legacyDecoded.toolSolidId == SolidId("cylinder-1"))
         #expect(legacyDecoded.keepTool == false)
     }
+
+    // MARK: - Rollback Marker (BL-FND-05)
+
+    @Test func testRollbackMarkerExcludesFromProjectedObjects() {
+        let doc = DocumentModel()
+        #expect(doc.features.count == 2)
+        #expect(doc.activeFeatures.count == 2)
+        #expect(doc.objects.count == 2)
+        #expect(!doc.isRolledBack)
+        #expect(doc.rollbackIndex == nil)
+        #expect(doc.effectiveRollbackIndex == 2)
+
+        // Roll back to 1
+        doc.setRollbackIndex(1)
+        #expect(doc.isRolledBack)
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.effectiveRollbackIndex == 1)
+        #expect(doc.activeFeatures.count == 1)
+        #expect(doc.rolledBackFeatures.count == 1)
+        #expect(doc.objects.count == 1)
+        #expect(doc.objects.first?.id == boxSolidId)
+
+        // Roll back to 0
+        doc.setRollbackIndex(0)
+        #expect(doc.isRolledBack)
+        #expect(doc.rollbackIndex == 0)
+        #expect(doc.effectiveRollbackIndex == 0)
+        #expect(doc.activeFeatures.isEmpty)
+        #expect(doc.rolledBackFeatures.count == 2)
+        #expect(doc.objects.isEmpty)
+        #expect(doc.selectedId == nil)
+    }
+
+    @Test func testRollbackMarkerClamping() {
+        let doc = DocumentModel()
+        #expect(doc.features.count == 2)
+
+        // Negative index clamps to 0
+        doc.setRollbackIndex(-5)
+        #expect(doc.rollbackIndex == 0)
+        #expect(doc.isRolledBack)
+
+        // Index >= count normalizes to nil (unrolled)
+        doc.setRollbackIndex(2)
+        #expect(doc.rollbackIndex == nil)
+        #expect(!doc.isRolledBack)
+
+        doc.setRollbackIndex(100)
+        #expect(doc.rollbackIndex == nil)
+        #expect(!doc.isRolledBack)
+    }
+
+    @Test func testRollbackDataSerializationRoundTrip() throws {
+        let f1 = Feature.makeBox(solidId: boxSolidId, params: BoxParams(width: 20, depth: 20, height: 20))
+        let f2 = Feature.makeCylinder(solidId: cylinderSolidId, params: CylinderParams(radius: 10, height: 30))
+        let docData = DocumentData(
+            schemaVersion: 1,
+            features: [f1, f2],
+            selectedId: boxSolidId,
+            rollbackIndex: 1
+        )
+
+        let encoded = try DocumentModelCoder.encode(docData)
+        let decoded = try DocumentModelCoder.decode(from: encoded)
+
+        #expect(decoded.schemaVersion == 1)
+        #expect(decoded.rollbackIndex == 1)
+        #expect(decoded.features?.count == 2)
+        #expect(decoded.objects.count == 1)
+        #expect(decoded.objects.first?.id == boxSolidId)
+    }
+
+    @Test func testRollbackDataBackwardCompatibility() throws {
+        let legacyJSON = """
+        {
+          "schemaVersion": 1,
+          "objects": [
+            {
+              "id": "box-1",
+              "def": {
+                "kind": "box",
+                "params": {
+                  "width": 30.0,
+                  "depth": 20.0,
+                  "height": 10.0
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: legacyJSON)
+        #expect(decoded.rollbackIndex == nil)
+        #expect(decoded.objects.count == 1)
+        #expect(decoded.features?.count == 1)
+    }
 }
