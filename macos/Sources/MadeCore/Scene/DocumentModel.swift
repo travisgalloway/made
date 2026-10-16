@@ -354,6 +354,7 @@ public final class DocumentModel {
         }
     }
     public private(set) var objects: [SceneObject] = []
+    public private(set) var bodies: [Body] = []
     public private(set) var settings: DocumentSettings = DocumentSettings()
     private var seq: Int = 1
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
@@ -507,9 +508,14 @@ public final class DocumentModel {
 
     private func syncObjectsFromFeatures() {
         objects = activeFeatures.compactMap { $0.toSceneObject() }
+        bodies = objects.map { Body(from: $0) }
         if let selected = _selectedId, !objects.contains(where: { $0.id == selected }) {
             selectedId = nil
         }
+    }
+
+    public func body(for id: BodyId) -> Body? {
+        bodies.first(where: { $0.id == id })
     }
 
     private static func computeMaxSequence(features: [Feature]) -> Int {
@@ -947,6 +953,13 @@ public final class DocumentModel {
             }
         }
 
+        // Target body dependency for feature body operations (BL-FND-12)
+        if feature.bodyOperation != .create,
+           let target = feature.targetBodyId,
+           let targetFeat = self.feature(for: target) {
+            result.insert(targetFeat.id)
+        }
+
         // Operation inputs
         switch feature.operation {
         case .boolean(let b):
@@ -1339,6 +1352,90 @@ public final class DocumentModel {
         }
         features[index].material = material
         return .success(())
+    }
+
+    // MARK: - Body Mutators (BL-FND-12)
+
+    public func setBodyVisibility(id: BodyId, isVisible: Bool) {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
+        let oldVisible = features[index].isVisible
+        guard oldVisible != isVisible else { return }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setBodyVisibility(id: id, isVisible: oldVisible)
+                target.undoManager?.setActionName(oldVisible ? "Show Body" : "Hide Body")
+            }
+        }
+        undoManager?.setActionName(isVisible ? "Show Body" : "Hide Body")
+        undoStateVersion += 1
+        setVisibility(id: id, isVisible: isVisible)
+    }
+
+    public func setBodyName(id: BodyId, name: String) {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
+        guard !features[index].isLocked else { return }
+        let oldName = features[index].name
+        guard oldName != name else { return }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setBodyName(id: id, name: oldName)
+                target.undoManager?.setActionName("Rename Body")
+            }
+        }
+        undoManager?.setActionName("Rename Body")
+        undoStateVersion += 1
+        setName(id: id, name: name)
+    }
+
+    @discardableResult
+    public func setBodyMaterial(id: BodyId, material: MaterialAttributes) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
+            return .failure(.objectNotFound(id))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(id))
+        }
+        let oldMaterial = features[index].material
+        guard oldMaterial != material else {
+            return .success(())
+        }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.setBodyMaterial(id: id, material: oldMaterial)
+                target.undoManager?.setActionName("Change Body Material")
+            }
+        }
+        undoManager?.setActionName("Change Body Material")
+        undoStateVersion += 1
+        return setMaterial(id: id, material: material)
+    }
+
+    @discardableResult
+    public func setBodyColor(id: BodyId, color: SIMD4<Float>) -> Result<Void, DocumentMutationError> {
+        guard let currentBody = body(for: id) else {
+            return .failure(.objectNotFound(id))
+        }
+        guard !currentBody.isLocked else {
+            return .failure(.objectLocked(id))
+        }
+        var newMaterial = currentBody.material
+        newMaterial.color = color
+        return setBodyMaterial(id: id, material: newMaterial)
+    }
+
+    public func setBodyLocked(id: BodyId, isLocked: Bool) {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
+        let oldLocked = features[index].isLocked
+        guard oldLocked != isLocked else { return }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setBodyLocked(id: id, isLocked: oldLocked)
+                target.undoManager?.setActionName(oldLocked ? "Lock Body" : "Unlock Body")
+            }
+        }
+        undoManager?.setActionName(isLocked ? "Lock Body" : "Unlock Body")
+        undoStateVersion += 1
+        setLocked(id: id, isLocked: isLocked)
     }
 
     /// Returns all direct dependent objects of `rootId` (BL-FND-03).

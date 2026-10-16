@@ -206,6 +206,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
     public var errorState: FeatureErrorState?
     public var generatedTopology: [String: TopologicalReference]
     public var outputSolidId: SolidId?
+    public var bodyOperation: BodyOperation
+    public var targetBodyId: BodyId?
     public var transform: Transform
     public var isVisible: Bool
     public var isLocked: Bool
@@ -221,6 +223,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         errorState: FeatureErrorState? = nil,
         generatedTopology: [String: TopologicalReference] = [:],
         outputSolidId: SolidId? = nil,
+        bodyOperation: BodyOperation = .create,
+        targetBodyId: BodyId? = nil,
         transform: Transform = .identity,
         isVisible: Bool = true,
         isLocked: Bool = false,
@@ -235,6 +239,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         self.errorState = errorState
         self.generatedTopology = generatedTopology
         self.outputSolidId = outputSolidId
+        self.bodyOperation = bodyOperation
+        self.targetBodyId = targetBodyId
         self.transform = transform
         self.isVisible = isVisible
         self.isLocked = isLocked
@@ -267,6 +273,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         case errorState
         case generatedTopology
         case outputSolidId
+        case bodyOperation
+        case targetBodyId
         case transform
         case isVisible
         case isLocked
@@ -284,6 +292,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         self.errorState = try container.decodeIfPresent(FeatureErrorState.self, forKey: .errorState)
         self.generatedTopology = try container.decodeIfPresent([String: TopologicalReference].self, forKey: .generatedTopology) ?? [:]
         self.outputSolidId = try container.decodeIfPresent(SolidId.self, forKey: .outputSolidId)
+        self.bodyOperation = try container.decodeIfPresent(BodyOperation.self, forKey: .bodyOperation) ?? .create
+        self.targetBodyId = try container.decodeIfPresent(SolidId.self, forKey: .targetBodyId)
         self.transform = try container.decodeIfPresent(Transform.self, forKey: .transform) ?? .identity
         self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
@@ -301,6 +311,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         try container.encodeIfPresent(errorState, forKey: .errorState)
         try container.encode(generatedTopology, forKey: .generatedTopology)
         try container.encodeIfPresent(outputSolidId, forKey: .outputSolidId)
+        try container.encode(bodyOperation, forKey: .bodyOperation)
+        try container.encodeIfPresent(targetBodyId, forKey: .targetBodyId)
         try container.encode(transform, forKey: .transform)
         try container.encode(isVisible, forKey: .isVisible)
         try container.encode(isLocked, forKey: .isLocked)
@@ -346,6 +358,8 @@ extension Feature {
         solidId: SolidId? = nil,
         name: String? = nil,
         params: BoxParams,
+        bodyOperation: BodyOperation = .create,
+        targetBodyId: BodyId? = nil,
         transform: Transform = .identity,
         isVisible: Bool = true,
         isLocked: Bool = false,
@@ -457,6 +471,8 @@ extension Feature {
             errorState: nil,
             generatedTopology: topology,
             outputSolidId: solidId,
+            bodyOperation: bodyOperation,
+            targetBodyId: targetBodyId,
             transform: transform,
             isVisible: isVisible,
             isLocked: isLocked,
@@ -470,6 +486,8 @@ extension Feature {
         solidId: SolidId? = nil,
         name: String? = nil,
         params: CylinderParams,
+        bodyOperation: BodyOperation = .create,
+        targetBodyId: BodyId? = nil,
         transform: Transform = .identity,
         isVisible: Bool = true,
         isLocked: Bool = false,
@@ -583,6 +601,8 @@ extension Feature {
             errorState: nil,
             generatedTopology: topology,
             outputSolidId: solidId,
+            bodyOperation: bodyOperation,
+            targetBodyId: targetBodyId,
             transform: transform,
             isVisible: isVisible,
             isLocked: isLocked,
@@ -618,6 +638,8 @@ extension Feature {
                 name: object.name,
                 operation: .boolean(BooleanFeatureData(op: op, targetSolidId: solidA, toolSolidId: solidB)),
                 outputSolidId: object.id,
+                bodyOperation: BodyOperation(booleanOp: op) ?? .create,
+                targetBodyId: solidA,
                 transform: object.transform,
                 isVisible: object.isVisible,
                 isLocked: object.isLocked,
@@ -628,6 +650,8 @@ extension Feature {
                 name: object.name,
                 operation: .part(PartFeatureData(url: url, shape: shape)),
                 outputSolidId: object.id,
+                bodyOperation: .create,
+                targetBodyId: nil,
                 transform: object.transform,
                 isVisible: object.isVisible,
                 isLocked: object.isLocked,
@@ -638,6 +662,8 @@ extension Feature {
                 name: object.name,
                 operation: .imported(ImportedFeatureData(name: name, sourceURL: sourceURL, data: data)),
                 outputSolidId: object.id,
+                bodyOperation: .create,
+                targetBodyId: nil,
                 transform: object.transform,
                 isVisible: object.isVisible,
                 isLocked: object.isLocked,

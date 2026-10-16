@@ -13,6 +13,7 @@ public enum ReferenceResolutionError: Error, Sendable, Codable, Equatable, Custo
     case topologicalSourceFeatureSuppressed(UUID)
     case topologicalElementMissing(TopologicalReference)
     case typeMismatch(expected: String, actual: String)
+    case missingTargetBody(featureId: UUID, operation: BodyOperation)
 
     public var description: String {
         switch self {
@@ -38,6 +39,8 @@ public enum ReferenceResolutionError: Error, Sendable, Codable, Equatable, Custo
             return "Topological element '\(ref.id.uuidString)' not found on source feature '\(ref.sourceFeatureId.uuidString)'"
         case .typeMismatch(let expected, let actual):
             return "Reference type mismatch: expected \(expected) but got \(actual)"
+        case .missingTargetBody(let featureId, let operation):
+            return "Feature '\(featureId)' with operation '\(operation.rawValue)' must specify a targetBodyId"
         }
     }
 }
@@ -222,6 +225,28 @@ public enum ReferenceResolver {
         for ref in feature.references {
             if case .failure(let error) = resolve(reference: ref, for: feature, in: document) {
                 return error
+            }
+        }
+        if feature.bodyOperation != .create {
+            guard let targetBodyId = feature.targetBodyId else {
+                return .missingTargetBody(featureId: feature.id, operation: feature.bodyOperation)
+            }
+            if targetBodyId == feature.outputSolidId {
+                return .selfReference(feature.id)
+            }
+            if let targetIndex = document.features.firstIndex(where: { $0.outputSolidId == targetBodyId }) {
+                let targetFeat = document.features[targetIndex]
+                if targetFeat.id == feature.id {
+                    return .selfReference(feature.id)
+                }
+                if let refIndex = document.features.firstIndex(where: { $0.id == feature.id }), targetIndex > refIndex {
+                    return .forwardReference(referencedFeatureId: targetFeat.id, currentFeatureId: feature.id)
+                }
+                if targetFeat.isSuppressed {
+                    return .targetFeatureSuppressed(targetFeat.id)
+                }
+            } else if !document.objects.contains(where: { $0.id == targetBodyId }) {
+                return .bodyNotFound(targetBodyId)
             }
         }
         return nil

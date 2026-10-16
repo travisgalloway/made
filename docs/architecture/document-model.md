@@ -76,6 +76,55 @@ Each feature holds:
 
 ---
 
+## Multi-Body Model within a Part (BL-FND-12)
+
+In parametric CAD systems adhering to ADR-D2 ([ADR-D2](./adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150), part geometry is constructed from an ordered linear history timeline of features (`DocumentModel.features: [Feature]`), supporting multi-body parts by default. A complex mechanical part frequently contains multiple disjoint or interacting solid and surface bodies within a single local coordinate space before combining them with downstream operations.
+
+### Body Representation & Operations
+
+First-class body definitions reside in [`Body.swift`](../../macos/Sources/MadeCore/Scene/Body.swift):
+
+```swift
+public typealias BodyId = SolidId
+
+public enum BodyType: String, Sendable, Codable, Equatable, CaseIterable {
+    case solid
+    case surface
+}
+
+public enum BodyOperation: String, Sendable, Codable, Equatable, CaseIterable {
+    case create
+    case add
+    case cut
+    case intersect
+}
+
+public struct Body: Identifiable, Sendable, Codable, Equatable {
+    public let id: BodyId
+    public var name: String
+    public var type: BodyType
+    public var isVisible: Bool
+    public var isLocked: Bool
+    public var material: MaterialAttributes
+    public var transform: Transform
+
+    public var color: SIMD4<Float> { get set }
+}
+```
+
+1. **Persistent Body Identity**: Each body holds a persistent `BodyId` (`SolidId`), display name, topological type (`.solid` or `.surface`), visibility, locked state, material attributes, color property, and spatial transform.
+2. **Feature Operation Modes**: Every 3D feature in the timeline declares its operation mode via `bodyOperation: BodyOperation`:
+   - `.create`: Mints a distinct, new body in the part.
+   - `.add`: Joins/unites feature geometry into an existing target body (`BooleanOp.union`).
+   - `.cut`: Subtracts feature geometry from an existing target body (`BooleanOp.subtract`).
+   - `.intersect`: Intersects feature geometry with an existing target body (`BooleanOp.intersect`).
+3. **Target Body Binding & Dependency Tracking**: Features modifying an existing target body record `targetBodyId: BodyId?`. The document dependency graph tracks this reference as an upstream dependency (`directDependencies(of:)`), ensuring proper topological execution order.
+4. **Timeline Synchronization**: `DocumentModel` dynamically synchronizes `bodies: [Body]` during timeline replay and object projection (`syncObjectsFromFeatures()`). Mutator APIs (`setBodyVisibility`, `setBodyName`, `setBodyMaterial`, `setBodyColor`, `setBodyLocked`) integrate with `UndoManager` and enforce lock protections.
+5. **Reference Validation**: `ReferenceResolver.validateReferences` validates `targetBodyId` for non-create operations, rejecting missing target bodies (`.missingTargetBody`), nonexistent bodies (`.bodyNotFound`), self-references (`.selfReference`), forward references (`.forwardReference`), and suppressed targets (`.targetFeatureSuppressed`).
+6. **Backward-Compatible Persistence**: `.made` package storage (`DocumentData`) decodes existing documents without body fields seamlessly, defaulting feature body operation to `.create` and reconstructing `bodies` without data loss.
+
+---
+
 ## Object Data Model (Synchronized Projection)
 
 Every active, non-suppressed solid in the scene graph is projected into a `SceneObject`:
