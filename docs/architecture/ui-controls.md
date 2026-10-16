@@ -42,7 +42,7 @@ The window uses system primitives for its chrome, and one button style per conte
 ### 1. 3D Metal Viewport
 - **Container**: [`CADMetalViewRepresentable`](../../macos/Sources/MadeApp/CADMetalViewRepresentable.swift) hosting an `MTKView`.
 - **Event Handling**: The coordinator feeds mouse and trackpad events to a `PointerRouter`. Orbit, pan, and zoom move the camera, tool shortcuts are handled in `handleKeyDown`, and a snapping marker follows the pointer. Object picking is not built.
-- **Status bar**: [`ViewportStatusBar`](../../macos/Sources/MadeApp/ViewportStatusBar.swift) sits under the viewport. It shows Metal 4 status, render count, draw calls, the last invalidation cause, the active tool, and the snap kind. Its trailing button shows or hides the console.
+- **Status bar**: [`ViewportStatusBar`](../../macos/Sources/MadeApp/ViewportStatusBar.swift) sits under the viewport. It shows Metal 4 status, render count, draw calls, the last invalidation cause, the active tool, the snap kind, active document length units, sketch degrees-of-freedom (DOF) status with constraint color coding, live selection count, and the last kernel regeneration duration. Its trailing button shows or hides the console.
 
 ### 2. Navigator
 - [`NavigatorSidebarView`](../../macos/Sources/MadeApp/NavigatorSidebarView.swift) opens with its tab bar (Scene only). The Scene tab lists the scene objects in a selectable `List` bound to `workspace.selectedId`. Each row displays the solid's icon, name, kind badge, monospaced ID, and live parameter summary (e.g., dimensions in mm).

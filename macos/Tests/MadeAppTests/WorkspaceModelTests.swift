@@ -1906,5 +1906,47 @@ import MadeCore
         #expect(renderer.showsGizmo == true)
         #expect(RenderInstrumentation.shared.lastReason == .interaction)
     }
+
+    @Test @MainActor func testSketchDOFStatusMutations() {
+        let model = WorkspaceModel()
+        #expect(model.sketchDOFStatus == .inactive)
+
+        model.setSketchDOFStatus(.underConstrained(dof: 4))
+        #expect(model.sketchDOFStatus == .underConstrained(dof: 4))
+
+        model.setSketchDOFStatus(.fullyConstrained)
+        #expect(model.sketchDOFStatus == .fullyConstrained)
+
+        model.setSketchDOFStatus(.overConstrained())
+        #expect(model.sketchDOFStatus == .overConstrained(dof: 0))
+
+        model.setSketchDOFStatus(.inactive)
+        #expect(model.sketchDOFStatus == .inactive)
+    }
+
+    @Test @MainActor func testRegenerationDurationRecordedOnRecompute() async throws {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+        #expect(model.lastRegenerationDuration == nil)
+
+        model.recomputeSolid(id: boxId)
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId])
+        }
+
+        // Wait briefly for the asynchronous recomputation Task to complete
+        for _ in 0..<50 {
+            if model.lastRegenerationDuration != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        guard let duration = model.lastRegenerationDuration else {
+            Issue.record("Expected lastRegenerationDuration to be recorded after recomputeSolid")
+            return
+        }
+        #expect(duration >= Duration.zero)
+        #expect(model.formattedRegenerationDuration != "--")
+    }
 }
+
 

@@ -34,6 +34,18 @@ struct ViewportStatusBar: View {
             } else {
                 Text("Snap: none")
             }
+            separator
+            Text("Units: \(workspace.document.settings.units.lengthUnit.symbol)")
+                .accessibilityIdentifier("status-units")
+            separator
+            sketchDOFView
+                .accessibilityIdentifier("status-dof")
+            separator
+            Text("Selected: \(workspace.document.selection.count)")
+                .accessibilityIdentifier("status-selection")
+            separator
+            Text("Regen: \(workspace.formattedRegenerationDuration)")
+                .accessibilityIdentifier("status-regen")
             Spacer()
             Button(workspace.consoleToggleTitle,
                    systemImage: "rectangle.bottomthird.inset.filled") {
@@ -60,6 +72,29 @@ struct ViewportStatusBar: View {
         case .vertex: return .orange
         case .edge: return .cyan
         case .grid: return .green
+        }
+    }
+
+    static func dofColor(for status: SketchDOFStatus) -> Color? {
+        switch status {
+        case .inactive:
+            return nil
+        case .underConstrained:
+            return .blue
+        case .fullyConstrained:
+            return .green
+        case .overConstrained:
+            return .red
+        }
+    }
+
+    @ViewBuilder
+    var sketchDOFView: some View {
+        if let color = Self.dofColor(for: workspace.sketchDOFStatus) {
+            Text(workspace.sketchDOFStatus.statusText)
+                .foregroundStyle(color)
+        } else {
+            Text(workspace.sketchDOFStatus.statusText)
         }
     }
 }
