@@ -122,8 +122,21 @@ public actor LocalKernelEngine: KernelEngine {
             solids[sId] = mesh
             return .success(jobId: jobId, value: mesh)
             
-        case .tessellate(_, let sId):
-            if let existing = solids[sId] {
+        case .tessellate(_, let sId, let tolerances):
+            if let shape = occtShapes[sId] {
+                let payload: MeshPayload?
+                if let tolerances {
+                    payload = OCCTEngine.toMeshPayload(shape, tolerances: tolerances.clamped())
+                } else {
+                    payload = OCCTEngine.toMeshPayload(shape)
+                }
+                if let payload {
+                    solids[sId] = payload
+                    return .success(jobId: jobId, value: payload)
+                } else {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate solid \(sId)"))
+                }
+            } else if let existing = solids[sId] {
                 return .success(jobId: jobId, value: existing)
             }
             return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid \(sId) not found"))

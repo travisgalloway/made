@@ -41,7 +41,13 @@ public enum EuclidEngine {
                 }
             }
         }
-        return MeshPayload(storage: storage)
+        let faceRanges: [FaceTriangleRange] = triangleCount > 0 ? [FaceTriangleRange(faceId: 0, triangleRange: 0..<triangleCount)] : []
+        return MeshPayload(
+            storage: storage,
+            faceRanges: faceRanges,
+            edgePolylines: [],
+            edgeSegmentRanges: []
+        )
     }
     
     /// Generates a box mesh using Euclid.

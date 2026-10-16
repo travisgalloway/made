@@ -69,7 +69,7 @@ macos/
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView,
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
                            EmptySceneGuidanceOverlayView, Document/MadeDocument
-  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests)
+  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests, BRepTessellationTests)
   Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, MadeDocumentTests, and application unit tests
 ```
 

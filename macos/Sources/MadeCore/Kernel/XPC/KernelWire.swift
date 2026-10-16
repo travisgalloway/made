@@ -18,6 +18,9 @@ struct KernelWireReply: Codable, Sendable, Equatable {
     var positionCount = 0
     var normalCount = 0
     var indexCount = 0
+    var faceRanges: [FaceTriangleRange] = []
+    var edgePolylines: [EdgePolyline] = []
+    var edgeSegmentRanges: [EdgeSegmentRange] = []
 }
 
 /// Encodes the kernel wire contract into XPC dictionaries. The Codable XPC encoder has no shared-memory type,
@@ -40,10 +43,14 @@ enum KernelWire {
     static func encodeReply(_ result: KernelResult<MeshPayload>, instance: String = "") -> XPCDictionary {
         var dictionary = XPCDictionary()
         var header = KernelWireReply(jobId: result.jobId, instance: instance, error: result.error)
-        if let storage = result.value?.storage {
+        if let payload = result.value {
+            let storage = payload.storage
             header.positionCount = storage.positionCount
             header.normalCount = storage.normalCount
             header.indexCount = storage.indexCount
+            header.faceRanges = payload.faceRanges
+            header.edgePolylines = payload.edgePolylines
+            header.edgeSegmentRanges = payload.edgeSegmentRanges
             if let base = storage.base {
                 dictionary[meshKey] = xpc_shmem_create(base, storage.length)
             }
@@ -65,7 +72,14 @@ enum KernelWire {
         guard counts.allSatisfy({ $0 >= 0 }) else { return malformed(jobId, "negative component count") }
         let expectedBytes = counts.reduce(0, +) * MeshStorage.elementSize
         guard expectedBytes > 0 else {
-            return .success(jobId: header.jobId, value: MeshPayload(positions: [], normals: [], indices: []))
+            return .success(jobId: header.jobId, value: MeshPayload(
+                positions: [],
+                normals: [],
+                indices: [],
+                faceRanges: header.faceRanges,
+                edgePolylines: header.edgePolylines,
+                edgeSegmentRanges: header.edgeSegmentRanges
+            ))
         }
         guard let shmem = dictionary[meshKey, as: XPC_TYPE_SHMEM] else { return malformed(jobId, "mesh region missing") }
         var region: UnsafeMutableRawPointer?
@@ -77,7 +91,12 @@ enum KernelWire {
         }
         let storage = MeshStorage(adopting: region, length: mappedLength, positionCount: header.positionCount,
                                   normalCount: header.normalCount, indexCount: header.indexCount)
-        return .success(jobId: header.jobId, value: MeshPayload(storage: storage))
+        return .success(jobId: header.jobId, value: MeshPayload(
+            storage: storage,
+            faceRanges: header.faceRanges,
+            edgePolylines: header.edgePolylines,
+            edgeSegmentRanges: header.edgeSegmentRanges
+        ))
     }
     
     /// The answering engine's instance, or nil when the header is unreadable.
