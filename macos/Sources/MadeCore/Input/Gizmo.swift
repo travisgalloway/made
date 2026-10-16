@@ -426,6 +426,27 @@ public func computeResizedParameters(
         let r = DocumentLimits.clampCylinder(key: "radius", value: params.radius * radialScale)
         let h = DocumentLimits.clampCylinder(key: "height", value: params.height * scale.z)
         return [("radius", r), ("height", h)]
+    case .sphere(let params):
+        let uniformScale = max(scale.x, max(scale.y, scale.z))
+        let r = DocumentLimits.clampSphere(key: "radius", value: params.radius * uniformScale)
+        return [("radius", r)]
+    case .cone(let params):
+        let radialScale = max(scale.x, scale.y)
+        let br = DocumentLimits.clampCone(key: "bottomRadius", value: params.bottomRadius * radialScale)
+        let tr = DocumentLimits.clampCone(key: "topRadius", value: params.topRadius * radialScale)
+        let h = DocumentLimits.clampCone(key: "height", value: params.height * scale.z)
+        return [("bottomRadius", br), ("topRadius", tr), ("height", h)]
+    case .torus(let params):
+        let radialScale = max(scale.x, scale.y)
+        let maj = DocumentLimits.clampTorus(key: "majorRadius", value: params.majorRadius * radialScale)
+        let minR = DocumentLimits.clampTorus(key: "minorRadius", value: params.minorRadius * scale.z)
+        return [("majorRadius", maj), ("minorRadius", minR)]
+    case .wedge(let params):
+        let w = DocumentLimits.clampWedge(key: "width", value: params.width * scale.x)
+        let d = DocumentLimits.clampWedge(key: "depth", value: params.depth * scale.y)
+        let h = DocumentLimits.clampWedge(key: "height", value: params.height * scale.z)
+        let tw = DocumentLimits.clampWedge(key: "topWidth", value: params.topWidth * scale.x)
+        return [("width", w), ("depth", d), ("height", h), ("topWidth", tw)]
     case .imported, .boolean, .part:
         return []
     }

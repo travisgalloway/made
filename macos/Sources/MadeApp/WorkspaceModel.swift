@@ -492,6 +492,22 @@ final class WorkspaceModel {
         startCommand(CommandSession.makeAddCylinder(workspace: self))
     }
 
+    func startAddSphereCommand() {
+        startCommand(CommandSession.makeAddSphere(workspace: self))
+    }
+
+    func startAddConeCommand() {
+        startCommand(CommandSession.makeAddCone(workspace: self))
+    }
+
+    func startAddTorusCommand() {
+        startCommand(CommandSession.makeAddTorus(workspace: self))
+    }
+
+    func startAddWedgeCommand() {
+        startCommand(CommandSession.makeAddWedge(workspace: self))
+    }
+
     func startTransformCommand() {
         startCommand(CommandSession.makeTransform(workspace: self, targetId: selectedId))
     }
@@ -807,6 +823,10 @@ final class WorkspaceModel {
 
     static let defaultBoxParams = BoxParams(width: 30, depth: 30, height: 30)
     static let defaultCylinderParams = CylinderParams(radius: 12, height: 35)
+    static let defaultSphereParams = SphereParams(radius: 15)
+    static let defaultConeParams = ConeParams(bottomRadius: 15, topRadius: 0, height: 30)
+    static let defaultTorusParams = TorusParams(majorRadius: 20, minorRadius: 5)
+    static let defaultWedgeParams = WedgeParams(width: 30, depth: 30, height: 30, topWidth: 0)
 
     func addDefaultBox() {
         addObject(.box(Self.defaultBoxParams))
@@ -814,6 +834,22 @@ final class WorkspaceModel {
 
     func addDefaultCylinder() {
         addObject(.cylinder(Self.defaultCylinderParams))
+    }
+
+    func addDefaultSphere() {
+        addObject(.sphere(Self.defaultSphereParams))
+    }
+
+    func addDefaultCone() {
+        addObject(.cone(Self.defaultConeParams))
+    }
+
+    func addDefaultTorus() {
+        addObject(.torus(Self.defaultTorusParams))
+    }
+
+    func addDefaultWedge() {
+        addObject(.wedge(Self.defaultWedgeParams))
     }
 
     func addObject(_ def: ObjectDef) {
@@ -1559,6 +1595,18 @@ final class WorkspaceModel {
                 candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
             case .cylinder(let p):
                 let payload = NativeGeometryGenerator.generateCylinder(radius: p.radius, height: p.height)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .sphere(let p):
+                let payload = NativeGeometryGenerator.generateSphere(radius: p.radius)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .cone(let p):
+                let payload = NativeGeometryGenerator.generateCone(bottomRadius: p.bottomRadius, topRadius: p.topRadius, height: p.height)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .torus(let p):
+                let payload = NativeGeometryGenerator.generateTorus(majorRadius: p.majorRadius, minorRadius: p.minorRadius)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .wedge(let p):
+                let payload = NativeGeometryGenerator.generateWedge(width: p.width, depth: p.depth, height: p.height, topWidth: p.topWidth)
                 candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
             default:
                 candidate = nil

@@ -115,6 +115,41 @@ public enum EuclidEngine {
         return Mesh.lathe(profile, slices: segs).rotated(by: .pitch(-.halfPi))
     }
     
+    /// Generates a torus mesh centered in the XY plane with its axis of rotation along +Z using Euclid.
+    public static func makeTorus(majorRadius: Float, minorRadius: Float, slices: Int = 32) -> Mesh {
+        let segs = max(8, slices)
+        let circle = Path.circle(radius: Double(minorRadius), segments: segs)
+        let profile = circle.translated(by: Vector(Double(majorRadius), 0, 0))
+        let torus = Mesh.lathe(profile, slices: segs)
+        return torus.rotated(by: .pitch(.halfPi))
+    }
+    
+    /// Generates a wedge mesh aligned with right-handed Z-up coordinates using Euclid.
+    public static func makeWedge(width: Float, depth: Float, height: Float, topWidth: Float = 0) -> Mesh {
+        let hw = Double(width) / 2.0
+        let hd = Double(depth) / 2.0
+        let hh = Double(height) / 2.0
+        let tw = Double(topWidth)
+
+        let points: [PathPoint]
+        if tw <= 0 {
+            points = [
+                .point(-hw, -hd, -hh),
+                .point(-hw, -hd, hh),
+                .point(hw, -hd, -hh)
+            ]
+        } else {
+            points = [
+                .point(-hw, -hd, -hh),
+                .point(-hw, -hd, hh),
+                .point(-hw + tw, -hd, hh),
+                .point(hw, -hd, -hh)
+            ]
+        }
+        let profile = Path(points)
+        return Mesh.extrude(profile, depth: Double(depth))
+    }
+    
     /// Performs a Constructive Solid Geometry (CSG) boolean difference: meshA - meshB
     public static func subtract(_ meshA: Mesh, _ meshB: Mesh) -> Mesh {
         return meshA.subtracting(meshB)

@@ -68,14 +68,19 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_add_solid",
-                description: "Adds a new parametric solid (box or cylinder) to the CAD document.",
+                description: "Adds a new parametric solid (box, cylinder, sphere, cone, torus, or wedge) to the CAD document.",
                 inputSchema: MCPInputSchema(
                     properties: [
-                        "type": MCPProperty(type: "string", description: "The solid type: 'box' or 'cylinder'", enum: ["box", "cylinder"]),
-                        "width": MCPProperty(type: "number", description: "Width (X dimension) for a box in mm"),
-                        "depth": MCPProperty(type: "number", description: "Depth (Y dimension) for a box in mm"),
+                        "type": MCPProperty(type: "string", description: "The solid type: 'box', 'cylinder', 'sphere', 'cone', 'torus', or 'wedge'", enum: ["box", "cylinder", "sphere", "cone", "torus", "wedge"]),
+                        "width": MCPProperty(type: "number", description: "Width (X dimension) for a box or wedge in mm"),
+                        "depth": MCPProperty(type: "number", description: "Depth (Y dimension) for a box or wedge in mm"),
                         "height": MCPProperty(type: "number", description: "Height (Z dimension) in mm"),
-                        "radius": MCPProperty(type: "number", description: "Radius in mm for a cylinder"),
+                        "radius": MCPProperty(type: "number", description: "Radius in mm for a cylinder or sphere"),
+                        "bottomRadius": MCPProperty(type: "number", description: "Bottom radius in mm for a cone"),
+                        "topRadius": MCPProperty(type: "number", description: "Top radius in mm for a cone (0 for sharp cone)"),
+                        "majorRadius": MCPProperty(type: "number", description: "Major radius in mm for a torus"),
+                        "minorRadius": MCPProperty(type: "number", description: "Minor radius in mm for a torus"),
+                        "topWidth": MCPProperty(type: "number", description: "Top width (ltx) in mm for a wedge (0 for sharp wedge)"),
                         "posX": MCPProperty(type: "number", description: "X world position in mm, from -10000 to 10000 (default 0)"),
                         "posY": MCPProperty(type: "number", description: "Y world position in mm, from -10000 to 10000 (default 0)"),
                         "posZ": MCPProperty(type: "number", description: "Z world position in mm, from -10000 to 10000 (default 0)")
@@ -85,11 +90,11 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_set_param",
-                description: "Modifies a specific dimension/parameter of an existing solid (e.g. width, depth, height, radius). Automatically clamped to safe ranges.",
+                description: "Modifies a specific dimension/parameter of an existing solid (e.g. width, depth, height, radius, bottomRadius, topRadius, majorRadius, minorRadius, topWidth). Automatically clamped to safe ranges.",
                 inputSchema: MCPInputSchema(
                     properties: [
-                        "id": MCPProperty(type: "string", description: "The solid ID (e.g. 'box-1', 'cylinder-1')"),
-                        "param": MCPProperty(type: "string", description: "The parameter name. Box: 'width', 'depth', 'height'. Cylinder: 'radius', 'height'. Imported solids have no editable parameters."),
+                        "id": MCPProperty(type: "string", description: "The solid ID (e.g. 'box-1', 'cylinder-1', 'sphere-1', 'cone-1', 'torus-1', 'wedge-1')"),
+                        "param": MCPProperty(type: "string", description: "The parameter name. Box: 'width', 'depth', 'height'. Cylinder: 'radius', 'height'. Sphere: 'radius'. Cone: 'bottomRadius', 'topRadius', 'height'. Torus: 'majorRadius', 'minorRadius'. Wedge: 'width', 'depth', 'height', 'topWidth'. Imported solids have no editable parameters."),
                         "value": MCPProperty(type: "number", description: "The new numeric value in mm")
                     ],
                     required: ["id", "param", "value"]
@@ -257,6 +262,14 @@ public final class CADToolRegistry {
                 item["params"] = ["width": p.width, "depth": p.depth, "height": p.height]
             case .cylinder(let p):
                 item["params"] = ["radius": p.radius, "height": p.height]
+            case .sphere(let p):
+                item["params"] = ["radius": p.radius]
+            case .cone(let p):
+                item["params"] = ["bottomRadius": p.bottomRadius, "topRadius": p.topRadius, "height": p.height]
+            case .torus(let p):
+                item["params"] = ["majorRadius": p.majorRadius, "minorRadius": p.minorRadius]
+            case .wedge(let p):
+                item["params"] = ["width": p.width, "depth": p.depth, "height": p.height, "topWidth": p.topWidth]
             case .imported(let name, _, _):
                 item["importedName"] = name
             case .boolean(let op, let solidA, let solidB):
@@ -279,11 +292,12 @@ public final class CADToolRegistry {
     
     private func handleAddSolid(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
         guard let type = arguments["type"]?.stringValue else {
-            return .error("Missing 'type' argument (must be 'box' or 'cylinder')")
+            return .error("Missing 'type' argument (must be 'box', 'cylinder', 'sphere', 'cone', 'torus', or 'wedge')")
         }
         
-        guard type == "box" || type == "cylinder" else {
-            return .error("Unsupported solid type '\(type)'. Supported: 'box', 'cylinder'")
+        let validTypes = ["box", "cylinder", "sphere", "cone", "torus", "wedge"]
+        guard validTypes.contains(type) else {
+            return .error("Unsupported solid type '\(type)'. Supported: \(validTypes.joined(separator: ", "))")
         }
         
         let transform: Transform
@@ -298,15 +312,36 @@ public final class CADToolRegistry {
                 scale: SIMD3<Float>(1, 1, 1)
             )
             // The document model clamps sizes to its limits.
-            if type == "box" {
+            switch type {
+            case "box":
                 let w = try Self.optionalDimension(arguments, "width") ?? 40.0
                 let d = try Self.optionalDimension(arguments, "depth") ?? 30.0
                 let h = try Self.optionalDimension(arguments, "height") ?? 20.0
                 def = .box(BoxParams(width: w, depth: d, height: h))
-            } else {
+            case "cylinder":
                 let r = try Self.optionalDimension(arguments, "radius") ?? 15.0
                 let h = try Self.optionalDimension(arguments, "height") ?? 40.0
                 def = .cylinder(CylinderParams(radius: r, height: h))
+            case "sphere":
+                let r = try Self.optionalDimension(arguments, "radius") ?? 15.0
+                def = .sphere(SphereParams(radius: r))
+            case "cone":
+                let br = try Self.optionalDimension(arguments, "bottomRadius") ?? 15.0
+                let tr = try Self.optionalDimension(arguments, "topRadius") ?? 0.0
+                let h = try Self.optionalDimension(arguments, "height") ?? 30.0
+                def = .cone(ConeParams(bottomRadius: br, topRadius: tr, height: h))
+            case "torus":
+                let maj = try Self.optionalDimension(arguments, "majorRadius") ?? 20.0
+                let minR = try Self.optionalDimension(arguments, "minorRadius") ?? 5.0
+                def = .torus(TorusParams(majorRadius: maj, minorRadius: minR))
+            case "wedge":
+                let w = try Self.optionalDimension(arguments, "width") ?? 30.0
+                let d = try Self.optionalDimension(arguments, "depth") ?? 30.0
+                let h = try Self.optionalDimension(arguments, "height") ?? 30.0
+                let tw = try Self.optionalDimension(arguments, "topWidth") ?? 0.0
+                def = .wedge(WedgeParams(width: w, depth: d, height: h, topWidth: tw))
+            default:
+                return .error("Unsupported solid type '\(type)'")
             }
         } catch {
             return .error(error.message)
@@ -322,6 +357,14 @@ public final class CADToolRegistry {
             dimStr = "with dimensions (width: \(p.width), depth: \(p.depth), height: \(p.height))"
         case .cylinder(let p):
             dimStr = "with dimensions (radius: \(p.radius), height: \(p.height))"
+        case .sphere(let p):
+            dimStr = "with dimensions (radius: \(p.radius))"
+        case .cone(let p):
+            dimStr = "with dimensions (bottomRadius: \(p.bottomRadius), topRadius: \(p.topRadius), height: \(p.height))"
+        case .torus(let p):
+            dimStr = "with dimensions (majorRadius: \(p.majorRadius), minorRadius: \(p.minorRadius))"
+        case .wedge(let p):
+            dimStr = "with dimensions (width: \(p.width), depth: \(p.depth), height: \(p.height), topWidth: \(p.topWidth))"
         default:
             dimStr = ""
         }
@@ -474,6 +517,10 @@ public final class CADToolRegistry {
         switch def {
         case .box(let p): return [("width", p.width), ("depth", p.depth), ("height", p.height)]
         case .cylinder(let p): return [("radius", p.radius), ("height", p.height)]
+        case .sphere(let p): return [("radius", p.radius)]
+        case .cone(let p): return [("bottomRadius", p.bottomRadius), ("topRadius", p.topRadius), ("height", p.height)]
+        case .torus(let p): return [("majorRadius", p.majorRadius), ("minorRadius", p.minorRadius)]
+        case .wedge(let p): return [("width", p.width), ("depth", p.depth), ("height", p.height), ("topWidth", p.topWidth)]
         case .imported, .boolean, .part: return nil
         }
     }
@@ -582,6 +629,56 @@ public final class CADToolRegistry {
             let surfaceArea = 2.0 * Float.pi * p.radius * (p.radius + p.height)
             resultDict["type"] = "cylinder"
             resultDict["bounds"] = ["radius": p.radius, "height": p.height]
+            resultDict["volumeMm3"] = volume
+            resultDict["surfaceAreaMm2"] = surfaceArea
+
+        case .sphere(let p):
+            let volume = (4.0 / 3.0) * Float.pi * p.radius * p.radius * p.radius
+            let surfaceArea = 4.0 * Float.pi * p.radius * p.radius
+            resultDict["type"] = "sphere"
+            resultDict["bounds"] = ["radius": p.radius]
+            resultDict["volumeMm3"] = volume
+            resultDict["surfaceAreaMm2"] = surfaceArea
+
+        case .cone(let p):
+            let r1 = p.bottomRadius
+            let r2 = p.topRadius
+            let h = p.height
+            let volume = (Float.pi * h / 3.0) * (r1 * r1 + r1 * r2 + r2 * r2)
+            let slant = sqrt((r1 - r2) * (r1 - r2) + h * h)
+            let lateralArea = Float.pi * (r1 + r2) * slant
+            let baseArea = Float.pi * r1 * r1 + Float.pi * r2 * r2
+            let surfaceArea = lateralArea + baseArea
+            resultDict["type"] = "cone"
+            resultDict["bounds"] = ["bottomRadius": r1, "topRadius": r2, "height": h]
+            resultDict["volumeMm3"] = volume
+            resultDict["surfaceAreaMm2"] = surfaceArea
+
+        case .torus(let p):
+            let R = p.majorRadius
+            let r = p.minorRadius
+            let volume = 2.0 * Float.pi * Float.pi * R * r * r
+            let surfaceArea = 4.0 * Float.pi * Float.pi * R * r
+            resultDict["type"] = "torus"
+            resultDict["bounds"] = ["majorRadius": R, "minorRadius": r]
+            resultDict["volumeMm3"] = volume
+            resultDict["surfaceAreaMm2"] = surfaceArea
+
+        case .wedge(let p):
+            let w = p.width
+            let d = p.depth
+            let h = p.height
+            let tw = p.topWidth
+            let volume = ((w + tw) * 0.5) * h * d
+            let delta = (w - tw) * 0.5
+            let slant = sqrt(delta * delta + h * h)
+            let bottomArea = w * d
+            let topArea = tw * d
+            let frontBackArea = (w + tw) * h
+            let slantedArea = 2.0 * slant * d
+            let surfaceArea = bottomArea + topArea + frontBackArea + slantedArea
+            resultDict["type"] = "wedge"
+            resultDict["bounds"] = ["width": w, "depth": d, "height": h, "topWidth": tw]
             resultDict["volumeMm3"] = volume
             resultDict["surfaceAreaMm2"] = surfaceArea
             
@@ -971,7 +1068,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .boolean:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,

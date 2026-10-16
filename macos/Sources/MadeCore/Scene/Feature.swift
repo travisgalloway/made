@@ -75,6 +75,10 @@ public struct FeatureErrorState: Sendable, Codable, Equatable {
 public enum PrimitiveFeatureData: Sendable, Codable, Equatable {
     case box(BoxParams)
     case cylinder(CylinderParams)
+    case sphere(SphereParams)
+    case cone(ConeParams)
+    case torus(TorusParams)
+    case wedge(WedgeParams)
 }
 
 /// Individual entity within a 2D sketch (line, arc, circle, constraint).
@@ -328,6 +332,14 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             def = .box(p)
         case .primitive(.cylinder(let p)):
             def = .cylinder(p)
+        case .primitive(.sphere(let p)):
+            def = .sphere(p)
+        case .primitive(.cone(let p)):
+            def = .cone(p)
+        case .primitive(.torus(let p)):
+            def = .torus(p)
+        case .primitive(.wedge(let p)):
+            def = .wedge(p)
         case .boolean(let b):
             def = .boolean(op: b.op, solidA: b.targetSolidId, solidB: b.toolSolidId)
         case .part(let p):
@@ -610,6 +622,604 @@ extension Feature {
         )
     }
 
+    /// Factory helper to build a primitive sphere feature with populated topology and expressions.
+    public static func makeSphere(
+        id: UUID = UUID(),
+        solidId: SolidId? = nil,
+        name: String? = nil,
+        params: SphereParams,
+        bodyOperation: BodyOperation = .create,
+        targetBodyId: BodyId? = nil,
+        transform: Transform = .identity,
+        isVisible: Bool = true,
+        isLocked: Bool = false,
+        material: MaterialAttributes = MaterialAttributes()
+    ) -> Feature {
+        let featureId = id
+        let featureName = name ?? solidId?.rawValue ?? "Sphere 1"
+        var topology: [String: TopologicalReference] = [:]
+
+        let r = Double(params.radius)
+        let rf = params.radius
+
+        // 1 Face: spherical surface
+        topology["face:surface"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:surface")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "sphere",
+                normal: SIMD3<Float>(0, 0, 1),
+                centroid: SIMD3<Float>(0, 0, 0),
+                areaOrLength: 4.0 * Double.pi * r * r
+            )
+        )
+
+        // 1 Edge: seam curve
+        topology["edge:seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:seam")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "circle",
+                centroid: SIMD3<Float>(0, 0, 0),
+                areaOrLength: 2.0 * Double.pi * r
+            )
+        )
+
+        // 2 Vertices: north pole and south pole
+        topology["vertex:north-pole"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:north-pole")],
+            disambiguator: GeometricSignature(
+                centroid: SIMD3<Float>(0, 0, rf)
+            )
+        )
+        topology["vertex:south-pole"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:south-pole")],
+            disambiguator: GeometricSignature(
+                centroid: SIMD3<Float>(0, 0, -rf)
+            )
+        )
+
+        let expressions: [String: FeatureExpression] = [
+            "radius": FeatureExpression(value: Double(params.radius))
+        ]
+
+        return Feature(
+            id: featureId,
+            name: featureName,
+            operation: .primitive(.sphere(params)),
+            inputExpressions: expressions,
+            references: [],
+            isSuppressed: false,
+            errorState: nil,
+            generatedTopology: topology,
+            outputSolidId: solidId,
+            bodyOperation: bodyOperation,
+            targetBodyId: targetBodyId,
+            transform: transform,
+            isVisible: isVisible,
+            isLocked: isLocked,
+            material: material
+        )
+    }
+
+    /// Factory helper to build a primitive cone feature with populated topology and expressions.
+    public static func makeCone(
+        id: UUID = UUID(),
+        solidId: SolidId? = nil,
+        name: String? = nil,
+        params: ConeParams,
+        bodyOperation: BodyOperation = .create,
+        targetBodyId: BodyId? = nil,
+        transform: Transform = .identity,
+        isVisible: Bool = true,
+        isLocked: Bool = false,
+        material: MaterialAttributes = MaterialAttributes()
+    ) -> Feature {
+        let featureId = id
+        let featureName = name ?? solidId?.rawValue ?? "Cone 1"
+        var topology: [String: TopologicalReference] = [:]
+
+        let rBot = Double(params.bottomRadius)
+        let rTop = Double(params.topRadius)
+        let h = Double(params.height)
+        let hh = params.height / 2.0
+        let slantHeight = sqrt(h * h + (rBot - rTop) * (rBot - rTop))
+
+        // Faces
+        topology["face:bottom"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:bottom")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "plane",
+                normal: SIMD3<Float>(0, 0, -1),
+                centroid: SIMD3<Float>(0, 0, -hh),
+                areaOrLength: Double.pi * rBot * rBot
+            )
+        )
+        topology["face:side"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:side")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "cone",
+                centroid: SIMD3<Float>(0, 0, 0),
+                areaOrLength: Double.pi * (rBot + rTop) * slantHeight
+            )
+        )
+        if params.topRadius > 0 {
+            topology["face:top"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .face,
+                historyPath: [HistoryStep(kind: .generated, label: "face:top")],
+                disambiguator: GeometricSignature(
+                    surfaceOrCurveType: "plane",
+                    normal: SIMD3<Float>(0, 0, 1),
+                    centroid: SIMD3<Float>(0, 0, hh),
+                    areaOrLength: Double.pi * rTop * rTop
+                )
+            )
+        }
+
+        // Edges
+        topology["edge:bottom"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:bottom")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "circle",
+                centroid: SIMD3<Float>(0, 0, -hh),
+                areaOrLength: 2.0 * Double.pi * rBot
+            )
+        )
+        if params.topRadius > 0 {
+            topology["edge:top"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .edge,
+                historyPath: [HistoryStep(kind: .generated, label: "edge:top")],
+                disambiguator: GeometricSignature(
+                    surfaceOrCurveType: "circle",
+                    centroid: SIMD3<Float>(0, 0, hh),
+                    areaOrLength: 2.0 * Double.pi * rTop
+                )
+            )
+        }
+        topology["edge:seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:seam")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "line",
+                centroid: SIMD3<Float>((params.bottomRadius + params.topRadius) / 2.0, 0, 0),
+                areaOrLength: slantHeight
+            )
+        )
+
+        // Vertices
+        if params.topRadius == 0 {
+            topology["vertex:apex"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:apex")],
+                disambiguator: GeometricSignature(
+                    centroid: SIMD3<Float>(0, 0, hh)
+                )
+            )
+        } else {
+            topology["vertex:top-seam"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:top-seam")],
+                disambiguator: GeometricSignature(
+                    centroid: SIMD3<Float>(params.topRadius, 0, hh)
+                )
+            )
+        }
+        topology["vertex:bottom-seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:bottom-seam")],
+            disambiguator: GeometricSignature(
+                centroid: SIMD3<Float>(params.bottomRadius, 0, -hh)
+            )
+        )
+
+        let expressions: [String: FeatureExpression] = [
+            "bottomRadius": FeatureExpression(value: Double(params.bottomRadius)),
+            "topRadius": FeatureExpression(value: Double(params.topRadius)),
+            "height": FeatureExpression(value: Double(params.height))
+        ]
+
+        return Feature(
+            id: featureId,
+            name: featureName,
+            operation: .primitive(.cone(params)),
+            inputExpressions: expressions,
+            references: [],
+            isSuppressed: false,
+            errorState: nil,
+            generatedTopology: topology,
+            outputSolidId: solidId,
+            bodyOperation: bodyOperation,
+            targetBodyId: targetBodyId,
+            transform: transform,
+            isVisible: isVisible,
+            isLocked: isLocked,
+            material: material
+        )
+    }
+
+    /// Factory helper to build a primitive torus feature with populated topology and expressions.
+    public static func makeTorus(
+        id: UUID = UUID(),
+        solidId: SolidId? = nil,
+        name: String? = nil,
+        params: TorusParams,
+        bodyOperation: BodyOperation = .create,
+        targetBodyId: BodyId? = nil,
+        transform: Transform = .identity,
+        isVisible: Bool = true,
+        isLocked: Bool = false,
+        material: MaterialAttributes = MaterialAttributes()
+    ) -> Feature {
+        let featureId = id
+        let featureName = name ?? solidId?.rawValue ?? "Torus 1"
+        var topology: [String: TopologicalReference] = [:]
+
+        let R = Double(params.majorRadius)
+        let r = Double(params.minorRadius)
+
+        // 1 Face: toroidal surface
+        topology["face:surface"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:surface")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "torus",
+                normal: SIMD3<Float>(0, 0, 1),
+                centroid: SIMD3<Float>(0, 0, 0),
+                areaOrLength: 4.0 * Double.pi * Double.pi * R * r
+            )
+        )
+
+        // 2 Edges: major and minor circular seams
+        topology["edge:major-seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:major-seam")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "circle",
+                centroid: SIMD3<Float>(0, 0, 0),
+                areaOrLength: 2.0 * Double.pi * R
+            )
+        )
+        topology["edge:minor-seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:minor-seam")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "circle",
+                centroid: SIMD3<Float>(params.majorRadius, 0, 0),
+                areaOrLength: 2.0 * Double.pi * r
+            )
+        )
+
+        // 1 Vertex: seam point
+        topology["vertex:seam"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:seam")],
+            disambiguator: GeometricSignature(
+                centroid: SIMD3<Float>(params.majorRadius + params.minorRadius, 0, 0)
+            )
+        )
+
+        let expressions: [String: FeatureExpression] = [
+            "majorRadius": FeatureExpression(value: Double(params.majorRadius)),
+            "minorRadius": FeatureExpression(value: Double(params.minorRadius))
+        ]
+
+        return Feature(
+            id: featureId,
+            name: featureName,
+            operation: .primitive(.torus(params)),
+            inputExpressions: expressions,
+            references: [],
+            isSuppressed: false,
+            errorState: nil,
+            generatedTopology: topology,
+            outputSolidId: solidId,
+            bodyOperation: bodyOperation,
+            targetBodyId: targetBodyId,
+            transform: transform,
+            isVisible: isVisible,
+            isLocked: isLocked,
+            material: material
+        )
+    }
+
+    /// Factory helper to build a primitive wedge feature with populated topology and expressions.
+    public static func makeWedge(
+        id: UUID = UUID(),
+        solidId: SolidId? = nil,
+        name: String? = nil,
+        params: WedgeParams,
+        bodyOperation: BodyOperation = .create,
+        targetBodyId: BodyId? = nil,
+        transform: Transform = .identity,
+        isVisible: Bool = true,
+        isLocked: Bool = false,
+        material: MaterialAttributes = MaterialAttributes()
+    ) -> Feature {
+        let featureId = id
+        let featureName = name ?? solidId?.rawValue ?? "Wedge 1"
+        var topology: [String: TopologicalReference] = [:]
+
+        let hw = params.width / 2.0
+        let hd = params.depth / 2.0
+        let hh = params.height / 2.0
+        let tw = params.topWidth
+        let w = Double(params.width)
+        let d = Double(params.depth)
+        let h = Double(params.height)
+        let topW = Double(params.topWidth)
+        let slantLen = sqrt((w - topW) * (w - topW) + h * h)
+
+        // Faces: bottom, front, back, left, slanted, and optional top
+        topology["face:bottom"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:bottom")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "plane",
+                normal: SIMD3<Float>(0, 0, -1),
+                centroid: SIMD3<Float>(0, 0, -hh),
+                areaOrLength: w * d
+            )
+        )
+        topology["face:front"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:front")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "plane",
+                normal: SIMD3<Float>(0, -1, 0),
+                centroid: SIMD3<Float>(0, -hd, 0),
+                areaOrLength: (w + topW) / 2.0 * h
+            )
+        )
+        topology["face:back"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:back")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "plane",
+                normal: SIMD3<Float>(0, 1, 0),
+                centroid: SIMD3<Float>(0, hd, 0),
+                areaOrLength: (w + topW) / 2.0 * h
+            )
+        )
+        topology["face:left"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:left")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "plane",
+                normal: SIMD3<Float>(-1, 0, 0),
+                centroid: SIMD3<Float>(-hw, 0, 0),
+                areaOrLength: d * h
+            )
+        )
+        let slantNormal = normalize(SIMD3<Float>(Float(h), 0, Float(w - topW)))
+        topology["face:slanted"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:slanted")],
+            disambiguator: GeometricSignature(
+                surfaceOrCurveType: "plane",
+                normal: slantNormal,
+                centroid: SIMD3<Float>((hw + (-hw + tw)) / 2.0, 0, 0),
+                areaOrLength: slantLen * d
+            )
+        )
+        if params.topWidth > 0 {
+            topology["face:top"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .face,
+                historyPath: [HistoryStep(kind: .generated, label: "face:top")],
+                disambiguator: GeometricSignature(
+                    surfaceOrCurveType: "plane",
+                    normal: SIMD3<Float>(0, 0, 1),
+                    centroid: SIMD3<Float>(-hw + tw / 2.0, 0, hh),
+                    areaOrLength: topW * d
+                )
+            )
+        }
+
+        // Edges: bottom edges, vertical/left edges, slanted edges, top edges
+        topology["edge:bottom-front"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:bottom-front")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(0, -hd, -hh), areaOrLength: w)
+        )
+        topology["edge:bottom-back"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:bottom-back")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(0, hd, -hh), areaOrLength: w)
+        )
+        topology["edge:bottom-left"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:bottom-left")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw, 0, -hh), areaOrLength: d)
+        )
+        topology["edge:bottom-right"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:bottom-right")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(hw, 0, -hh), areaOrLength: d)
+        )
+
+        topology["edge:front-left"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:front-left")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw, -hd, 0), areaOrLength: h)
+        )
+        topology["edge:back-left"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:back-left")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw, hd, 0), areaOrLength: h)
+        )
+
+        topology["edge:slanted-front"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:slanted-front")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>((hw + (-hw + tw)) / 2.0, -hd, 0), areaOrLength: slantLen)
+        )
+        topology["edge:slanted-back"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:slanted-back")],
+            disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>((hw + (-hw + tw)) / 2.0, hd, 0), areaOrLength: slantLen)
+        )
+
+        if params.topWidth > 0 {
+            topology["edge:top-front"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .edge,
+                historyPath: [HistoryStep(kind: .generated, label: "edge:top-front")],
+                disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw + tw / 2.0, -hd, hh), areaOrLength: topW)
+            )
+            topology["edge:top-back"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .edge,
+                historyPath: [HistoryStep(kind: .generated, label: "edge:top-back")],
+                disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw + tw / 2.0, hd, hh), areaOrLength: topW)
+            )
+            topology["edge:top-left"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .edge,
+                historyPath: [HistoryStep(kind: .generated, label: "edge:top-left")],
+                disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw, 0, hh), areaOrLength: d)
+            )
+            topology["edge:top-slanted"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .edge,
+                historyPath: [HistoryStep(kind: .generated, label: "edge:top-slanted")],
+                disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw + tw, 0, hh), areaOrLength: d)
+            )
+        } else {
+            topology["edge:top-knife"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .edge,
+                historyPath: [HistoryStep(kind: .generated, label: "edge:top-knife")],
+                disambiguator: GeometricSignature(surfaceOrCurveType: "line", centroid: SIMD3<Float>(-hw, 0, hh), areaOrLength: d)
+            )
+        }
+
+        // Vertices
+        topology["vertex:bottom-front-left"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:bottom-front-left")],
+            disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw, -hd, -hh))
+        )
+        topology["vertex:bottom-front-right"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:bottom-front-right")],
+            disambiguator: GeometricSignature(centroid: SIMD3<Float>(hw, -hd, -hh))
+        )
+        topology["vertex:bottom-back-left"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:bottom-back-left")],
+            disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw, hd, -hh))
+        )
+        topology["vertex:bottom-back-right"] = TopologicalReference(
+            sourceFeatureId: featureId,
+            elementType: .vertex,
+            historyPath: [HistoryStep(kind: .generated, label: "vertex:bottom-back-right")],
+            disambiguator: GeometricSignature(centroid: SIMD3<Float>(hw, hd, -hh))
+        )
+
+        if params.topWidth > 0 {
+            topology["vertex:top-front-left"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:top-front-left")],
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw, -hd, hh))
+            )
+            topology["vertex:top-front-right"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:top-front-right")],
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw + tw, -hd, hh))
+            )
+            topology["vertex:top-back-left"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:top-back-left")],
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw, hd, hh))
+            )
+            topology["vertex:top-back-right"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:top-back-right")],
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw + tw, hd, hh))
+            )
+        } else {
+            topology["vertex:top-front-knife"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:top-front-knife")],
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw, -hd, hh))
+            )
+            topology["vertex:top-back-knife"] = TopologicalReference(
+                sourceFeatureId: featureId,
+                elementType: .vertex,
+                historyPath: [HistoryStep(kind: .generated, label: "vertex:top-back-knife")],
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(-hw, hd, hh))
+            )
+        }
+
+        let expressions: [String: FeatureExpression] = [
+            "width": FeatureExpression(value: Double(params.width)),
+            "depth": FeatureExpression(value: Double(params.depth)),
+            "height": FeatureExpression(value: Double(params.height)),
+            "topWidth": FeatureExpression(value: Double(params.topWidth))
+        ]
+
+        return Feature(
+            id: featureId,
+            name: featureName,
+            operation: .primitive(.wedge(params)),
+            inputExpressions: expressions,
+            references: [],
+            isSuppressed: false,
+            errorState: nil,
+            generatedTopology: topology,
+            outputSolidId: solidId,
+            bodyOperation: bodyOperation,
+            targetBodyId: targetBodyId,
+            transform: transform,
+            isVisible: isVisible,
+            isLocked: isLocked,
+            material: material
+        )
+    }
+
     /// Initializes a feature from an existing `SceneObject` representation.
     public init(from object: SceneObject) {
         switch object.def {
@@ -625,6 +1235,46 @@ extension Feature {
             )
         case .cylinder(let params):
             self = Feature.makeCylinder(
+                solidId: object.id,
+                name: object.name,
+                params: params,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .sphere(let params):
+            self = Feature.makeSphere(
+                solidId: object.id,
+                name: object.name,
+                params: params,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .cone(let params):
+            self = Feature.makeCone(
+                solidId: object.id,
+                name: object.name,
+                params: params,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .torus(let params):
+            self = Feature.makeTorus(
+                solidId: object.id,
+                name: object.name,
+                params: params,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .wedge(let params):
+            self = Feature.makeWedge(
                 solidId: object.id,
                 name: object.name,
                 params: params,

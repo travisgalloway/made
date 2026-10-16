@@ -363,6 +363,68 @@ import MadeCore
         } else {
             Issue.record("Expected object def to be .cylinder")
         }
+
+        model.addDefaultSphere()
+        #expect(model.document.objects.count == initialCount + 3)
+        guard let addedSphere = model.selectedObject else {
+            Issue.record("Expected newly added sphere to be selected")
+            return
+        }
+        #expect(model.selectedId == addedSphere.id)
+        if case .sphere(let params) = addedSphere.def {
+            #expect(params == WorkspaceModel.defaultSphereParams)
+            #expect(params.radius == 15)
+        } else {
+            Issue.record("Expected object def to be .sphere")
+        }
+
+        model.addDefaultCone()
+        #expect(model.document.objects.count == initialCount + 4)
+        guard let addedCone = model.selectedObject else {
+            Issue.record("Expected newly added cone to be selected")
+            return
+        }
+        #expect(model.selectedId == addedCone.id)
+        if case .cone(let params) = addedCone.def {
+            #expect(params == WorkspaceModel.defaultConeParams)
+            #expect(params.bottomRadius == 15)
+            #expect(params.topRadius == 0)
+            #expect(params.height == 30)
+        } else {
+            Issue.record("Expected object def to be .cone")
+        }
+
+        model.addDefaultTorus()
+        #expect(model.document.objects.count == initialCount + 5)
+        guard let addedTorus = model.selectedObject else {
+            Issue.record("Expected newly added torus to be selected")
+            return
+        }
+        #expect(model.selectedId == addedTorus.id)
+        if case .torus(let params) = addedTorus.def {
+            #expect(params == WorkspaceModel.defaultTorusParams)
+            #expect(params.majorRadius == 20)
+            #expect(params.minorRadius == 5)
+        } else {
+            Issue.record("Expected object def to be .torus")
+        }
+
+        model.addDefaultWedge()
+        #expect(model.document.objects.count == initialCount + 6)
+        guard let addedWedge = model.selectedObject else {
+            Issue.record("Expected newly added wedge to be selected")
+            return
+        }
+        #expect(model.selectedId == addedWedge.id)
+        if case .wedge(let params) = addedWedge.def {
+            #expect(params == WorkspaceModel.defaultWedgeParams)
+            #expect(params.width == 30)
+            #expect(params.depth == 30)
+            #expect(params.height == 30)
+            #expect(params.topWidth == 0)
+        } else {
+            Issue.record("Expected object def to be .wedge")
+        }
     }
 
     @Test @MainActor func testImportStepFileAddsObjectAndRecomputes() throws {

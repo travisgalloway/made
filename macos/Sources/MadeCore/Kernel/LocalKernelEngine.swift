@@ -56,6 +56,76 @@ public actor LocalKernelEngine: KernelEngine {
                 occtShapes[sId] = shape
             }
             return .success(jobId: jobId, value: mesh)
+
+        case .makeSphere(_, let sId, let params):
+            if params.radius <= 0 {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Sphere radius must be positive"))
+            }
+            let euclid = EuclidEngine.makeSphere(radius: params.radius)
+            euclidMeshes[sId] = euclid
+            let mesh = EuclidEngine.toMeshPayload(euclid)
+            solids[sId] = mesh
+            if let shape = Shape.sphere(radius: Double(params.radius)) {
+                occtShapes[sId] = shape
+            }
+            return .success(jobId: jobId, value: mesh)
+
+        case .makeCone(_, let sId, let params):
+            if params.bottomRadius <= 0 || params.topRadius < 0 || params.height <= 0 {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Cone dimensions must be positive"))
+            }
+            let euclid = EuclidEngine.makeCone(bottomRadius: params.bottomRadius, topRadius: params.topRadius, height: params.height)
+            euclidMeshes[sId] = euclid
+            let mesh = EuclidEngine.toMeshPayload(euclid)
+            solids[sId] = mesh
+            if let shape = Shape.cone(
+                at: SIMD3(0, 0, -Double(params.height) / 2.0),
+                direction: SIMD3(0, 0, 1),
+                bottomRadius: Double(params.bottomRadius),
+                topRadius: Double(params.topRadius),
+                height: Double(params.height)
+            ) {
+                occtShapes[sId] = shape
+            }
+            return .success(jobId: jobId, value: mesh)
+
+        case .makeTorus(_, let sId, let params):
+            if params.majorRadius <= 0 || params.minorRadius <= 0 || params.minorRadius >= params.majorRadius {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Torus major radius must be greater than minor radius, and both must be positive"))
+            }
+            let euclid = EuclidEngine.makeTorus(majorRadius: params.majorRadius, minorRadius: params.minorRadius)
+            euclidMeshes[sId] = euclid
+            let mesh = EuclidEngine.toMeshPayload(euclid)
+            solids[sId] = mesh
+            if let shape = Shape.torus(
+                at: SIMD3(0, 0, 0),
+                direction: SIMD3(0, 0, 1),
+                majorRadius: Double(params.majorRadius),
+                minorRadius: Double(params.minorRadius)
+            ) {
+                occtShapes[sId] = shape
+            }
+            return .success(jobId: jobId, value: mesh)
+
+        case .makeWedge(_, let sId, let params):
+            if params.width <= 0 || params.depth <= 0 || params.height <= 0 || params.topWidth < 0 || params.topWidth > params.width {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Wedge dimensions must be positive and topWidth must be between 0 and width"))
+            }
+            let euclid = EuclidEngine.makeWedge(width: params.width, depth: params.depth, height: params.height, topWidth: params.topWidth)
+            euclidMeshes[sId] = euclid
+            let mesh = EuclidEngine.toMeshPayload(euclid)
+            solids[sId] = mesh
+            if let shape = Shape.wedge(
+                at: SIMD3(-Double(params.width) / 2.0, -Double(params.depth) / 2.0, -Double(params.height) / 2.0),
+                direction: SIMD3(0, 0, 1),
+                dx: Double(params.width),
+                dy: Double(params.depth),
+                dz: Double(params.height),
+                ltx: Double(params.topWidth)
+            ) {
+                occtShapes[sId] = shape
+            }
+            return .success(jobId: jobId, value: mesh)
             
         case .booleanOperation(_, let sId, let op, let solidA, let solidB):
             let shapeA = occtShapes[solidA]

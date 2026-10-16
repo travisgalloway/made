@@ -156,6 +156,142 @@ import OCCTSwift
         #expect(seamSubshape.isValid)
     }
 
+    // MARK: - Sphere Sub-Element Resolution
+
+    @Test func testResolveFaceEdgeVertexOnSphere() throws {
+        guard let sphShape = Shape.sphere(radius: 15) else {
+            Issue.record("Failed to create test sphere shape")
+            return
+        }
+
+        let feature = Feature.makeSphere(params: SphereParams(radius: 15))
+
+        let surfRef = try #require(feature.generatedTopology["face:surface"])
+        let surfFace = try TopologicalResolver.resolveFace(in: sphShape, reference: surfRef)
+        #expect(surfFace.surfaceType == .sphere)
+
+        let seamRef = try #require(feature.generatedTopology["edge:seam"])
+        let seamEdge = try TopologicalResolver.resolveEdge(in: sphShape, reference: seamRef)
+        #expect(seamEdge.length > 0)
+
+        let northRef = try #require(feature.generatedTopology["vertex:north-pole"])
+        let northVert = try TopologicalResolver.resolveVertex(in: sphShape, reference: northRef)
+        #expect(northVert.z > 0)
+
+        let southRef = try #require(feature.generatedTopology["vertex:south-pole"])
+        let southVert = try TopologicalResolver.resolveVertex(in: sphShape, reference: southRef)
+        #expect(southVert.z < 0)
+    }
+
+    // MARK: - Cone Sub-Element Resolution
+
+    @Test func testResolveFaceEdgeVertexOnCone() throws {
+        guard let coneShape = Shape.cone(
+            at: SIMD3(0, 0, -15),
+            direction: SIMD3(0, 0, 1),
+            bottomRadius: 15,
+            topRadius: 5,
+            height: 30
+        ) else {
+            Issue.record("Failed to create test cone shape")
+            return
+        }
+
+        let feature = Feature.makeCone(params: ConeParams(bottomRadius: 15, topRadius: 5, height: 30))
+
+        let bottomRef = try #require(feature.generatedTopology["face:bottom"])
+        let bottomFace = try TopologicalResolver.resolveFace(in: coneShape, reference: bottomRef)
+        #expect(bottomFace.isPlanar)
+        #expect(bottomFace.normal?.z ?? 0 < -0.99)
+
+        let topRef = try #require(feature.generatedTopology["face:top"])
+        let topFace = try TopologicalResolver.resolveFace(in: coneShape, reference: topRef)
+        #expect(topFace.isPlanar)
+        #expect(topFace.normal?.z ?? 0 > 0.99)
+
+        let sideRef = try #require(feature.generatedTopology["face:side"])
+        let sideFace = try TopologicalResolver.resolveFace(in: coneShape, reference: sideRef)
+        #expect(sideFace.surfaceType == .cone)
+
+        let bottomEdgeRef = try #require(feature.generatedTopology["edge:bottom"])
+        let bottomEdge = try TopologicalResolver.resolveEdge(in: coneShape, reference: bottomEdgeRef)
+        #expect(bottomEdge.isCircle)
+
+        let topEdgeRef = try #require(feature.generatedTopology["edge:top"])
+        let topEdge = try TopologicalResolver.resolveEdge(in: coneShape, reference: topEdgeRef)
+        #expect(topEdge.isCircle)
+
+        let seamEdgeRef = try #require(feature.generatedTopology["edge:seam"])
+        let seamEdge = try TopologicalResolver.resolveEdge(in: coneShape, reference: seamEdgeRef)
+        #expect(seamEdge.length > 0)
+    }
+
+    // MARK: - Torus Sub-Element Resolution
+
+    @Test func testResolveFaceEdgeVertexOnTorus() throws {
+        guard let torusShape = Shape.torus(
+            at: SIMD3(0, 0, 0),
+            direction: SIMD3(0, 0, 1),
+            majorRadius: 20,
+            minorRadius: 5
+        ) else {
+            Issue.record("Failed to create test torus shape")
+            return
+        }
+
+        let feature = Feature.makeTorus(params: TorusParams(majorRadius: 20, minorRadius: 5))
+
+        let surfRef = try #require(feature.generatedTopology["face:surface"])
+        let surfFace = try TopologicalResolver.resolveFace(in: torusShape, reference: surfRef)
+        #expect(surfFace.surfaceType == .torus)
+
+        let majSeamRef = try #require(feature.generatedTopology["edge:major-seam"])
+        let majSeam = try TopologicalResolver.resolveEdge(in: torusShape, reference: majSeamRef)
+        #expect(majSeam.isCircle)
+
+        let minSeamRef = try #require(feature.generatedTopology["edge:minor-seam"])
+        let minSeam = try TopologicalResolver.resolveEdge(in: torusShape, reference: minSeamRef)
+        #expect(minSeam.isCircle)
+
+        let vertRef = try #require(feature.generatedTopology["vertex:seam"])
+        let vert = try TopologicalResolver.resolveVertex(in: torusShape, reference: vertRef)
+        #expect(!vert.x.isNaN)
+    }
+
+    // MARK: - Wedge Sub-Element Resolution
+
+    @Test func testResolveFaceEdgeVertexOnWedge() throws {
+        guard let wedgeShape = Shape.wedge(
+            at: SIMD3(-15, -15, -15),
+            direction: SIMD3(0, 0, 1),
+            dx: 30,
+            dy: 30,
+            dz: 30,
+            ltx: 10
+        ) else {
+            Issue.record("Failed to create test wedge shape")
+            return
+        }
+
+        let feature = Feature.makeWedge(params: WedgeParams(width: 30, depth: 30, height: 30, topWidth: 10))
+
+        let bottomFaceRef = try #require(feature.generatedTopology["face:bottom"])
+        let bottomFace = try TopologicalResolver.resolveFace(in: wedgeShape, reference: bottomFaceRef)
+        #expect(bottomFace.isPlanar)
+
+        let topFaceRef = try #require(feature.generatedTopology["face:top"])
+        let topFace = try TopologicalResolver.resolveFace(in: wedgeShape, reference: topFaceRef)
+        #expect(topFace.isPlanar)
+
+        let topFrontEdgeRef = try #require(feature.generatedTopology["edge:top-front"])
+        let topFrontEdge = try TopologicalResolver.resolveEdge(in: wedgeShape, reference: topFrontEdgeRef)
+        #expect(topFrontEdge.isLine)
+
+        let vertRef = try #require(feature.generatedTopology["vertex:top-front-left"])
+        let vert = try TopologicalResolver.resolveVertex(in: wedgeShape, reference: vertRef)
+        #expect(!vert.x.isNaN)
+    }
+
     // MARK: - Upstream Dimension Changes & Invariance
 
     @Test func testUpstreamBoxDimensionChangeResolvesSameLogicalEdge() throws {

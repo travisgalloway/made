@@ -219,6 +219,126 @@ extension WorkspaceModelTests {
         }
     }
 
+    @Test @MainActor func testMakeAddSphereLifecycle() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeAddSphere(workspace: workspace)
+
+        #expect(session.title == "Add Sphere")
+        #expect(session.numberValue(for: "radius") == 15.0)
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.setNumberValue(25.0, for: "radius")
+        session.commit()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        if case .sphere(let params)? = added?.def {
+            #expect(params.radius == 25.0)
+        } else {
+            Issue.record("Expected sphere object in DocumentModel")
+        }
+    }
+
+    @Test @MainActor func testMakeAddConeLifecycle() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeAddCone(workspace: workspace)
+
+        #expect(session.title == "Add Cone")
+        #expect(session.numberValue(for: "bottomRadius") == 15.0)
+        #expect(session.numberValue(for: "topRadius") == 0.0)
+        #expect(session.numberValue(for: "height") == 30.0)
+        #expect(session.canCommit)
+
+        // Invalid when both radii are 0
+        session.setNumberValue(0.0, for: "bottomRadius")
+        session.setNumberValue(0.0, for: "topRadius")
+        #expect(!session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.setNumberValue(18.0, for: "bottomRadius")
+        session.setNumberValue(6.0, for: "topRadius")
+        session.setNumberValue(45.0, for: "height")
+        #expect(session.canCommit)
+        session.commit()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        if case .cone(let params)? = added?.def {
+            #expect(params.bottomRadius == 18.0)
+            #expect(params.topRadius == 6.0)
+            #expect(params.height == 45.0)
+        } else {
+            Issue.record("Expected cone object in DocumentModel")
+        }
+    }
+
+    @Test @MainActor func testMakeAddTorusLifecycle() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeAddTorus(workspace: workspace)
+
+        #expect(session.title == "Add Torus")
+        #expect(session.numberValue(for: "majorRadius") == 20.0)
+        #expect(session.numberValue(for: "minorRadius") == 5.0)
+        #expect(session.canCommit)
+
+        // Invalid when majorRadius <= minorRadius
+        session.setNumberValue(10.0, for: "majorRadius")
+        session.setNumberValue(15.0, for: "minorRadius")
+        #expect(!session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.setNumberValue(28.0, for: "majorRadius")
+        session.setNumberValue(7.0, for: "minorRadius")
+        #expect(session.canCommit)
+        session.commit()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        if case .torus(let params)? = added?.def {
+            #expect(params.majorRadius == 28.0)
+            #expect(params.minorRadius == 7.0)
+        } else {
+            Issue.record("Expected torus object in DocumentModel")
+        }
+    }
+
+    @Test @MainActor func testMakeAddWedgeLifecycle() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeAddWedge(workspace: workspace)
+
+        #expect(session.title == "Add Wedge")
+        #expect(session.numberValue(for: "width") == 30.0)
+        #expect(session.numberValue(for: "depth") == 30.0)
+        #expect(session.numberValue(for: "height") == 30.0)
+        #expect(session.numberValue(for: "topWidth") == 0.0)
+        #expect(session.canCommit)
+
+        // Invalid when topWidth > width
+        session.setNumberValue(20.0, for: "width")
+        session.setNumberValue(35.0, for: "topWidth")
+        #expect(!session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.setNumberValue(35.0, for: "width")
+        session.setNumberValue(25.0, for: "depth")
+        session.setNumberValue(40.0, for: "height")
+        session.setNumberValue(10.0, for: "topWidth")
+        #expect(session.canCommit)
+        session.commit()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        if case .wedge(let params)? = added?.def {
+            #expect(params.width == 35.0)
+            #expect(params.depth == 25.0)
+            #expect(params.height == 40.0)
+            #expect(params.topWidth == 10.0)
+        } else {
+            Issue.record("Expected wedge object in DocumentModel")
+        }
+    }
+
     @Test @MainActor func testMakeTransformLifecycle() {
         let workspace = WorkspaceModel()
         let boxId = ObjectId("box-1")

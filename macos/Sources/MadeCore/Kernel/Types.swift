@@ -100,6 +100,30 @@ public struct ConeParams: Hashable, Equatable, Sendable, Codable {
     }
 }
 
+public struct TorusParams: Hashable, Equatable, Sendable, Codable {
+    public var majorRadius: Float
+    public var minorRadius: Float
+
+    public init(majorRadius: Float, minorRadius: Float) {
+        self.majorRadius = majorRadius
+        self.minorRadius = minorRadius
+    }
+}
+
+public struct WedgeParams: Hashable, Equatable, Sendable, Codable {
+    public var width: Float
+    public var depth: Float
+    public var height: Float
+    public var topWidth: Float
+
+    public init(width: Float, depth: Float, height: Float, topWidth: Float = 0) {
+        self.width = width
+        self.depth = depth
+        self.height = height
+        self.topWidth = topWidth
+    }
+}
+
 /// Topological triangle range mapped back to source B-Rep face ID.
 public struct FaceTriangleRange: Sendable, Codable, Equatable {
     public let faceId: Int
@@ -321,6 +345,10 @@ public enum BooleanOp: String, Sendable, Codable {
 public enum KernelRequest: Sendable, Codable, Equatable {
     case makeBox(jobId: JobId, solidId: SolidId, params: BoxParams)
     case makeCylinder(jobId: JobId, solidId: SolidId, params: CylinderParams)
+    case makeSphere(jobId: JobId, solidId: SolidId, params: SphereParams)
+    case makeCone(jobId: JobId, solidId: SolidId, params: ConeParams)
+    case makeTorus(jobId: JobId, solidId: SolidId, params: TorusParams)
+    case makeWedge(jobId: JobId, solidId: SolidId, params: WedgeParams)
     case tessellate(jobId: JobId, solidId: SolidId, tolerances: KernelTolerances?)
     case importStep(jobId: JobId, solidId: SolidId, data: Data)
     case booleanOperation(jobId: JobId, solidId: SolidId, op: BooleanOp, solidA: SolidId, solidB: SolidId)
@@ -332,23 +360,33 @@ public enum KernelRequest: Sendable, Codable, Equatable {
 
     public var jobId: JobId {
         switch self {
-        case .makeBox(let j, _, _): return j
-        case .makeCylinder(let j, _, _): return j
-        case .tessellate(let j, _, _): return j
-        case .importStep(let j, _, _): return j
-        case .booleanOperation(let j, _, _, _, _): return j
-        case .evaluateShape(let j, _, _): return j
+        case .makeBox(let j, _, _),
+             .makeCylinder(let j, _, _),
+             .makeSphere(let j, _, _),
+             .makeCone(let j, _, _),
+             .makeTorus(let j, _, _),
+             .makeWedge(let j, _, _),
+             .tessellate(let j, _, _),
+             .importStep(let j, _, _),
+             .booleanOperation(let j, _, _, _, _),
+             .evaluateShape(let j, _, _):
+            return j
         }
     }
     
     public var solidId: SolidId {
         switch self {
-        case .makeBox(_, let s, _): return s
-        case .makeCylinder(_, let s, _): return s
-        case .tessellate(_, let s, _): return s
-        case .importStep(_, let s, _): return s
-        case .booleanOperation(_, let s, _, _, _): return s
-        case .evaluateShape(_, let s, _): return s
+        case .makeBox(_, let s, _),
+             .makeCylinder(_, let s, _),
+             .makeSphere(_, let s, _),
+             .makeCone(_, let s, _),
+             .makeTorus(_, let s, _),
+             .makeWedge(_, let s, _),
+             .tessellate(_, let s, _),
+             .importStep(_, let s, _),
+             .booleanOperation(_, let s, _, _, _),
+             .evaluateShape(_, let s, _):
+            return s
         }
     }
 }

@@ -52,13 +52,13 @@ struct InspectorPanelView: View {
             } description: {
                 Text("Add a 3D solid primitive or open a part script to inspect and edit its properties.")
             } actions: {
-                HStack(spacing: 8) {
-                    Button("Add Box", systemImage: "shippingbox") {
-                        workspace.addDefaultBox()
-                    }
-                    Button("Add Cylinder", systemImage: "cylinder") {
-                        workspace.addDefaultCylinder()
-                    }
+                Menu("Add Solid", systemImage: "plus") {
+                    Button("Box Solid", systemImage: "shippingbox") { workspace.addDefaultBox() }
+                    Button("Cylinder Solid", systemImage: "cylinder") { workspace.addDefaultCylinder() }
+                    Button("Sphere Solid", systemImage: "globe") { workspace.addDefaultSphere() }
+                    Button("Cone Solid", systemImage: "cone.fill") { workspace.addDefaultCone() }
+                    Button("Torus Solid", systemImage: "circle.circle") { workspace.addDefaultTorus() }
+                    Button("Wedge Solid", systemImage: "triangle.fill") { workspace.addDefaultWedge() }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -126,6 +126,20 @@ struct InspectorPanelView: View {
             case .cylinder(let params):
                 paramField("Radius", params.radius, DocumentLimits.cylinderRadius, id: obj.id, key: "radius") { workspace.setParam(obj.id, "radius", $0) }
                 paramField("Height (Z)", params.height, DocumentLimits.cylinderHeight, id: obj.id, key: "height") { workspace.setParam(obj.id, "height", $0) }
+            case .sphere(let params):
+                paramField("Radius", params.radius, DocumentLimits.sphereRadius, id: obj.id, key: "radius") { workspace.setParam(obj.id, "radius", $0) }
+            case .cone(let params):
+                paramField("Bottom Radius", params.bottomRadius, DocumentLimits.coneBottomRadius, id: obj.id, key: "bottomRadius") { workspace.setParam(obj.id, "bottomRadius", $0) }
+                paramField("Top Radius", params.topRadius, DocumentLimits.coneTopRadius, id: obj.id, key: "topRadius") { workspace.setParam(obj.id, "topRadius", $0) }
+                paramField("Height (Z)", params.height, DocumentLimits.coneHeight, id: obj.id, key: "height") { workspace.setParam(obj.id, "height", $0) }
+            case .torus(let params):
+                paramField("Major Radius", params.majorRadius, DocumentLimits.torusMajorRadius, id: obj.id, key: "majorRadius") { workspace.setParam(obj.id, "majorRadius", $0) }
+                paramField("Minor Radius", params.minorRadius, DocumentLimits.torusMinorRadius, id: obj.id, key: "minorRadius") { workspace.setParam(obj.id, "minorRadius", $0) }
+            case .wedge(let params):
+                paramField("Width (X)", params.width, DocumentLimits.wedgeWidth, id: obj.id, key: "width") { workspace.setParam(obj.id, "width", $0) }
+                paramField("Depth (Y)", params.depth, DocumentLimits.wedgeDepth, id: obj.id, key: "depth") { workspace.setParam(obj.id, "depth", $0) }
+                paramField("Height (Z)", params.height, DocumentLimits.wedgeHeight, id: obj.id, key: "height") { workspace.setParam(obj.id, "height", $0) }
+                paramField("Top Width (X)", params.topWidth, DocumentLimits.wedgeTopWidth, id: obj.id, key: "topWidth") { workspace.setParam(obj.id, "topWidth", $0) }
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):
