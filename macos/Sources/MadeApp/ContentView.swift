@@ -39,6 +39,20 @@ struct ContentView: View {
                 }
         }
         .navigationTitle(workspace.documentTitle)
+        .alert(
+            "Recover Unsaved Changes?",
+            isPresented: $workspace.isShowingRecoveryAlert,
+            presenting: workspace.pendingRecoveryRecord
+        ) { _ in
+            Button("Recover") {
+                workspace.recoverDocument()
+            }
+            Button("Discard", role: .destructive) {
+                workspace.discardRecovery()
+            }
+        } message: { record in
+            Text("Unsaved changes from \"\(record.metadata.documentTitle)\" were found from a previous session (\(record.metadata.savedAt.formatted(date: .abbreviated, time: .standard))). Would you like to recover or discard them?")
+        }
         .onAppear {
             workspace.setUp()
             workspace.syncWindowState()
