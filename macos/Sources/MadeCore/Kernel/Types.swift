@@ -100,25 +100,145 @@ public struct ConeParams: Hashable, Equatable, Sendable, Codable {
     }
 }
 
+/// Topological triangle range mapped back to source B-Rep face ID.
+public struct FaceTriangleRange: Sendable, Codable, Equatable {
+    public let faceId: Int
+    public let triangleRange: Range<Int>
+    public let deterministicId: UUID?
+
+    public init(faceId: Int, triangleRange: Range<Int>, deterministicId: UUID? = nil) {
+        self.faceId = faceId
+        self.triangleRange = triangleRange
+        self.deterministicId = deterministicId
+    }
+}
+
+/// Discretized edge segment range mapped to edge ID.
+public struct EdgeSegmentRange: Sendable, Codable, Equatable {
+    public let edgeId: Int
+    public let segmentRange: Range<Int>
+    public let deterministicId: UUID?
+
+    public init(edgeId: Int, segmentRange: Range<Int>, deterministicId: UUID? = nil) {
+        self.edgeId = edgeId
+        self.segmentRange = segmentRange
+        self.deterministicId = deterministicId
+    }
+}
+
+/// Discretized 3D polyline for a B-Rep edge.
+public struct EdgePolyline: Sendable, Codable, Equatable {
+    public let edgeId: Int
+    public let points: [SIMD3<Float>]
+    public let segmentRange: Range<Int>
+    public let deterministicId: UUID?
+
+    public init(edgeId: Int, points: [SIMD3<Float>], segmentRange: Range<Int>, deterministicId: UUID? = nil) {
+        self.edgeId = edgeId
+        self.points = points
+        self.segmentRange = segmentRange
+        self.deterministicId = deterministicId
+    }
+}
+
 /// A triangle mesh held in one page-aligned shared-memory region, so it can cross XPC without a copy (invariant 6).
 public struct MeshPayload: Sendable {
     public let storage: MeshStorage
+    public let faceRanges: [FaceTriangleRange]
+    public let edgePolylines: [EdgePolyline]
+    public let edgeSegmentRanges: [EdgeSegmentRange]
+
     public var positions: MeshComponent<Float> { storage.positions }
     public var normals: MeshComponent<Float> { storage.normals }
     public var indices: MeshComponent<UInt32> { storage.indices }
     public var triangleCount: Int { storage.indexCount / 3 }
     public var isEmpty: Bool { triangleCount == 0 }
     
-    public init(storage: MeshStorage) {
+    public init(
+        storage: MeshStorage,
+        faceRanges: [FaceTriangleRange] = [],
+        edgePolylines: [EdgePolyline] = [],
+        edgeSegmentRanges: [EdgeSegmentRange] = []
+    ) {
         self.storage = storage
+        self.faceRanges = faceRanges
+        self.edgePolylines = edgePolylines
+        self.edgeSegmentRanges = edgeSegmentRanges
     }
     
-    public init(positions: [Float], normals: [Float], indices: [UInt32]) {
+    public init(
+        positions: [Float],
+        normals: [Float],
+        indices: [UInt32],
+        faceRanges: [FaceTriangleRange] = [],
+        edgePolylines: [EdgePolyline] = [],
+        edgeSegmentRanges: [EdgeSegmentRange] = []
+    ) {
         self.storage = MeshStorage(positionCount: positions.count, normalCount: normals.count, indexCount: indices.count) { p, n, i in
             _ = p.initialize(from: positions)
             _ = n.initialize(from: normals)
             _ = i.initialize(from: indices)
         }
+        self.faceRanges = faceRanges
+        self.edgePolylines = edgePolylines
+        self.edgeSegmentRanges = edgeSegmentRanges
+    }
+
+    /// Resolves the source B-Rep face ID for a triangle index in this mesh, or nil if unmapped or out of bounds.
+    public func faceId(atTriangle triangleIndex: Int) -> Int? {
+        guard triangleIndex >= 0 && triangleIndex < triangleCount else { return nil }
+        for item in faceRanges {
+            if item.triangleRange.contains(triangleIndex) {
+                return item.faceId
+            }
+        }
+        return nil
+    }
+
+    /// Returns all triangle ranges associated with the given face ID.
+    public func triangleRanges(forFace faceId: Int) -> [Range<Int>] {
+        faceRanges.compactMap { $0.faceId == faceId ? $0.triangleRange : nil }
+    }
+
+    /// Resolves the source B-Rep edge ID for an edge segment index, or nil if unmapped or out of bounds.
+    public func edgeId(atSegment segmentIndex: Int) -> Int? {
+        guard segmentIndex >= 0 else { return nil }
+        for item in edgeSegmentRanges {
+            if item.segmentRange.contains(segmentIndex) {
+                return item.edgeId
+            }
+        }
+        return nil
+    }
+
+    /// Returns the segment range associated with the given edge ID.
+    public func segmentRange(forEdge edgeId: Int) -> Range<Int>? {
+        edgeSegmentRanges.first(where: { $0.edgeId == edgeId })?.segmentRange
+    }
+
+    /// Returns the discretized polyline for the given edge ID.
+    public func polyline(forEdge edgeId: Int) -> EdgePolyline? {
+        edgePolylines.first(where: { $0.edgeId == edgeId })
+    }
+
+    /// The total count of discretized line segments across all edge polylines.
+    public var totalEdgeSegments: Int {
+        edgeSegmentRanges.last?.segmentRange.upperBound ?? 0
+    }
+
+    /// Flat line segment endpoints (2 endpoints per segment) suitable for GPU line rendering or ray picking.
+    public var edgeSegments: [SIMD3<Float>] {
+        var segments: [SIMD3<Float>] = []
+        segments.reserveCapacity(totalEdgeSegments * 2)
+        for polyline in edgePolylines {
+            let pts = polyline.points
+            guard pts.count >= 2 else { continue }
+            for i in 0..<(pts.count - 1) {
+                segments.append(pts[i])
+                segments.append(pts[i + 1])
+            }
+        }
+        return segments
     }
 }
 
@@ -178,16 +298,20 @@ public enum BooleanOp: String, Sendable, Codable {
 public enum KernelRequest: Sendable, Codable, Equatable {
     case makeBox(jobId: JobId, solidId: SolidId, params: BoxParams)
     case makeCylinder(jobId: JobId, solidId: SolidId, params: CylinderParams)
-    case tessellate(jobId: JobId, solidId: SolidId)
+    case tessellate(jobId: JobId, solidId: SolidId, tolerances: KernelTolerances?)
     case importStep(jobId: JobId, solidId: SolidId, data: Data)
     case booleanOperation(jobId: JobId, solidId: SolidId, op: BooleanOp, solidA: SolidId, solidB: SolidId)
     case evaluateShape(jobId: JobId, solidId: SolidId, shape: ShapeNode)
     
+    public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
+        .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
+    }
+
     public var jobId: JobId {
         switch self {
         case .makeBox(let j, _, _): return j
         case .makeCylinder(let j, _, _): return j
-        case .tessellate(let j, _): return j
+        case .tessellate(let j, _, _): return j
         case .importStep(let j, _, _): return j
         case .booleanOperation(let j, _, _, _, _): return j
         case .evaluateShape(let j, _, _): return j
@@ -198,7 +322,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         switch self {
         case .makeBox(_, let s, _): return s
         case .makeCylinder(_, let s, _): return s
-        case .tessellate(_, let s): return s
+        case .tessellate(_, let s, _): return s
         case .importStep(_, let s, _): return s
         case .booleanOperation(_, let s, _, _, _): return s
         case .evaluateShape(_, let s, _): return s

@@ -127,10 +127,19 @@ enum OCCTEngine {
         return try exportStep(shape: exportShape, name: objects.count == 1 ? objects[0].name : "Scene")
     }
 
+    /// Converts an OCCT Shape into an engine-neutral, GPU-ready `MeshPayload` backed by page-aligned `MeshStorage`
+    /// using user-configured geometric tolerances.
+    static func toMeshPayload(_ shape: Shape, tolerances: KernelTolerances) -> MeshPayload? {
+        let clamped = tolerances.clamped()
+        let deflection = clamped.chordalTolerance
+        let angle = clamped.angularTolerance * .pi / 180.0
+        return toMeshPayload(shape, deflection: deflection, angle: angle)
+    }
+
     /// Converts an OCCT Shape into an engine-neutral, GPU-ready `MeshPayload` backed by page-aligned `MeshStorage`.
     ///
-    /// Tessellates the shape using enhanced mesh parameters and copies position, normal, and index buffers
-    /// directly into shared memory.
+    /// Tessellates the shape using enhanced mesh parameters, extracts per-face triangle ranges and per-edge
+    /// discretized polylines, and copies position, normal, and index buffers directly into shared memory.
     static func toMeshPayload(_ shape: Shape, deflection: Double = 0.1, angle: Double = 0.5) -> MeshPayload? {
         var params = MeshParameters.default
         params.deflection = deflection
@@ -143,7 +152,7 @@ enum OCCTEngine {
         params.internalVertices = true
         params.controlSurfaceDeflection = true
         params.adjustMinSize = false
-        params.allowQualityDecrease = false
+        params.allowQualityDecrease = true
 
         guard let mesh = shape.mesh(parameters: params),
               mesh.triangleCount > 0,
@@ -157,6 +166,45 @@ enum OCCTEngine {
 
         guard !vertexData.isEmpty, !indices.isEmpty else {
             return nil
+        }
+
+        // Extract face ranges
+        let triangles = mesh.trianglesWithFaces()
+        var faceRanges: [FaceTriangleRange] = []
+        if !triangles.isEmpty {
+            var currentFaceId: Int? = nil
+            var startTri = 0
+            for (triIndex, triangle) in triangles.enumerated() {
+                let fid = Int(triangle.faceIndex)
+                if let curr = currentFaceId {
+                    if curr != fid {
+                        faceRanges.append(FaceTriangleRange(faceId: curr, triangleRange: startTri..<triIndex))
+                        currentFaceId = fid
+                        startTri = triIndex
+                    }
+                } else {
+                    currentFaceId = fid
+                    startTri = triIndex
+                }
+            }
+            if let curr = currentFaceId {
+                faceRanges.append(FaceTriangleRange(faceId: curr, triangleRange: startTri..<triangles.count))
+            }
+        }
+
+        // Extract edge polylines & segment ranges
+        let rawPolylines = shape.allEdgePolylinesIndexed(deflection: deflection)
+        var edgePolylines: [EdgePolyline] = []
+        var edgeSegmentRanges: [EdgeSegmentRange] = []
+        var currentSegmentOffset = 0
+        for item in rawPolylines {
+            let pts = item.points.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            let segCount = max(0, pts.count - 1)
+            let segRange = currentSegmentOffset..<(currentSegmentOffset + segCount)
+            currentSegmentOffset += segCount
+            let poly = EdgePolyline(edgeId: item.edgeIndex, points: pts, segmentRange: segRange)
+            edgePolylines.append(poly)
+            edgeSegmentRanges.append(EdgeSegmentRange(edgeId: item.edgeIndex, segmentRange: segRange))
         }
 
         let storage = MeshStorage(
@@ -178,7 +226,12 @@ enum OCCTEngine {
             }
         }
 
-        return MeshPayload(storage: storage)
+        return MeshPayload(
+            storage: storage,
+            faceRanges: faceRanges,
+            edgePolylines: edgePolylines,
+            edgeSegmentRanges: edgeSegmentRanges
+        )
     }
 
     /// Fillets an edge in an OCCT shape identified by a persistent topological reference.
