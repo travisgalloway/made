@@ -10,6 +10,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var selectedId: ObjectId?
     public var rollbackIndex: Int?
     public var bodies: [Body]?
+    public var selection: [Reference]?
 
     public init(
         schemaVersion: Int = DocumentData.currentSchemaVersion,
@@ -17,7 +18,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         objects: [SceneObject]? = nil,
         selectedId: ObjectId? = nil,
         rollbackIndex: Int? = nil,
-        bodies: [Body]? = nil
+        bodies: [Body]? = nil,
+        selection: [Reference]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.rollbackIndex = rollbackIndex
@@ -42,10 +44,11 @@ public struct DocumentData: Codable, Sendable, Equatable {
             self.bodies = bodies ?? []
         }
         self.selectedId = selectedId
+        self.selection = selection
     }
 
-    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies)
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -55,6 +58,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case selectedId
         case rollbackIndex
         case bodies
+        case selection
     }
 
     public init(from decoder: Decoder) throws {
@@ -76,6 +80,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         }
         self.selectedId = try container.decodeIfPresent(ObjectId.self, forKey: .selectedId)
         self.bodies = try container.decodeIfPresent([Body].self, forKey: .bodies) ?? self.objects.map { Body(from: $0) }
+        self.selection = try container.decodeIfPresent([Reference].self, forKey: .selection)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -86,6 +91,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encodeIfPresent(selectedId, forKey: .selectedId)
         try container.encodeIfPresent(rollbackIndex, forKey: .rollbackIndex)
         try container.encodeIfPresent(bodies, forKey: .bodies)
+        try container.encodeIfPresent(selection, forKey: .selection)
     }
 }
 
@@ -138,7 +144,8 @@ public enum DocumentModelCoder {
             objects: document.objects,
             selectedId: document.selectedId,
             rollbackIndex: document.rollbackIndex,
-            bodies: document.bodies
+            bodies: document.bodies,
+            selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString }
         )
         return try encode(docData)
     }
@@ -147,10 +154,19 @@ public enum DocumentModelCoder {
     @MainActor
     public static func decode(into document: DocumentModel, from data: Data) throws {
         let docData = try decode(from: data)
+        let restoredSelection: Set<Reference>? = {
+            if let sel = docData.selection {
+                return Set(sel)
+            } else if let selId = docData.selectedId {
+                return [Reference.body(selId)]
+            } else {
+                return nil
+            }
+        }()
         if let features = docData.features {
-            document.reset(with: features, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex)
+            document.reset(with: features, selection: restoredSelection, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex)
         } else {
-            document.reset(with: docData.objects, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex)
+            document.reset(with: docData.objects, selection: restoredSelection, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex)
         }
     }
 }

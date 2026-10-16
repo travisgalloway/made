@@ -493,6 +493,7 @@ public final class DocumentModel {
     public private(set) var bodies: [Body] = []
     public private(set) var settings: DocumentSettings = DocumentSettings()
     private var seq: Int = 1
+    @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
     @ObservationIgnored private var _selectedSubElement: SelectedSubElement? = nil
 
@@ -522,6 +523,28 @@ public final class DocumentModel {
         return idx < effectiveRollbackIndex
     }
 
+    public var selection: Set<Reference> {
+        get {
+            access(keyPath: \.selection)
+            return _selection
+        }
+        set {
+            guard _selection != newValue else { return }
+            withMutation(keyPath: \.selection) {
+                _selection = newValue
+            }
+            let derivedId = primarySolidId(for: _selection)
+            if _selectedId != derivedId {
+                withMutation(keyPath: \.selectedId) {
+                    _selectedId = derivedId
+                }
+            }
+            if derivedId == nil || _selectedSubElement?.solidId != derivedId {
+                selectedSubElement = nil
+            }
+        }
+    }
+
     public var selectedId: ObjectId? {
         get {
             access(keyPath: \.selectedId)
@@ -531,6 +554,18 @@ public final class DocumentModel {
             guard _selectedId != newValue else { return }
             withMutation(keyPath: \.selectedId) {
                 _selectedId = newValue
+            }
+            let newSelection: Set<Reference> = {
+                if let newValue {
+                    return [Reference.body(newValue)]
+                } else {
+                    return []
+                }
+            }()
+            if _selection != newSelection {
+                withMutation(keyPath: \.selection) {
+                    _selection = newSelection
+                }
             }
             if newValue == nil || _selectedSubElement?.solidId != newValue {
                 selectedSubElement = nil
@@ -548,6 +583,240 @@ public final class DocumentModel {
             withMutation(keyPath: \.selectedSubElement) {
                 _selectedSubElement = newValue
             }
+            if let sub = newValue, let detId = sub.deterministicId {
+                if let feat = features.first(where: { $0.outputSolidId == sub.solidId }),
+                   let topRef = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                    let ref: Reference
+                    switch sub.elementType {
+                    case .face: ref = .face(topRef)
+                    case .edge: ref = .edge(topRef)
+                    case .vertex: ref = .vertex(topRef)
+                    }
+                    select(ref)
+                }
+            }
+        }
+    }
+
+    private func primarySolidId(for selection: Set<Reference>) -> ObjectId? {
+        if let current = _selectedId {
+            let stillPresent = selection.contains { ref in
+                switch ref.target {
+                case .body(let solidId):
+                    return solidId == current
+                case .feature(let featId):
+                    return feature(for: featId)?.outputSolidId == current
+                case .face(let topRef), .edge(let topRef), .vertex(let topRef):
+                    return feature(for: topRef.sourceFeatureId)?.outputSolidId == current
+                default:
+                    return false
+                }
+            }
+            if stillPresent {
+                return current
+            }
+        }
+
+        for feat in activeFeatures {
+            if let solidId = feat.outputSolidId {
+                let matches = selection.contains { ref in
+                    switch ref.target {
+                    case .body(let sId):
+                        return sId == solidId
+                    case .feature(let fId):
+                        return fId == feat.id
+                    case .face(let topRef), .edge(let topRef), .vertex(let topRef):
+                        return topRef.sourceFeatureId == feat.id
+                    default:
+                        return false
+                    }
+                }
+                if matches {
+                    return solidId
+                }
+            }
+        }
+
+        for ref in selection {
+            if case .body(let solidId) = ref.target {
+                return solidId
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Multi-Selection API (BL-SEL-03)
+
+    public func select(_ reference: Reference) {
+        guard !_selection.contains(reference) else { return }
+        var updated = _selection
+        updated.insert(reference)
+        selection = updated
+    }
+
+    public func deselect(_ reference: Reference) {
+        guard _selection.contains(reference) else { return }
+        var updated = _selection
+        updated.remove(reference)
+        selection = updated
+    }
+
+    public func toggleSelection(_ reference: Reference) {
+        if _selection.contains(reference) {
+            deselect(reference)
+        } else {
+            select(reference)
+        }
+    }
+
+    public func clearSelection() {
+        guard !_selection.isEmpty || _selectedId != nil || _selectedSubElement != nil else { return }
+        if !_selection.isEmpty {
+            withMutation(keyPath: \.selection) {
+                _selection = []
+            }
+        }
+        if _selectedId != nil {
+            withMutation(keyPath: \.selectedId) {
+                _selectedId = nil
+            }
+        }
+        if _selectedSubElement != nil {
+            withMutation(keyPath: \.selectedSubElement) {
+                _selectedSubElement = nil
+            }
+        }
+    }
+
+    public func isSelected(_ reference: Reference) -> Bool {
+        access(keyPath: \.selection)
+        return _selection.contains(reference)
+    }
+
+    public func select(solidId: ObjectId) {
+        select(Reference.body(solidId))
+    }
+
+    public func deselect(solidId: ObjectId) {
+        let matching = _selection.filter { ref in
+            switch ref.target {
+            case .body(let sId):
+                return sId == solidId
+            case .feature(let fId):
+                return feature(for: fId)?.outputSolidId == solidId
+            default:
+                return false
+            }
+        }
+        guard !matching.isEmpty else { return }
+        var updated = _selection
+        for ref in matching {
+            updated.remove(ref)
+        }
+        selection = updated
+    }
+
+    public func isSelected(solidId: ObjectId) -> Bool {
+        access(keyPath: \.selection)
+        return _selection.contains { ref in
+            switch ref.target {
+            case .body(let sId):
+                return sId == solidId
+            case .feature(let fId):
+                return feature(for: fId)?.outputSolidId == solidId
+            default:
+                return false
+            }
+        }
+    }
+
+    public var selectedObject: SceneObject? {
+        guard let selectedId else { return nil }
+        return objects.first { $0.id == selectedId }
+    }
+
+    public var selectedBody: Body? {
+        guard let selectedId else { return nil }
+        return body(for: selectedId)
+    }
+
+    public var selectedFeature: Feature? {
+        guard let selectedId else { return nil }
+        return feature(for: selectedId)
+    }
+
+    public var selectedFeatures: [Feature] {
+        access(keyPath: \.selection)
+        var result: [Feature] = []
+        for ref in _selection {
+            switch ref.target {
+            case .feature(let featId):
+                if let feat = feature(for: featId), !result.contains(where: { $0.id == feat.id }) {
+                    result.append(feat)
+                }
+            case .sketchEntity(let featId, _):
+                if let feat = feature(for: featId), !result.contains(where: { $0.id == feat.id }) {
+                    result.append(feat)
+                }
+            case .body(let solidId):
+                if let feat = feature(for: solidId), !result.contains(where: { $0.id == feat.id }) {
+                    result.append(feat)
+                }
+            case .face(let topRef), .edge(let topRef), .vertex(let topRef):
+                if let feat = feature(for: topRef.sourceFeatureId), !result.contains(where: { $0.id == feat.id }) {
+                    result.append(feat)
+                }
+            }
+        }
+        return result
+    }
+
+    public var selectedBodies: [Body] {
+        access(keyPath: \.selection)
+        var result: [Body] = []
+        for ref in _selection {
+            switch ref.target {
+            case .body(let solidId):
+                if let b = body(for: solidId), !result.contains(where: { $0.id == b.id }) {
+                    result.append(b)
+                }
+            case .feature(let featId):
+                if let solidId = feature(for: featId)?.outputSolidId, let b = body(for: solidId), !result.contains(where: { $0.id == b.id }) {
+                    result.append(b)
+                }
+            default:
+                break
+            }
+        }
+        return result
+    }
+
+    public func pruneInvalidSelection() {
+        let validSelection = _selection.filter { ref in
+            switch ReferenceResolver.resolve(reference: ref, for: nil, in: self) {
+            case .success(let resolved):
+                switch resolved.target {
+                case .feature(let feat):
+                    return isFeatureActive(id: feat.id) && !feat.isSuppressed
+                case .sketchEntity(let feat, _):
+                    return isFeatureActive(id: feat.id) && !feat.isSuppressed
+                case .body(let solidId, let feat):
+                    if let feat {
+                        return isFeatureActive(id: feat.id) && !feat.isSuppressed
+                    }
+                    return objects.contains(where: { $0.id == solidId })
+                case .face(let feat, _), .edge(let feat, _), .vertex(let feat, _):
+                    return isFeatureActive(id: feat.id) && !feat.isSuppressed
+                }
+            case .failure:
+                return false
+            }
+        }
+        if validSelection != _selection {
+            selection = validSelection
+        }
+        if let selId = _selectedId, !objects.contains(where: { $0.id == selId }) {
+            selectedId = nil
         }
     }
     
@@ -565,6 +834,7 @@ public final class DocumentModel {
         )
         self.features = [boxFeature, cylinderFeature]
         self.rollbackIndex = nil
+        self._selection = [Reference.body(boxSolidId)]
         self._selectedId = boxSolidId
         self.settings = settings
         syncObjectsFromFeatures()
@@ -572,7 +842,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         self.features = features
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
@@ -582,12 +852,23 @@ public final class DocumentModel {
         }
         self.settings = settings ?? DocumentSettings()
         syncObjectsFromFeatures()
-        self._selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
+        if let selection {
+            self._selection = selection
+            self._selectedId = selectedId ?? primarySolidId(for: selection)
+        } else if let selectedId {
+            self._selection = [Reference.body(selectedId)]
+            self._selectedId = selectedId
+        } else {
+            let fallbackId = activeFeatures.compactMap(\.outputSolidId).first
+            self._selection = fallbackId.map { [Reference.body($0)] } ?? []
+            self._selectedId = fallbackId
+        }
+        pruneInvalidSelection()
         self.seq = Self.computeMaxSequence(features: features)
         setupUndoObservers()
     }
 
-    public init(objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         let convertedFeatures = objects.map { Feature(from: $0) }
         self.features = convertedFeatures
         if let idx = rollbackIndex {
@@ -598,12 +879,23 @@ public final class DocumentModel {
         }
         self.settings = settings ?? DocumentSettings()
         syncObjectsFromFeatures()
-        self._selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
+        if let selection {
+            self._selection = selection
+            self._selectedId = selectedId ?? primarySolidId(for: selection)
+        } else if let selectedId {
+            self._selection = [Reference.body(selectedId)]
+            self._selectedId = selectedId
+        } else {
+            let fallbackId = activeFeatures.compactMap(\.outputSolidId).first
+            self._selection = fallbackId.map { [Reference.body($0)] } ?? []
+            self._selectedId = fallbackId
+        }
+        pruneInvalidSelection()
         self.seq = Self.computeMaxSequence(objects: objects)
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         undoManager?.removeAllActions()
         features = newFeatures
         if let idx = rollbackIndex {
@@ -616,13 +908,20 @@ public final class DocumentModel {
             self.settings = settings
         }
         seq = Self.computeMaxSequence(features: newFeatures)
-        self.selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
+        if let selection {
+            self.selection = selection
+            pruneInvalidSelection()
+        } else if let selectedId {
+            self.selectedId = selectedId
+        } else {
+            self.selectedId = activeFeatures.compactMap(\.outputSolidId).first
+        }
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         undoManager?.removeAllActions()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
         features = convertedFeatures
@@ -636,7 +935,14 @@ public final class DocumentModel {
             self.settings = settings
         }
         seq = Self.computeMaxSequence(objects: newObjects)
-        self.selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
+        if let selection {
+            self.selection = selection
+            pruneInvalidSelection()
+        } else if let selectedId {
+            self.selectedId = selectedId
+        } else {
+            self.selectedId = activeFeatures.compactMap(\.outputSolidId).first
+        }
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         undoStateVersion += 1
@@ -645,9 +951,7 @@ public final class DocumentModel {
     private func syncObjectsFromFeatures() {
         objects = activeFeatures.compactMap { $0.toSceneObject() }
         bodies = objects.map { Body(from: $0) }
-        if let selected = _selectedId, !objects.contains(where: { $0.id == selected }) {
-            selectedId = nil
-        }
+        pruneInvalidSelection()
     }
 
     public func body(for id: BodyId) -> Body? {
@@ -943,6 +1247,7 @@ public final class DocumentModel {
         if let solidId = removedFeature.outputSolidId, selectedId == solidId {
             selectedId = nil
         }
+        pruneInvalidSelection()
 
         let redoName = undoManager?.isUndoing == true ? "Add \(removedFeature.name)" : "Delete \(removedFeature.name)"
         undoManager?.registerUndo(withTarget: self) { target in
@@ -1046,6 +1351,7 @@ public final class DocumentModel {
         if isSuppressed, let solidId = features[index].outputSolidId, selectedId == solidId {
             selectedId = nil
         }
+        pruneInvalidSelection()
         return .success(())
     }
 
@@ -1451,6 +1757,7 @@ public final class DocumentModel {
         if selectedId == id {
             selectedId = nil
         }
+        pruneInvalidSelection()
 
         let kind = removedFeature.toSceneObject()?.def.kind.capitalized ?? "Solid"
         let redoName = undoManager?.isUndoing == true ? "Add \(kind)" : "Delete \(removedFeature.name)"

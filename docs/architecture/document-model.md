@@ -206,6 +206,43 @@ Both `setParam` and `addObject` apply the size ranges via `DocumentLimits`. The 
 
 ---
 
+## Selection Model (BL-SEL-03, DOC-10)
+
+`DocumentModel` maintains selection as first-class parametric document state using strongly typed references (`Reference`) rather than transient raw identifiers (`DOC-10`, #336):
+
+1. **Canonical Typed Reference Store**:
+   - `DocumentModel.selection: Set<Reference>` stores the active multi-element selection under `@Observable` tracking.
+   - Conforms strictly to **Invariant 2**: mutations evaluate `guard _selection != newValue else { return }` prior to firing SwiftUI observation notifications, preventing redundant view invalidations.
+   - References target timeline features (`.feature`), solid bodies (`.body`), sketch entities (`.sketchEntity`), or topological sub-elements (`.face`, `.edge`, `.vertex`) using deterministic query hashing (`deterministicId(target:role:)`).
+
+2. **Bridged Single-Entity Accessors**:
+   - For backwards compatibility with single-selection inspector workflows and viewport pick handlers, `selectedId: ObjectId?` dynamically derives from and projects into `selection`:
+     - Accessing `selectedId` extracts the primary solid identifier associated with the first body or feature reference in `selection`.
+     - Assigning `selectedId` replaces body references in `selection` with `[Reference.body(newValue)]` (or clears body references when `nil`).
+   - `selectedSubElement: SelectedSubElement?` synchronizes with topological sub-element references whose deterministic IDs match generated topology.
+   - Convenience accessors `selectedObject`, `selectedBody`, `selectedFeature`, `selectedFeatures`, and `selectedBodies` resolve referenced scene graph entities directly on `@MainActor`.
+
+3. **Multi-Selection Mutators**:
+   - Explicit mutator methods allow granular manipulation: `select(_:)`, `deselect(_:)`, `toggleSelection(_:)`, and `clearSelection()`, alongside solid-ID overloads `select(solidId:)`, `deselect(solidId:)`, and `isSelected(solidId:)`.
+
+4. **Automatic Pruning Across Mutations & Regeneration**:
+   - `pruneInvalidSelection()` uses `ReferenceResolver.resolve(reference:for:in:)` to validate referenced entities against the active feature list and scene objects.
+   - References are pruned automatically when:
+     - Features or bodies are suppressed or unsuppressed (`setFeatureSuppressed(id:isSuppressed:)`).
+     - Features or scene objects are removed (`removeFeature(id:)`, `removeObject(id:)`).
+     - The timeline rollback marker moves (`syncObjectsFromFeatures()`), excluding rolled-back entities from active selection.
+     - Sequential or incremental kernel regeneration completes in `KernelRegeneration.swift`, pruning references whose parent features failed (`parent-failed`) or whose topological generation history broke (`reference-broken`).
+
+5. **Undo / Redo Isolation**:
+   - Selection state is navigational and transient; selection mutations **never** register actions on `UndoManager`.
+   - Undoing or redoing modeling operations invokes feature/object mutators that run `syncObjectsFromFeatures()` and `pruneInvalidSelection()`, keeping selection valid without undo stack pollution.
+
+6. **Serialization & Legacy Compatibility**:
+   - `DocumentData` encodes `selection: [Reference]?` in `document.json`.
+   - On decode, `DocumentModelCoder` restores `selection: Set<Reference>`. Legacy documents containing only `selectedId` gracefully fall back to `[Reference.body(selectedId)]`.
+
+---
+
 ## Native Document Persistence (`.made`)
 
 Implemented (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model integrates with Apple's `FileDocument` protocol via `MadeDocument` and `MadePackage` as a directory package (`FileWrapper`):

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Supported target entities for parametric feature references (ADR-D2, ADR-D3).
 public enum ReferenceTarget: Sendable, Equatable, Hashable {
@@ -81,10 +82,57 @@ public struct Reference: Identifiable, Sendable, Codable, Equatable, Hashable {
     public var role: String?
     public var target: ReferenceTarget
 
-    public init(id: UUID = UUID(), role: String? = nil, target: ReferenceTarget) {
-        self.id = id
+    public static func deterministicId(target: ReferenceTarget, role: String?) -> UUID {
+        var hasher = SHA256()
+        if let role {
+            hasher.update(data: Data(role.utf8))
+        }
+        switch target {
+        case .feature(let featId):
+            hasher.update(data: Data("feature".utf8))
+            hasher.update(data: Data(featId.uuidString.utf8))
+        case .sketchEntity(let featId, let entityId):
+            hasher.update(data: Data("sketchEntity".utf8))
+            hasher.update(data: Data(featId.uuidString.utf8))
+            hasher.update(data: Data(entityId.uuidString.utf8))
+        case .body(let solidId):
+            hasher.update(data: Data("body".utf8))
+            hasher.update(data: Data(solidId.rawValue.utf8))
+        case .face(let topRef):
+            hasher.update(data: Data("face".utf8))
+            hasher.update(data: Data(topRef.id.uuidString.utf8))
+        case .edge(let topRef):
+            hasher.update(data: Data("edge".utf8))
+            hasher.update(data: Data(topRef.id.uuidString.utf8))
+        case .vertex(let topRef):
+            hasher.update(data: Data("vertex".utf8))
+            hasher.update(data: Data(topRef.id.uuidString.utf8))
+        }
+        let digest = hasher.finalize()
+        var bytes = Array(digest.prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50 // version 5 (name-based)
+        bytes[8] = (bytes[8] & 0x3F) | 0x80 // RFC 4122 variant
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
+    public init(id: UUID? = nil, role: String? = nil, target: ReferenceTarget) {
+        self.id = id ?? Self.deterministicId(target: target, role: role)
         self.role = role
         self.target = target
+    }
+
+    public static func == (lhs: Reference, rhs: Reference) -> Bool {
+        lhs.role == rhs.role && lhs.target == rhs.target
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(role)
+        hasher.combine(target)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -95,9 +143,12 @@ public struct Reference: Identifiable, Sendable, Codable, Equatable, Hashable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decode(UUID.self, forKey: .id)
-        self.role = try container.decodeIfPresent(String.self, forKey: .role)
-        self.target = try container.decode(ReferenceTarget.self, forKey: .target)
+        let role = try container.decodeIfPresent(String.self, forKey: .role)
+        let target = try container.decode(ReferenceTarget.self, forKey: .target)
+        let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? Self.deterministicId(target: target, role: role)
+        self.id = id
+        self.role = role
+        self.target = target
     }
 
     public func encode(to encoder: Encoder) throws {
