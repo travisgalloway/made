@@ -611,10 +611,19 @@ final class WorkspaceModel {
             isShowingRecoveryAlert = false
 
             let docSettings = package.manifest.documentSettings
+            let restoredSelection: Set<Reference>? = {
+                if let sel = package.documentData.selection {
+                    return Set(sel)
+                } else if let selId = package.documentData.selectedId {
+                    return [Reference.body(selId)]
+                } else {
+                    return nil
+                }
+            }()
             if let features = package.documentData.features {
-                document.reset(with: features, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
+                document.reset(with: features, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
             } else {
-                document.reset(with: package.documentData.objects, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
+                document.reset(with: package.documentData.objects, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
             }
             currentDocumentURL = url
             isDocumentModified = false
@@ -643,7 +652,9 @@ final class WorkspaceModel {
             features: document.features,
             objects: document.objects,
             selectedId: selectedId,
-            rollbackIndex: document.rollbackIndex
+            rollbackIndex: document.rollbackIndex,
+            bodies: document.bodies,
+            selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString }
         )
 
         var assets: [String: Data] = [:]
@@ -740,9 +751,19 @@ final class WorkspaceModel {
             autosaveTask = nil
 
             let docSettings = package.manifest.documentSettings
+            let restoredSelection: Set<Reference>? = {
+                if let sel = package.documentData.selection {
+                    return Set(sel)
+                } else if let selId = package.documentData.selectedId {
+                    return [Reference.body(selId)]
+                } else {
+                    return nil
+                }
+            }()
             if let features = package.documentData.features {
                 document.reset(
                     with: features,
+                    selection: restoredSelection,
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
                     settings: docSettings
@@ -750,6 +771,7 @@ final class WorkspaceModel {
             } else {
                 document.reset(
                     with: package.documentData.objects,
+                    selection: restoredSelection,
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
                     settings: docSettings

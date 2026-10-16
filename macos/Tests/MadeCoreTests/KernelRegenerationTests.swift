@@ -613,6 +613,98 @@ import Foundation
         #expect(client.requestedSolids == [solidA, solidB])
     }
 
+    // MARK: - Selection Regeneration Integration (BL-SEL-03)
+
+    @Test func testSelectionSurvivesSequentialRegenerationWhenReferencesResolve() async throws {
+        let document = DocumentModel()
+        let boxFeat = document.features[0]
+        let cylFeat = document.features[1]
+
+        let topRef = try #require(boxFeat.generatedTopology["face:top"])
+
+        let boxBodyRef = Reference.body(boxSolidId)
+        let cylFeatRef = Reference.feature(cylFeat.id)
+        let faceRef = Reference.face(topRef)
+
+        document.selection = [boxBodyRef, cylFeatRef, faceRef]
+        #expect(document.selection.count == 3)
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerate(document: document, client: client)
+
+        // All valid references survive sequential regeneration
+        #expect(document.selection.contains(boxBodyRef))
+        #expect(document.selection.contains(cylFeatRef))
+        #expect(document.selection.contains(faceRef))
+        #expect(document.selection.count == 3)
+    }
+
+    @Test func testSelectionSurvivesIncrementalRegeneration() async {
+        let document = DocumentModel(features: [])
+        let root = Feature.makeBox(solidId: boxSolidId, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(root)
+
+        let depSolid = SolidId("dep-1")
+        let dep = Feature(
+            name: "Dependent",
+            operation: .primitive(.box(BoxParams(width: 8, depth: 8, height: 8))),
+            references: [.feature(root.id)],
+            outputSolidId: depSolid
+        )
+        _ = document.addFeature(dep)
+
+        let rootRef = Reference.body(boxSolidId)
+        let depRef = Reference.body(depSolid)
+        document.selection = [rootRef, depRef]
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerateIncremental(from: root.id, in: document, client: client)
+
+        // Both references survived incremental regeneration
+        #expect(document.selection.contains(rootRef))
+        #expect(document.selection.contains(depRef))
+        #expect(document.selection.count == 2)
+    }
+
+    @Test func testSelectionPrunesBrokenReferencesOnRegeneration() async {
+        let document = DocumentModel(features: [])
+        let root = Feature.makeBox(solidId: boxSolidId, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(root)
+
+        let depSolid = SolidId("dep-1")
+        let dep = Feature(
+            name: "Dependent",
+            operation: .primitive(.box(BoxParams(width: 8, depth: 8, height: 8))),
+            references: [.feature(root.id, role: "parent")],
+            outputSolidId: depSolid
+        )
+        _ = document.addFeature(dep)
+
+        let otherSolid = SolidId("other-1")
+        let other = Feature.makeCylinder(solidId: otherSolid, params: CylinderParams(radius: 5, height: 10))
+        _ = document.addFeature(other)
+
+        let rootRef = Reference.body(boxSolidId)
+        let otherRef = Reference.body(otherSolid)
+        document.selection = [rootRef, otherRef]
+
+        // Suppress root box
+        _ = document.setFeatureSuppressed(id: root.id, isSuppressed: true)
+
+        let client = RecordingKernelClient()
+        await KernelRegeneration.regenerate(document: document, client: client)
+
+        // Dependent recorded reference-broken error
+        let depFeat = document.feature(for: dep.id)
+        #expect(depFeat?.errorState?.code == "reference-broken")
+
+        // Root reference is pruned (broken upstream), other unaffected reference survives
+        #expect(!document.selection.contains(rootRef))
+        #expect(document.selection.contains(otherRef))
+        #expect(document.selection == [otherRef])
+        #expect(document.selectedId == otherSolid)
+    }
+
     private func object(_ id: SolidId, _ def: ObjectDef) -> SceneObject {
         SceneObject(id: id, name: id.rawValue, def: def)
     }

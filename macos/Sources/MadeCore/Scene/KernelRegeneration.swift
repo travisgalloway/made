@@ -124,6 +124,7 @@ public enum KernelRegeneration {
                 }
             }
         }
+        document.pruneInvalidSelection()
     }
 
     /// Incrementally regenerates geometry starting from `featureId` and cascading strictly to its transitive dependents (BL-FND-03).

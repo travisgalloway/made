@@ -1644,5 +1644,37 @@ import MadeCore
         #expect(renderer.hiddenSolidIds.contains(boxId))
         #expect(model.document.body(for: boxId)?.isVisible == false)
     }
+
+    @Test @MainActor func testWorkspaceSelectionTracksDocumentSelection() {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        #expect(model.selectedId == boxId)
+        #expect(model.selectedObject?.id == boxId)
+        #expect(model.selectedBody?.id == boxId)
+        #expect(model.selectedFeature?.outputSolidId == boxId)
+
+        // Select cylinder via document
+        model.document.select(solidId: cylId)
+        #expect(model.document.selection.count == 2)
+        #expect(model.selectedId == boxId)
+
+        // Clear selection via document
+        model.document.clearSelection()
+        #expect(model.selectedId == nil)
+        #expect(model.selectedObject == nil)
+        #expect(model.selectedBody == nil)
+        #expect(model.selectedFeature == nil)
+
+        // Set selectedId via workspace wrapper
+        model.selectedId = cylId
+        #expect(model.document.selection == [Reference.body(cylId)])
+        #expect(model.selectedObject?.id == cylId)
+        #expect(model.selectedBody?.id == cylId)
+        #expect(model.selectedFeature?.outputSolidId == cylId)
+    }
 }
 

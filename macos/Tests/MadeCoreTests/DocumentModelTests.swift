@@ -1830,5 +1830,196 @@ import simd
         #expect(restoredSketch?.isVisible == false)
         #expect(restoredSketch?.isLocked == true)
     }
+
+    // MARK: - Selection Model (BL-SEL-03)
+
+    @Test func testInitialSelectionIsReferenceBody() {
+        let doc = DocumentModel()
+        #expect(doc.selection == [Reference.body(boxSolidId)])
+        #expect(doc.selectedId == boxSolidId)
+    }
+
+    @Test func testSelectionObservationAndNoOp() {
+        let doc = DocumentModel()
+        let changeFired = OSAllocatedUnfairLock<Bool>(initialState: false)
+        withObservationTracking {
+            _ = doc.selection
+        } onChange: {
+            changeFired.withLock { $0 = true }
+        }
+
+        // Setting a different selection fires observation
+        doc.selection = [Reference.body(cylinderSolidId)]
+        #expect(changeFired.withLock { $0 })
+        #expect(doc.selectedId == cylinderSolidId)
+
+        // Setting the identical selection does not fire observation (Invariant 2)
+        changeFired.withLock { $0 = false }
+        withObservationTracking {
+            _ = doc.selection
+        } onChange: {
+            changeFired.withLock { $0 = true }
+        }
+        doc.selection = [Reference.body(cylinderSolidId)]
+        #expect(!changeFired.withLock { $0 })
+
+        // Adding an already selected reference does not fire observation (Invariant 2)
+        withObservationTracking {
+            _ = doc.selection
+        } onChange: {
+            changeFired.withLock { $0 = true }
+        }
+        doc.select(Reference.body(cylinderSolidId))
+        #expect(!changeFired.withLock { $0 })
+    }
+
+    @Test func testMultiReferenceSelectionHelpers() {
+        let doc = DocumentModel()
+        let boxRef = Reference.body(boxSolidId)
+        let cylRef = Reference.body(cylinderSolidId)
+
+        #expect(doc.isSelected(boxRef))
+        #expect(!doc.isSelected(cylRef))
+        #expect(doc.isSelected(solidId: boxSolidId))
+        #expect(!doc.isSelected(solidId: cylinderSolidId))
+
+        // Select cylinder
+        doc.select(cylRef)
+        #expect(doc.selection.count == 2)
+        #expect(doc.isSelected(cylRef))
+        #expect(doc.isSelected(solidId: cylinderSolidId))
+        #expect(doc.selectedId == boxSolidId)
+
+        // Toggle box off
+        doc.toggleSelection(boxRef)
+        #expect(!doc.isSelected(boxRef))
+        #expect(doc.selection.count == 1)
+        #expect(doc.selectedId == cylinderSolidId)
+
+        // Deselect cylinder via solidId
+        doc.deselect(solidId: cylinderSolidId)
+        #expect(doc.selection.isEmpty)
+        #expect(doc.selectedId == nil)
+        #expect(doc.selectedSubElement == nil)
+
+        // Re-select via select(solidId:)
+        doc.select(solidId: boxSolidId)
+        #expect(doc.isSelected(solidId: boxSolidId))
+        #expect(doc.selectedId == boxSolidId)
+
+        // Clear selection
+        doc.clearSelection()
+        #expect(doc.selection.isEmpty)
+        #expect(doc.selectedId == nil)
+        #expect(doc.selectedSubElement == nil)
+
+        // Calling clearSelection on already empty is a no-op
+        let changeFired = OSAllocatedUnfairLock<Bool>(initialState: false)
+        withObservationTracking {
+            _ = doc.selection
+        } onChange: {
+            changeFired.withLock { $0 = true }
+        }
+        doc.clearSelection()
+        #expect(!changeFired.withLock { $0 })
+    }
+
+    @Test func testSelectedObjectBodyFeatureAccessors() {
+        let doc = DocumentModel()
+        #expect(doc.selectedObject?.id == boxSolidId)
+        #expect(doc.selectedBody?.id == boxSolidId)
+        #expect(doc.selectedFeature?.outputSolidId == boxSolidId)
+        #expect(doc.selectedFeatures.count == 1)
+        #expect(doc.selectedBodies.count == 1)
+
+        // Add cylinder to selection
+        doc.select(solidId: cylinderSolidId)
+        #expect(doc.selectedFeatures.count == 2)
+        #expect(doc.selectedBodies.count == 2)
+
+        // Clear selection
+        doc.clearSelection()
+        #expect(doc.selectedObject == nil)
+        #expect(doc.selectedBody == nil)
+        #expect(doc.selectedFeature == nil)
+        #expect(doc.selectedFeatures.isEmpty)
+        #expect(doc.selectedBodies.isEmpty)
+    }
+
+    @Test func testSelectionPrunedOnFeatureSuppressionAndDeletion() {
+        let doc = DocumentModel()
+        doc.select(solidId: cylinderSolidId)
+        #expect(doc.selection.count == 2)
+
+        // Suppress box feature
+        let boxFeat = doc.features[0]
+        _ = doc.setFeatureSuppressed(id: boxFeat.id, isSuppressed: true)
+
+        // Box reference is pruned from selection
+        #expect(!doc.isSelected(solidId: boxSolidId))
+        #expect(doc.isSelected(solidId: cylinderSolidId))
+        #expect(doc.selectedId == cylinderSolidId)
+
+        // Unsuppressing does not automatically resurrect pruned selection
+        _ = doc.setFeatureSuppressed(id: boxFeat.id, isSuppressed: false)
+        #expect(!doc.isSelected(solidId: boxSolidId))
+        #expect(doc.isSelected(solidId: cylinderSolidId))
+
+        // Deleting cylinder feature prunes selection
+        let cylFeat = doc.features[1]
+        _ = doc.removeFeature(id: cylFeat.id)
+        #expect(doc.selection.isEmpty)
+        #expect(doc.selectedId == nil)
+    }
+
+    @Test func testSelectionPrunedOnRollback() {
+        let doc = DocumentModel()
+        doc.selectedId = cylinderSolidId
+        #expect(doc.isSelected(solidId: cylinderSolidId))
+
+        // Roll back before cylinder (effective index = 1, only box active)
+        doc.setRollbackIndex(1)
+        #expect(doc.isRolledBack)
+        #expect(!doc.isSelected(solidId: cylinderSolidId))
+        #expect(doc.selection.isEmpty)
+        #expect(doc.selectedId == nil)
+
+        // Rolling forward to end does not resurrect pruned selection
+        doc.rollForwardToEnd()
+        #expect(!doc.isSelected(solidId: cylinderSolidId))
+        #expect(doc.selection.isEmpty)
+        #expect(doc.selectedId == nil)
+    }
+
+    @Test func testSelectionSubElementDeterministicIdSync() throws {
+        let doc = DocumentModel()
+        let topRef = try #require(doc.features[0].generatedTopology["face:top"])
+
+        let sub = SelectedSubElement(
+            solidId: boxSolidId,
+            elementType: .face,
+            elementId: 0,
+            deterministicId: topRef.id
+        )
+        doc.selectedSubElement = sub
+
+        #expect(doc.isSelected(Reference.face(topRef)))
+        #expect(doc.selectedSubElement == sub)
+    }
+
+    @Test func testUndoRedoDoesNotPolluteSelection() {
+        let doc = DocumentModel()
+        doc.undoManager?.removeAllActions()
+        #expect(doc.undoManager?.canUndo == false)
+
+        doc.select(solidId: cylinderSolidId)
+        #expect(doc.undoManager?.canUndo == false)
+
+        doc.toggleSelection(Reference.body(boxSolidId))
+        #expect(doc.undoManager?.canUndo == false)
+
+        doc.clearSelection()
+        #expect(doc.undoManager?.canUndo == false)
+    }
 }
 
