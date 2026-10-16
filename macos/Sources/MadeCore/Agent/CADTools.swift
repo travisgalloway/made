@@ -185,6 +185,16 @@ public final class CADToolRegistry {
                         )
                     ]
                 )
+            ),
+            MCPToolDefinition(
+                name: "cad_rollback",
+                description: "Rolls the CAD history timeline backward or forward to an earlier or later feature. Features after the rollback marker are excluded from evaluation and viewport rendering. New solids added while rolled back are inserted at the marker position.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "index": MCPProperty(type: "number", description: "Optional 0-based insertion index to position the rollback marker. When omitted and solidId is provided, rolls back to that solid."),
+                        "solidId": MCPProperty(type: "string", description: "Optional solid ID to roll back to (marker placed after this solid). When 'end' or omitted with index omitted, rolls forward to the end.")
+                    ]
+                )
             )
         ]
     }
@@ -196,6 +206,9 @@ public final class CADToolRegistry {
             
         case "cad_add_solid":
             return handleAddSolid(arguments: arguments)
+
+        case "cad_rollback":
+            return await handleRollback(arguments: arguments)
             
         case "cad_boolean_operation":
             return await handleBooleanOperation(arguments: arguments)
@@ -313,6 +326,60 @@ public final class CADToolRegistry {
             dimStr = ""
         }
         return .text("Successfully added solid with ID: \(id.rawValue) \(dimStr) at position (\(transform.position.x), \(transform.position.y), \(transform.position.z))")
+    }
+
+    private func handleRollback(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        let oldObjects = document.objects
+        let result: Result<Void, DocumentMutationError>
+
+        if let rawIndex = arguments["index"] {
+            guard let doubleVal = rawIndex.doubleValue, doubleVal.isFinite else {
+                return .error("Argument 'index' must be a valid number")
+            }
+            let index = Int(doubleVal)
+            result = document.setRollbackIndex(index)
+        } else if let rawSolidId = (arguments["solidId"] ?? arguments["solid_id"])?.stringValue {
+            if rawSolidId == "end" {
+                result = document.rollForwardToEnd()
+            } else {
+                let solidId = SolidId(rawSolidId)
+                guard let feat = document.feature(for: solidId) else {
+                    return .error("Solid '\(rawSolidId)' not found in timeline")
+                }
+                result = document.rollBack(to: feat.id)
+            }
+        } else {
+            result = document.rollForwardToEnd()
+        }
+
+        switch result {
+        case .failure(let err):
+            return .error("Rollback failed: \(err.description)")
+        case .success:
+            break
+        }
+
+        // Synchronize renderer meshes for removed objects
+        let remaining = Set(document.objects.map(\.id))
+        for obj in oldObjects where !remaining.contains(obj.id) {
+            partReloadController.stopWatching(id: obj.id)
+            await kernelClient.dispose(solidId: obj.id)
+            if let sink = meshSink {
+                _ = SolidMeshApplier.remove(id: obj.id, from: sink)
+            }
+        }
+
+        // Schedule recomputes for newly active objects
+        let oldSet = Set(oldObjects.map(\.id))
+        for obj in document.objects where !oldSet.contains(obj.id) {
+            scheduleRecompute(id: obj.id)
+        }
+        if !oldObjects.elementsEqual(document.objects, by: { $0.id == $1.id }) {
+            onViewportInvalidated?()
+        }
+
+        let stateStr = document.isRolledBack ? "rolled back at index \(document.effectiveRollbackIndex)" : "fully rolled forward"
+        return .text("Timeline \(stateStr). Active features: \(document.activeFeatures.count) / \(document.features.count). Objects in scene: \(document.objects.count).")
     }
     
     private func handleSetParam(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {

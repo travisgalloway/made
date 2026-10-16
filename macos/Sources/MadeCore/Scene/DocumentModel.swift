@@ -326,8 +326,30 @@ public let cylinderSolidId = SolidId("cylinder-1")
 @Observable
 @MainActor
 public final class DocumentModel {
+    public private(set) var rollbackIndex: Int? {
+        didSet {
+            if let idx = rollbackIndex {
+                let clamped = min(max(0, idx), features.count)
+                let normalized = (clamped >= features.count) ? nil : clamped
+                if normalized != rollbackIndex {
+                    rollbackIndex = normalized
+                    return
+                }
+            }
+            syncObjectsFromFeatures()
+        }
+    }
+
     public private(set) var features: [Feature] = [] {
         didSet {
+            if let idx = rollbackIndex {
+                let clamped = min(max(0, idx), features.count)
+                let normalized = (clamped >= features.count) ? nil : clamped
+                if normalized != rollbackIndex {
+                    rollbackIndex = normalized
+                    return
+                }
+            }
             syncObjectsFromFeatures()
         }
     }
@@ -346,6 +368,21 @@ public final class DocumentModel {
     public var onUndoRedoMutation: (@MainActor (DocumentMutation) -> Void)?
     private var activeInteractiveParamEdit: (id: ObjectId, key: String, initialValue: Float)?
     @ObservationIgnored private var undoObservers: [NSObjectProtocol] = []
+
+    public var isRolledBack: Bool { rollbackIndex != nil }
+    public var effectiveRollbackIndex: Int { rollbackIndex ?? features.count }
+    public var activeFeatures: [Feature] { Array(features.prefix(effectiveRollbackIndex)) }
+    public var rolledBackFeatures: [Feature] { Array(features.dropFirst(effectiveRollbackIndex)) }
+
+    public func isFeatureActive(id: UUID) -> Bool {
+        guard let idx = features.firstIndex(where: { $0.id == id }) else { return false }
+        return idx < effectiveRollbackIndex
+    }
+
+    public func isFeatureActive(solidId: ObjectId) -> Bool {
+        guard let idx = features.firstIndex(where: { $0.outputSolidId == solidId }) else { return false }
+        return idx < effectiveRollbackIndex
+    }
 
     public var selectedId: ObjectId? {
         get {
@@ -389,50 +426,80 @@ public final class DocumentModel {
             transform: Transform(position: SIMD3<Float>(25, 0, 0))
         )
         self.features = [boxFeature, cylinderFeature]
+        self.rollbackIndex = nil
+        self._selectedId = boxSolidId
         syncObjectsFromFeatures()
         self.seq = Self.computeMaxSequence(features: self.features)
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selectedId: ObjectId? = nil) {
+    public init(features: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
         self.features = features
+        if let idx = rollbackIndex {
+            let clamped = min(max(0, idx), features.count)
+            self.rollbackIndex = (clamped >= features.count) ? nil : clamped
+        } else {
+            self.rollbackIndex = nil
+        }
         syncObjectsFromFeatures()
-        self._selectedId = selectedId ?? features.compactMap(\.outputSolidId).first
+        self._selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
         self.seq = Self.computeMaxSequence(features: features)
         setupUndoObservers()
     }
 
-    public init(objects: [SceneObject], selectedId: ObjectId? = nil) {
+    public init(objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
         let convertedFeatures = objects.map { Feature(from: $0) }
         self.features = convertedFeatures
+        if let idx = rollbackIndex {
+            let clamped = min(max(0, idx), convertedFeatures.count)
+            self.rollbackIndex = (clamped >= convertedFeatures.count) ? nil : clamped
+        } else {
+            self.rollbackIndex = nil
+        }
         syncObjectsFromFeatures()
-        self._selectedId = selectedId ?? objects.first?.id
+        self._selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
         self.seq = Self.computeMaxSequence(objects: objects)
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selectedId: ObjectId? = nil) {
+    public func reset(with newFeatures: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
         undoManager?.removeAllActions()
         features = newFeatures
+        if let idx = rollbackIndex {
+            let clamped = min(max(0, idx), newFeatures.count)
+            self.rollbackIndex = (clamped >= newFeatures.count) ? nil : clamped
+        } else {
+            self.rollbackIndex = nil
+        }
         seq = Self.computeMaxSequence(features: newFeatures)
-        self.selectedId = selectedId ?? newFeatures.compactMap(\.outputSolidId).first
+        self.selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selectedId: ObjectId? = nil) {
+    public func reset(with newObjects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
         undoManager?.removeAllActions()
-        features = newObjects.map { Feature(from: $0) }
+        let convertedFeatures = newObjects.map { Feature(from: $0) }
+        features = convertedFeatures
+        if let idx = rollbackIndex {
+            let clamped = min(max(0, idx), convertedFeatures.count)
+            self.rollbackIndex = (clamped >= convertedFeatures.count) ? nil : clamped
+        } else {
+            self.rollbackIndex = nil
+        }
         seq = Self.computeMaxSequence(objects: newObjects)
-        self.selectedId = selectedId ?? newObjects.first?.id
+        self.selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         undoStateVersion += 1
     }
 
     private func syncObjectsFromFeatures() {
-        objects = features.compactMap { $0.toSceneObject() }
+        objects = activeFeatures.compactMap { $0.toSceneObject() }
+        if let selected = _selectedId, !objects.contains(where: { $0.id == selected }) {
+            selectedId = nil
+        }
     }
 
     private static func computeMaxSequence(features: [Feature]) -> Int {
@@ -533,21 +600,115 @@ public final class DocumentModel {
         undoManager?.redo()
     }
 
+    // MARK: - Rollback Marker (BL-FND-05)
+
+    @discardableResult
+    public func setRollbackIndex(_ index: Int?, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        let normalizedIndex: Int?
+        if let index {
+            let clamped = min(max(0, index), features.count)
+            normalizedIndex = (clamped >= features.count) ? nil : clamped
+        } else {
+            normalizedIndex = nil
+        }
+        guard rollbackIndex != normalizedIndex else { return .success(()) }
+
+        let previousIndex = rollbackIndex
+        if registerUndo {
+            let undoName = actionName ?? "Rollback"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setRollbackIndex(previousIndex, actionName: undoName, registerUndo: true)
+                    target.undoManager?.setActionName(undoName)
+                }
+            }
+            undoManager?.setActionName(undoName)
+            undoStateVersion += 1
+        }
+
+        rollbackIndex = normalizedIndex
+        return .success(())
+    }
+
+    @discardableResult
+    public func rollBack(to index: Int) -> Result<Void, DocumentMutationError> {
+        return setRollbackIndex(index, actionName: "Roll Back")
+    }
+
+    @discardableResult
+    public func rollBack(to featureId: UUID) -> Result<Void, DocumentMutationError> {
+        guard let idx = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        return setRollbackIndex(idx + 1, actionName: "Roll Back")
+    }
+
+    @discardableResult
+    public func rollBack(before featureId: UUID) -> Result<Void, DocumentMutationError> {
+        guard let idx = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        return setRollbackIndex(idx, actionName: "Roll Back")
+    }
+
+    @discardableResult
+    public func rollBack(to solidId: ObjectId) -> Result<Void, DocumentMutationError> {
+        guard let feat = feature(for: solidId) else {
+            return .failure(.objectNotFound(solidId))
+        }
+        return rollBack(to: feat.id)
+    }
+
+    @discardableResult
+    public func rollBack(before solidId: ObjectId) -> Result<Void, DocumentMutationError> {
+        guard let feat = feature(for: solidId) else {
+            return .failure(.objectNotFound(solidId))
+        }
+        return rollBack(before: feat.id)
+    }
+
+    @discardableResult
+    public func rollForwardToEnd() -> Result<Void, DocumentMutationError> {
+        setRollbackIndex(nil, actionName: "Roll Forward to End")
+    }
+
+    @discardableResult
+    public func rollBackOne() -> Result<Void, DocumentMutationError> {
+        guard effectiveRollbackIndex > 0 else { return .success(()) }
+        return setRollbackIndex(effectiveRollbackIndex - 1, actionName: "Roll Back")
+    }
+
+    @discardableResult
+    public func rollForwardOne() -> Result<Void, DocumentMutationError> {
+        guard isRolledBack else { return .success(()) }
+        return setRollbackIndex(effectiveRollbackIndex + 1, actionName: "Roll Forward")
+    }
+
     // MARK: - Feature Mutators (ADR-D2)
 
     @discardableResult
     public func addFeature(_ feature: Feature) -> UUID {
-        features.append(feature)
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        features.insert(feature, at: insertIndex)
         if let solidId = feature.outputSolidId {
             let parts = solidId.rawValue.split(separator: "-")
             if parts.count >= 2, let lastNum = Int(parts.last!) {
                 seq = max(seq, lastNum)
             }
+            selectedId = solidId
         }
+
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+
         let featureId = feature.id
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 _ = target.removeFeature(id: featureId)
+                target.rollbackIndex = previousRollback
                 target.undoManager?.setActionName("Add Feature")
                 if let solidId = feature.outputSolidId {
                     target.onUndoRedoMutation?(.removed(solidId))
@@ -569,7 +730,21 @@ public final class DocumentModel {
         }
         let removedFeature = features[index]
         let removedIndex = index
+        let previousRollback = rollbackIndex
+
         features.remove(at: index)
+
+        if let curRollback = rollbackIndex {
+            if removedIndex < curRollback {
+                let decremented = max(0, curRollback - 1)
+                rollbackIndex = (decremented >= features.count) ? nil : decremented
+            } else {
+                if curRollback >= features.count {
+                    rollbackIndex = nil
+                }
+            }
+        }
+
         if let solidId = removedFeature.outputSolidId, selectedId == solidId {
             selectedId = nil
         }
@@ -578,6 +753,7 @@ public final class DocumentModel {
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName)
+                target.rollbackIndex = previousRollback
                 target.undoManager?.setActionName(redoName)
                 if let solidId = removedFeature.outputSolidId {
                     target.onUndoRedoMutation?(.added(solidId))
@@ -595,7 +771,15 @@ public final class DocumentModel {
             return .failure(.objectLocked(feature.outputSolidId ?? ObjectId(feature.id.uuidString)))
         }
         let targetIndex = min(max(0, index), features.count)
+        let previousRollback = rollbackIndex
+
         features.insert(feature, at: targetIndex)
+        if let curRollback = rollbackIndex {
+            if targetIndex <= curRollback {
+                let newIndex = curRollback + 1
+                rollbackIndex = (newIndex >= features.count) ? nil : newIndex
+            }
+        }
         if let solidId = feature.outputSolidId {
             selectedId = solidId
         }
@@ -604,6 +788,7 @@ public final class DocumentModel {
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 _ = target.removeFeature(id: feature.id)
+                target.rollbackIndex = previousRollback
                 target.undoManager?.setActionName(undoName)
                 if let solidId = feature.outputSolidId {
                     target.onUndoRedoMutation?(.removed(solidId))
@@ -840,11 +1025,19 @@ public final class DocumentModel {
         }
         let obj = SceneObject(id: id, name: defaultName, def: clamped, transform: transform)
         let feature = Feature(from: obj)
-        features.append(feature)
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        features.insert(feature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = id
 
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 let res = target.removeObject(id: id)
+                target.rollbackIndex = previousRollback
                 guard case .success = res else { return }
                 target.undoManager?.setActionName("Add \(clamped.kind.capitalized)")
                 target.onUndoRedoMutation?(.removed(id))
@@ -862,14 +1055,22 @@ public final class DocumentModel {
             return .failure(.objectLocked(obj.id))
         }
         let targetIndex = min(max(0, index), features.count)
+        let previousRollback = rollbackIndex
         let feature = Feature(from: obj)
         features.insert(feature, at: targetIndex)
+        if let curRollback = rollbackIndex {
+            if targetIndex <= curRollback {
+                let newIndex = curRollback + 1
+                rollbackIndex = (newIndex >= features.count) ? nil : newIndex
+            }
+        }
         selectedId = obj.id
 
         let undoName = actionName ?? "Delete \(obj.name)"
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 let res = target.removeObject(id: obj.id)
+                target.rollbackIndex = previousRollback
                 guard case .success = res else { return }
                 target.undoManager?.setActionName(undoName)
                 target.onUndoRedoMutation?(.removed(obj.id))
@@ -893,11 +1094,19 @@ public final class DocumentModel {
             outputSolidId: id,
             transform: transform
         )
-        features.append(feature)
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        features.insert(feature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = id
 
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 let res = target.removeObject(id: id)
+                target.rollbackIndex = previousRollback
                 guard case .success = res else { return }
                 target.undoManager?.setActionName("Add Part")
                 target.onUndoRedoMutation?(.removed(id))
@@ -927,7 +1136,21 @@ public final class DocumentModel {
         }
         let removedFeature = features[index]
         let removedIndex = index
+        let previousRollback = rollbackIndex
+
         features.remove(at: index)
+
+        if let curRollback = rollbackIndex {
+            if removedIndex < curRollback {
+                let decremented = max(0, curRollback - 1)
+                rollbackIndex = (decremented >= features.count) ? nil : decremented
+            } else {
+                if curRollback >= features.count {
+                    rollbackIndex = nil
+                }
+            }
+        }
+
         if selectedId == id {
             selectedId = nil
         }
@@ -937,6 +1160,7 @@ public final class DocumentModel {
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
                 _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName)
+                target.rollbackIndex = previousRollback
                 target.undoManager?.setActionName(redoName)
                 target.onUndoRedoMutation?(.added(id))
             }

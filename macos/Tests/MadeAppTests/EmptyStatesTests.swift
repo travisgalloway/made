@@ -214,4 +214,15 @@ import MadeCore
         ]
         #expect(viewsWithCylinderSelected.count == 2)
     }
+
+    @Test @MainActor func testNavigatorSidebarRenderingWithRolledBackState() {
+        let workspace = WorkspaceModel()
+        workspace.rollBack(to: 1)
+        #expect(workspace.isRolledBack)
+
+        let views: [any View] = [
+            NavigatorSidebarView().environment(workspace)
+        ]
+        #expect(views.count == 1)
+    }
 }

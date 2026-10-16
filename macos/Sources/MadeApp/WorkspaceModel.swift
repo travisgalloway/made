@@ -536,7 +536,11 @@ final class WorkspaceModel {
             self.decimalPrecision = package.manifest.units.decimalPrecision
             self.kernelTolerances = package.manifest.tolerances
 
-            document.reset(with: package.documentData.objects, selectedId: package.documentData.selectedId)
+            if let features = package.documentData.features {
+                document.reset(with: features, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex)
+            } else {
+                document.reset(with: package.documentData.objects, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex)
+            }
             currentDocumentURL = url
             isDocumentModified = false
             syncWindowState()
@@ -569,7 +573,13 @@ final class WorkspaceModel {
                 units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
                 tolerances: kernelTolerances
             )
-            let docData = DocumentData(schemaVersion: 1, objects: document.objects, selectedId: selectedId)
+            let docData = DocumentData(
+                schemaVersion: 1,
+                features: document.features,
+                objects: document.objects,
+                selectedId: selectedId,
+                rollbackIndex: document.rollbackIndex
+            )
 
             var assets: [String: Data] = [:]
             for obj in document.objects {
@@ -654,6 +664,60 @@ final class WorkspaceModel {
         markDocumentModified()
         log(.info, "Scene", "Added object \(id.rawValue)")
         recomputeSolid(id: id)
+    }
+
+    // MARK: - Rollback Timeline (BL-FND-05)
+
+    var isRolledBack: Bool {
+        document.isRolledBack
+    }
+
+    func rollBack(to index: Int) {
+        setRollbackIndex(index)
+    }
+
+    func rollBack(to id: ObjectId) {
+        guard let feat = document.feature(for: id) else { return }
+        let oldObjects = document.objects
+        let res = document.rollBack(to: feat.id)
+        guard case .success = res else { return }
+        markDocumentModified()
+        syncMeshes(removedFrom: oldObjects, to: document.objects)
+        log(.info, "Timeline", "Rolled back to \(id.rawValue)")
+    }
+
+    func rollBack(before id: ObjectId) {
+        guard let feat = document.feature(for: id) else { return }
+        let oldObjects = document.objects
+        let res = document.rollBack(before: feat.id)
+        guard case .success = res else { return }
+        markDocumentModified()
+        syncMeshes(removedFrom: oldObjects, to: document.objects)
+        log(.info, "Timeline", "Rolled back before \(id.rawValue)")
+    }
+
+    func rollForwardToEnd() {
+        let oldObjects = document.objects
+        let res = document.rollForwardToEnd()
+        guard case .success = res else { return }
+        markDocumentModified()
+        syncMeshes(removedFrom: oldObjects, to: document.objects)
+        for obj in document.objects {
+            recomputeSolid(id: obj.id)
+        }
+        log(.info, "Timeline", "Rolled forward to end")
+    }
+
+    func setRollbackIndex(_ index: Int?) {
+        let oldObjects = document.objects
+        let res = document.setRollbackIndex(index)
+        guard case .success = res else { return }
+        markDocumentModified()
+        syncMeshes(removedFrom: oldObjects, to: document.objects)
+        for obj in document.objects {
+            recomputeSolid(id: obj.id)
+        }
+        log(.info, "Timeline", index != nil ? "Rollback marker set to \(index!)" : "Rolled forward to end")
     }
 
     /// Opens and watches a standalone `.part.ts` / `.part.js` file or all part files inside a `.made` directory package (#427).
@@ -1065,11 +1129,23 @@ final class WorkspaceModel {
     }
 
     func undo() {
+        let oldObjects = document.objects
         document.undo()
+        syncMeshes(removedFrom: oldObjects, to: document.objects)
+        let oldSet = Set(oldObjects.map(\.id))
+        for obj in document.objects where !oldSet.contains(obj.id) {
+            recomputeSolid(id: obj.id)
+        }
     }
 
     func redo() {
+        let oldObjects = document.objects
         document.redo()
+        syncMeshes(removedFrom: oldObjects, to: document.objects)
+        let oldSet = Set(oldObjects.map(\.id))
+        for obj in document.objects where !oldSet.contains(obj.id) {
+            recomputeSolid(id: obj.id)
+        }
     }
 
     func beginInteractiveParamEdit(_ id: ObjectId, _ key: String) {
@@ -1445,6 +1521,12 @@ final class WorkspaceModel {
     static let reloadPartShortcutKey: KeyEquivalent = "r"
     static let reloadPartShortcutModifiers: EventModifiers = [.control, .command]
 
+    static let rollBackToSelectedShortcutKey: KeyEquivalent = "["
+    static let rollBackToSelectedShortcutModifiers: EventModifiers = [.command, .option]
+
+    static let rollForwardToEndShortcutKey: KeyEquivalent = "]"
+    static let rollForwardToEndShortcutModifiers: EventModifiers = [.command, .option]
+
     static let zoomInShortcutKey: KeyEquivalent = "="
     static let zoomInShortcutModifiers: EventModifiers = [.command]
 
@@ -1529,6 +1611,8 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Hide/Show Solid", shortcut: "⇧⌘H", category: .editing, description: "Toggle visibility of selected solid"),
         ShortcutCheatsheetEntry(title: "Lock/Unlock Solid", shortcut: "⇧⌘L", category: .editing, description: "Toggle lock state of selected solid to prevent edits"),
         ShortcutCheatsheetEntry(title: "Reload Part", shortcut: "⌃⌘R", category: .editing, description: "Force recompute and rebuild active CAD part or script"),
+        ShortcutCheatsheetEntry(title: "Roll Back to Selected", shortcut: "⌥⌘[", category: .editing, description: "Roll model timeline back to selected solid"),
+        ShortcutCheatsheetEntry(title: "Roll Forward to End", shortcut: "⌥⌘]", category: .editing, description: "Roll model timeline forward to latest feature"),
 
         ShortcutCheatsheetEntry(title: "New Document", shortcut: "⌘N", category: .workspace, description: "Create a new CAD document with default scene solids"),
         ShortcutCheatsheetEntry(title: "Open Document", shortcut: "⌘O", category: .workspace, description: "Open a native .made CAD directory package"),

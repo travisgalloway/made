@@ -1309,6 +1309,46 @@ import simd
             Issue.record("Expected box definition")
         }
     }
+
+    @Test func testCADRollbackToIndexAndToEnd() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+
+        // Roll back to index 1
+        let rollMsg = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cad_rollback","arguments":{"index":1}}}"#
+        let rollResp = await server.processMessage(rollMsg)
+        #expect(rollResp?.contains("rolled back at index 1") == true)
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.objects.count == 1)
+
+        // Roll forward to end
+        let endMsg = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cad_rollback","arguments":{}}}"#
+        let endResp = await server.processMessage(endMsg)
+        #expect(endResp?.contains("fully rolled forward") == true)
+        #expect(doc.rollbackIndex == nil)
+        #expect(doc.objects.count == 2)
+    }
+
+    @Test func testCADRollbackToSolidId() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+
+        // Roll back to solid_id box-1
+        let rollMsg = #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"cad_rollback","arguments":{"solid_id":"box-1"}}}"#
+        let rollResp = await server.processMessage(rollMsg)
+        #expect(rollResp?.contains("rolled back at index 1") == true)
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.objects.count == 1)
+
+        // Non-existent solid returns error
+        let badMsg = #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"cad_rollback","arguments":{"solid_id":"nonexistent"}}}"#
+        let badResp = await server.processMessage(badMsg)
+        #expect(badResp?.contains("not found in timeline") == true)
+    }
 }
 
 @MainActor

@@ -1139,5 +1139,176 @@ import simd
         doc.reset(with: [SceneObject]())
         #expect(doc.selectedSubElement == nil)
     }
+
+    // MARK: - Rollback Marker (BL-FND-05)
+
+    @Test func testAddFeatureInsertsAtRollbackMarker() {
+        let doc = DocumentModel()
+        #expect(doc.features.count == 2)
+
+        // Roll back to index 1 (between box-1 and cylinder-1)
+        doc.setRollbackIndex(1)
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.activeFeatures.count == 1)
+
+        // Insert new box feature
+        let newBox = Feature.makeBox(solidId: SolidId("box-2"), params: BoxParams(width: 25, depth: 25, height: 25))
+        let addedId = doc.addFeature(newBox)
+
+        #expect(doc.features.count == 3)
+        #expect(doc.features[0].outputSolidId == boxSolidId)
+        #expect(doc.features[1].id == addedId)
+        #expect(doc.features[1].outputSolidId == SolidId("box-2"))
+        #expect(doc.features[2].outputSolidId == cylinderSolidId)
+
+        // Marker advanced by 1 so new feature is active, but cylinder-1 is still rolled back
+        #expect(doc.rollbackIndex == 2)
+        #expect(doc.isRolledBack)
+        #expect(doc.activeFeatures.count == 2)
+        #expect(doc.objects.count == 2)
+        #expect(doc.objects.map(\.id) == [boxSolidId, SolidId("box-2")])
+    }
+
+    @Test func testAddObjectInsertsAtRollbackMarker() {
+        let doc = DocumentModel()
+        #expect(doc.features.count == 2)
+
+        // Roll back to 0 (all rolled back)
+        doc.setRollbackIndex(0)
+        #expect(doc.rollbackIndex == 0)
+        #expect(doc.activeFeatures.isEmpty)
+        #expect(doc.objects.isEmpty)
+
+        // Add object at marker 0
+        let newId = doc.addObject(def: .box(BoxParams(width: 30, depth: 30, height: 30)))
+        #expect(doc.features.count == 3)
+        #expect(doc.features[0].outputSolidId == newId)
+        #expect(doc.features[1].outputSolidId == boxSolidId)
+        #expect(doc.features[2].outputSolidId == cylinderSolidId)
+
+        // Marker advanced to 1: new box is active, previous two remain rolled back
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.isRolledBack)
+        #expect(doc.activeFeatures.count == 1)
+        #expect(doc.objects.count == 1)
+        #expect(doc.objects.first?.id == newId)
+    }
+
+    @Test func testUndoRedoAddFeatureAtMarker() {
+        let doc = DocumentModel()
+        doc.undoManager?.groupsByEvent = false
+
+        doc.undoManager?.beginUndoGrouping()
+        doc.setRollbackIndex(1)
+        doc.undoManager?.endUndoGrouping()
+        #expect(doc.rollbackIndex == 1)
+
+        let newBox = Feature.makeBox(solidId: SolidId("box-2"), params: BoxParams(width: 25, depth: 25, height: 25))
+        doc.undoManager?.beginUndoGrouping()
+        _ = doc.addFeature(newBox)
+        doc.undoManager?.endUndoGrouping()
+        #expect(doc.rollbackIndex == 2)
+        #expect(doc.features.count == 3)
+
+        // Undo: removes feature and restores rollbackIndex to 1
+        doc.undo()
+        #expect(doc.features.count == 2)
+        #expect(doc.features.map(\.outputSolidId) == [boxSolidId, cylinderSolidId])
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.activeFeatures.count == 1)
+        #expect(doc.objects.count == 1)
+
+        // Redo: re-inserts feature and restores rollbackIndex to 2
+        doc.redo()
+        #expect(doc.features.count == 3)
+        #expect(doc.features[1].outputSolidId == SolidId("box-2"))
+        #expect(doc.rollbackIndex == 2)
+        #expect(doc.activeFeatures.count == 2)
+        #expect(doc.objects.count == 2)
+    }
+
+    @Test func testUndoRedoRollbackMarker() {
+        let doc = DocumentModel()
+        doc.undoManager?.groupsByEvent = false
+        #expect(doc.rollbackIndex == nil)
+
+        // Roll back to 1
+        doc.undoManager?.beginUndoGrouping()
+        doc.setRollbackIndex(1)
+        doc.undoManager?.endUndoGrouping()
+        #expect(doc.rollbackIndex == 1)
+
+        // Roll back to 0
+        doc.undoManager?.beginUndoGrouping()
+        doc.setRollbackIndex(0)
+        doc.undoManager?.endUndoGrouping()
+        #expect(doc.rollbackIndex == 0)
+
+        // Undo once -> restores 1
+        doc.undo()
+        #expect(doc.rollbackIndex == 1)
+
+        // Undo again -> restores nil (fully rolled forward)
+        doc.undo()
+        #expect(doc.rollbackIndex == nil)
+        #expect(!doc.isRolledBack)
+
+        // Redo once -> 1
+        doc.redo()
+        #expect(doc.rollbackIndex == 1)
+
+        // Redo again -> 0
+        doc.redo()
+        #expect(doc.rollbackIndex == 0)
+    }
+
+    @Test func testRemoveFeatureAdjustsRollbackMarker() {
+        let doc = DocumentModel()
+        let f3 = Feature.makeBox(solidId: SolidId("box-3"), params: BoxParams(width: 20, depth: 20, height: 20))
+        doc.addFeature(f3)
+        #expect(doc.features.count == 3)
+
+        // Roll back to 2 (features 0 and 1 active; feature 2 inactive)
+        doc.setRollbackIndex(2)
+        #expect(doc.rollbackIndex == 2)
+
+        // Removing an inactive feature (index 2) leaves marker position invariant (still 2, which is now == count, so normalized to nil)
+        let removedInactive = doc.features[2].id
+        doc.removeFeature(id: removedInactive)
+        #expect(doc.features.count == 2)
+        #expect(doc.rollbackIndex == nil)
+
+        // Re-add a feature and roll back to 2
+        let f4 = Feature.makeBox(solidId: SolidId("box-4"), params: BoxParams(width: 20, depth: 20, height: 20))
+        let f5 = Feature.makeBox(solidId: SolidId("box-5"), params: BoxParams(width: 20, depth: 20, height: 20))
+        doc.addFeature(f4)
+        doc.addFeature(f5)
+        #expect(doc.features.count == 4)
+
+        doc.setRollbackIndex(2)
+        #expect(doc.rollbackIndex == 2)
+
+        // Removing an active feature before marker (index 0) decrements marker by 1
+        let firstId = doc.features[0].id
+        doc.removeFeature(id: firstId)
+        #expect(doc.features.count == 3)
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.activeFeatures.count == 1)
+    }
+
+    @Test func testSelectedIdClearedWhenSelectedFeatureRolledBack() {
+        let doc = DocumentModel()
+        doc.selectedId = cylinderSolidId
+        #expect(doc.selectedId == cylinderSolidId)
+
+        // Roll back before cylinder (to index 1)
+        doc.rollBack(to: boxSolidId)
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.objects.count == 1)
+        #expect(doc.objects.first?.id == boxSolidId)
+
+        // selectedId was cylinder-1, which is now rolled back, so it should be cleared
+        #expect(doc.selectedId == nil)
+    }
 }
 

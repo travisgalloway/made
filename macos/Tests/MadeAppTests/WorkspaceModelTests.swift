@@ -591,6 +591,8 @@ import MadeCore
         #expect(WorkspaceModel.viewRightShortcutKey == "3")
         #expect(WorkspaceModel.viewIsometricShortcutKey == "7")
         #expect(WorkspaceModel.viewNormalToShortcutKey == "8")
+        #expect(WorkspaceModel.rollBackToSelectedShortcutKey == "[")
+        #expect(WorkspaceModel.rollForwardToEndShortcutKey == "]")
 
         // Assert exact modifier combinations
         #expect(WorkspaceModel.undoShortcutModifiers == [.command])
@@ -609,6 +611,8 @@ import MadeCore
         #expect(WorkspaceModel.toolShortcutModifiers == [.command, .option])
         #expect(WorkspaceModel.consoleShortcutModifiers == [.command, .shift])
         #expect(WorkspaceModel.viewShortcutModifiers == [.control])
+        #expect(WorkspaceModel.rollBackToSelectedShortcutModifiers == [.command, .option])
+        #expect(WorkspaceModel.rollForwardToEndShortcutModifiers == [.command, .option])
 
         // Verify Invariant 8: All menu shortcuts strictly include at least one modifier key (.command, .shift, .option, .control)
         // so they never collide with plain-key viewport tools (V, O, P, Z, F, H, =, -) or intercept text field editing.
@@ -628,7 +632,9 @@ import MadeCore
             WorkspaceModel.mcpServerShortcutModifiers,
             WorkspaceModel.toolShortcutModifiers,
             WorkspaceModel.consoleShortcutModifiers,
-            WorkspaceModel.viewShortcutModifiers
+            WorkspaceModel.viewShortcutModifiers,
+            WorkspaceModel.rollBackToSelectedShortcutModifiers,
+            WorkspaceModel.rollForwardToEndShortcutModifiers
         ]
 
         let standardModifiers: EventModifiers = [.command, .shift, .option, .control]
@@ -1368,6 +1374,51 @@ import MadeCore
         // Assert box-1 and boolId have both recovered and have nil errorState
         #expect(model.document.feature(for: boxId)?.errorState == nil)
         #expect(model.document.feature(for: boolId)?.errorState == nil)
+    }
+
+    @Test @MainActor func testWorkspaceRollBackAndRollForwardToEnd() {
+        let model = WorkspaceModel()
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        #expect(model.document.objects.count == 2)
+
+        model.rollBack(to: 1)
+        #expect(model.isRolledBack)
+        #expect(model.document.rollbackIndex == 1)
+        #expect(model.document.objects.count == 1)
+        #expect(model.document.objects.first?.id == boxId)
+
+        model.rollForwardToEnd()
+        #expect(!model.isRolledBack)
+        #expect(model.document.rollbackIndex == nil)
+        #expect(model.document.objects.count == 2)
+        #expect(model.document.objects.map(\.id) == [boxId, cylId])
+    }
+
+    @Test @MainActor func testWorkspacePackagePersistenceWithRollback() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("RollbackTest.made")
+
+        let workspace = WorkspaceModel()
+        #expect(workspace.document.features.count == 2)
+        workspace.rollBack(to: 1)
+        #expect(workspace.document.rollbackIndex == 1)
+        #expect(workspace.document.objects.count == 1)
+
+        let saveResult = workspace.saveDocument(to: packageURL)
+        #expect(saveResult)
+
+        let workspace2 = WorkspaceModel()
+        let openResult = workspace2.openDocument(at: packageURL)
+        #expect(openResult)
+        #expect(workspace2.document.rollbackIndex == 1)
+        #expect(workspace2.document.features.count == 2)
+        #expect(workspace2.document.objects.count == 1)
+        #expect(workspace2.isRolledBack)
     }
 }
 
