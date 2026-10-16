@@ -49,8 +49,10 @@ public func pickSubElement(
     screenTolerancePx: Float = 8.0,
     viewportSize: CGSize = CGSize(width: 800, height: 600),
     viewMatrix: simd_float4x4? = nil,
-    projectionMatrix: simd_float4x4? = nil
+    projectionMatrix: simd_float4x4? = nil,
+    filter: SelectionFilter = .all
 ) -> SubElementPickResult? {
+    guard filter.allowsSubElements else { return nil }
     let dirLen = simd_length(ray.direction)
     guard dirLen > 1e-6 else { return nil }
     let normDir = ray.direction / dirLen
@@ -83,58 +85,60 @@ public func pickSubElement(
     var faceHits: [CandidateHit] = []
 
     // 1. Check face intersections across candidate meshes
-    for mesh in candidateMeshes {
-        guard !mesh.positions.isEmpty else { continue }
-        let modelMatrix = mesh.transform.matrix
+    if filter.allowsFaces {
+        for mesh in candidateMeshes {
+            guard !mesh.positions.isEmpty else { continue }
+            let modelMatrix = mesh.transform.matrix
 
-        let triIndices: [UInt32]
-        if !mesh.indices.isEmpty {
-            triIndices = mesh.indices
-        } else {
-            triIndices = Array(0..<UInt32(mesh.positions.count))
-        }
+            let triIndices: [UInt32]
+            if !mesh.indices.isEmpty {
+                triIndices = mesh.indices
+            } else {
+                triIndices = Array(0..<UInt32(mesh.positions.count))
+            }
 
-        let numTriangles = triIndices.count / 3
-        for triIdx in 0..<numTriangles {
-            let i0 = Int(triIndices[triIdx * 3])
-            let i1 = Int(triIndices[triIdx * 3 + 1])
-            let i2 = Int(triIndices[triIdx * 3 + 2])
-            guard i0 < mesh.positions.count, i1 < mesh.positions.count, i2 < mesh.positions.count else { continue }
+            let numTriangles = triIndices.count / 3
+            for triIdx in 0..<numTriangles {
+                let i0 = Int(triIndices[triIdx * 3])
+                let i1 = Int(triIndices[triIdx * 3 + 1])
+                let i2 = Int(triIndices[triIdx * 3 + 2])
+                guard i0 < mesh.positions.count, i1 < mesh.positions.count, i2 < mesh.positions.count else { continue }
 
-            let p0_4 = modelMatrix * SIMD4<Float>(mesh.positions[i0], 1.0)
-            let p1_4 = modelMatrix * SIMD4<Float>(mesh.positions[i1], 1.0)
-            let p2_4 = modelMatrix * SIMD4<Float>(mesh.positions[i2], 1.0)
-            let v0 = SIMD3<Float>(p0_4.x, p0_4.y, p0_4.z)
-            let v1 = SIMD3<Float>(p1_4.x, p1_4.y, p1_4.z)
-            let v2 = SIMD3<Float>(p2_4.x, p2_4.y, p2_4.z)
+                let p0_4 = modelMatrix * SIMD4<Float>(mesh.positions[i0], 1.0)
+                let p1_4 = modelMatrix * SIMD4<Float>(mesh.positions[i1], 1.0)
+                let p2_4 = modelMatrix * SIMD4<Float>(mesh.positions[i2], 1.0)
+                let v0 = SIMD3<Float>(p0_4.x, p0_4.y, p0_4.z)
+                let v1 = SIMD3<Float>(p1_4.x, p1_4.y, p1_4.z)
+                let v2 = SIMD3<Float>(p2_4.x, p2_4.y, p2_4.z)
 
-            // Möller-Trumbore ray-triangle intersection
-            let edge1 = v1 - v0
-            let edge2 = v2 - v0
-            let h = simd_cross(worldRay.direction, edge2)
-            let a = simd_dot(edge1, h)
-            if abs(a) < 1e-7 { continue }
-            let f = 1.0 / a
-            let s = worldRay.origin - v0
-            let u = f * simd_dot(s, h)
-            if u < 0.0 || u > 1.0 { continue }
-            let q = simd_cross(s, edge1)
-            let v = f * simd_dot(worldRay.direction, q)
-            if v < 0.0 || u + v > 1.0 { continue }
-            let t = f * simd_dot(edge2, q)
-            if t > 1e-4 {
-                let hitPt = worldRay.origin + worldRay.direction * t
-                let faceRange = mesh.faceRanges.first(where: { $0.triangleRange.contains(triIdx) })
-                let fid = faceRange?.faceId ?? 0
-                let detId = faceRange?.deterministicId
-                faceHits.append(CandidateHit(
-                    solidId: mesh.id,
-                    elementType: .face,
-                    elementId: fid,
-                    deterministicId: detId,
-                    distance: t,
-                    hitPoint: hitPt
-                ))
+                // Möller-Trumbore ray-triangle intersection
+                let edge1 = v1 - v0
+                let edge2 = v2 - v0
+                let h = simd_cross(worldRay.direction, edge2)
+                let a = simd_dot(edge1, h)
+                if abs(a) < 1e-7 { continue }
+                let f = 1.0 / a
+                let s = worldRay.origin - v0
+                let u = f * simd_dot(s, h)
+                if u < 0.0 || u > 1.0 { continue }
+                let q = simd_cross(s, edge1)
+                let v = f * simd_dot(worldRay.direction, q)
+                if v < 0.0 || u + v > 1.0 { continue }
+                let t = f * simd_dot(edge2, q)
+                if t > 1e-4 {
+                    let hitPt = worldRay.origin + worldRay.direction * t
+                    let faceRange = mesh.faceRanges.first(where: { $0.triangleRange.contains(triIdx) })
+                    let fid = faceRange?.faceId ?? 0
+                    let detId = faceRange?.deterministicId
+                    faceHits.append(CandidateHit(
+                        solidId: mesh.id,
+                        elementType: .face,
+                        elementId: fid,
+                        deterministicId: detId,
+                        distance: t,
+                        hitPoint: hitPt
+                    ))
+                }
             }
         }
     }
@@ -144,64 +148,111 @@ public func pickSubElement(
     let occlusionThreshold = minFaceT.map { $0 * 1.02 + 0.5 }
 
     // 2. Check vertex candidates
-    for mesh in candidateMeshes {
-        guard !mesh.positions.isEmpty else { continue }
-        let modelMatrix = mesh.transform.matrix
+    if filter.allowsVertices {
+        for mesh in candidateMeshes {
+            guard !mesh.positions.isEmpty else { continue }
+            let modelMatrix = mesh.transform.matrix
 
-        let vertices: [VertexPoint]
-        if !mesh.vertexPoints.isEmpty {
-            vertices = mesh.vertexPoints
-        } else {
-            var seen = Set<SIMD3<Float>>()
-            var unique: [VertexPoint] = []
-            for (idx, pos) in mesh.positions.enumerated() {
-                if seen.insert(pos).inserted {
-                    unique.append(VertexPoint(vertexId: idx, position: pos))
+            let vertices: [VertexPoint]
+            if !mesh.vertexPoints.isEmpty {
+                vertices = mesh.vertexPoints
+            } else {
+                var seen = Set<SIMD3<Float>>()
+                var unique: [VertexPoint] = []
+                for (idx, pos) in mesh.positions.enumerated() {
+                    if seen.insert(pos).inserted {
+                        unique.append(VertexPoint(vertexId: idx, position: pos))
+                    }
                 }
-            }
-            vertices = unique
-        }
-
-        for vpItem in vertices {
-            let world4 = modelMatrix * SIMD4<Float>(vpItem.position, 1.0)
-            let worldPos = SIMD3<Float>(world4.x, world4.y, world4.z)
-
-            guard let screenProj = projectToScreenWithW(point: worldPos, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
-                continue
+                vertices = unique
             }
 
-            let screenDist = simd_distance(pointer, screenProj.screen)
-            guard screenDist <= screenTolerancePx else { continue }
+            for vpItem in vertices {
+                let world4 = modelMatrix * SIMD4<Float>(vpItem.position, 1.0)
+                let worldPos = SIMD3<Float>(world4.x, world4.y, world4.z)
 
-            let t = simd_dot(worldPos - worldRay.origin, worldRay.direction)
-            guard t > 0 else { continue }
+                guard let screenProj = projectToScreenWithW(point: worldPos, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
+                    continue
+                }
 
-            if let threshold = occlusionThreshold, t > threshold {
-                continue
+                let screenDist = simd_distance(pointer, screenProj.screen)
+                guard screenDist <= screenTolerancePx else { continue }
+
+                let t = simd_dot(worldPos - worldRay.origin, worldRay.direction)
+                guard t > 0 else { continue }
+
+                if let threshold = occlusionThreshold, t > threshold {
+                    continue
+                }
+
+                vertexHits.append(CandidateHit(
+                    solidId: mesh.id,
+                    elementType: .vertex,
+                    elementId: vpItem.vertexId,
+                    deterministicId: vpItem.deterministicId,
+                    distance: t,
+                    hitPoint: worldPos
+                ))
             }
-
-            vertexHits.append(CandidateHit(
-                solidId: mesh.id,
-                elementType: .vertex,
-                elementId: vpItem.vertexId,
-                deterministicId: vpItem.deterministicId,
-                distance: t,
-                hitPoint: worldPos
-            ))
         }
     }
 
     // 3. Check edge candidates
-    for mesh in candidateMeshes {
-        guard !mesh.positions.isEmpty else { continue }
-        let modelMatrix = mesh.transform.matrix
+    if filter.allowsEdges {
+        for mesh in candidateMeshes {
+            guard !mesh.positions.isEmpty else { continue }
+            let modelMatrix = mesh.transform.matrix
 
-        if !mesh.edgePolylines.isEmpty {
-            for poly in mesh.edgePolylines {
-                guard poly.points.count >= 2 else { continue }
-                for i in 0..<(poly.points.count - 1) {
-                    let a4 = modelMatrix * SIMD4<Float>(poly.points[i], 1.0)
-                    let b4 = modelMatrix * SIMD4<Float>(poly.points[i + 1], 1.0)
+            if !mesh.edgePolylines.isEmpty {
+                for poly in mesh.edgePolylines {
+                    guard poly.points.count >= 2 else { continue }
+                    for i in 0..<(poly.points.count - 1) {
+                        let a4 = modelMatrix * SIMD4<Float>(poly.points[i], 1.0)
+                        let b4 = modelMatrix * SIMD4<Float>(poly.points[i + 1], 1.0)
+                        let pA = SIMD3<Float>(a4.x, a4.y, a4.z)
+                        let pB = SIMD3<Float>(b4.x, b4.y, b4.z)
+
+                        guard let sA = projectToScreenWithW(point: pA, viewProjectionMatrix: vp, viewportSize: viewportSize),
+                              let sB = projectToScreenWithW(point: pB, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
+                            continue
+                        }
+
+                        let (closestWorld, screenDist) = closestPointOnSegment(
+                            p1: pA,
+                            p2: pB,
+                            s1: sA.screen,
+                            s2: sB.screen,
+                            screenPointer: pointer,
+                            w1: sA.w,
+                            w2: sB.w
+                        )
+
+                        guard screenDist <= screenTolerancePx else { continue }
+                        let t = simd_dot(closestWorld - worldRay.origin, worldRay.direction)
+                        guard t > 0 else { continue }
+
+                        if let threshold = occlusionThreshold, t > threshold {
+                            continue
+                        }
+
+                        edgeHits.append(CandidateHit(
+                            solidId: mesh.id,
+                            elementType: .edge,
+                            elementId: poly.edgeId,
+                            deterministicId: poly.deterministicId,
+                            distance: t,
+                            hitPoint: closestWorld
+                        ))
+                    }
+                }
+            } else if !mesh.edges.isEmpty {
+                for (edgeIdx, edge) in mesh.edges.enumerated() {
+                    let i0 = Int(edge.v0)
+                    let i1 = Int(edge.v1)
+                    guard i0 < mesh.positions.count, i1 < mesh.positions.count else { continue }
+
+                    let a4 = modelMatrix * SIMD4<Float>(mesh.positions[i0], 1.0)
+                    let b4 = modelMatrix * SIMD4<Float>(mesh.positions[i1], 1.0)
                     let pA = SIMD3<Float>(a4.x, a4.y, a4.z)
                     let pB = SIMD3<Float>(b4.x, b4.y, b4.z)
 
@@ -231,61 +282,18 @@ public func pickSubElement(
                     edgeHits.append(CandidateHit(
                         solidId: mesh.id,
                         elementType: .edge,
-                        elementId: poly.edgeId,
-                        deterministicId: poly.deterministicId,
+                        elementId: edgeIdx,
+                        deterministicId: nil,
                         distance: t,
                         hitPoint: closestWorld
                     ))
                 }
             }
-        } else if !mesh.edges.isEmpty {
-            for (edgeIdx, edge) in mesh.edges.enumerated() {
-                let i0 = Int(edge.v0)
-                let i1 = Int(edge.v1)
-                guard i0 < mesh.positions.count, i1 < mesh.positions.count else { continue }
-
-                let a4 = modelMatrix * SIMD4<Float>(mesh.positions[i0], 1.0)
-                let b4 = modelMatrix * SIMD4<Float>(mesh.positions[i1], 1.0)
-                let pA = SIMD3<Float>(a4.x, a4.y, a4.z)
-                let pB = SIMD3<Float>(b4.x, b4.y, b4.z)
-
-                guard let sA = projectToScreenWithW(point: pA, viewProjectionMatrix: vp, viewportSize: viewportSize),
-                      let sB = projectToScreenWithW(point: pB, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
-                    continue
-                }
-
-                let (closestWorld, screenDist) = closestPointOnSegment(
-                    p1: pA,
-                    p2: pB,
-                    s1: sA.screen,
-                    s2: sB.screen,
-                    screenPointer: pointer,
-                    w1: sA.w,
-                    w2: sB.w
-                )
-
-                guard screenDist <= screenTolerancePx else { continue }
-                let t = simd_dot(closestWorld - worldRay.origin, worldRay.direction)
-                guard t > 0 else { continue }
-
-                if let threshold = occlusionThreshold, t > threshold {
-                    continue
-                }
-
-                edgeHits.append(CandidateHit(
-                    solidId: mesh.id,
-                    elementType: .edge,
-                    elementId: edgeIdx,
-                    deterministicId: nil,
-                    distance: t,
-                    hitPoint: closestWorld
-                ))
-            }
         }
     }
 
-    // 4. Resolve strictly: Vertex > Edge > Face.
-    if !vertexHits.isEmpty {
+    // 4. Resolve strictly: Vertex > Edge > Face among enabled filters.
+    if filter.allowsVertices, !vertexHits.isEmpty {
         let best = vertexHits.min(by: { $0.distance < $1.distance })!
         return SubElementPickResult(
             solidId: best.solidId,
@@ -297,7 +305,7 @@ public func pickSubElement(
         )
     }
 
-    if !edgeHits.isEmpty {
+    if filter.allowsEdges, !edgeHits.isEmpty {
         let best = edgeHits.min(by: { $0.distance < $1.distance })!
         return SubElementPickResult(
             solidId: best.solidId,
@@ -309,7 +317,7 @@ public func pickSubElement(
         )
     }
 
-    if let bestFace = faceHits.first {
+    if filter.allowsFaces, let bestFace = faceHits.first {
         return SubElementPickResult(
             solidId: bestFace.solidId,
             elementType: bestFace.elementType,

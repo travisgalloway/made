@@ -56,6 +56,7 @@ struct ViewportCanvasView: View {
                             document: workspace.document,
                             renderer: renderer,
                             tool: workspace.tool,
+                            selectionFilter: workspace.selectionFilter,
                             showsGrid: workspace.showsGrid,
                             showsAxes: workspace.showsAxes,
                             showsGizmo: workspace.showsGizmo,

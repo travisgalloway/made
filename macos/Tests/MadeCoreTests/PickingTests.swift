@@ -344,4 +344,174 @@ import simd
 
         #expect(result == nil)
     }
+
+    // MARK: - Selection Filter Tests (BL-SEL-06)
+
+    @Test func testPickSubElementFilterFacesOnly() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        let eye = SIMD3<Float>(0, -50, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: .zero, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 1000.0)
+        let viewport = CGSize(width: 800, height: 600)
+
+        // Point near top-front edge on the face: (0, -10, 9.8)
+        // Within 8px tolerance of the edge at (0, -10, 10), but ray directly penetrates the front face
+        let nearEdgeOnFace = SIMD3<Float>(0, -10, 9.8)
+        let screenPt = projectToScreen(point: nearEdgeOnFace, viewProjectionMatrix: projMatrix * viewMatrix, viewportSize: viewport)!
+        let ray = screenPointToRay(screenPoint: screenPt, viewportSize: viewport, viewMatrix: viewMatrix, projectionMatrix: projMatrix)!
+
+        // Under .all, edge has precedence over face
+        let allResult = pickSubElement(
+            ray: ray,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            filter: .all
+        )
+        #expect(allResult?.solidId == SolidId("box-1"))
+        #expect(allResult?.elementType == SubelementType.edge)
+
+        // Under .faces, edge is ignored and face is picked
+        let faceResult = pickSubElement(
+            ray: ray,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            filter: .faces
+        )
+        #expect(faceResult != nil)
+        #expect(faceResult?.solidId == SolidId("box-1"))
+        #expect(faceResult?.elementType == SubelementType.face)
+    }
+
+    @Test func testPickSubElementFilterEdgesOnly() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        let eye = SIMD3<Float>(0, -50, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: .zero, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 1000.0)
+        let viewport = CGSize(width: 800, height: 600)
+
+        // 1. Ray over corner vertex resolves to edge when only edges are enabled
+        let cornerVertex = SIMD3<Float>(10, -10, 10)
+        let cornerScreen = projectToScreen(point: cornerVertex, viewProjectionMatrix: projMatrix * viewMatrix, viewportSize: viewport)!
+        let cornerRay = screenPointToRay(screenPoint: cornerScreen, viewportSize: viewport, viewMatrix: viewMatrix, projectionMatrix: projMatrix)!
+
+        let edgeResult = pickSubElement(
+            ray: cornerRay,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            filter: .edges
+        )
+        #expect(edgeResult != nil)
+        #expect(edgeResult?.solidId == SolidId("box-1"))
+        #expect(edgeResult?.elementType == SubelementType.edge)
+
+        // 2. Ray over center of face returns nil because faces are disabled and edges are out of tolerance
+        let faceCenterRay = Ray3D(origin: SIMD3<Float>(0, -50, 0), direction: SIMD3<Float>(0, 1, 0))
+        let centerResult = pickSubElement(
+            ray: faceCenterRay,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            filter: .edges
+        )
+        #expect(centerResult == nil)
+    }
+
+    @Test func testPickSubElementFilterVerticesOnly() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        let eye = SIMD3<Float>(0, -50, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: .zero, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 1000.0)
+        let viewport = CGSize(width: 800, height: 600)
+
+        // 1. Ray over edge midpoint returns nil when only vertices are enabled
+        let edgeMidpoint = SIMD3<Float>(0, -10, 10)
+        let edgeScreen = projectToScreen(point: edgeMidpoint, viewProjectionMatrix: projMatrix * viewMatrix, viewportSize: viewport)!
+        let edgeRay = screenPointToRay(screenPoint: edgeScreen, viewportSize: viewport, viewMatrix: viewMatrix, projectionMatrix: projMatrix)!
+
+        let missResult = pickSubElement(
+            ray: edgeRay,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            filter: .vertices
+        )
+        #expect(missResult == nil)
+
+        // 2. Ray over corner returns vertex
+        let cornerVertex = SIMD3<Float>(10, -10, 10)
+        let cornerScreen = projectToScreen(point: cornerVertex, viewProjectionMatrix: projMatrix * viewMatrix, viewportSize: viewport)!
+        let cornerRay = screenPointToRay(screenPoint: cornerScreen, viewportSize: viewport, viewMatrix: viewMatrix, projectionMatrix: projMatrix)!
+
+        let hitResult = pickSubElement(
+            ray: cornerRay,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            filter: .vertices
+        )
+        #expect(hitResult != nil)
+        #expect(hitResult?.elementType == SubelementType.vertex)
+    }
+
+    @Test func testPickSubElementFilterBodiesOnlyReturnsNil() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        let ray = Ray3D(origin: SIMD3<Float>(0, -50, 0), direction: SIMD3<Float>(0, 1, 0))
+        // Bodies-only filter does not allow subelements, so pickSubElement must return nil
+        let result = pickSubElement(
+            ray: ray,
+            candidateMeshes: [mesh],
+            filter: .bodies
+        )
+        #expect(result == nil)
+    }
+
+    @Test func testPickSubElementFilterMultiCombination() {
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: SolidId("box-1"), payload: payload)
+
+        let eye = SIMD3<Float>(0, -50, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: .zero, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 1000.0)
+        let viewport = CGSize(width: 800, height: 600)
+
+        // Corner vertex: without .vertices, [.faces, .edges] prioritizes edge over face
+        let cornerVertex = SIMD3<Float>(10, -10, 10)
+        let cornerScreen = projectToScreen(point: cornerVertex, viewProjectionMatrix: projMatrix * viewMatrix, viewportSize: viewport)!
+        let cornerRay = screenPointToRay(screenPoint: cornerScreen, viewportSize: viewport, viewMatrix: viewMatrix, projectionMatrix: projMatrix)!
+
+        let result = pickSubElement(
+            ray: cornerRay,
+            candidateMeshes: [mesh],
+            screenTolerancePx: 8.0,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            filter: [.faces, .edges]
+        )
+        #expect(result != nil)
+        #expect(result?.elementType == SubelementType.edge)
+    }
 }

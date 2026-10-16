@@ -217,4 +217,72 @@ import CoreGraphics
         #expect(snap != nil)
         #expect(renderer.lastDrawCalls == 0)
     }
+
+    // MARK: - Selection Filter Tests (BL-SEL-06)
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMetalPickFilterFacesOnly() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        guard let cornerVertex = payload.vertexPoints.first else {
+            Issue.record("No vertex points on box payload")
+            return
+        }
+
+        let vp = projectToScreen(cornerVertex.position, renderer: renderer, viewportSize: CGSize(width: width, height: height))
+
+        // Without filter, corner resolves to vertex or edge
+        let defaultResult = renderer.pickSubElement(at: vp, viewportSize: CGSize(width: width, height: height), filter: .all)
+        #expect(defaultResult != nil)
+        #expect(defaultResult?.elementType == .vertex || defaultResult?.elementType == .edge)
+
+        // With .faces filter, vertex and edge passes are skipped; underlying face is picked
+        let faceOnlyResult = renderer.pickSubElement(at: vp, viewportSize: CGSize(width: width, height: height), filter: .faces)
+        #expect(faceOnlyResult != nil)
+        #expect(faceOnlyResult?.solidId == SolidId("box"))
+        #expect(faceOnlyResult?.elementType == SubelementType.face)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMetalPickFilterEdgesOnly() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        // Center of viewport looks directly at box face center
+        let centerPointer = SIMD2<Float>(Float(width) / 2.0, Float(height) / 2.0)
+        let centerResult = renderer.pickSubElement(at: centerPointer, viewportSize: CGSize(width: width, height: height), filter: .edges)
+        #expect(centerResult == nil, "Face center must not be picked when only edges are filtered")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMetalPickFilterBodiesOnlyReturnsNil() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        let centerPointer = SIMD2<Float>(Float(width) / 2.0, Float(height) / 2.0)
+        let result = renderer.pickSubElement(at: centerPointer, viewportSize: CGSize(width: width, height: height), filter: .bodies)
+        #expect(result == nil, "Sub-element pick with .bodies only must return nil")
+    }
 }
