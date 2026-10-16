@@ -30,6 +30,10 @@ final class WorkspaceModel {
     var isDocumentModified: Bool = false
     var autosaveDebounceNanoseconds: UInt64 = 2_000_000_000
     private var autosaveTask: Task<Void, Never>?
+    @ObservationIgnored var recoveryStore: CrashRecoveryStore
+    var pendingRecoveryRecord: CrashRecoveryRecord? = nil
+    var isShowingRecoveryAlert: Bool = false
+    @ObservationIgnored nonisolated(unsafe) private var terminateObserver: (any NSObjectProtocol)?
 
     var documentTitle: String {
         let base = currentDocumentURL?.deletingPathExtension().lastPathComponent ?? "Untitled Project"
@@ -165,8 +169,9 @@ final class WorkspaceModel {
     }
     var activeCommand: CommandSession?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, recoveryStore: CrashRecoveryStore = CrashRecoveryStore()) {
         self.defaults = defaults
+        self.recoveryStore = recoveryStore
         if let raw = defaults.string(forKey: Self.commandPanelPlacementDefaultsKey),
            let placement = CommandPanelPlacement(rawValue: raw) {
             self.commandPanelPlacement = placement
@@ -248,6 +253,16 @@ final class WorkspaceModel {
 
         self.document.onUndoRedoMutation = { [weak self] mutation in
             self?.handleUndoRedoMutation(mutation)
+        }
+    }
+
+    convenience init(recoveryDirectoryURL: URL) {
+        self.init(defaults: .standard, recoveryStore: CrashRecoveryStore(recoveryDirectoryURL: recoveryDirectoryURL))
+    }
+
+    deinit {
+        if let terminateObserver {
+            NotificationCenter.default.removeObserver(terminateObserver)
         }
     }
 
@@ -388,6 +403,16 @@ final class WorkspaceModel {
         openInitialPartFilesFromEnvironmentOrArguments()
         log(.info, "Metal", "Metal 4 pipeline initialized")
         watchKernelRestarts()
+        checkForPendingRecovery()
+        terminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.clearRecoverySnapshot()
+            }
+        }
     }
 
     private func openInitialPartFilesFromEnvironmentOrArguments() {
@@ -486,7 +511,7 @@ final class WorkspaceModel {
     }
 
     func scheduleAutosaveIfNeeded() {
-        guard currentDocumentURL != nil else { return }
+        guard isDocumentModified else { return }
         autosaveTask?.cancel()
         autosaveTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -495,8 +520,16 @@ final class WorkspaceModel {
             } catch {
                 return
             }
-            guard !Task.isCancelled, self.isDocumentModified, let url = self.currentDocumentURL else { return }
-            self.performAutosave(to: url)
+            guard !Task.isCancelled, self.isDocumentModified else { return }
+            self.performAutosave()
+        }
+    }
+
+    func performAutosave() {
+        if let url = currentDocumentURL {
+            _ = saveDocument(to: url)
+        } else {
+            saveRecoverySnapshot()
         }
     }
 
@@ -516,6 +549,9 @@ final class WorkspaceModel {
         cancelActiveCommand()
         autosaveTask?.cancel()
         autosaveTask = nil
+        clearRecoverySnapshot()
+        pendingRecoveryRecord = nil
+        isShowingRecoveryAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -554,6 +590,9 @@ final class WorkspaceModel {
             cancelActiveCommand()
             autosaveTask?.cancel()
             autosaveTask = nil
+            clearRecoverySnapshot()
+            pendingRecoveryRecord = nil
+            isShowingRecoveryAlert = false
 
             let docSettings = package.manifest.documentSettings
             if let features = package.documentData.features {
@@ -577,6 +616,45 @@ final class WorkspaceModel {
         }
     }
 
+    func makePackage() -> MadePackage {
+        let manifest = MadeManifest(
+            schemaVersion: MadeManifest.currentSchemaVersion,
+            appVersion: "0.1",
+            documentSettings: document.settings
+        )
+        let docData = DocumentData(
+            schemaVersion: DocumentData.currentSchemaVersion,
+            features: document.features,
+            objects: document.objects,
+            selectedId: selectedId,
+            rollbackIndex: document.rollbackIndex
+        )
+
+        var assets: [String: Data] = [:]
+        for obj in document.objects {
+            if case .imported(let name, let sourceURL, let data) = obj.def {
+                let filename = sourceURL?.lastPathComponent ?? (name.hasSuffix(".step") || name.hasSuffix(".stp") ? name : "\(name).step")
+                if let data {
+                    assets[filename] = data
+                } else if let sourceURL, FileManager.default.fileExists(atPath: sourceURL.path), let fileData = try? Data(contentsOf: sourceURL) {
+                    assets[filename] = fileData
+                }
+            }
+        }
+
+        var parts: [String: Data] = [:]
+        for obj in document.objects {
+            if case .part(let url, _) = obj.def {
+                let filename = url.lastPathComponent
+                if FileManager.default.fileExists(atPath: url.path), let fileData = try? Data(contentsOf: url) {
+                    parts[filename] = fileData
+                }
+            }
+        }
+
+        return MadePackage(manifest: manifest, documentData: docData, assets: assets, parts: parts)
+    }
+
     @discardableResult
     func saveDocument(to targetURL: URL? = nil) -> Bool {
         guard let destinationURL = targetURL ?? currentDocumentURL else {
@@ -588,46 +666,12 @@ final class WorkspaceModel {
         autosaveTask = nil
 
         do {
-            let manifest = MadeManifest(
-                schemaVersion: MadeManifest.currentSchemaVersion,
-                appVersion: "0.1",
-                documentSettings: document.settings
-            )
-            let docData = DocumentData(
-                schemaVersion: DocumentData.currentSchemaVersion,
-                features: document.features,
-                objects: document.objects,
-                selectedId: selectedId,
-                rollbackIndex: document.rollbackIndex
-            )
-
-            var assets: [String: Data] = [:]
-            for obj in document.objects {
-                if case .imported(let name, let sourceURL, let data) = obj.def {
-                    let filename = sourceURL?.lastPathComponent ?? (name.hasSuffix(".step") || name.hasSuffix(".stp") ? name : "\(name).step")
-                    if let data {
-                        assets[filename] = data
-                    } else if let sourceURL, FileManager.default.fileExists(atPath: sourceURL.path), let fileData = try? Data(contentsOf: sourceURL) {
-                        assets[filename] = fileData
-                    }
-                }
-            }
-
-            var parts: [String: Data] = [:]
-            for obj in document.objects {
-                if case .part(let url, _) = obj.def {
-                    let filename = url.lastPathComponent
-                    if FileManager.default.fileExists(atPath: url.path), let fileData = try? Data(contentsOf: url) {
-                        parts[filename] = fileData
-                    }
-                }
-            }
-
-            let package = MadePackage(manifest: manifest, documentData: docData, assets: assets, parts: parts)
+            let package = makePackage()
             try package.write(to: destinationURL)
 
             currentDocumentURL = destinationURL
             isDocumentModified = false
+            clearRecoverySnapshot()
             syncWindowState()
             log(.info, "Document", "Saved document to \(destinationURL.lastPathComponent)")
             return true
@@ -635,6 +679,100 @@ final class WorkspaceModel {
             log(.error, "Document", "Failed to save document: \(error.localizedDescription)")
             return false
         }
+    }
+
+    // MARK: - Crash Recovery Actions
+
+    func saveRecoverySnapshot() {
+        do {
+            let package = makePackage()
+            let metadata = CrashRecoveryMetadata(
+                version: CrashRecoveryMetadata.currentVersion,
+                savedAt: Date(),
+                originalDocumentURL: currentDocumentURL,
+                documentTitle: documentTitle
+            )
+            try recoveryStore.saveSnapshot(package: package, metadata: metadata)
+            log(.info, "Recovery", "Saved crash recovery snapshot for \(documentTitle)")
+        } catch {
+            log(.error, "Recovery", "Failed to save recovery snapshot: \(error.localizedDescription)")
+        }
+    }
+
+    func clearRecoverySnapshot() {
+        do {
+            try recoveryStore.clearRecovery()
+        } catch {
+            log(.error, "Recovery", "Failed to clear recovery snapshot: \(error.localizedDescription)")
+        }
+    }
+
+    func checkForPendingRecovery() {
+        if let record = recoveryStore.loadPendingRecovery() {
+            self.pendingRecoveryRecord = record
+            self.isShowingRecoveryAlert = true
+            log(.info, "Recovery", "Found pending crash recovery record for \"\(record.metadata.documentTitle)\"")
+        }
+    }
+
+    func recoverDocument() {
+        guard let record = pendingRecoveryRecord else { return }
+        do {
+            let package = try MadePackage(directoryURL: record.packageURL)
+            cancelActiveCommand()
+            autosaveTask?.cancel()
+            autosaveTask = nil
+
+            let docSettings = package.manifest.documentSettings
+            if let features = package.documentData.features {
+                document.reset(
+                    with: features,
+                    selectedId: package.documentData.selectedId,
+                    rollbackIndex: package.documentData.rollbackIndex,
+                    settings: docSettings
+                )
+            } else {
+                document.reset(
+                    with: package.documentData.objects,
+                    selectedId: package.documentData.selectedId,
+                    rollbackIndex: package.documentData.rollbackIndex,
+                    settings: docSettings
+                )
+            }
+            currentDocumentURL = record.metadata.originalDocumentURL
+            isDocumentModified = true
+            syncWindowState()
+            syncHiddenSolidIds()
+            log(.info, "Recovery", "Recovered document from snapshot: \(record.metadata.documentTitle)")
+
+            for obj in document.objects {
+                recomputeSolid(id: obj.id)
+            }
+
+            try recoveryStore.discardRecord(record)
+            pendingRecoveryRecord = nil
+            isShowingRecoveryAlert = false
+        } catch {
+            log(.error, "Recovery", "Failed to recover document: \(error.localizedDescription)")
+            try? recoveryStore.discardRecord(record)
+            pendingRecoveryRecord = nil
+            isShowingRecoveryAlert = false
+        }
+    }
+
+    func discardRecovery() {
+        if let record = pendingRecoveryRecord {
+            do {
+                try recoveryStore.discardRecord(record)
+                log(.info, "Recovery", "Discarded recovery record for \(record.metadata.documentTitle)")
+            } catch {
+                log(.error, "Recovery", "Failed to discard recovery record: \(error.localizedDescription)")
+            }
+        } else {
+            clearRecoverySnapshot()
+        }
+        pendingRecoveryRecord = nil
+        isShowingRecoveryAlert = false
     }
 
     func promptSaveDocument() {

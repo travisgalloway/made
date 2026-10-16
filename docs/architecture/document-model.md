@@ -221,6 +221,15 @@ Implemented (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model i
   - Window title tracks document filename (or "Untitled CAD Document" when unsaved), displaying document modification state in the window close button and proxy icon.
   - Background autosave debounces document mutations (`autosaveDebounceNanoseconds`), writing asynchronously when an existing document file URL is bound.
   - Corrupt packages or unsupported future schema versions surface clean error feedback without corrupting active memory state.
+- **Crash Recovery Architecture** (ADR-D7, BL-FND-16, #241):
+  - When unsaved changes exist in untitled documents (`currentDocumentURL == nil`), debounced autosave writes a crash recovery snapshot (`recovery.made` package bundle and canonical `recovery.json` metadata descriptor) into an isolated recovery directory (`~/Library/Application Support/made/Recovery/`, configurable via `CrashRecoveryStore`).
+  - `CrashRecoveryMetadata` stores schema version (`version: 1`), snapshot timestamp (`savedAt`), optional original file path (`originalDocumentURL`), and document title.
+  - Upon startup, `WorkspaceModel.setUp()` detects un-cleared recovery snapshots from abnormal terminations (application crashes, SIGKILL, sudden power loss) and exposes `pendingRecoveryRecord`.
+  - `ContentView` presents a standard modal recovery alert offering **Recover** and **Discard** actions.
+  - Choosing **Recover** restores `DocumentModel` scene objects, features, rollback index, selection, and document settings into the active scene, sets `isDocumentModified = true`, rebinds the original file URL (for titled documents), triggers imperative `recomputeSolid(id:)` passes to regenerate Metal meshes, and deletes the recovery snapshot from disk.
+  - Choosing **Discard** deletes the recovery files from disk, dismisses the alert, and preserves the clean default workspace scene.
+  - Normal document lifecycle operations (explicit save via ⌘S, creating a new document via ⌘N, opening another document via ⌘O, or clean application termination via `willTerminateNotification`) delete active recovery snapshot files to prevent stale recovery prompts.
+  - Corrupt, incomplete, or future-schema recovery artifacts are caught gracefully, logged, and isolated without crashing or wedging application launch.
 
 ---
 
