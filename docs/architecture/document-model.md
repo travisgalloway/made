@@ -183,7 +183,14 @@ document.setTransform(id: boxId, transform: t)
 document.removeObject(id: boxId)
 ```
 
-The model also exposes `setName(id:name:)`, `setVisibility(id:isVisible:)`, `setLocked(id:isLocked:)`, and `setMaterial(id:material:)`. Mutators `setParam`, `setTransform`, `setMaterial`, and `removeObject` guard `!isLocked` and return `Result<Void, DocumentMutationError>`, returning `.failure(.objectLocked(id))` if locked. Non-existent IDs return `.failure(.objectNotFound(id))`.
+The model also exposes entity mutators for features, bodies, and scene objects:
+- `setFeatureName(id:name:)`: Guards `!isLocked` (returning `.failure(.objectLocked)`), trims whitespace, rejects empty names, registers `"Rename Feature"` undo/redo, and propagates name updates to projected scene objects and bodies (BL-FND-13, #240).
+- `setFeatureVisibility(id:isVisible:)`: Permits visibility toggling on both unlocked and locked features, registers `"Show Feature"` / `"Hide Feature"` undo/redo, and propagates to projected scene objects and bodies.
+- `setFeatureLocked(id:isLocked:)`: Mutates feature lock state and registers `"Lock Feature"` / `"Unlock Feature"` undo/redo.
+- `setBodyName(id:name:)` and `setName(id:name:)`: Guard `!isLocked`, trim whitespace, reject empty/whitespace-only strings, register `"Rename Body"` undo/redo, and update corresponding features and scene objects.
+- `setBodyVisibility(id:isVisible:)` and `setVisibility(id:isVisible:)`: Permit visibility toggling even when locked, registering `"Show Body"` / `"Hide Body"` undo/redo.
+- `WorkspaceModel` synchronizes `viewportManager.renderer?.hiddenSolidIds` on direct mutation and reconciles during `undo()`, `redo()`, and document loading/resetting (`syncHiddenSolidIds()`).
+- Mutators `setParam`, `setTransform`, `setMaterial`, and `removeObject` guard `!isLocked` and return `Result<Void, DocumentMutationError>`, returning `.failure(.objectLocked(id))` if locked. Non-existent IDs return `.failure(.objectNotFound(id))`.
 
 ### Limits Clamping
 `DocumentLimits` in `DocumentModel.swift` clamps parameter updates made through `setParam` to fixed ranges (a NaN value becomes the minimum):

@@ -282,6 +282,16 @@ final class WorkspaceModel {
         return document.objects.first { $0.id == selectedId }
     }
 
+    var selectedBody: Body? {
+        guard let selectedId else { return nil }
+        return document.body(for: selectedId)
+    }
+
+    var selectedFeature: Feature? {
+        guard let selectedId else { return nil }
+        return document.feature(for: selectedId)
+    }
+
     var objectPendingDeletion: SceneObject? {
         guard let pendingDeleteId else { return nil }
         return document.objects.first { $0.id == pendingDeleteId }
@@ -529,6 +539,7 @@ final class WorkspaceModel {
         currentDocumentURL = nil
         isDocumentModified = false
         syncWindowState()
+        syncHiddenSolidIds()
         log(.info, "Document", "Created new document")
 
         for obj in document.objects {
@@ -553,6 +564,7 @@ final class WorkspaceModel {
             currentDocumentURL = url
             isDocumentModified = false
             syncWindowState()
+            syncHiddenSolidIds()
             log(.info, "Document", "Opened document from \(url.lastPathComponent)")
 
             for obj in document.objects {
@@ -980,9 +992,79 @@ final class WorkspaceModel {
     }
 
     func setName(id: ObjectId, name: String) {
-        guard let obj = document.objects.first(where: { $0.id == id }), obj.name != name else { return }
-        document.setName(id: id, name: name)
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, obj.name != trimmed, !obj.isLocked else { return }
+        document.setName(id: id, name: trimmed)
         markDocumentModified()
+    }
+
+    // MARK: - Feature Mutators (BL-FND-13)
+
+    func setFeatureName(id: UUID, name: String) {
+        let result = document.setFeatureName(id: id, name: name)
+        guard case .success = result else { return }
+        markDocumentModified()
+    }
+
+    func setFeatureVisibility(id: UUID, isVisible: Bool) {
+        guard let feature = document.feature(for: id) else { return }
+        guard feature.isVisible != isVisible else { return }
+        let result = document.setFeatureVisibility(id: id, isVisible: isVisible)
+        guard case .success = result else { return }
+        if let solidId = feature.outputSolidId {
+            if isVisible {
+                viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+            } else {
+                viewportManager.renderer?.hiddenSolidIds.insert(solidId)
+            }
+        }
+        invalidateViewport(.model)
+        markDocumentModified()
+    }
+
+    func toggleFeatureVisibility(_ id: UUID) {
+        guard let feature = document.feature(for: id) else { return }
+        setFeatureVisibility(id: id, isVisible: !feature.isVisible)
+    }
+
+    // MARK: - Body Mutators (BL-FND-13)
+
+    func setBodyName(id: BodyId, name: String) {
+        guard let b = document.body(for: id) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, b.name != trimmed, !b.isLocked else { return }
+        document.setBodyName(id: id, name: trimmed)
+        markDocumentModified()
+    }
+
+    func setBodyVisibility(id: BodyId, isVisible: Bool) {
+        guard let b = document.body(for: id) else { return }
+        guard b.isVisible != isVisible else { return }
+        document.setBodyVisibility(id: id, isVisible: isVisible)
+        markDocumentModified()
+        if isVisible {
+            viewportManager.renderer?.hiddenSolidIds.remove(id)
+        } else {
+            viewportManager.renderer?.hiddenSolidIds.insert(id)
+        }
+        invalidateViewport(.model)
+    }
+
+    func toggleBodyVisibility(_ id: BodyId) {
+        guard let b = document.body(for: id) else { return }
+        setBodyVisibility(id: id, isVisible: !b.isVisible)
+    }
+
+    // MARK: - Viewport Hidden State Synchronization (BL-FND-13)
+
+    func syncHiddenSolidIds() {
+        guard let renderer = viewportManager.renderer else { return }
+        let expectedHidden = Set(document.objects.filter { !$0.isVisible }.map(\.id))
+        if renderer.hiddenSolidIds != expectedHidden {
+            renderer.hiddenSolidIds = expectedHidden
+            invalidateViewport(.model)
+        }
     }
 
     private func formatVec3(_ v: SIMD3<Float>) -> String {
@@ -1162,6 +1244,7 @@ final class WorkspaceModel {
         let oldObjects = document.objects
         document.undo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
+        syncHiddenSolidIds()
         let oldSet = Set(oldObjects.map(\.id))
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)
@@ -1172,6 +1255,7 @@ final class WorkspaceModel {
         let oldObjects = document.objects
         document.redo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
+        syncHiddenSolidIds()
         let oldSet = Set(oldObjects.map(\.id))
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)

@@ -36,10 +36,12 @@ struct InspectorPanelView: View {
                 Form {
                     identitySection(selected)
                     transformSection(selected)
+                        .disabled(selected.isLocked)
                     dimensionsSection(selected)
+                        .disabled(selected.isLocked)
                     materialSection(selected)
+                        .disabled(selected.isLocked)
                 }
-                .disabled(selected.isLocked)
                 .formStyle(.columns)
                 .controlSize(.small)
                 .padding()
@@ -77,6 +79,11 @@ struct InspectorPanelView: View {
             TextField("Name", text: Binding(
                 get: { obj.name },
                 set: { workspace.setName(id: obj.id, name: $0) }
+            ))
+            .disabled(obj.isLocked)
+            Toggle("Visible in Viewport", isOn: Binding(
+                get: { obj.isVisible },
+                set: { workspace.setVisibility(obj.id, isVisible: $0) }
             ))
             LabeledContent("ID") {
                 Text(obj.id.rawValue).monospaced().textSelection(.enabled)
