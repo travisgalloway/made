@@ -19,9 +19,21 @@ enum NavigatorTab: String, PaneTab {
 
 enum InspectorTab: String, PaneTab {
     case properties
+    case document
 
-    var title: String { "Properties" }
-    var systemImage: String { "slider.horizontal.3" }
+    var title: String {
+        switch self {
+        case .properties: return "Properties"
+        case .document: return "Document"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .properties: return "slider.horizontal.3"
+        case .document: return "doc.text"
+        }
+    }
 }
 
 /// Icon tab selector at the top of a side pane. Xcode left-aligns navigator tabs and stretches inspector tabs to the pane width.

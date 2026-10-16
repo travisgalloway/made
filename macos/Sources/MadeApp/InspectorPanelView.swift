@@ -21,6 +21,9 @@ struct InspectorPanelView: View {
                 case .properties:
                     properties
                         .frame(maxHeight: .infinity)
+                case .document:
+                    DocumentSettingsInspectorView()
+                        .frame(maxHeight: .infinity)
                 }
             }
         }
@@ -86,7 +89,7 @@ struct InspectorPanelView: View {
 
     private func transformSection(_ obj: SceneObject) -> some View {
         Section {
-            LabeledContent("Position (mm)") {
+            LabeledContent("Position (\(workspace.document.settings.units.lengthUnit.symbol))") {
                 vectorFields(obj.transform.position) { position in
                     var t = obj.transform
                     t.position = position
@@ -208,7 +211,8 @@ struct InspectorPanelView: View {
         onChange: @escaping (Float) -> Void
     ) -> some View {
         let binding = Binding(get: { Double(value) }, set: { onChange(Float($0)) })
-        let spoken = "\(value.formatted(.number.precision(.fractionLength(1)))) millimeters"
+        let symbol = workspace.document.settings.units.lengthUnit.symbol
+        let spoken = "\(value.formatted(.number.precision(.fractionLength(1)))) \(symbol)"
         return LabeledContent(label) {
             HStack(spacing: 4) {
                 Slider(value: binding, in: Double(range.min)...Double(range.max), step: 1) {
@@ -226,12 +230,184 @@ struct InspectorPanelView: View {
                 CommitNumberField(label: label, value: Double(value), width: 52) { onChange(Float($0)) }
                     .accessibilityLabel(label)
                     .accessibilityValue(spoken)
-                Text("mm").foregroundStyle(.secondary)
+                Text(symbol).foregroundStyle(.secondary)
                 Stepper(label, value: binding, in: Double(range.min)...Double(range.max), step: 1)
                     .accessibilityLabel(label)
                     .accessibilityValue(spoken)
             }
             .labelsHidden()
         }
+    }
+}
+
+struct DocumentSettingsInspectorView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+
+    var body: some View {
+        ScrollView {
+            Form {
+                unitsSection
+                tolerancesSection
+                materialSection
+            }
+            .formStyle(.columns)
+            .controlSize(.small)
+            .padding()
+        }
+    }
+
+    private var unitsSection: some View {
+        Section {
+            Picker("Length Unit", selection: Binding(
+                get: { workspace.document.settings.units.lengthUnit },
+                set: { newUnit in
+                    var u = workspace.document.settings.units
+                    u.lengthUnit = newUnit
+                    workspace.setDocumentUnits(u)
+                }
+            )) {
+                ForEach(LengthUnit.allCases) { unit in
+                    Text(unit.displayName).tag(unit)
+                }
+            }
+
+            Picker("Angular Unit", selection: Binding(
+                get: { workspace.document.settings.units.angleUnit },
+                set: { newUnit in
+                    var u = workspace.document.settings.units
+                    u.angleUnit = newUnit
+                    workspace.setDocumentUnits(u)
+                }
+            )) {
+                ForEach(AngleUnit.allCases) { unit in
+                    Text(unit.displayName).tag(unit)
+                }
+            }
+
+            Stepper("Decimal Places: \(workspace.document.settings.units.decimalPrecision)", value: Binding(
+                get: { workspace.document.settings.units.decimalPrecision },
+                set: { newPrecision in
+                    var u = workspace.document.settings.units
+                    u.decimalPrecision = newPrecision
+                    workspace.setDocumentUnits(u)
+                }
+            ), in: UnitSettings.minDecimalPrecision...UnitSettings.maxDecimalPrecision)
+
+            LabeledContent("Length Preview") {
+                Text(workspace.document.settings.units.formatLength(100.0))
+                    .fontWeight(.medium)
+            }
+
+            LabeledContent("Angle Preview") {
+                Text(workspace.document.settings.units.formatAngle(45.0))
+                    .fontWeight(.medium)
+            }
+        } header: {
+            sectionHeader("Units", isFirst: true)
+        }
+    }
+
+    private var tolerancesSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Linear Tolerance (mm):")
+                    Spacer()
+                    TextField("Linear", value: Binding(
+                        get: { workspace.document.settings.tolerances.linearTolerance },
+                        set: { val in
+                            var t = workspace.document.settings.tolerances
+                            t.linearTolerance = val
+                            workspace.setDocumentTolerances(t)
+                        }
+                    ), format: .number)
+                    .frame(width: 80)
+                    .multilineTextAlignment(.trailing)
+                }
+                Text("Valid range: \(KernelTolerances.minLinearTolerance, specifier: "%.4f")...\(KernelTolerances.maxLinearTolerance, specifier: "%.1f") mm")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Angular Tolerance (deg):")
+                    Spacer()
+                    TextField("Angular", value: Binding(
+                        get: { workspace.document.settings.tolerances.angularTolerance },
+                        set: { val in
+                            var t = workspace.document.settings.tolerances
+                            t.angularTolerance = val
+                            workspace.setDocumentTolerances(t)
+                        }
+                    ), format: .number)
+                    .frame(width: 80)
+                    .multilineTextAlignment(.trailing)
+                }
+                Text("Valid range: \(KernelTolerances.minAngularTolerance, specifier: "%.3f")...\(KernelTolerances.maxAngularTolerance, specifier: "%.1f")°")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Chordal Deflection (mm):")
+                    Spacer()
+                    TextField("Chordal", value: Binding(
+                        get: { workspace.document.settings.tolerances.chordalTolerance },
+                        set: { val in
+                            var t = workspace.document.settings.tolerances
+                            t.chordalTolerance = val
+                            workspace.setDocumentTolerances(t)
+                        }
+                    ), format: .number)
+                    .frame(width: 80)
+                    .multilineTextAlignment(.trailing)
+                }
+                Text("Tessellation limit: \(KernelTolerances.minChordalTolerance, specifier: "%.4f")...\(KernelTolerances.maxChordalTolerance, specifier: "%.1f") mm")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Reset Tolerances to Defaults") {
+                workspace.setDocumentTolerances(KernelTolerances.default)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        } header: {
+            sectionHeader("Tolerances")
+        }
+    }
+
+    private var materialSection: some View {
+        Section {
+            ColorPicker("Default Color", selection: Binding(
+                get: {
+                    let c = workspace.document.settings.defaultMaterial.color
+                    return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z), opacity: Double(c.w))
+                },
+                set: { newColor in
+                    let resolved = newColor.resolve(in: EnvironmentValues())
+                    let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
+                    workspace.setDocumentDefaultMaterial(MaterialAttributes(color: simdColor))
+                }
+            ), supportsOpacity: false)
+
+            Button("Reset Material to Default") {
+                workspace.setDocumentDefaultMaterial(MaterialAttributes())
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        } header: {
+            sectionHeader("Default Material")
+        }
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
     }
 }

@@ -354,6 +354,7 @@ public final class DocumentModel {
         }
     }
     public private(set) var objects: [SceneObject] = []
+    public private(set) var settings: DocumentSettings = DocumentSettings()
     private var seq: Int = 1
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
     @ObservationIgnored private var _selectedSubElement: SelectedSubElement? = nil
@@ -413,7 +414,7 @@ public final class DocumentModel {
         }
     }
     
-    public init() {
+    public init(settings: DocumentSettings = DocumentSettings()) {
         // Initialize with default box and cylinder matching document.svelte.ts
         let boxFeature = Feature.makeBox(
             solidId: boxSolidId,
@@ -428,12 +429,13 @@ public final class DocumentModel {
         self.features = [boxFeature, cylinderFeature]
         self.rollbackIndex = nil
         self._selectedId = boxSolidId
+        self.settings = settings
         syncObjectsFromFeatures()
         self.seq = Self.computeMaxSequence(features: self.features)
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
+    public init(features: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         self.features = features
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
@@ -441,13 +443,14 @@ public final class DocumentModel {
         } else {
             self.rollbackIndex = nil
         }
+        self.settings = settings ?? DocumentSettings()
         syncObjectsFromFeatures()
         self._selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
         self.seq = Self.computeMaxSequence(features: features)
         setupUndoObservers()
     }
 
-    public init(objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
+    public init(objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         let convertedFeatures = objects.map { Feature(from: $0) }
         self.features = convertedFeatures
         if let idx = rollbackIndex {
@@ -456,13 +459,14 @@ public final class DocumentModel {
         } else {
             self.rollbackIndex = nil
         }
+        self.settings = settings ?? DocumentSettings()
         syncObjectsFromFeatures()
         self._selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
         self.seq = Self.computeMaxSequence(objects: objects)
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
+    public func reset(with newFeatures: [Feature], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         undoManager?.removeAllActions()
         features = newFeatures
         if let idx = rollbackIndex {
@@ -471,6 +475,9 @@ public final class DocumentModel {
         } else {
             self.rollbackIndex = nil
         }
+        if let settings {
+            self.settings = settings
+        }
         seq = Self.computeMaxSequence(features: newFeatures)
         self.selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
         self.selectedSubElement = nil
@@ -478,7 +485,7 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil) {
+    public func reset(with newObjects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
         undoManager?.removeAllActions()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
         features = convertedFeatures
@@ -487,6 +494,9 @@ public final class DocumentModel {
             self.rollbackIndex = (clamped >= convertedFeatures.count) ? nil : clamped
         } else {
             self.rollbackIndex = nil
+        }
+        if let settings {
+            self.settings = settings
         }
         seq = Self.computeMaxSequence(objects: newObjects)
         self.selectedId = selectedId ?? activeFeatures.compactMap(\.outputSolidId).first
@@ -598,6 +608,49 @@ public final class DocumentModel {
 
     public func redo() {
         undoManager?.redo()
+    }
+
+    // MARK: - Document Settings Mutators (BL-FND-11)
+
+    public func setSettings(_ newSettings: DocumentSettings, actionName: String? = nil, registerUndo: Bool = true) {
+        let clamped = DocumentSettings(
+            units: newSettings.units,
+            tolerances: newSettings.tolerances.clamped(),
+            defaultMaterial: newSettings.defaultMaterial
+        )
+        guard settings != clamped else { return }
+
+        let previous = settings
+        if registerUndo {
+            let undoName = actionName ?? "Change Document Settings"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setSettings(previous, actionName: undoName, registerUndo: true)
+                    target.undoManager?.setActionName(undoName)
+                }
+            }
+            undoManager?.setActionName(undoName)
+            undoStateVersion += 1
+        }
+        settings = clamped
+    }
+
+    public func setUnits(_ units: UnitSettings) {
+        var newSettings = settings
+        newSettings.units = units
+        setSettings(newSettings, actionName: "Change Document Settings")
+    }
+
+    public func setTolerances(_ tolerances: KernelTolerances) {
+        var newSettings = settings
+        newSettings.tolerances = tolerances
+        setSettings(newSettings, actionName: "Change Document Settings")
+    }
+
+    public func setDefaultMaterial(_ material: MaterialAttributes) {
+        var newSettings = settings
+        newSettings.defaultMaterial = material
+        setSettings(newSettings, actionName: "Change Document Settings")
     }
 
     // MARK: - Rollback Marker (BL-FND-05)
@@ -1001,8 +1054,8 @@ public final class DocumentModel {
     }
     
     @discardableResult
-    public func addObject(def: ObjectDef, transform: Transform = .identity) -> ObjectId {
-        addObject(reserveId(for: def), def: def, transform: transform)
+    public func addObject(def: ObjectDef, transform: Transform = .identity, material: MaterialAttributes? = nil) -> ObjectId {
+        addObject(reserveId(for: def), def: def, transform: transform, material: material)
     }
     
     /// Advances the sequence and returns an ID no object has used; the caller may never add it.
@@ -1013,7 +1066,7 @@ public final class DocumentModel {
     
     /// Adds an object under an ID from `reserveId(for:)`, so a kernel call can use the ID before the object exists.
     @discardableResult
-    public func addObject(_ id: ObjectId, def: ObjectDef, transform: Transform = .identity) -> ObjectId {
+    public func addObject(_ id: ObjectId, def: ObjectDef, transform: Transform = .identity, material: MaterialAttributes? = nil) -> ObjectId {
         let clamped = DocumentLimits.clamp(def)
         let defaultName: String?
         if case .part(let url, _) = clamped, !url.lastPathComponent.isEmpty {
@@ -1023,7 +1076,8 @@ public final class DocumentModel {
         } else {
             defaultName = nil
         }
-        let obj = SceneObject(id: id, name: defaultName, def: clamped, transform: transform)
+        let effectiveMaterial = material ?? settings.defaultMaterial
+        let obj = SceneObject(id: id, name: defaultName, def: clamped, transform: transform, material: effectiveMaterial)
         let feature = Feature(from: obj)
         let insertIndex = effectiveRollbackIndex
         let previousRollback = rollbackIndex
@@ -1092,7 +1146,8 @@ public final class DocumentModel {
             name: displayName,
             operation: .part(PartFeatureData(url: canonical, shape: nil)),
             outputSolidId: id,
-            transform: transform
+            transform: transform,
+            material: settings.defaultMaterial
         )
         let insertIndex = effectiveRollbackIndex
         let previousRollback = rollbackIndex

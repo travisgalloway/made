@@ -1420,5 +1420,103 @@ import MadeCore
         #expect(workspace2.document.objects.count == 1)
         #expect(workspace2.isRolledBack)
     }
+
+    // MARK: - Document Settings & UserDefaults Isolation Tests (BL-FND-11)
+
+    @Test @MainActor func testOpenDocumentPreservesUserDefaultsSettings() throws {
+        let suiteName = "com.made.test.isolation.\(UUID().uuidString)"
+        let testDefaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            testDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("CustomUnitsDoc.made")
+
+        // Prepare a package with custom document settings (inches, radians, precision 4, custom tolerances)
+        let customSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: .inches, angleUnit: .radians, decimalPrecision: 4),
+            tolerances: KernelTolerances(linearTolerance: 0.05, angularTolerance: 0.5, chordalTolerance: 0.05),
+            defaultMaterial: MaterialAttributes(color: SIMD4<Float>(0.2, 0.4, 0.6, 1.0))
+        )
+        let manifest = MadeManifest(
+            schemaVersion: MadeManifest.currentSchemaVersion,
+            appVersion: "0.1",
+            documentSettings: customSettings
+        )
+        let docData = DocumentData(
+            schemaVersion: DocumentData.currentSchemaVersion,
+            objects: [
+                SceneObject(id: ObjectId("box-1"), def: .box(BoxParams(width: 30, depth: 30, height: 30)))
+            ]
+        )
+        let package = MadePackage(manifest: manifest, documentData: docData)
+        try package.write(to: packageURL)
+
+        // Initialize workspace with explicit global UserDefaults preferences (millimeters, degrees, precision 2)
+        let model = WorkspaceModel(defaults: testDefaults)
+        model.lengthUnit = .millimeters
+        model.angleUnit = .degrees
+        model.decimalPrecision = 2
+        model.kernelTolerances = KernelTolerances.default
+
+        #expect(testDefaults.string(forKey: WorkspaceModel.lengthUnitDefaultsKey) == LengthUnit.millimeters.rawValue)
+        #expect(testDefaults.string(forKey: WorkspaceModel.angleUnitDefaultsKey) == AngleUnit.degrees.rawValue)
+        #expect(testDefaults.integer(forKey: WorkspaceModel.decimalPrecisionDefaultsKey) == 2)
+
+        // Open custom document
+        let openResult = model.openDocument(at: packageURL)
+        #expect(openResult)
+
+        // Document model receives the document's settings
+        #expect(model.document.settings.units.lengthUnit == .inches)
+        #expect(model.document.settings.units.angleUnit == .radians)
+        #expect(model.document.settings.units.decimalPrecision == 4)
+        #expect(model.document.settings.tolerances.linearTolerance == 0.05)
+        #expect(model.document.settings.defaultMaterial.color == SIMD4<Float>(0.2, 0.4, 0.6, 1.0))
+
+        // Global UserDefaults preferences remain UNMODIFIED
+        #expect(model.lengthUnit == .millimeters)
+        #expect(model.angleUnit == .degrees)
+        #expect(model.decimalPrecision == 2)
+        #expect(testDefaults.string(forKey: WorkspaceModel.lengthUnitDefaultsKey) == LengthUnit.millimeters.rawValue)
+        #expect(testDefaults.string(forKey: WorkspaceModel.angleUnitDefaultsKey) == AngleUnit.degrees.rawValue)
+        #expect(testDefaults.integer(forKey: WorkspaceModel.decimalPrecisionDefaultsKey) == 2)
+    }
+
+    @Test @MainActor func testActiveDocumentSettingsMutators() {
+        let model = WorkspaceModel()
+        model.isDocumentModified = false
+
+        let newUnits = UnitSettings(lengthUnit: .feet, angleUnit: .radians, decimalPrecision: 5)
+        model.setDocumentUnits(newUnits)
+        #expect(model.isDocumentModified)
+        #expect(model.document.settings.units == newUnits)
+
+        model.isDocumentModified = false
+        let newTols = KernelTolerances(linearTolerance: 0.02, angularTolerance: 0.4, chordalTolerance: 0.02)
+        model.setDocumentTolerances(newTols)
+        #expect(model.isDocumentModified)
+        #expect(model.document.settings.tolerances == newTols.clamped())
+
+        model.isDocumentModified = false
+        let newMat = MaterialAttributes(color: SIMD4<Float>(0.8, 0.1, 0.3, 1.0))
+        model.setDocumentDefaultMaterial(newMat)
+        #expect(model.isDocumentModified)
+        #expect(model.document.settings.defaultMaterial == newMat)
+
+        model.isDocumentModified = false
+        let allSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: .meters, angleUnit: .degrees, decimalPrecision: 3),
+            tolerances: KernelTolerances(linearTolerance: 0.01, angularTolerance: 0.2, chordalTolerance: 0.01),
+            defaultMaterial: MaterialAttributes(color: SIMD4<Float>(0.1, 0.2, 0.3, 1.0))
+        )
+        model.setDocumentSettings(allSettings)
+        #expect(model.isDocumentModified)
+        #expect(model.document.settings == allSettings)
+    }
 }
 
