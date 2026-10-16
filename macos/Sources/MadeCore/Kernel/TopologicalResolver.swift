@@ -60,7 +60,21 @@ public enum TopologicalResolver {
                 }
             case "face:side":
                 candidates = faces.filter { face in
-                    face.surfaceType == .cylinder
+                    face.surfaceType == .cylinder || face.surfaceType == .cone
+                }
+            case "face:surface":
+                candidates = faces.filter { face in
+                    face.surfaceType == .sphere || face.surfaceType == .torus
+                }
+            case "face:slanted":
+                candidates = faces.filter { face in
+                    guard face.isPlanar, let n = face.normal else { return false }
+                    return !matchesNormal(n, SIMD3(0, 0, 1)) &&
+                           !matchesNormal(n, SIMD3(0, 0, -1)) &&
+                           !matchesNormal(n, SIMD3(0, -1, 0)) &&
+                           !matchesNormal(n, SIMD3(0, 1, 0)) &&
+                           !matchesNormal(n, SIMD3(1, 0, 0)) &&
+                           !matchesNormal(n, SIMD3(-1, 0, 0))
                 }
             default:
                 break
@@ -71,6 +85,9 @@ public enum TopologicalResolver {
             candidates = faces.filter { face in
                 if let surfaceType = disambiguator.surfaceOrCurveType {
                     if surfaceType == "cylinder" && face.surfaceType != .cylinder { return false }
+                    if surfaceType == "cone" && face.surfaceType != .cone { return false }
+                    if surfaceType == "sphere" && face.surfaceType != .sphere { return false }
+                    if surfaceType == "torus" && face.surfaceType != .torus { return false }
                     if surfaceType == "plane" && !face.isPlanar { return false }
                 }
                 if let targetNormal = disambiguator.normal {
@@ -176,9 +193,15 @@ public enum TopologicalResolver {
                     }
                 case "edge:seam":
                     candidates = edges.filter { edge in
-                        guard edge.isLine else { return false }
-                        let ep = edge.endpoints
-                        return abs(ep.start.x - ep.end.x) < 1e-4 && abs(ep.start.y - ep.end.y) < 1e-4
+                        if edge.isLine {
+                            let ep = edge.endpoints
+                            return abs(ep.start.x - ep.end.x) < 1e-4 && abs(ep.start.y - ep.end.y) < 1e-4
+                        }
+                        return edge.isCircle
+                    }
+                case "edge:major-seam", "edge:minor-seam":
+                    candidates = edges.filter { edge in
+                        edge.isCircle
                     }
                 default:
                     break
@@ -266,6 +289,15 @@ public enum TopologicalResolver {
                     if let first = candidates.first { return first }
                 case "vertex:bottom-seam":
                     let candidates = vertices.filter { $0.z < 0 }
+                    if let first = candidates.first { return first }
+                case "vertex:north-pole":
+                    let candidates = vertices.filter { $0.z > 0 && abs($0.x) < 1e-3 && abs($0.y) < 1e-3 }
+                    if let first = candidates.first { return first }
+                case "vertex:south-pole":
+                    let candidates = vertices.filter { $0.z < 0 && abs($0.x) < 1e-3 && abs($0.y) < 1e-3 }
+                    if let first = candidates.first { return first }
+                case "vertex:apex":
+                    let candidates = vertices.filter { $0.z > 0 && abs($0.x) < 1e-3 && abs($0.y) < 1e-3 }
                     if let first = candidates.first { return first }
                 default:
                     break

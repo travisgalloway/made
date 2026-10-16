@@ -15,6 +15,10 @@ import XPC
         let messages: [KernelWireMessage] = [
             .execute(.makeBox(jobId: j, solidId: s, params: box)),
             .execute(.makeCylinder(jobId: j, solidId: s, params: CylinderParams(radius: 2, height: 3))),
+            .execute(.makeSphere(jobId: j, solidId: s, params: SphereParams(radius: 5))),
+            .execute(.makeCone(jobId: j, solidId: s, params: ConeParams(bottomRadius: 5, topRadius: 1, height: 10))),
+            .execute(.makeTorus(jobId: j, solidId: s, params: TorusParams(majorRadius: 10, minorRadius: 2))),
+            .execute(.makeWedge(jobId: j, solidId: s, params: WedgeParams(width: 10, depth: 10, height: 10, topWidth: 2))),
             .execute(.tessellate(jobId: j, solidId: s)),
             .execute(.importStep(jobId: j, solidId: s, data: Data([1, 2, 3]))),
             .execute(.booleanOperation(jobId: j, solidId: s, op: .intersect, solidA: SolidId("a"), solidB: SolidId("b"))),
@@ -72,6 +76,27 @@ import XPC
         #expect(Array(remote.normals) == Array(local.normals))
         #expect(Array(remote.indices) == Array(local.indices))
         #expect(await engine.execute(.tessellate(jobId: JobId("t"), solidId: SolidId("b"))).isSuccess)
+    }
+
+    @Test func testPrimitivesRoundTripThroughService() async throws {
+        let harness = KernelServiceHarness()
+        let engine = harness.makeEngine()
+        let localEngine = LocalKernelEngine()
+
+        let requests: [KernelRequest] = [
+            .makeSphere(jobId: JobId("jsph"), solidId: SolidId("sph"), params: SphereParams(radius: 10)),
+            .makeCone(jobId: JobId("jcn"), solidId: SolidId("cn"), params: ConeParams(bottomRadius: 10, topRadius: 2, height: 20)),
+            .makeTorus(jobId: JobId("jtor"), solidId: SolidId("tor"), params: TorusParams(majorRadius: 15, minorRadius: 3)),
+            .makeWedge(jobId: JobId("jwdg"), solidId: SolidId("wdg"), params: WedgeParams(width: 15, depth: 15, height: 15, topWidth: 5))
+        ]
+
+        for req in requests {
+            let remote = try #require(await engine.execute(req).value)
+            let local = try #require(await localEngine.execute(req).value)
+            #expect(remote.triangleCount > 0)
+            #expect(Array(remote.indices) == Array(local.indices))
+            #expect(await engine.execute(.tessellate(jobId: JobId("t-\(req.solidId.rawValue)"), solidId: req.solidId)).isSuccess)
+        }
     }
     
     @Test func testShapeTreeRoundTripsThroughService() async throws {

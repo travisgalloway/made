@@ -139,6 +139,18 @@ struct NavigatorSidebarView: View {
                 Button("Cylinder Solid", systemImage: "cylinder") {
                     workspace.addDefaultCylinder()
                 }
+                Button("Sphere Solid", systemImage: "globe") {
+                    workspace.addDefaultSphere()
+                }
+                Button("Cone Solid", systemImage: "cone.fill") {
+                    workspace.addDefaultCone()
+                }
+                Button("Torus Solid", systemImage: "circle.circle") {
+                    workspace.addDefaultTorus()
+                }
+                Button("Wedge Solid", systemImage: "triangle.fill") {
+                    workspace.addDefaultWedge()
+                }
                 Divider()
                 Button("Part Script File…", systemImage: "curlybraces") {
                     workspace.promptOpenPartFile()
@@ -271,6 +283,10 @@ private struct NavigatorRow: View {
         switch object.def {
         case .box: return "shippingbox.fill"
         case .cylinder: return "cylinder.fill"
+        case .sphere: return "globe"
+        case .cone: return "cone.fill"
+        case .torus: return "circle.circle"
+        case .wedge: return "triangle.fill"
         case .imported: return "cube.transparent"
         case .boolean: return "square.on.circle"
         case .part: return "curlybraces.square.fill"
@@ -281,6 +297,10 @@ private struct NavigatorRow: View {
         switch object.def {
         case .box: return .blue
         case .cylinder: return .orange
+        case .sphere: return .pink
+        case .cone: return .indigo
+        case .torus: return .mint
+        case .wedge: return .brown
         case .imported: return .purple
         case .boolean: return .green
         case .part: return .teal

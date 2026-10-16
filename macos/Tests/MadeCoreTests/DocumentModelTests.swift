@@ -43,6 +43,26 @@ import simd
         return nil
     }
 
+    private func sphere(_ doc: DocumentModel, _ id: ObjectId) -> SphereParams? {
+        if case .sphere(let p) = doc.paramsFor(id: id) { return p }
+        return nil
+    }
+
+    private func cone(_ doc: DocumentModel, _ id: ObjectId) -> ConeParams? {
+        if case .cone(let p) = doc.paramsFor(id: id) { return p }
+        return nil
+    }
+
+    private func torus(_ doc: DocumentModel, _ id: ObjectId) -> TorusParams? {
+        if case .torus(let p) = doc.paramsFor(id: id) { return p }
+        return nil
+    }
+
+    private func wedge(_ doc: DocumentModel, _ id: ObjectId) -> WedgeParams? {
+        if case .wedge(let p) = doc.paramsFor(id: id) { return p }
+        return nil
+    }
+
     @Test func testAddObjectClampsBoxAboveMax() {
         let doc = DocumentModel()
         let id = doc.addObject(def: .box(BoxParams(width: 500, depth: 30, height: 20)))
@@ -76,6 +96,72 @@ import simd
         #expect(box(doc, b) == BoxParams(width: 5, depth: 90, height: 5))
         let c = doc.addObject(def: .cylinder(CylinderParams(radius: 50, height: 90)))
         #expect(cylinder(doc, c) == CylinderParams(radius: 50, height: 90))
+    }
+
+    @Test func testAddObjectClampsSphereConeTorusWedge() {
+        let doc = DocumentModel()
+        // Sphere
+        let sphAbove = doc.addObject(def: .sphere(SphereParams(radius: 500)))
+        #expect(sphere(doc, sphAbove)?.radius == DocumentLimits.sphereRadius.max)
+        let sphNaN = doc.addObject(def: .sphere(SphereParams(radius: .nan)))
+        #expect(sphere(doc, sphNaN)?.radius == DocumentLimits.sphereRadius.min)
+
+        // Cone
+        let coneAbove = doc.addObject(def: .cone(ConeParams(bottomRadius: 300, topRadius: 400, height: 600)))
+        #expect(cone(doc, coneAbove)?.bottomRadius == DocumentLimits.coneBottomRadius.max)
+        #expect(cone(doc, coneAbove)?.topRadius == DocumentLimits.coneTopRadius.max)
+        #expect(cone(doc, coneAbove)?.height == DocumentLimits.coneHeight.max)
+        let coneZeroZero = doc.addObject(def: .cone(ConeParams(bottomRadius: 0, topRadius: 0, height: -10)))
+        #expect(cone(doc, coneZeroZero)?.bottomRadius == DocumentLimits.coneBottomRadius.min)
+        #expect(cone(doc, coneZeroZero)?.topRadius == 0)
+        #expect(cone(doc, coneZeroZero)?.height == DocumentLimits.coneHeight.min)
+
+        // Torus
+        let torusAbove = doc.addObject(def: .torus(TorusParams(majorRadius: 500, minorRadius: 300)))
+        #expect(torus(doc, torusAbove)?.majorRadius == DocumentLimits.torusMajorRadius.max)
+        #expect(torus(doc, torusAbove)?.minorRadius == DocumentLimits.torusMinorRadius.max)
+        let torusMinorTooBig = doc.addObject(def: .torus(TorusParams(majorRadius: 20, minorRadius: 25)))
+        #expect(torus(doc, torusMinorTooBig)?.majorRadius == 20)
+        #expect(torus(doc, torusMinorTooBig)!.minorRadius < 20)
+
+        // Wedge
+        let wedgeAbove = doc.addObject(def: .wedge(WedgeParams(width: 500, depth: 500, height: 500, topWidth: 600)))
+        #expect(wedge(doc, wedgeAbove)?.width == DocumentLimits.wedgeWidth.max)
+        #expect(wedge(doc, wedgeAbove)?.depth == DocumentLimits.wedgeDepth.max)
+        #expect(wedge(doc, wedgeAbove)?.height == DocumentLimits.wedgeHeight.max)
+        #expect(wedge(doc, wedgeAbove)?.topWidth == DocumentLimits.wedgeTopWidth.max)
+        let wedgeTopBigger = doc.addObject(def: .wedge(WedgeParams(width: 20, depth: 20, height: 20, topWidth: 35)))
+        #expect(wedge(doc, wedgeTopBigger)?.width == 20)
+        #expect(wedge(doc, wedgeTopBigger)?.topWidth == 20)
+    }
+
+    @Test func testSetParamClampsSphereConeTorusWedge() {
+        let doc = DocumentModel()
+        let sph = doc.addObject(def: .sphere(SphereParams(radius: 15)))
+        doc.setParam(id: sph, key: "radius", value: 300)
+        #expect(sphere(doc, sph)?.radius == DocumentLimits.sphereRadius.max)
+        doc.setParam(id: sph, key: "radius", value: .nan)
+        #expect(sphere(doc, sph)?.radius == DocumentLimits.sphereRadius.min)
+
+        let cn = doc.addObject(def: .cone(ConeParams(bottomRadius: 15, topRadius: 5, height: 25)))
+        doc.setParam(id: cn, key: "bottomRadius", value: 400)
+        #expect(cone(doc, cn)?.bottomRadius == DocumentLimits.coneBottomRadius.max)
+        doc.setParam(id: cn, key: "topRadius", value: -5)
+        #expect(cone(doc, cn)?.topRadius == DocumentLimits.coneTopRadius.min)
+        doc.setParam(id: cn, key: "height", value: .infinity)
+        #expect(cone(doc, cn)?.height == DocumentLimits.coneHeight.max)
+
+        let tor = doc.addObject(def: .torus(TorusParams(majorRadius: 20, minorRadius: 5)))
+        doc.setParam(id: tor, key: "majorRadius", value: 500)
+        #expect(torus(doc, tor)?.majorRadius == DocumentLimits.torusMajorRadius.max)
+        doc.setParam(id: tor, key: "minorRadius", value: 50)
+        #expect(torus(doc, tor)?.minorRadius == DocumentLimits.torusMinorRadius.max)
+
+        let wdg = doc.addObject(def: .wedge(WedgeParams(width: 30, depth: 30, height: 30, topWidth: 10)))
+        doc.setParam(id: wdg, key: "width", value: 500)
+        #expect(wedge(doc, wdg)?.width == DocumentLimits.wedgeWidth.max)
+        doc.setParam(id: wdg, key: "topWidth", value: 800)
+        #expect(wedge(doc, wdg)?.topWidth == DocumentLimits.wedgeTopWidth.max)
     }
 
     @Test func testAddObjectPassesImportedThrough() {
@@ -551,6 +637,26 @@ import simd
         let partDef = ObjectDef.part(url: URL(fileURLWithPath: "/workspace/models/wheel.part.ts"))
         #expect(partDef.parameterSummary == "wheel.part.ts")
 
+        // Sphere
+        let sphDef = ObjectDef.sphere(SphereParams(radius: 15))
+        #expect(sphDef.parameterSummary == "r 15 mm")
+
+        // Cone
+        let conePointy = ObjectDef.cone(ConeParams(bottomRadius: 15, topRadius: 0, height: 30))
+        #expect(conePointy.parameterSummary == "r 15 × h 30 mm")
+        let coneFrustum = ObjectDef.cone(ConeParams(bottomRadius: 20, topRadius: 10, height: 40))
+        #expect(coneFrustum.parameterSummary == "r1 20 × r2 10 × h 40 mm")
+
+        // Torus
+        let torusDef = ObjectDef.torus(TorusParams(majorRadius: 25, minorRadius: 5))
+        #expect(torusDef.parameterSummary == "R 25 × r 5 mm")
+
+        // Wedge
+        let wedgePointy = ObjectDef.wedge(WedgeParams(width: 30, depth: 20, height: 25, topWidth: 0))
+        #expect(wedgePointy.parameterSummary == "30 × 20 × 25 mm")
+        let wedgeFrustum = ObjectDef.wedge(WedgeParams(width: 30, depth: 20, height: 25, topWidth: 10))
+        #expect(wedgeFrustum.parameterSummary == "30(10) × 20 × 25 mm")
+
         // Part with root/empty path fallback
         let partEmpty = ObjectDef.part(url: URL(string: "file:///")!)
         #expect(partEmpty.parameterSummary == "part")
@@ -650,6 +756,45 @@ import simd
         ])
         #expect(doc.canUndo)
         #expect(!doc.canRedo)
+    }
+
+    @Test func testUndoRedoParamMutationForSphereConeTorusWedge() {
+        let doc = DocumentModel()
+        let sph = doc.addObject(def: .sphere(SphereParams(radius: 15)))
+        doc.undoManager?.removeAllActions()
+        #expect(doc.setParam(id: sph, key: "radius", value: 30) == .success(()))
+        #expect(sphere(doc, sph)?.radius == 30)
+        doc.undo()
+        #expect(sphere(doc, sph)?.radius == 15)
+        doc.redo()
+        #expect(sphere(doc, sph)?.radius == 30)
+
+        let cn = doc.addObject(def: .cone(ConeParams(bottomRadius: 15, topRadius: 5, height: 25)))
+        doc.undoManager?.removeAllActions()
+        #expect(doc.setParam(id: cn, key: "topRadius", value: 12) == .success(()))
+        #expect(cone(doc, cn)?.topRadius == 12)
+        doc.undo()
+        #expect(cone(doc, cn)?.topRadius == 5)
+        doc.redo()
+        #expect(cone(doc, cn)?.topRadius == 12)
+
+        let tor = doc.addObject(def: .torus(TorusParams(majorRadius: 20, minorRadius: 5)))
+        doc.undoManager?.removeAllActions()
+        #expect(doc.setParam(id: tor, key: "majorRadius", value: 35) == .success(()))
+        #expect(torus(doc, tor)?.majorRadius == 35)
+        doc.undo()
+        #expect(torus(doc, tor)?.majorRadius == 20)
+        doc.redo()
+        #expect(torus(doc, tor)?.majorRadius == 35)
+
+        let wdg = doc.addObject(def: .wedge(WedgeParams(width: 30, depth: 30, height: 30, topWidth: 10)))
+        doc.undoManager?.removeAllActions()
+        #expect(doc.setParam(id: wdg, key: "topWidth", value: 20) == .success(()))
+        #expect(wedge(doc, wdg)?.topWidth == 20)
+        doc.undo()
+        #expect(wedge(doc, wdg)?.topWidth == 10)
+        doc.redo()
+        #expect(wedge(doc, wdg)?.topWidth == 20)
     }
 
     @Test func testUndoRedoTransformMutation() {

@@ -120,6 +120,219 @@ import simd
         }
     }
 
+    @Test func testSphereConeTorusWedgePrimitiveFeatures() {
+        // 1. Sphere
+        let fixedSphereId = UUID()
+        let sphereSolidId = SolidId("sphere-1")
+        let sphere = Feature.makeSphere(
+            id: fixedSphereId,
+            solidId: sphereSolidId,
+            params: SphereParams(radius: 15)
+        )
+        #expect(sphere.outputSolidId == sphereSolidId)
+        #expect(sphere.inputExpressions["radius"]?.value == 15.0)
+        #expect(sphere.generatedTopology.count == 4)
+        #expect(sphere.generatedTopology["face:surface"]?.elementType == .face)
+        #expect(sphere.generatedTopology["face:surface"]?.disambiguator?.surfaceOrCurveType == "sphere")
+        #expect(sphere.generatedTopology["edge:seam"]?.elementType == .edge)
+        #expect(sphere.generatedTopology["edge:seam"]?.disambiguator?.surfaceOrCurveType == "circle")
+        #expect(sphere.generatedTopology["vertex:north-pole"]?.elementType == .vertex)
+        #expect(sphere.generatedTopology["vertex:south-pole"]?.elementType == .vertex)
+
+        let resizedSphere = Feature.makeSphere(
+            id: fixedSphereId,
+            solidId: sphereSolidId,
+            params: SphereParams(radius: 35)
+        )
+        #expect(resizedSphere.generatedTopology.count == 4)
+        for key in sphere.generatedTopology.keys {
+            #expect(sphere.generatedTopology[key]?.id == resizedSphere.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
+
+        // 2. Cone
+        let fixedConeId = UUID()
+        let coneSolidId = SolidId("cone-1")
+        // 2a. Pointy cone (topRadius == 0) -> 6 topological elements
+        let cone = Feature.makeCone(
+            id: fixedConeId,
+            solidId: coneSolidId,
+            params: ConeParams(bottomRadius: 15, topRadius: 0, height: 30)
+        )
+        #expect(cone.outputSolidId == coneSolidId)
+        #expect(cone.inputExpressions["bottomRadius"]?.value == 15.0)
+        #expect(cone.inputExpressions["topRadius"]?.value == 0.0)
+        #expect(cone.inputExpressions["height"]?.value == 30.0)
+        #expect(cone.generatedTopology.count == 6)
+        #expect(cone.generatedTopology["face:bottom"]?.elementType == .face)
+        #expect(cone.generatedTopology["face:side"]?.elementType == .face)
+        #expect(cone.generatedTopology["face:side"]?.disambiguator?.surfaceOrCurveType == "cone")
+        #expect(cone.generatedTopology["edge:bottom"]?.elementType == .edge)
+        #expect(cone.generatedTopology["edge:seam"]?.elementType == .edge)
+        #expect(cone.generatedTopology["vertex:apex"]?.elementType == .vertex)
+        #expect(cone.generatedTopology["vertex:bottom-seam"]?.elementType == .vertex)
+
+        let resizedCone = Feature.makeCone(
+            id: fixedConeId,
+            solidId: coneSolidId,
+            params: ConeParams(bottomRadius: 30, topRadius: 0, height: 60)
+        )
+        #expect(resizedCone.generatedTopology.count == 6)
+        for key in cone.generatedTopology.keys {
+            #expect(cone.generatedTopology[key]?.id == resizedCone.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
+
+        // 2b. Frustum cone (topRadius > 0) -> 8 topological elements
+        let frustumCone = Feature.makeCone(
+            id: fixedConeId,
+            solidId: coneSolidId,
+            params: ConeParams(bottomRadius: 15, topRadius: 5, height: 30)
+        )
+        #expect(frustumCone.generatedTopology.count == 8)
+        #expect(frustumCone.generatedTopology["face:top"]?.elementType == .face)
+        #expect(frustumCone.generatedTopology["edge:top"]?.elementType == .edge)
+        #expect(frustumCone.generatedTopology["vertex:top-seam"]?.elementType == .vertex)
+
+        let resizedFrustumCone = Feature.makeCone(
+            id: fixedConeId,
+            solidId: coneSolidId,
+            params: ConeParams(bottomRadius: 30, topRadius: 10, height: 60)
+        )
+        #expect(resizedFrustumCone.generatedTopology.count == 8)
+        for key in frustumCone.generatedTopology.keys {
+            #expect(frustumCone.generatedTopology[key]?.id == resizedFrustumCone.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
+
+        // 3. Torus
+        let fixedTorusId = UUID()
+        let torusSolidId = SolidId("torus-1")
+        let torus = Feature.makeTorus(
+            id: fixedTorusId,
+            solidId: torusSolidId,
+            params: TorusParams(majorRadius: 20, minorRadius: 5)
+        )
+        #expect(torus.outputSolidId == torusSolidId)
+        #expect(torus.inputExpressions["majorRadius"]?.value == 20.0)
+        #expect(torus.inputExpressions["minorRadius"]?.value == 5.0)
+        #expect(torus.generatedTopology.count == 4)
+        #expect(torus.generatedTopology["face:surface"]?.elementType == .face)
+        #expect(torus.generatedTopology["face:surface"]?.disambiguator?.surfaceOrCurveType == "torus")
+        #expect(torus.generatedTopology["edge:major-seam"]?.elementType == .edge)
+        #expect(torus.generatedTopology["edge:minor-seam"]?.elementType == .edge)
+        #expect(torus.generatedTopology["vertex:seam"]?.elementType == .vertex)
+
+        let resizedTorus = Feature.makeTorus(
+            id: fixedTorusId,
+            solidId: torusSolidId,
+            params: TorusParams(majorRadius: 40, minorRadius: 10)
+        )
+        #expect(resizedTorus.generatedTopology.count == 4)
+        for key in torus.generatedTopology.keys {
+            #expect(torus.generatedTopology[key]?.id == resizedTorus.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
+
+        // 4. Wedge
+        let fixedWedgeId = UUID()
+        let wedgeSolidId = SolidId("wedge-1")
+        // 4a. Pointy wedge (topWidth == 0) -> 20 topological elements
+        let wedge = Feature.makeWedge(
+            id: fixedWedgeId,
+            solidId: wedgeSolidId,
+            params: WedgeParams(width: 30, depth: 30, height: 30, topWidth: 0)
+        )
+        #expect(wedge.outputSolidId == wedgeSolidId)
+        #expect(wedge.inputExpressions["width"]?.value == 30.0)
+        #expect(wedge.inputExpressions["depth"]?.value == 30.0)
+        #expect(wedge.inputExpressions["height"]?.value == 30.0)
+        #expect(wedge.inputExpressions["topWidth"]?.value == 0.0)
+        #expect(wedge.generatedTopology.count == 20)
+        #expect(wedge.generatedTopology["face:bottom"]?.elementType == .face)
+        #expect(wedge.generatedTopology["face:front"]?.elementType == .face)
+        #expect(wedge.generatedTopology["face:back"]?.elementType == .face)
+        #expect(wedge.generatedTopology["face:left"]?.elementType == .face)
+        #expect(wedge.generatedTopology["face:slanted"]?.elementType == .face)
+        #expect(wedge.generatedTopology["edge:top-knife"]?.elementType == .edge)
+        #expect(wedge.generatedTopology["vertex:top-front-knife"]?.elementType == .vertex)
+        #expect(wedge.generatedTopology["vertex:top-back-knife"]?.elementType == .vertex)
+
+        let resizedWedge = Feature.makeWedge(
+            id: fixedWedgeId,
+            solidId: wedgeSolidId,
+            params: WedgeParams(width: 50, depth: 40, height: 45, topWidth: 0)
+        )
+        #expect(resizedWedge.generatedTopology.count == 20)
+        for key in wedge.generatedTopology.keys {
+            #expect(wedge.generatedTopology[key]?.id == resizedWedge.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
+
+        // 4b. Frustum wedge (topWidth > 0) -> 26 topological elements
+        let frustumWedge = Feature.makeWedge(
+            id: fixedWedgeId,
+            solidId: wedgeSolidId,
+            params: WedgeParams(width: 30, depth: 30, height: 30, topWidth: 10)
+        )
+        #expect(frustumWedge.generatedTopology.count == 26)
+        #expect(frustumWedge.generatedTopology["face:top"]?.elementType == .face)
+        #expect(frustumWedge.generatedTopology["edge:top-front"]?.elementType == .edge)
+
+        let resizedFrustumWedge = Feature.makeWedge(
+            id: fixedWedgeId,
+            solidId: wedgeSolidId,
+            params: WedgeParams(width: 50, depth: 40, height: 45, topWidth: 15)
+        )
+        #expect(resizedFrustumWedge.generatedTopology.count == 26)
+        for key in frustumWedge.generatedTopology.keys {
+            #expect(frustumWedge.generatedTopology[key]?.id == resizedFrustumWedge.generatedTopology[key]?.id, "UUID mismatch for \(key)")
+        }
+    }
+
+    @Test func testSphereConeTorusWedgeSceneObjectConversions() {
+        let sphereObj = SceneObject(id: SolidId("sph-1"), name: "Sphere", def: .sphere(SphereParams(radius: 12)))
+        let sphereFeat = Feature(from: sphereObj)
+        let backSphere = sphereFeat.toSceneObject()
+        #expect(backSphere?.id == sphereObj.id)
+        if case .sphere(let p) = backSphere?.def {
+            #expect(p.radius == 12)
+        } else {
+            Issue.record("Expected sphere def")
+        }
+
+        let coneObj = SceneObject(id: SolidId("cn-1"), name: "Cone", def: .cone(ConeParams(bottomRadius: 10, topRadius: 2, height: 25)))
+        let coneFeat = Feature(from: coneObj)
+        let backCone = coneFeat.toSceneObject()
+        #expect(backCone?.id == coneObj.id)
+        if case .cone(let p) = backCone?.def {
+            #expect(p.bottomRadius == 10)
+            #expect(p.topRadius == 2)
+            #expect(p.height == 25)
+        } else {
+            Issue.record("Expected cone def")
+        }
+
+        let torusObj = SceneObject(id: SolidId("tor-1"), name: "Torus", def: .torus(TorusParams(majorRadius: 25, minorRadius: 6)))
+        let torusFeat = Feature(from: torusObj)
+        let backTorus = torusFeat.toSceneObject()
+        #expect(backTorus?.id == torusObj.id)
+        if case .torus(let p) = backTorus?.def {
+            #expect(p.majorRadius == 25)
+            #expect(p.minorRadius == 6)
+        } else {
+            Issue.record("Expected torus def")
+        }
+
+        let wedgeObj = SceneObject(id: SolidId("wdg-1"), name: "Wedge", def: .wedge(WedgeParams(width: 20, depth: 15, height: 30, topWidth: 5)))
+        let wedgeFeat = Feature(from: wedgeObj)
+        let backWedge = wedgeFeat.toSceneObject()
+        #expect(backWedge?.id == wedgeObj.id)
+        if case .wedge(let p) = backWedge?.def {
+            #expect(p.width == 20)
+            #expect(p.depth == 15)
+            #expect(p.height == 30)
+            #expect(p.topWidth == 5)
+        } else {
+            Issue.record("Expected wedge def")
+        }
+    }
+
     @Test func testAllFeatureOperations() {
         let sketchEntity = SketchEntity(kind: "line", data: ["length": 25.0])
         let sketchData = SketchFeatureData(planeName: "XY", entities: [sketchEntity])

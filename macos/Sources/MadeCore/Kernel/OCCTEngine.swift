@@ -65,6 +65,44 @@ enum OCCTEngine {
                 throw EngineError.tessellationFailed
             }
             return shape
+        case .sphere(let params):
+            guard let shape = Shape.sphere(radius: Double(params.radius)) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
+        case .cone(let params):
+            guard let shape = Shape.cone(
+                at: SIMD3(0, 0, -Double(params.height) / 2.0),
+                direction: SIMD3(0, 0, 1),
+                bottomRadius: Double(params.bottomRadius),
+                topRadius: Double(params.topRadius),
+                height: Double(params.height)
+            ) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
+        case .torus(let params):
+            guard let shape = Shape.torus(
+                at: SIMD3(0, 0, 0),
+                direction: SIMD3(0, 0, 1),
+                majorRadius: Double(params.majorRadius),
+                minorRadius: Double(params.minorRadius)
+            ) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
+        case .wedge(let params):
+            guard let shape = Shape.wedge(
+                at: SIMD3(-Double(params.width) / 2.0, -Double(params.depth) / 2.0, -Double(params.height) / 2.0),
+                direction: SIMD3(0, 0, 1),
+                dx: Double(params.width),
+                dy: Double(params.depth),
+                dz: Double(params.height),
+                ltx: Double(params.topWidth)
+            ) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
         case .imported(_, let sourceURL, let data):
             if let data {
                 return try importStep(data: data)

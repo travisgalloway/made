@@ -88,6 +88,157 @@ import simd
         }
     }
 
+    @Test func testAddSolidSphereConeTorusWedge() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Sphere
+        let sphRes = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("sphere"),
+            "radius": .double(18)
+        ])
+        #expect(sphRes.isError == false)
+        if case .sphere(let p) = doc.objects.last?.def {
+            #expect(p.radius == 18)
+        } else {
+            Issue.record("Expected sphere solid")
+        }
+
+        // Cone
+        let coneRes = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("cone"),
+            "bottomRadius": .double(12),
+            "topRadius": .double(4),
+            "height": .double(28)
+        ])
+        #expect(coneRes.isError == false)
+        if case .cone(let p) = doc.objects.last?.def {
+            #expect(p.bottomRadius == 12)
+            #expect(p.topRadius == 4)
+            #expect(p.height == 28)
+        } else {
+            Issue.record("Expected cone solid")
+        }
+
+        // Torus
+        let torRes = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("torus"),
+            "majorRadius": .double(22),
+            "minorRadius": .double(6)
+        ])
+        #expect(torRes.isError == false)
+        if case .torus(let p) = doc.objects.last?.def {
+            #expect(p.majorRadius == 22)
+            #expect(p.minorRadius == 6)
+        } else {
+            Issue.record("Expected torus solid")
+        }
+
+        // Wedge
+        let wdgRes = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("wedge"),
+            "width": .double(25),
+            "depth": .double(15),
+            "height": .double(35),
+            "topWidth": .double(5)
+        ])
+        #expect(wdgRes.isError == false)
+        if case .wedge(let p) = doc.objects.last?.def {
+            #expect(p.width == 25)
+            #expect(p.depth == 15)
+            #expect(p.height == 35)
+            #expect(p.topWidth == 5)
+        } else {
+            Issue.record("Expected wedge solid")
+        }
+    }
+
+    @Test func testSetParamSphereConeTorusWedge() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let sphId = doc.addObject(def: .sphere(SphereParams(radius: 10)))
+        let sphSet = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string(sphId.rawValue),
+            "param": .string("radius"),
+            "value": .double(25)
+        ])
+        #expect(sphSet.isError == false)
+        if case .sphere(let p) = doc.paramsFor(id: sphId) {
+            #expect(p.radius == 25)
+        } else {
+            Issue.record("Expected sphere params")
+        }
+
+        let coneId = doc.addObject(def: .cone(ConeParams(bottomRadius: 10, topRadius: 2, height: 20)))
+        let coneSet = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string(coneId.rawValue),
+            "param": .string("bottomRadius"),
+            "value": .double(15)
+        ])
+        #expect(coneSet.isError == false)
+        if case .cone(let p) = doc.paramsFor(id: coneId) {
+            #expect(p.bottomRadius == 15)
+        } else {
+            Issue.record("Expected cone params")
+        }
+
+        let torId = doc.addObject(def: .torus(TorusParams(majorRadius: 20, minorRadius: 5)))
+        let torSet = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string(torId.rawValue),
+            "param": .string("minorRadius"),
+            "value": .double(8)
+        ])
+        #expect(torSet.isError == false)
+        if case .torus(let p) = doc.paramsFor(id: torId) {
+            #expect(p.minorRadius == 8)
+        } else {
+            Issue.record("Expected torus params")
+        }
+
+        let wdgId = doc.addObject(def: .wedge(WedgeParams(width: 20, depth: 20, height: 20, topWidth: 0)))
+        let wdgSet = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string(wdgId.rawValue),
+            "param": .string("topWidth"),
+            "value": .double(8)
+        ])
+        #expect(wdgSet.isError == false)
+        if case .wedge(let p) = doc.paramsFor(id: wdgId) {
+            #expect(p.topWidth == 8)
+        } else {
+            Issue.record("Expected wedge params")
+        }
+    }
+
+    @Test func testMeasureSphereConeTorusWedge() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let sphId = doc.addObject(def: .sphere(SphereParams(radius: 15)))
+        let sphRes = await registry.callTool(name: "cad_measure", arguments: ["id": .string(sphId.rawValue)])
+        #expect(sphRes.isError == false)
+        #expect(sphRes.content.first?.text?.contains("sphere") == true)
+
+        let coneId = doc.addObject(def: .cone(ConeParams(bottomRadius: 10, topRadius: 0, height: 30)))
+        let coneRes = await registry.callTool(name: "cad_measure", arguments: ["id": .string(coneId.rawValue)])
+        #expect(coneRes.isError == false)
+        #expect(coneRes.content.first?.text?.contains("cone") == true)
+
+        let torId = doc.addObject(def: .torus(TorusParams(majorRadius: 20, minorRadius: 5)))
+        let torRes = await registry.callTool(name: "cad_measure", arguments: ["id": .string(torId.rawValue)])
+        #expect(torRes.isError == false)
+        #expect(torRes.content.first?.text?.contains("torus") == true)
+
+        let wdgId = doc.addObject(def: .wedge(WedgeParams(width: 20, depth: 10, height: 30, topWidth: 0)))
+        let wdgRes = await registry.callTool(name: "cad_measure", arguments: ["id": .string(wdgId.rawValue)])
+        #expect(wdgRes.isError == false)
+        #expect(wdgRes.content.first?.text?.contains("wedge") == true)
+        #expect(wdgRes.content.first?.text?.contains("3000") == true)
+    }
+
     @Test func testSetParamClampsAndUpdates() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))

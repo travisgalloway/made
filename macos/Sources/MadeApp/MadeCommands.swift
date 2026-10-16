@@ -107,6 +107,38 @@ struct SolidMenuCommands: Commands {
                 workspace.startAddCylinderCommand()
             }
 
+            Button("Add Sphere Solid") {
+                workspace.addDefaultSphere()
+            }
+
+            Button("Add Sphere Solid…") {
+                workspace.startAddSphereCommand()
+            }
+
+            Button("Add Cone Solid") {
+                workspace.addDefaultCone()
+            }
+
+            Button("Add Cone Solid…") {
+                workspace.startAddConeCommand()
+            }
+
+            Button("Add Torus Solid") {
+                workspace.addDefaultTorus()
+            }
+
+            Button("Add Torus Solid…") {
+                workspace.startAddTorusCommand()
+            }
+
+            Button("Add Wedge Solid") {
+                workspace.addDefaultWedge()
+            }
+
+            Button("Add Wedge Solid…") {
+                workspace.startAddWedgeCommand()
+            }
+
             Button("Import STEP Solid…") {
                 workspace.promptImportStepFile()
             }

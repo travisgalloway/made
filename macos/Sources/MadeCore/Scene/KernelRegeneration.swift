@@ -11,6 +11,14 @@ public enum KernelRegeneration {
             return .makeBox(jobId: jobId, solidId: solidId, params: params)
         case .primitive(.cylinder(let params)):
             return .makeCylinder(jobId: jobId, solidId: solidId, params: params)
+        case .primitive(.sphere(let params)):
+            return .makeSphere(jobId: jobId, solidId: solidId, params: params)
+        case .primitive(.cone(let params)):
+            return .makeCone(jobId: jobId, solidId: solidId, params: params)
+        case .primitive(.torus(let params)):
+            return .makeTorus(jobId: jobId, solidId: solidId, params: params)
+        case .primitive(.wedge(let params)):
+            return .makeWedge(jobId: jobId, solidId: solidId, params: params)
         case .boolean(let b):
             return .booleanOperation(jobId: jobId, solidId: solidId, op: b.op, solidA: b.targetSolidId, solidB: b.toolSolidId)
         case .part(let p):
@@ -33,6 +41,10 @@ public enum KernelRegeneration {
         switch object.def {
         case .box(let params): return .makeBox(jobId: jobId, solidId: object.id, params: params)
         case .cylinder(let params): return .makeCylinder(jobId: jobId, solidId: object.id, params: params)
+        case .sphere(let params): return .makeSphere(jobId: jobId, solidId: object.id, params: params)
+        case .cone(let params): return .makeCone(jobId: jobId, solidId: object.id, params: params)
+        case .torus(let params): return .makeTorus(jobId: jobId, solidId: object.id, params: params)
+        case .wedge(let params): return .makeWedge(jobId: jobId, solidId: object.id, params: params)
         case .part(_, let shape):
             guard let shape else { return nil }
             return .evaluateShape(jobId: jobId, solidId: object.id, shape: shape)

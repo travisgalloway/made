@@ -225,4 +225,29 @@ public enum NativeGeometryGenerator {
             vertexPoints: vertexPoints
         )
     }
+
+    /// Generates a sphere mesh centered at the origin for viewport preview.
+    public static func generateSphere(radius: Float, slices: Int = 32) -> MeshPayload {
+        let mesh = EuclidEngine.makeSphere(radius: radius, slices: slices)
+        return EuclidEngine.toMeshPayload(mesh)
+    }
+
+    /// Generates a cone or frustum mesh aligned with +Z height for viewport preview.
+    public static func generateCone(bottomRadius: Float, topRadius: Float = 0, height: Float, slices: Int = 32) -> MeshPayload {
+        let mesh = EuclidEngine.makeCone(bottomRadius: bottomRadius, topRadius: topRadius, height: height, slices: slices)
+        return EuclidEngine.toMeshPayload(mesh)
+    }
+
+    /// Generates a torus mesh centered in the XY plane for viewport preview.
+    public static func generateTorus(majorRadius: Float, minorRadius: Float, slices: Int = 32) -> MeshPayload {
+        let mesh = EuclidEngine.makeTorus(majorRadius: majorRadius, minorRadius: minorRadius, slices: slices)
+        return EuclidEngine.toMeshPayload(mesh)
+    }
+
+    /// Generates a wedge mesh aligned with right-handed Z-up coordinates for viewport preview.
+    public static func generateWedge(width: Float, depth: Float, height: Float, topWidth: Float = 0) -> MeshPayload {
+        let mesh = EuclidEngine.makeWedge(width: width, depth: depth, height: height, topWidth: topWidth)
+        return EuclidEngine.toMeshPayload(mesh)
+    }
 }
+

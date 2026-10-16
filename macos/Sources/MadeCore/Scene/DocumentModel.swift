@@ -7,6 +7,10 @@ public typealias ObjectId = SolidId
 public enum ObjectDef: Sendable, Equatable {
     case box(BoxParams)
     case cylinder(CylinderParams)
+    case sphere(SphereParams)
+    case cone(ConeParams)
+    case torus(TorusParams)
+    case wedge(WedgeParams)
     case imported(name: String, sourceURL: URL? = nil, data: Data? = nil)
     /// A boolean result: the operation and its operand IDs, with no replay (#35).
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
@@ -17,6 +21,10 @@ public enum ObjectDef: Sendable, Equatable {
         switch self {
         case .box: return "box"
         case .cylinder: return "cylinder"
+        case .sphere: return "sphere"
+        case .cone: return "cone"
+        case .torus: return "torus"
+        case .wedge: return "wedge"
         case .imported: return "imported"
         case .boolean: return "boolean"
         case .part: return "part"
@@ -32,6 +40,22 @@ extension ObjectDef {
             return "\(Self.formatDim(p.width)) × \(Self.formatDim(p.depth)) × \(Self.formatDim(p.height)) mm"
         case .cylinder(let p):
             return "r \(Self.formatDim(p.radius)) × h \(Self.formatDim(p.height)) mm"
+        case .sphere(let p):
+            return "r \(Self.formatDim(p.radius)) mm"
+        case .cone(let p):
+            if p.topRadius > 0 {
+                return "r1 \(Self.formatDim(p.bottomRadius)) × r2 \(Self.formatDim(p.topRadius)) × h \(Self.formatDim(p.height)) mm"
+            } else {
+                return "r \(Self.formatDim(p.bottomRadius)) × h \(Self.formatDim(p.height)) mm"
+            }
+        case .torus(let p):
+            return "R \(Self.formatDim(p.majorRadius)) × r \(Self.formatDim(p.minorRadius)) mm"
+        case .wedge(let p):
+            if p.topWidth > 0 {
+                return "\(Self.formatDim(p.width))(\(Self.formatDim(p.topWidth))) × \(Self.formatDim(p.depth)) × \(Self.formatDim(p.height)) mm"
+            } else {
+                return "\(Self.formatDim(p.width)) × \(Self.formatDim(p.depth)) × \(Self.formatDim(p.height)) mm"
+            }
         case .imported(let name, _, _):
             return name.isEmpty ? "Imported mesh" : name
         case .boolean(let op, let solidA, let solidB):
@@ -126,6 +150,18 @@ extension ObjectDef: Codable {
         case "cylinder":
             let params = try container.decode(CylinderParams.self, forKey: .params)
             self = DocumentLimits.clamp(.cylinder(params))
+        case "sphere":
+            let params = try container.decode(SphereParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.sphere(params))
+        case "cone":
+            let params = try container.decode(ConeParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.cone(params))
+        case "torus":
+            let params = try container.decode(TorusParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.torus(params))
+        case "wedge":
+            let params = try container.decode(WedgeParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.wedge(params))
         case "imported":
             let name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
             let assetPath = try container.decodeIfPresent(String.self, forKey: .assetPath)
@@ -160,6 +196,18 @@ extension ObjectDef: Codable {
             try container.encode(params, forKey: .params)
         case .cylinder(let params):
             try container.encode("cylinder", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .sphere(let params):
+            try container.encode("sphere", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .cone(let params):
+            try container.encode("cone", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .torus(let params):
+            try container.encode("torus", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .wedge(let params):
+            try container.encode("wedge", forKey: .kind)
             try container.encode(params, forKey: .params)
         case .imported(let name, let sourceURL, _):
             try container.encode("imported", forKey: .kind)
@@ -251,6 +299,20 @@ public enum DocumentLimits {
     
     public static let cylinderRadius = ParamRange(min: 5, max: 50)
     public static let cylinderHeight = ParamRange(min: 5, max: 90)
+
+    public static let sphereRadius = ParamRange(min: 5, max: 50)
+
+    public static let coneBottomRadius = ParamRange(min: 5, max: 50)
+    public static let coneTopRadius = ParamRange(min: 0, max: 50)
+    public static let coneHeight = ParamRange(min: 5, max: 90)
+
+    public static let torusMajorRadius = ParamRange(min: 10, max: 80)
+    public static let torusMinorRadius = ParamRange(min: 2, max: 30)
+
+    public static let wedgeWidth = ParamRange(min: 5, max: 90)
+    public static let wedgeDepth = ParamRange(min: 5, max: 90)
+    public static let wedgeHeight = ParamRange(min: 5, max: 90)
+    public static let wedgeTopWidth = ParamRange(min: 0, max: 90)
     
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
@@ -275,12 +337,86 @@ public enum DocumentLimits {
         }
     }
 
+    public static func clampSphere(key: String, value: Float) -> Float {
+        switch key {
+        case "radius": return sphereRadius.clamp(value)
+        default: return value
+        }
+    }
+
+    public static func clampCone(key: String, value: Float) -> Float {
+        switch key {
+        case "bottomRadius": return coneBottomRadius.clamp(value)
+        case "topRadius": return coneTopRadius.clamp(value)
+        case "height": return coneHeight.clamp(value)
+        default: return value
+        }
+    }
+
+    public static func clampTorus(key: String, value: Float, majorRadius: Float? = nil, minorRadius: Float? = nil) -> Float {
+        switch key {
+        case "majorRadius":
+            let maj = torusMajorRadius.clamp(value)
+            if let minR = minorRadius, maj <= minR {
+                return Swift.min(torusMajorRadius.max, minR + 1.0)
+            }
+            return maj
+        case "minorRadius":
+            let minR = torusMinorRadius.clamp(value)
+            if let maj = majorRadius, minR >= maj {
+                return Swift.max(torusMinorRadius.min, maj - 1.0)
+            }
+            return minR
+        default: return value
+        }
+    }
+
+    public static func clampWedge(key: String, value: Float, width: Float? = nil) -> Float {
+        switch key {
+        case "width": return wedgeWidth.clamp(value)
+        case "depth": return wedgeDepth.clamp(value)
+        case "height": return wedgeHeight.clamp(value)
+        case "topWidth":
+            let tw = wedgeTopWidth.clamp(value)
+            if let w = width {
+                return Swift.min(tw, w)
+            }
+            return tw
+        default: return value
+        }
+    }
+
     public static func clamp(_ def: ObjectDef) -> ObjectDef {
         switch def {
         case .box(let p):
             return .box(BoxParams(width: boxWidth.clamp(p.width), depth: boxDepth.clamp(p.depth), height: boxHeight.clamp(p.height)))
         case .cylinder(let p):
             return .cylinder(CylinderParams(radius: cylinderRadius.clamp(p.radius), height: cylinderHeight.clamp(p.height)))
+        case .sphere(let p):
+            return .sphere(SphereParams(radius: sphereRadius.clamp(p.radius)))
+        case .cone(let p):
+            return .cone(ConeParams(
+                bottomRadius: coneBottomRadius.clamp(p.bottomRadius),
+                topRadius: coneTopRadius.clamp(p.topRadius),
+                height: coneHeight.clamp(p.height)
+            ))
+        case .torus(let p):
+            var maj = torusMajorRadius.clamp(p.majorRadius)
+            var minR = torusMinorRadius.clamp(p.minorRadius)
+            if minR >= maj {
+                if maj < torusMajorRadius.max {
+                    minR = Swift.max(torusMinorRadius.min, maj - 1.0)
+                } else {
+                    maj = minR + 1.0
+                }
+            }
+            return .torus(TorusParams(majorRadius: maj, minorRadius: minR))
+        case .wedge(let p):
+            let w = wedgeWidth.clamp(p.width)
+            let d = wedgeDepth.clamp(p.depth)
+            let h = wedgeHeight.clamp(p.height)
+            let tw = Swift.min(wedgeTopWidth.clamp(p.topWidth), w)
+            return .wedge(WedgeParams(width: w, depth: d, height: h, topWidth: tw))
         case .part(let url, let shape):
             return .part(url: url.standardizedFileURL, shape: shape)
         case .imported, .boolean:
@@ -1095,6 +1231,32 @@ public final class DocumentModel {
             case "height": return p.height
             default: return nil
             }
+        case .primitive(.sphere(let p)):
+            switch key {
+            case "radius": return p.radius
+            default: return nil
+            }
+        case .primitive(.cone(let p)):
+            switch key {
+            case "bottomRadius": return p.bottomRadius
+            case "topRadius": return p.topRadius
+            case "height": return p.height
+            default: return nil
+            }
+        case .primitive(.torus(let p)):
+            switch key {
+            case "majorRadius": return p.majorRadius
+            case "minorRadius": return p.minorRadius
+            default: return nil
+            }
+        case .primitive(.wedge(let p)):
+            switch key {
+            case "width": return p.width
+            case "depth": return p.depth
+            case "height": return p.height
+            case "topWidth": return p.topWidth
+            default: return nil
+            }
         case .imported, .boolean, .part, .sketch, .extrude:
             return nil
         }
@@ -1338,6 +1500,50 @@ public final class DocumentModel {
             }
             clampedValue = (key == "radius" ? params.radius : params.height)
             updatedFeature.operation = .primitive(.cylinder(params))
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+
+        case .primitive(.sphere(var params)):
+            switch key {
+            case "radius": params.radius = DocumentLimits.clampSphere(key: "radius", value: value)
+            default: break
+            }
+            clampedValue = params.radius
+            updatedFeature.operation = .primitive(.sphere(params))
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+
+        case .primitive(.cone(var params)):
+            switch key {
+            case "bottomRadius": params.bottomRadius = DocumentLimits.clampCone(key: "bottomRadius", value: value)
+            case "topRadius": params.topRadius = DocumentLimits.clampCone(key: "topRadius", value: value)
+            case "height": params.height = DocumentLimits.clampCone(key: "height", value: value)
+            default: break
+            }
+            clampedValue = (key == "bottomRadius" ? params.bottomRadius : (key == "topRadius" ? params.topRadius : params.height))
+            updatedFeature.operation = .primitive(.cone(params))
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+
+        case .primitive(.torus(var params)):
+            switch key {
+            case "majorRadius": params.majorRadius = DocumentLimits.clampTorus(key: "majorRadius", value: value, minorRadius: params.minorRadius)
+            case "minorRadius": params.minorRadius = DocumentLimits.clampTorus(key: "minorRadius", value: value, majorRadius: params.majorRadius)
+            default: break
+            }
+            clampedValue = (key == "majorRadius" ? params.majorRadius : params.minorRadius)
+            updatedFeature.operation = .primitive(.torus(params))
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+
+        case .primitive(.wedge(var params)):
+            switch key {
+            case "width":
+                params.width = DocumentLimits.clampWedge(key: "width", value: value)
+                if params.topWidth > params.width { params.topWidth = params.width }
+            case "depth": params.depth = DocumentLimits.clampWedge(key: "depth", value: value)
+            case "height": params.height = DocumentLimits.clampWedge(key: "height", value: value)
+            case "topWidth": params.topWidth = DocumentLimits.clampWedge(key: "topWidth", value: value, width: params.width)
+            default: break
+            }
+            clampedValue = (key == "width" ? params.width : (key == "depth" ? params.depth : (key == "height" ? params.height : params.topWidth)))
+            updatedFeature.operation = .primitive(.wedge(params))
             updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
             
         case .imported, .boolean, .part, .sketch, .extrude:

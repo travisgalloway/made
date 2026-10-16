@@ -341,6 +341,262 @@ extension CommandSession {
         return session
     }
 
+    static func makeAddSphere(workspace: WorkspaceModel) -> CommandSession {
+        let session = CommandSession(
+            title: "Add Sphere",
+            inputs: [
+                CommandInput(id: "radius", label: "Radius", value: .number(15.0, range: DocumentLimits.sphereRadius.min...DocumentLimits.sphereRadius.max, step: 1.0, unit: "mm"))
+            ],
+            isPreviewEnabled: true
+        )
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            if session.isPreviewEnabled {
+                let r = session.numberValue(for: "radius") ?? 15.0
+                guard r >= DocumentLimits.sphereRadius.min && r <= DocumentLimits.sphereRadius.max else {
+                    _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                    workspace.invalidateViewport(.interaction)
+                    return
+                }
+                let payload = NativeGeometryGenerator.generateSphere(radius: r)
+                let previewColor = SIMD4<Float>(0.2, 0.6, 1.0, 0.75)
+                _ = workspace.viewportManager.renderer?.installMesh(
+                    payload,
+                    for: Self.previewSolidId,
+                    transform: .identity,
+                    color: previewColor,
+                    isHidden: false
+                )
+                workspace.invalidateViewport(.interaction)
+            } else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            let r = session.numberValue(for: "radius") ?? 15.0
+            workspace.addObject(.sphere(SphereParams(radius: r)))
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+        }
+
+        return session
+    }
+
+    static func makeAddCone(workspace: WorkspaceModel) -> CommandSession {
+        let session = CommandSession(
+            title: "Add Cone",
+            inputs: [
+                CommandInput(id: "bottomRadius", label: "Bottom Radius", value: .number(15.0, range: DocumentLimits.coneBottomRadius.min...DocumentLimits.coneBottomRadius.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "topRadius", label: "Top Radius", value: .number(0.0, range: DocumentLimits.coneTopRadius.min...DocumentLimits.coneTopRadius.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "height", label: "Height (Z)", value: .number(30.0, range: DocumentLimits.coneHeight.min...DocumentLimits.coneHeight.max, step: 1.0, unit: "mm"))
+            ],
+            isPreviewEnabled: true
+        )
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let br = session.numberValue(for: "bottomRadius") ?? 15.0
+            let tr = session.numberValue(for: "topRadius") ?? 0.0
+            return br > 0 || tr > 0
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            if session.isPreviewEnabled {
+                let br = session.numberValue(for: "bottomRadius") ?? 15.0
+                let tr = session.numberValue(for: "topRadius") ?? 0.0
+                let h = session.numberValue(for: "height") ?? 30.0
+                guard br >= DocumentLimits.coneBottomRadius.min && br <= DocumentLimits.coneBottomRadius.max,
+                      tr >= DocumentLimits.coneTopRadius.min && tr <= DocumentLimits.coneTopRadius.max,
+                      h >= DocumentLimits.coneHeight.min && h <= DocumentLimits.coneHeight.max,
+                      br > 0 || tr > 0 else {
+                    _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                    workspace.invalidateViewport(.interaction)
+                    return
+                }
+                let payload = NativeGeometryGenerator.generateCone(bottomRadius: br, topRadius: tr, height: h)
+                let previewColor = SIMD4<Float>(0.2, 0.6, 1.0, 0.75)
+                _ = workspace.viewportManager.renderer?.installMesh(
+                    payload,
+                    for: Self.previewSolidId,
+                    transform: .identity,
+                    color: previewColor,
+                    isHidden: false
+                )
+                workspace.invalidateViewport(.interaction)
+            } else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            let br = session.numberValue(for: "bottomRadius") ?? 15.0
+            let tr = session.numberValue(for: "topRadius") ?? 0.0
+            let h = session.numberValue(for: "height") ?? 30.0
+            workspace.addObject(.cone(ConeParams(bottomRadius: br, topRadius: tr, height: h)))
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+        }
+
+        return session
+    }
+
+    static func makeAddTorus(workspace: WorkspaceModel) -> CommandSession {
+        let session = CommandSession(
+            title: "Add Torus",
+            inputs: [
+                CommandInput(id: "majorRadius", label: "Major Radius", value: .number(20.0, range: DocumentLimits.torusMajorRadius.min...DocumentLimits.torusMajorRadius.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "minorRadius", label: "Minor Radius", value: .number(5.0, range: DocumentLimits.torusMinorRadius.min...DocumentLimits.torusMinorRadius.max, step: 1.0, unit: "mm"))
+            ],
+            isPreviewEnabled: true
+        )
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let maj = session.numberValue(for: "majorRadius") ?? 20.0
+            let minR = session.numberValue(for: "minorRadius") ?? 5.0
+            return maj > minR
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            if session.isPreviewEnabled {
+                let maj = session.numberValue(for: "majorRadius") ?? 20.0
+                let minR = session.numberValue(for: "minorRadius") ?? 5.0
+                guard maj >= DocumentLimits.torusMajorRadius.min && maj <= DocumentLimits.torusMajorRadius.max,
+                      minR >= DocumentLimits.torusMinorRadius.min && minR <= DocumentLimits.torusMinorRadius.max,
+                      maj > minR else {
+                    _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                    workspace.invalidateViewport(.interaction)
+                    return
+                }
+                let payload = NativeGeometryGenerator.generateTorus(majorRadius: maj, minorRadius: minR)
+                let previewColor = SIMD4<Float>(0.2, 0.6, 1.0, 0.75)
+                _ = workspace.viewportManager.renderer?.installMesh(
+                    payload,
+                    for: Self.previewSolidId,
+                    transform: .identity,
+                    color: previewColor,
+                    isHidden: false
+                )
+                workspace.invalidateViewport(.interaction)
+            } else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            let maj = session.numberValue(for: "majorRadius") ?? 20.0
+            let minR = session.numberValue(for: "minorRadius") ?? 5.0
+            workspace.addObject(.torus(TorusParams(majorRadius: maj, minorRadius: minR)))
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+        }
+
+        return session
+    }
+
+    static func makeAddWedge(workspace: WorkspaceModel) -> CommandSession {
+        let session = CommandSession(
+            title: "Add Wedge",
+            inputs: [
+                CommandInput(id: "width", label: "Width (X)", value: .number(30.0, range: DocumentLimits.wedgeWidth.min...DocumentLimits.wedgeWidth.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "depth", label: "Depth (Y)", value: .number(30.0, range: DocumentLimits.wedgeDepth.min...DocumentLimits.wedgeDepth.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "height", label: "Height (Z)", value: .number(30.0, range: DocumentLimits.wedgeHeight.min...DocumentLimits.wedgeHeight.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "topWidth", label: "Top Width (X)", value: .number(0.0, range: DocumentLimits.wedgeTopWidth.min...DocumentLimits.wedgeTopWidth.max, step: 1.0, unit: "mm"))
+            ],
+            isPreviewEnabled: true
+        )
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let w = session.numberValue(for: "width") ?? 30.0
+            let tw = session.numberValue(for: "topWidth") ?? 0.0
+            return tw <= w
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            if session.isPreviewEnabled {
+                let w = session.numberValue(for: "width") ?? 30.0
+                let d = session.numberValue(for: "depth") ?? 30.0
+                let h = session.numberValue(for: "height") ?? 30.0
+                let tw = session.numberValue(for: "topWidth") ?? 0.0
+                guard w >= DocumentLimits.wedgeWidth.min && w <= DocumentLimits.wedgeWidth.max,
+                      d >= DocumentLimits.wedgeDepth.min && d <= DocumentLimits.wedgeDepth.max,
+                      h >= DocumentLimits.wedgeHeight.min && h <= DocumentLimits.wedgeHeight.max,
+                      tw >= DocumentLimits.wedgeTopWidth.min && tw <= DocumentLimits.wedgeTopWidth.max,
+                      tw <= w else {
+                    _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                    workspace.invalidateViewport(.interaction)
+                    return
+                }
+                let payload = NativeGeometryGenerator.generateWedge(width: w, depth: d, height: h, topWidth: tw)
+                let previewColor = SIMD4<Float>(0.2, 0.6, 1.0, 0.75)
+                _ = workspace.viewportManager.renderer?.installMesh(
+                    payload,
+                    for: Self.previewSolidId,
+                    transform: .identity,
+                    color: previewColor,
+                    isHidden: false
+                )
+                workspace.invalidateViewport(.interaction)
+            } else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            let w = session.numberValue(for: "width") ?? 30.0
+            let d = session.numberValue(for: "depth") ?? 30.0
+            let h = session.numberValue(for: "height") ?? 30.0
+            let tw = session.numberValue(for: "topWidth") ?? 0.0
+            workspace.addObject(.wedge(WedgeParams(width: w, depth: d, height: h, topWidth: tw)))
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+        }
+
+        return session
+    }
+
     static func makeTransform(workspace: WorkspaceModel, targetId: ObjectId? = nil) -> CommandSession {
         let initialId = targetId ?? workspace.selectedId
         let initialName = initialId.flatMap { id in workspace.document.objects.first(where: { $0.id == id })?.name }
