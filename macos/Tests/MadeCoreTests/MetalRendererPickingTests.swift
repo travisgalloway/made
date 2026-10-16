@@ -102,15 +102,119 @@ import CoreGraphics
         renderer.selectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .face, elementId: 0)
         let snap1 = await renderer.captureSnapshotPngBase64()
         #expect(snap1 != nil)
+        #expect(renderer.lastDrawCalls == 2)
 
         // Test edge selection highlight pass
         renderer.selectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .edge, elementId: 0)
         let snap2 = await renderer.captureSnapshotPngBase64()
         #expect(snap2 != nil)
+        #expect(renderer.lastDrawCalls == 2)
 
         // Test vertex selection highlight pass
         renderer.selectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .vertex, elementId: 0)
         let snap3 = await renderer.captureSnapshotPngBase64()
         #expect(snap3 != nil)
+        #expect(renderer.lastDrawCalls == 2)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testPreselectedSubElementFaceHighlightedSnapshot() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        renderer.preselectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .face, elementId: 0)
+        let snap = await renderer.captureSnapshotPngBase64()
+        #expect(snap != nil)
+        #expect(renderer.lastDrawCalls == 2)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testPreselectedSubElementEdgeHighlightedSnapshot() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        renderer.preselectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .edge, elementId: 0)
+        let snap = await renderer.captureSnapshotPngBase64()
+        #expect(snap != nil)
+        #expect(renderer.lastDrawCalls == 2)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testPreselectedSubElementVertexHighlightedSnapshot() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        renderer.preselectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .vertex, elementId: 0)
+        let snap = await renderer.captureSnapshotPngBase64()
+        #expect(snap != nil)
+        #expect(renderer.lastDrawCalls == 2)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testPreselectionPrecedenceOverCommittedSelection() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        let subFace = SelectedSubElement(solidId: SolidId("box"), elementType: .face, elementId: 0)
+        renderer.selectedSubElement = subFace
+        renderer.preselectedSubElement = subFace
+
+        // When committed selection and preselection are identical, committed takes precedence (no duplicate cyan pass)
+        let snapSame = await renderer.captureSnapshotPngBase64()
+        #expect(snapSame != nil)
+        #expect(renderer.lastDrawCalls == 2)
+
+        // When committed selection and preselection are different elements, both render
+        renderer.preselectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .edge, elementId: 0)
+        let snapDiff = await renderer.captureSnapshotPngBase64()
+        #expect(snapDiff != nil)
+        #expect(renderer.lastDrawCalls == 3)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testHiddenSolidPreselectionNoDrawCalls() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+        renderer.hiddenSolidIds.insert(SolidId("box"))
+
+        renderer.preselectedSubElement = SelectedSubElement(solidId: SolidId("box"), elementType: .face, elementId: 0)
+        let snap = await renderer.captureSnapshotPngBase64()
+        #expect(snap != nil)
+        #expect(renderer.lastDrawCalls == 0)
     }
 }

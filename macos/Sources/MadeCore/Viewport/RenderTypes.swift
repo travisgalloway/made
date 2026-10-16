@@ -96,6 +96,42 @@ public struct SelectedSubElement: Sendable, Codable, Equatable, Hashable {
     }
 }
 
+public struct EdgeHighlightUniforms: BitwiseCopyable {
+    public var modelMatrix: simd_float4x4
+    public var viewMatrix: simd_float4x4
+    public var projectionMatrix: simd_float4x4
+    public var color: SIMD4<Float>
+    public var viewportWidth: Float
+    public var viewportHeight: Float
+    public var lineWidth: Float
+    public var targetEdgeId: UInt32
+    public var depthBias: Float
+    public var _padding: SIMD3<Float>
+
+    public init(
+        modelMatrix: simd_float4x4 = matrix_identity_float4x4,
+        viewMatrix: simd_float4x4 = matrix_identity_float4x4,
+        projectionMatrix: simd_float4x4 = matrix_identity_float4x4,
+        color: SIMD4<Float> = SIMD4<Float>(0.0, 0.85, 1.0, 1.0),
+        viewportWidth: Float = 0,
+        viewportHeight: Float = 0,
+        lineWidth: Float = 3.0,
+        targetEdgeId: UInt32 = 0,
+        depthBias: Float = 0.005
+    ) {
+        self.modelMatrix = modelMatrix
+        self.viewMatrix = viewMatrix
+        self.projectionMatrix = projectionMatrix
+        self.color = color
+        self.viewportWidth = viewportWidth
+        self.viewportHeight = viewportHeight
+        self.lineWidth = lineWidth
+        self.targetEdgeId = targetEdgeId
+        self.depthBias = depthBias
+        self._padding = SIMD3<Float>(0, 0, 0)
+    }
+}
+
 public struct PickUniforms: BitwiseCopyable {
     public var modelMatrix: simd_float4x4
     public var viewMatrix: simd_float4x4
@@ -242,6 +278,7 @@ public struct SceneSnapshot: Sendable {
     public let camera: Camera
     public let selectedId: SolidId?
     public let selectedSubElement: SelectedSubElement?
+    public let preselectedSubElement: SelectedSubElement?
     public let activeSnap: SnapResult?
     public let activeGizmoHandle: GizmoHandle?
 
@@ -251,6 +288,7 @@ public struct SceneSnapshot: Sendable {
         camera: Camera = Camera(),
         selectedId: SolidId? = nil,
         selectedSubElement: SelectedSubElement? = nil,
+        preselectedSubElement: SelectedSubElement? = nil,
         activeSnap: SnapResult? = nil,
         activeGizmoHandle: GizmoHandle? = nil
     ) {
@@ -259,6 +297,7 @@ public struct SceneSnapshot: Sendable {
         self.camera = camera
         self.selectedId = selectedId
         self.selectedSubElement = selectedSubElement
+        self.preselectedSubElement = preselectedSubElement
         self.activeSnap = activeSnap
         self.activeGizmoHandle = activeGizmoHandle
     }

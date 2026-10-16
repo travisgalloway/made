@@ -40,6 +40,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     let linePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
     private let outlinePipeline: MTLRenderPipelineState
+    private let overlayPipeline: MTLRenderPipelineState
+    private let edgeHighlightPipeline: MTLRenderPipelineState
     private let pickFacePipeline: MTLRenderPipelineState
     private let pickEdgePipeline: MTLRenderPipelineState
     private let pickVertexPipeline: MTLRenderPipelineState
@@ -49,6 +51,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private let billboardDepthState: MTLDepthStencilState
     let snapDepthState: MTLDepthStencilState
     private let outlineDepthState: MTLDepthStencilState
+    private let overlayDepthState: MTLDepthStencilState
+    private let edgeHighlightDepthState: MTLDepthStencilState
     private let pickFaceDepthState: MTLDepthStencilState
     private let pickEdgeDepthState: MTLDepthStencilState
     private let pickVertexDepthState: MTLDepthStencilState
@@ -99,6 +103,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public var activeSnap: SnapResult? = nil
     public var selectedId: SolidId? = nil
     public var selectedSubElement: SelectedSubElement? = nil
+    public var preselectedSubElement: SelectedSubElement? = nil
     public var activeGizmoHandle: GizmoHandle? = nil
     public var showsGrid: Bool = true
     public var showsAxes: Bool = true
@@ -132,6 +137,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             hiddenSolidIds: hiddenSolidIds,
             camera: camera,
             selectedId: selectedId,
+            selectedSubElement: selectedSubElement,
+            preselectedSubElement: preselectedSubElement,
             activeSnap: activeSnap,
             activeGizmoHandle: activeGizmoHandle
         )
@@ -188,6 +195,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             self.linePipeline = try Self.makePipeline(compiler, library, vertex: "gridVertexShader", fragment: "gridFragmentShader")
             self.billboardPipeline = try Self.makePipeline(compiler, library, vertex: "billboardVertexShader", fragment: "billboardFragmentShader", alphaBlend: true)
             self.outlinePipeline = try Self.makePipeline(compiler, library, vertex: "outlineVertexShader", fragment: "outlineFragmentShader")
+            self.overlayPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "cadFragmentShader", alphaBlend: true)
+            self.edgeHighlightPipeline = try Self.makePipeline(compiler, library, vertex: "edgeHighlightVertexShader", fragment: "edgeHighlightFragmentShader", alphaBlend: true)
             self.pickFacePipeline = try Self.makePickPipeline(compiler, library, vertex: "pickFaceVertexShader", fragment: "pickFaceFragmentShader")
             self.pickEdgePipeline = try Self.makePickPipeline(compiler, library, vertex: "pickEdgeVertexShader", fragment: "pickEdgeFragmentShader")
             self.pickVertexPipeline = try Self.makePickPipeline(compiler, library, vertex: "pickVertexVertexShader", fragment: "pickVertexFragmentShader")
@@ -203,6 +212,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
               let billboardDepth = Self.makeDepthState(device, .lessEqual, write: false),
               let snapDepth = Self.makeDepthState(device, .always, write: false),
               let outlineDepth = Self.makeDepthState(device, .lessEqual, write: false),
+              let overlayDepth = Self.makeDepthState(device, .lessEqual, write: false),
+              let edgeHighlightDepth = Self.makeDepthState(device, .lessEqual, write: false),
               let pickFaceDepth = Self.makeDepthState(device, .less, write: true),
               let pickEdgeDepth = Self.makeDepthState(device, .lessEqual, write: true),
               let pickVertexDepth = Self.makeDepthState(device, .lessEqual, write: true) else { return nil }
@@ -212,6 +223,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         self.billboardDepthState = billboardDepth
         self.snapDepthState = snapDepth
         self.outlineDepthState = outlineDepth
+        self.overlayDepthState = overlayDepth
+        self.edgeHighlightDepthState = edgeHighlightDepth
         self.pickFaceDepthState = pickFaceDepth
         self.pickEdgeDepthState = pickEdgeDepth
         self.pickVertexDepthState = pickVertexDepth
@@ -243,7 +256,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         "outlineVertexShader", "outlineFragmentShader",
         "pickFaceVertexShader", "pickFaceFragmentShader",
         "pickEdgeVertexShader", "pickEdgeFragmentShader",
-        "pickVertexVertexShader", "pickVertexFragmentShader"
+        "pickVertexVertexShader", "pickVertexFragmentShader",
+        "edgeHighlightVertexShader", "edgeHighlightFragmentShader"
     ]
 
     /// Loads the build-time `default.metallib` from the MadeCore resource bundle. Works on any Metal device.
@@ -569,9 +583,115 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     }
 
     private func requiredArenaCapacity(meshCount: Int? = nil) -> Int {
-        // One block per visible solid, plus outline, grid, axes, labels, snap marker, and gizmo.
+        // One block per visible solid, plus outline, grid, axes, labels, snap marker, gizmo, and sub-element highlights.
         let count = meshCount ?? meshes.count
-        return UniformArena.capacity(forDraws: count + 12, blockSize: MemoryLayout<OutlineUniforms>.stride)
+        return UniformArena.capacity(forDraws: count + 16, blockSize: MemoryLayout<OutlineUniforms>.stride)
+    }
+
+    private func drawSubElementHighlight(
+        _ ctx: EncodeContext,
+        scene: SceneSnapshot,
+        sub: SelectedSubElement,
+        isPreselection: Bool,
+        viewMatrix: simd_float4x4,
+        projMatrix: simd_float4x4,
+        viewportSize: CGSize,
+        drawCalls: inout Int
+    ) {
+        guard let mesh = scene.meshes[sub.solidId], !scene.hiddenSolidIds.contains(sub.solidId) else { return }
+        switch sub.elementType {
+        case .face:
+            let color: SIMD4<Float> = isPreselection ? SIMD4(0.0, 0.85, 1.0, 0.35) : SIMD4(1.0, 0.65, 0.0, 0.45)
+            let faceRange = mesh.faceRanges.first(where: { $0.faceId == sub.elementId })
+            guard let range = faceRange?.triangleRange, !range.isEmpty else { return }
+            let triangleCount = range.upperBound - range.lowerBound
+            let indexCount = triangleCount * 3
+            let indexOffset = range.lowerBound * 3 * MemoryLayout<UInt32>.stride
+            guard indexOffset + indexCount * MemoryLayout<UInt32>.stride <= mesh.indexBuffer.length else { return }
+
+            let uniforms = RenderUniforms(
+                modelMatrix: mesh.transform.matrix,
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix,
+                normalMatrix: mesh.transform.normalMatrix,
+                color: color
+            )
+            guard ctx.bindUniforms(uniforms, at: 2) else { return }
+            ctx.encoder.setRenderPipelineState(overlayPipeline)
+            ctx.encoder.setDepthStencilState(overlayDepthState)
+            ctx.encoder.setCullMode(.back)
+            ctx.bind(mesh.positionBuffer, at: 0)
+            ctx.bind(mesh.normalBuffer, at: 1)
+            ctx.encoder.drawIndexedPrimitives(
+                primitiveType: .triangle,
+                indexCount: indexCount,
+                indexType: .uint32,
+                indexBuffer: mesh.indexBuffer.gpuAddress + UInt64(indexOffset),
+                indexBufferLength: mesh.indexBuffer.length - indexOffset
+            )
+            drawCalls += 1
+
+        case .edge:
+            let color: SIMD4<Float> = isPreselection ? SIMD4(0.0, 0.85, 1.0, 1.0) : SIMD4(1.0, 0.65, 0.0, 1.0)
+            guard mesh.edgeSegmentCount > 0, let segBuf = mesh.edgeSegmentBuffer else { return }
+            let edgeUniforms = EdgeHighlightUniforms(
+                modelMatrix: mesh.transform.matrix,
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix,
+                color: color,
+                viewportWidth: Float(max(viewportSize.width, 1.0)),
+                viewportHeight: Float(max(viewportSize.height, 1.0)),
+                lineWidth: 3.0,
+                targetEdgeId: UInt32(sub.elementId),
+                depthBias: 0.005
+            )
+            guard ctx.bindUniforms(edgeUniforms, at: 2) else { return }
+            ctx.encoder.setRenderPipelineState(edgeHighlightPipeline)
+            ctx.encoder.setDepthStencilState(edgeHighlightDepthState)
+            ctx.encoder.setCullMode(.none)
+            ctx.bind(segBuf, at: 3)
+            ctx.encoder.drawPrimitives(
+                primitiveType: .triangle,
+                vertexStart: 0,
+                vertexCount: 6,
+                instanceCount: mesh.edgeSegmentCount
+            )
+            drawCalls += 1
+
+        case .vertex:
+            let color: SIMD4<Float> = isPreselection ? SIMD4(0.0, 0.85, 1.0, 1.0) : SIMD4(1.0, 0.65, 0.0, 1.0)
+            let vertexPoint = mesh.vertexPoints.first(where: { $0.vertexId == sub.elementId })
+            guard let vp = vertexPoint,
+                  let positions = snapPositionBuffer,
+                  let normals = snapNormalBuffer,
+                  let indices = snapIndexBuffer,
+                  snapIndexCount > 0 else { return }
+            let world4 = mesh.transform.matrix * SIMD4<Float>(vp.position, 1.0)
+            let worldPos = SIMD3<Float>(world4.x, world4.y, world4.z)
+            var modelMatrix = matrix_identity_float4x4
+            modelMatrix.columns.3 = SIMD4<Float>(worldPos, 1.0)
+            let uniforms = RenderUniforms(
+                modelMatrix: modelMatrix,
+                viewMatrix: viewMatrix,
+                projectionMatrix: projMatrix,
+                normalMatrix: matrix_identity_float3x3,
+                color: color
+            )
+            guard ctx.bindUniforms(uniforms, at: 2) else { return }
+            ctx.encoder.setRenderPipelineState(solidPipeline)
+            ctx.encoder.setDepthStencilState(snapDepthState)
+            ctx.encoder.setCullMode(.none)
+            ctx.bind(positions, at: 0)
+            ctx.bind(normals, at: 1)
+            ctx.encoder.drawIndexedPrimitives(
+                primitiveType: .triangle,
+                indexCount: snapIndexCount,
+                indexType: .uint32,
+                indexBuffer: indices.gpuAddress,
+                indexBufferLength: indices.length
+            )
+            drawCalls += 1
+        }
     }
 
     @discardableResult
@@ -580,7 +700,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         scene: SceneSnapshot,
         aspect: Float,
         cameraOverride: Camera? = nil,
-        includeGizmo: Bool = true
+        includeGizmo: Bool = true,
+        viewportSize: CGSize = CGSize(width: 800, height: 600)
     ) -> Int {
         let encoder = ctx.encoder
         encoder.setArgumentTable(ctx.table, stages: [.vertex, .fragment])
@@ -644,6 +765,34 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
                 )
                 drawCalls += 1
             }
+        }
+
+        // Sub-element highlight passes: committed selection (amber) and hover preselection (cyan)
+        if let selectedSub = scene.selectedSubElement {
+            drawSubElementHighlight(
+                ctx,
+                scene: scene,
+                sub: selectedSub,
+                isPreselection: false,
+                viewMatrix: viewMatrix,
+                projMatrix: projMatrix,
+                viewportSize: viewportSize,
+                drawCalls: &drawCalls
+            )
+        }
+
+        if let preselectedSub = scene.preselectedSubElement,
+           preselectedSub != scene.selectedSubElement {
+            drawSubElementHighlight(
+                ctx,
+                scene: scene,
+                sub: preselectedSub,
+                isPreselection: true,
+                viewMatrix: viewMatrix,
+                projMatrix: projMatrix,
+                viewportSize: viewportSize,
+                drawCalls: &drawCalls
+            )
         }
 
         let lineUniforms = GridUniforms(viewProjectionMatrix: projMatrix * viewMatrix)
@@ -801,7 +950,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             EncodeContext(encoder: encoder, table: frameTable, arena: arena),
             scene: scene,
             aspect: aspect,
-            includeGizmo: showsGizmo
+            includeGizmo: showsGizmo,
+            viewportSize: view.drawableSize
         )
         encoder.endEncoding()
         commandBuffer.endCommandBuffer()
@@ -864,6 +1014,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         snapshotResidency.addAllocations([colorTexture, depthTexture, arena.buffer])
         for mesh in scene.meshes.values {
             snapshotResidency.addAllocations([mesh.positionBuffer, mesh.normalBuffer, mesh.indexBuffer])
+            if let tf = mesh.triangleFaceIdBuffer { snapshotResidency.addAllocations([tf]) }
+            if let es = mesh.edgeSegmentBuffer { snapshotResidency.addAllocations([es]) }
+            if let vb = mesh.vertexBuffer { snapshotResidency.addAllocations([vb]) }
         }
         if let billboardTexture { snapshotResidency.addAllocations([billboardTexture]) }
         let statics: [MTLBuffer?] = [
@@ -904,7 +1057,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
                 scene: scene,
                 aspect: Float(width) / Float(height),
                 cameraOverride: cameraOverride,
-                includeGizmo: includeGizmo
+                includeGizmo: includeGizmo,
+                viewportSize: CGSize(width: width, height: height)
             )
             encoder.endEncoding()
             commandBuffer.endCommandBuffer()
