@@ -1288,5 +1288,86 @@ import MadeCore
         #expect(failureMsg?.contains("unknown-solid") == true)
         #expect(failureMsg?.contains("Solid B 'cylinder-1' not found") == true)
     }
+
+    @Test @MainActor func testRecomputeSolidFailureCascadesParentFailedToDependentBoolean() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        // Add a boolean object combining box-1 and cylinder-1
+        let boolDef = ObjectDef.boolean(op: .subtract, solidA: boxId, solidB: cylId)
+        let boolId = model.document.reserveId(for: boolDef)
+        model.document.addObject(boolId, def: boolDef)
+        model.recomputeSolid(id: boolId)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId, boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Inject failure on next recompute of box-1
+        await model.injectRecomputeFailure(code: .invalidParams)
+        model.recomputeSolid(id: boxId)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Assert root box has errorState with invalid-params and .error severity
+        let boxFeat = model.document.feature(for: boxId)
+        #expect(boxFeat?.errorState?.code == "invalid-params")
+        #expect(boxFeat?.errorState?.severity == .error)
+
+        // Assert dependent boolean has parent-failed with .warning severity
+        let boolFeat = model.document.feature(for: boolId)
+        #expect(boolFeat?.errorState?.code == "parent-failed")
+        #expect(boolFeat?.errorState?.message == "parent failed")
+        #expect(boolFeat?.errorState?.severity == .warning)
+    }
+
+    @Test @MainActor func testRecomputeSolidRecoveryClearsParentFailedOnDependentBoolean() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        // Add a boolean object combining box-1 and cylinder-1
+        let boolDef = ObjectDef.boolean(op: .subtract, solidA: boxId, solidB: cylId)
+        let boolId = model.document.reserveId(for: boolDef)
+        model.document.addObject(boolId, def: boolDef)
+        model.recomputeSolid(id: boolId)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, cylId, boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Inject failure and fail box-1
+        await model.injectRecomputeFailure(code: .invalidParams)
+        model.recomputeSolid(id: boxId)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(model.document.feature(for: boolId)?.errorState?.code == "parent-failed")
+
+        // Now recompute box-1 successfully without failure
+        model.recomputeSolid(id: boxId)
+
+        if let registry = model.toolRegistry {
+            await registry.settleRecomputes(for: [boxId, boolId])
+        }
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Assert box-1 and boolId have both recovered and have nil errorState
+        #expect(model.document.feature(for: boxId)?.errorState == nil)
+        #expect(model.document.feature(for: boolId)?.errorState == nil)
+    }
 }
 

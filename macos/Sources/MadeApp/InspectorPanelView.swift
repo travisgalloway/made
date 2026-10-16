@@ -138,6 +138,11 @@ struct InspectorPanelView: View {
                     .foregroundStyle(.orange)
                     .font(.caption)
                     .textSelection(.enabled)
+            } else if let errorState = workspace.document.feature(for: obj.id)?.errorState {
+                Label(errorState.message, systemImage: errorState.severity == .warning ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill")
+                    .foregroundStyle(errorState.severity == .warning ? .orange : .red)
+                    .font(.caption)
+                    .textSelection(.enabled)
             }
         } header: {
             sectionHeader("Dimensions")

@@ -303,6 +303,242 @@ import Foundation
         #expect(client.requestedSolids.isEmpty)
     }
 
+    @Test func testRegenerationFailingUpstreamCascadesParentFailedToDependents() async {
+        let document = DocumentModel(features: [])
+        let box = Feature.makeBox(solidId: boxSolidId, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(box)
+        let depSolid = SolidId("dep-1")
+        let depFeature = Feature(
+            name: "Dependent",
+            operation: .primitive(.box(BoxParams(width: 5, depth: 5, height: 5))),
+            references: [.feature(box.id)],
+            outputSolidId: depSolid
+        )
+        _ = document.addFeature(depFeature)
+
+        let client = RecordingKernelClient()
+        client.failureCode = .geometryFailed
+
+        await KernelRegeneration.regenerate(document: document, client: client, excluding: nil)
+
+        // box failed directly
+        #expect(document.features[0].errorState?.code == "geometry-failed")
+        #expect(document.features[0].errorState?.severity == .error)
+
+        // dependent feature cascaded parent-failed warning and was not dispatched
+        #expect(document.features[1].errorState?.code == "parent-failed")
+        #expect(document.features[1].errorState?.message == "parent failed")
+        #expect(document.features[1].errorState?.severity == .warning)
+
+        #expect(client.requestedSolids == [boxSolidId])
+    }
+
+    @Test func testIncrementalRegenerationFailingRootCascadesParentFailed() async {
+        let document = DocumentModel(features: [])
+        let root = Feature.makeBox(solidId: boxSolidId, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(root)
+
+        let midSolid = SolidId("mid-1")
+        let mid = Feature(
+            name: "Mid",
+            operation: .primitive(.box(BoxParams(width: 8, depth: 8, height: 8))),
+            references: [.feature(root.id)],
+            outputSolidId: midSolid
+        )
+        _ = document.addFeature(mid)
+
+        let leafSolid = SolidId("leaf-1")
+        let leaf = Feature(
+            name: "Leaf",
+            operation: .primitive(.box(BoxParams(width: 6, depth: 6, height: 6))),
+            references: [.feature(mid.id)],
+            outputSolidId: leafSolid
+        )
+        _ = document.addFeature(leaf)
+
+        let client = RecordingKernelClient()
+        client.failureCode = .invalidParams
+
+        await KernelRegeneration.regenerateIncremental(from: root.id, in: document, client: client)
+
+        #expect(document.features[0].errorState?.code == "invalid-params")
+        #expect(document.features[0].errorState?.severity == .error)
+
+        #expect(document.features[1].errorState?.code == "parent-failed")
+        #expect(document.features[1].errorState?.severity == .warning)
+
+        #expect(document.features[2].errorState?.code == "parent-failed")
+        #expect(document.features[2].errorState?.severity == .warning)
+
+        // Only root was dispatched
+        #expect(client.requestedSolids == [boxSolidId])
+    }
+
+    @Test func testMultipleUpstreamDependenciesOneFailsCascadesParentFailed() async {
+        let document = DocumentModel(features: [])
+        let solidA = SolidId("box-a")
+        let featA = Feature.makeBox(solidId: solidA, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(featA)
+
+        let solidB = SolidId("cyl-b")
+        let featB = Feature.makeCylinder(solidId: solidB, params: CylinderParams(radius: 5, height: 10))
+        _ = document.addFeature(featB)
+
+        let boolSolid = SolidId("bool-cut")
+        let boolFeat = Feature(
+            name: "Cut",
+            operation: .boolean(BooleanFeatureData(op: .subtract, targetSolidId: solidA, toolSolidId: solidB)),
+            outputSolidId: boolSolid
+        )
+        _ = document.addFeature(boolFeat)
+
+        let client = RecordingKernelClient()
+        client.failureForSolid[solidA] = .invalidParams
+
+        await KernelRegeneration.regenerate(document: document, client: client)
+
+        #expect(document.features[0].errorState?.code == "invalid-params")
+        #expect(document.features[0].errorState?.severity == .error)
+
+        #expect(document.features[1].errorState == nil)
+
+        #expect(document.features[2].errorState?.code == "parent-failed")
+        #expect(document.features[2].errorState?.severity == .warning)
+
+        #expect(client.requestedSolids == [solidA, solidB])
+    }
+
+    @Test func testDeepChainCascadingParentFailed() async {
+        let document = DocumentModel(features: [])
+        let solidA = SolidId("chain-a")
+        let featA = Feature.makeBox(solidId: solidA, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(featA)
+
+        let solidB = SolidId("chain-b")
+        let featB = Feature(
+            name: "B",
+            operation: .primitive(.box(BoxParams(width: 8, depth: 8, height: 8))),
+            references: [.feature(featA.id)],
+            outputSolidId: solidB
+        )
+        _ = document.addFeature(featB)
+
+        let solidC = SolidId("chain-c")
+        let featC = Feature(
+            name: "C",
+            operation: .primitive(.box(BoxParams(width: 6, depth: 6, height: 6))),
+            references: [.feature(featB.id)],
+            outputSolidId: solidC
+        )
+        _ = document.addFeature(featC)
+
+        let client = RecordingKernelClient()
+        client.failureForSolid[solidA] = .geometryFailed
+
+        await KernelRegeneration.regenerate(document: document, client: client)
+
+        #expect(document.features[0].errorState?.code == "geometry-failed")
+        #expect(document.features[0].errorState?.severity == .error)
+
+        #expect(document.features[1].errorState?.code == "parent-failed")
+        #expect(document.features[1].errorState?.severity == .warning)
+
+        #expect(document.features[2].errorState?.code == "parent-failed")
+        #expect(document.features[2].errorState?.severity == .warning)
+
+        #expect(client.requestedSolids == [solidA])
+    }
+
+    @Test func testUpstreamRecoveryClearsParentFailedAndRegeneratesDownstream() async {
+        let document = DocumentModel(features: [])
+        let solidA = SolidId("parent-a")
+        let featA = Feature.makeBox(solidId: solidA, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(featA)
+
+        let solidB = SolidId("child-b")
+        let featB = Feature(
+            name: "Child",
+            operation: .primitive(.box(BoxParams(width: 8, depth: 8, height: 8))),
+            references: [.feature(featA.id)],
+            outputSolidId: solidB
+        )
+        _ = document.addFeature(featB)
+
+        let client = RecordingKernelClient()
+        client.failureForSolid[solidA] = .invalidParams
+
+        // Step 1: Regeneration with failure
+        await KernelRegeneration.regenerate(document: document, client: client)
+
+        #expect(document.features[0].errorState?.code == "invalid-params")
+        #expect(document.features[1].errorState?.code == "parent-failed")
+        #expect(client.requestedSolids == [solidA])
+
+        // Step 2: Clear failure (simulating fixing parameter) and regenerate
+        client.failureForSolid.removeAll()
+        client.requestedSolids.removeAll()
+
+        await KernelRegeneration.regenerate(document: document, client: client)
+
+        #expect(document.features[0].errorState == nil)
+        #expect(document.features[1].errorState == nil)
+        #expect(client.requestedSolids == [solidA, solidB])
+    }
+
+    @Test func testDiamondDependencyGraphFailureCascade() async {
+        let document = DocumentModel(features: [])
+        let solidA = SolidId("diamond-a")
+        let featA = Feature.makeBox(solidId: solidA, params: BoxParams(width: 10, depth: 10, height: 10))
+        _ = document.addFeature(featA)
+
+        let solidB = SolidId("diamond-b")
+        let featB = Feature(
+            name: "B",
+            operation: .primitive(.box(BoxParams(width: 12, depth: 12, height: 12))),
+            references: [.feature(featA.id)],
+            outputSolidId: solidB
+        )
+        _ = document.addFeature(featB)
+
+        let solidC = SolidId("diamond-c")
+        let featC = Feature(
+            name: "C",
+            operation: .primitive(.box(BoxParams(width: 14, depth: 14, height: 14))),
+            references: [.feature(featA.id)],
+            outputSolidId: solidC
+        )
+        _ = document.addFeature(featC)
+
+        let solidD = SolidId("diamond-d")
+        let featD = Feature(
+            name: "D",
+            operation: .boolean(BooleanFeatureData(op: .union, targetSolidId: solidB, toolSolidId: solidC)),
+            references: [.feature(featB.id), .feature(featC.id)],
+            outputSolidId: solidD
+        )
+        _ = document.addFeature(featD)
+
+        let client = RecordingKernelClient()
+        client.failureForSolid[solidA] = .geometryFailed
+
+        await KernelRegeneration.regenerateIncremental(from: featA.id, in: document, client: client)
+
+        #expect(document.features[0].errorState?.code == "geometry-failed")
+        #expect(document.features[0].errorState?.severity == .error)
+
+        #expect(document.features[1].errorState?.code == "parent-failed")
+        #expect(document.features[1].errorState?.severity == .warning)
+
+        #expect(document.features[2].errorState?.code == "parent-failed")
+        #expect(document.features[2].errorState?.severity == .warning)
+
+        #expect(document.features[3].errorState?.code == "parent-failed")
+        #expect(document.features[3].errorState?.severity == .warning)
+
+        // Only A was dispatched to the kernel
+        #expect(client.requestedSolids == [solidA])
+    }
+
     private func object(_ id: SolidId, _ def: ObjectDef) -> SceneObject {
         SceneObject(id: id, name: id.rawValue, def: def)
     }
@@ -311,10 +547,11 @@ import Foundation
 final class RecordingKernelClient: KernelClientProtocol, @unchecked Sendable {
     var requestedSolids: [SolidId] = []
     var failureCode: KernelErrorCode?
+    var failureForSolid: [SolidId: KernelErrorCode] = [:]
 
     func request(_ request: KernelRequest) async -> KernelResult<MeshPayload> {
         requestedSolids.append(request.solidId)
-        if let failureCode {
+        if let failureCode = failureForSolid[request.solidId] ?? failureCode {
             return .failure(jobId: request.jobId, error: KernelError(code: failureCode, message: "Simulated kernel failure"))
         }
         return .success(jobId: request.jobId, value: MeshPayload(positions: [], normals: [], indices: []))

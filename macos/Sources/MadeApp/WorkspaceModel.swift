@@ -1001,6 +1001,25 @@ final class WorkspaceModel {
             if let message = self.recomputeFailures.record(result, for: id) {
                 self.log(.error, "Kernel", message)
             }
+            switch result {
+            case .failure(_, let err):
+                if let feat = self.document.feature(for: id) {
+                    self.document.setFeatureError(
+                        id: feat.id,
+                        error: FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
+                    )
+                    for depFeat in self.document.dependentFeatures(referencing: feat.id) {
+                        self.document.setFeatureError(
+                            id: depFeat.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                }
+            case .success:
+                if let feat = self.document.feature(for: id) {
+                    self.document.setFeatureError(id: feat.id, error: nil)
+                }
+            }
             if case .failure = result, case .imported = self.document.objects.first(where: { $0.id == id })?.def {
                 self.document.removeObject(id: id)
                 await self.kernelClient.dispose(solidId: id)
@@ -1014,6 +1033,9 @@ final class WorkspaceModel {
             self.invalidateViewport(.model)
             if case .success = result {
                 for depId in self.document.directDependentObjects(of: id) {
+                    if let depFeat = self.document.feature(for: depId), depFeat.errorState?.code == "parent-failed" {
+                        self.document.setFeatureError(id: depFeat.id, error: nil)
+                    }
                     self.recomputeSolid(id: depId)
                 }
             }
@@ -1097,8 +1119,11 @@ final class WorkspaceModel {
     #if DEBUG
     /// Forces the next recompute of any solid to fail, so the failure message can be checked by hand.
     func failNextRecompute() {
-        let code = KernelErrorCode.invalidParams
-        Task { await faultInjector.failNextRequest(with: code) }
+        Task { await injectRecomputeFailure(code: .invalidParams) }
+    }
+
+    func injectRecomputeFailure(code: KernelErrorCode = .invalidParams) async {
+        await faultInjector.failNextRequest(with: code)
         log(.info, "Kernel", "Next recompute will fail with \(code.rawValue)")
     }
     #endif

@@ -22,16 +22,52 @@ public struct FeatureExpression: Sendable, Codable, Equatable {
     }
 }
 
+/// Severity of a feature error state (BL-FND-04).
+public enum FeatureErrorSeverity: String, Sendable, Codable, Equatable {
+    case error
+    case warning
+}
+
 /// Persisted diagnostic information when regeneration or reference binding fails (BL-FND-04).
 public struct FeatureErrorState: Sendable, Codable, Equatable {
     public var code: String
     public var message: String
+    public var severity: FeatureErrorSeverity
     public var timestamp: Date
 
-    public init(code: String, message: String, timestamp: Date = Date()) {
+    public init(
+        code: String,
+        message: String,
+        severity: FeatureErrorSeverity = .error,
+        timestamp: Date = Date()
+    ) {
         self.code = code
         self.message = message
+        self.severity = severity
         self.timestamp = timestamp
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+        case message
+        case severity
+        case timestamp
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.code = try container.decode(String.self, forKey: .code)
+        self.message = try container.decode(String.self, forKey: .message)
+        self.severity = try container.decodeIfPresent(FeatureErrorSeverity.self, forKey: .severity) ?? .error
+        self.timestamp = try container.decodeIfPresent(Date.self, forKey: .timestamp) ?? Date()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(code, forKey: .code)
+        try container.encode(message, forKey: .message)
+        try container.encode(severity, forKey: .severity)
+        try container.encode(timestamp, forKey: .timestamp)
     }
 }
 
