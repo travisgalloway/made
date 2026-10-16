@@ -15,91 +15,102 @@ struct NavigatorSidebarView: View {
                 rollbackBanner
             }
 
-            List(selection: $workspace.selectedId) {
-                Section("Scene") {
-                    ForEach(filteredObjects) { obj in
-                        NavigatorRow(object: obj).tag(obj.id)
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            .overlay {
-                if workspace.document.objects.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Objects", systemImage: "cube.transparent")
-                    } description: {
-                        Text("Add a 3D solid primitive or open a part script to begin modeling.")
-                    } actions: {
-                        VStack(spacing: 8) {
-                            Button("Add Box", systemImage: "shippingbox") {
-                                workspace.addDefaultBox()
-                            }
-                            Button("Add Cylinder", systemImage: "cylinder") {
-                                workspace.addDefaultCylinder()
-                            }
+            ScrollViewReader { proxy in
+                List(selection: $workspace.selectedId) {
+                    Section("Scene") {
+                        ForEach(filteredObjects) { obj in
+                            NavigatorRow(object: obj)
+                                .tag(obj.id)
+                                .id(obj.id)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                     }
-                } else if filteredObjects.isEmpty {
-                    ContentUnavailableView.search(text: filterText)
                 }
-            }
-            .contextMenu(forSelectionType: ObjectId.self) { ids in
-                if let id = ids.first, let obj = workspace.document.objects.first(where: { $0.id == id }) {
-                    if case .part = obj.def {
-                        Button("Reload Part") { workspace.reloadPart(id) }
+                .listStyle(.sidebar)
+                .overlay {
+                    if workspace.document.objects.isEmpty {
+                        ContentUnavailableView {
+                            Label("No Objects", systemImage: "cube.transparent")
+                        } description: {
+                            Text("Add a 3D solid primitive or open a part script to begin modeling.")
+                        } actions: {
+                            VStack(spacing: 8) {
+                                Button("Add Box", systemImage: "shippingbox") {
+                                    workspace.addDefaultBox()
+                                }
+                                Button("Add Cylinder", systemImage: "cylinder") {
+                                    workspace.addDefaultCylinder()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    } else if filteredObjects.isEmpty {
+                        ContentUnavailableView.search(text: filterText)
+                    }
+                }
+                .contextMenu(forSelectionType: ObjectId.self) { ids in
+                    if let id = ids.first, let obj = workspace.document.objects.first(where: { $0.id == id }) {
+                        if case .part = obj.def {
+                            Button("Reload Part") { workspace.reloadPart(id) }
+                            Divider()
+                        }
+                        Button("Roll Back to Here") { workspace.rollBack(to: id) }
+                        Button("Roll Back Before") { workspace.rollBack(before: id) }
                         Divider()
-                    }
-                    Button("Roll Back to Here") { workspace.rollBack(to: id) }
-                    Button("Roll Back Before") { workspace.rollBack(before: id) }
-                    Divider()
-                    Button("Rename…") {
-                        renamingText = obj.name
-                        renamingTarget = (id: id, name: obj.name)
-                    }
-                    .disabled(obj.isLocked)
-                    Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
-                    Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
-                    Divider()
-                    Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
+                        Button("Rename…") {
+                            renamingText = obj.name
+                            renamingTarget = (id: id, name: obj.name)
+                        }
                         .disabled(obj.isLocked)
+                        Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
+                        Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
+                        Divider()
+                        Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
+                            .disabled(obj.isLocked)
+                    }
                 }
-            }
-            .alert(
-                "Rename “\(renamingTarget?.name ?? "Solid")”",
-                isPresented: Binding(
-                    get: { renamingTarget != nil },
-                    set: { if !$0 { renamingTarget = nil } }
-                )
-            ) {
-                TextField("Name", text: $renamingText)
-                Button("Rename") {
-                    if let target = renamingTarget {
-                        workspace.setName(id: target.id, name: renamingText)
+                .alert(
+                    "Rename “\(renamingTarget?.name ?? "Solid")”",
+                    isPresented: Binding(
+                        get: { renamingTarget != nil },
+                        set: { if !$0 { renamingTarget = nil } }
+                    )
+                ) {
+                    TextField("Name", text: $renamingText)
+                    Button("Rename") {
+                        if let target = renamingTarget {
+                            workspace.setName(id: target.id, name: renamingText)
+                            renamingTarget = nil
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {
                         renamingTarget = nil
                     }
                 }
-                Button("Cancel", role: .cancel) {
-                    renamingTarget = nil
+                .confirmationDialog(
+                    "Delete “\(workspace.objectPendingDeletion?.name ?? "Solid")”?",
+                    isPresented: Binding(
+                        get: { workspace.pendingDeleteId != nil },
+                        set: { if !$0 { workspace.cancelDeleteObject() } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) {
+                        workspace.confirmDeleteObject()
+                    }
+                    Button("Cancel", role: .cancel) {
+                        workspace.cancelDeleteObject()
+                    }
+                } message: {
+                    Text("Are you sure you want to delete “\(workspace.objectPendingDeletion?.name ?? "this solid")”? This action cannot be undone.")
                 }
-            }
-            .confirmationDialog(
-                "Delete “\(workspace.objectPendingDeletion?.name ?? "Solid")”?",
-                isPresented: Binding(
-                    get: { workspace.pendingDeleteId != nil },
-                    set: { if !$0 { workspace.cancelDeleteObject() } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Delete", role: .destructive) {
-                    workspace.confirmDeleteObject()
+                .onChange(of: workspace.selectedId) { _, newId in
+                    if let newId {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            proxy.scrollTo(newId, anchor: nil)
+                        }
+                    }
                 }
-                Button("Cancel", role: .cancel) {
-                    workspace.cancelDeleteObject()
-                }
-            } message: {
-                Text("Are you sure you want to delete “\(workspace.objectPendingDeletion?.name ?? "this solid")”? This action cannot be undone.")
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
