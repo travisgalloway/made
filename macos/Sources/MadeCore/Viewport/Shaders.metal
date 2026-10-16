@@ -14,6 +14,8 @@ struct VertexOut {
     float4 position [[position]];
     float3 worldNormal;
     float3 worldPos;
+    float3 viewNormal;
+    float3 viewPos;
     float4 color;
 };
 
@@ -28,9 +30,14 @@ vertex VertexOut cadVertexShader(
     float3 norm = float3(normals[vertexID]);
     
     float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
-    out.position = uniforms.projectionMatrix * uniforms.viewMatrix * worldPos;
+    float4 viewPos = uniforms.viewMatrix * worldPos;
+    out.position = uniforms.projectionMatrix * viewPos;
     out.worldPos = worldPos.xyz;
     out.worldNormal = uniforms.normalMatrix * norm;
+
+    bool isOrtho = abs(uniforms.projectionMatrix[3][3] - 1.0) < 1e-3;
+    out.viewPos = isOrtho ? float3(0.0, 0.0, -1.0) : viewPos.xyz;
+    out.viewNormal = (uniforms.viewMatrix * float4(out.worldNormal, 0.0)).xyz;
     out.color = uniforms.color;
     return out;
 }
@@ -48,6 +55,24 @@ fragment float4 cadFragmentShader(VertexOut in [[stage_in]]) {
     
     float lighting = ambient + diff1 + diff2;
     float3 finalRgb = in.color.rgb * lighting;
+
+    // Silhouette contouring on curved surfaces:
+    float3 vN = normalize(in.viewNormal);
+    float3 vV = normalize(-in.viewPos); // View vector towards eye in view space
+    float ndotv = abs(dot(vN, vV));
+    float dN = length(fwidth(vN));
+
+    // Flat surfaces (like boxes) have dN ≈ 0; curved surfaces (cylinders, spheres) have dN > 0.005.
+    if (dN > 0.005) {
+        float delta = fwidth(ndotv);
+        float distPx = ndotv / max(delta, 1e-4);
+        float silhouetteWidth = 1.2;
+        if (distPx < silhouetteWidth) {
+            float edgeAlpha = 1.0 - saturate(distPx / silhouetteWidth);
+            float3 edgeColor = float3(0.12, 0.12, 0.14);
+            finalRgb = mix(finalRgb, edgeColor, edgeAlpha);
+        }
+    }
     
     return float4(finalRgb, in.color.a);
 }
@@ -417,5 +442,85 @@ fragment float4 edgeHighlightFragmentShader(
     constant EdgeHighlightUniforms &uniforms [[buffer(2)]]
 ) {
     return uniforms.color;
+}
+
+// MARK: - Antialiased B-Rep Edge Shaders (BL-VPT-04)
+
+struct CadEdgeUniforms {
+    float4x4 modelMatrix;
+    float4x4 viewMatrix;
+    float4x4 projectionMatrix;
+    float4 color;
+    float viewportWidth;
+    float viewportHeight;
+    float lineWidth;
+    float depthBias;
+    float2 _padding;
+};
+
+struct CadEdgeVertexOut {
+    float4 position [[position]];
+    float edgeDist; // Normalized distance from line center: -1.0 to 1.0
+};
+
+vertex CadEdgeVertexOut cadEdgeVertexShader(
+    uint vertexID [[vertex_id]],
+    uint instanceID [[instance_id]],
+    constant CadEdgeUniforms &uniforms [[buffer(2)]],
+    constant EdgeSegmentData *segments [[buffer(3)]]
+) {
+    CadEdgeVertexOut out;
+    EdgeSegmentData seg = segments[instanceID];
+
+    float4 aWorld = uniforms.modelMatrix * float4(float3(seg.start), 1.0);
+    float4 bWorld = uniforms.modelMatrix * float4(float3(seg.end), 1.0);
+
+    float4 aClip = uniforms.projectionMatrix * uniforms.viewMatrix * aWorld;
+    float4 bClip = uniforms.projectionMatrix * uniforms.viewMatrix * bWorld;
+
+    float wA = max(aClip.w, 1e-4);
+    float wB = max(bClip.w, 1e-4);
+
+    float2 aNdc = aClip.xy / wA;
+    float2 bNdc = bClip.xy / wB;
+
+    float2 aScreen = float2((aNdc.x + 1.0) * 0.5 * uniforms.viewportWidth, (aNdc.y + 1.0) * 0.5 * uniforms.viewportHeight);
+    float2 bScreen = float2((bNdc.x + 1.0) * 0.5 * uniforms.viewportWidth, (bNdc.y + 1.0) * 0.5 * uniforms.viewportHeight);
+
+    float2 dir = bScreen - aScreen;
+    float len = length(dir);
+    float2 nScreen = len > 1e-4 ? float2(-dir.y, dir.x) / len : float2(0.0, 1.0);
+
+    // Expand ribbon by 0.5px on each side for smooth 1-pixel feathering
+    float halfWidth = max(uniforms.lineWidth * 0.5, 0.5) + 0.5;
+
+    bool isB = (vertexID == 1 || vertexID == 4 || vertexID == 5);
+    float signN = (vertexID == 2 || vertexID == 3 || vertexID == 5) ? 1.0 : -1.0;
+
+    float4 baseClip = isB ? bClip : aClip;
+    float baseW = isB ? wB : wA;
+
+    float2 offsetScreen = nScreen * (signN * halfWidth);
+    float2 offsetNdc = float2(2.0 * offsetScreen.x / max(uniforms.viewportWidth, 1.0),
+                              2.0 * offsetScreen.y / max(uniforms.viewportHeight, 1.0));
+
+    float4 pClip = baseClip;
+    pClip.xy += offsetNdc * baseW;
+    pClip.z -= uniforms.depthBias * baseW; // Offset towards camera to eliminate z-fighting with adjacent coplanar faces
+
+    out.position = pClip;
+    out.edgeDist = signN;
+    return out;
+}
+
+fragment float4 cadEdgeFragmentShader(
+    CadEdgeVertexOut in [[stage_in]],
+    constant CadEdgeUniforms &uniforms [[buffer(2)]]
+) {
+    float halfWidth = max(uniforms.lineWidth * 0.5, 0.5) + 0.5;
+    float dPx = abs(in.edgeDist) * halfWidth;
+    // 1-pixel feather at the outer boundary of the line ribbon
+    float alpha = saturate(halfWidth - dPx);
+    return float4(uniforms.color.rgb, uniforms.color.a * alpha);
 }
 

@@ -93,6 +93,7 @@ import CoreGraphics
 
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
+        renderer.showsEdges = false
 
         let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
         let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
@@ -124,6 +125,7 @@ import CoreGraphics
 
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
+        renderer.showsEdges = false
 
         let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
         let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
@@ -142,6 +144,7 @@ import CoreGraphics
 
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
+        renderer.showsEdges = false
 
         let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
         let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
@@ -160,6 +163,7 @@ import CoreGraphics
 
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
+        renderer.showsEdges = false
 
         let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
         let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
@@ -178,6 +182,7 @@ import CoreGraphics
 
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
+        renderer.showsEdges = false
 
         let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
         let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
@@ -206,6 +211,7 @@ import CoreGraphics
 
         renderer.updateGrid(size: 0)
         renderer.updateAxes(length: 0)
+        renderer.showsEdges = false
 
         let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
         let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))

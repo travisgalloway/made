@@ -1012,6 +1012,7 @@ import MadeCore
         #expect(model1.showsGrid == true)
         #expect(model1.showsAxes == true)
         #expect(model1.showsGizmo == true)
+        #expect(model1.showsEdges == true)
         #expect(model1.kernelTolerances == KernelTolerances.default)
 
         // Mutate all settings
@@ -1024,6 +1025,7 @@ import MadeCore
         model1.showsGrid = false
         model1.showsAxes = false
         model1.showsGizmo = false
+        model1.showsEdges = false
         model1.kernelTolerances = KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.5, chordalTolerance: 0.05)
 
         // Verify stored in customDefaults
@@ -1036,6 +1038,7 @@ import MadeCore
         #expect(customDefaults.bool(forKey: WorkspaceModel.showsGridDefaultsKey) == false)
         #expect(customDefaults.bool(forKey: WorkspaceModel.showsAxesDefaultsKey) == false)
         #expect(customDefaults.bool(forKey: WorkspaceModel.showsGizmoDefaultsKey) == false)
+        #expect(customDefaults.bool(forKey: WorkspaceModel.showsEdgesDefaultsKey) == false)
         #expect(customDefaults.double(forKey: WorkspaceModel.linearToleranceDefaultsKey) == 0.005)
         #expect(customDefaults.double(forKey: WorkspaceModel.angularToleranceDefaultsKey) == 0.5)
         #expect(customDefaults.double(forKey: WorkspaceModel.chordalToleranceDefaultsKey) == 0.05)
@@ -1051,6 +1054,7 @@ import MadeCore
         #expect(model2.showsGrid == false)
         #expect(model2.showsAxes == false)
         #expect(model2.showsGizmo == false)
+        #expect(model2.showsEdges == false)
         #expect(model2.kernelTolerances == KernelTolerances(linearTolerance: 0.005, angularTolerance: 0.5, chordalTolerance: 0.05))
     }
 
@@ -1073,6 +1077,7 @@ import MadeCore
         model.showsGrid = false
         model.showsAxes = false
         model.showsGizmo = false
+        model.showsEdges = false
         model.kernelTolerances = KernelTolerances(linearTolerance: 0.05, angularTolerance: 1.0, chordalTolerance: 0.1)
 
         // Reset
@@ -1088,6 +1093,7 @@ import MadeCore
         #expect(model.showsGrid == true)
         #expect(model.showsAxes == true)
         #expect(model.showsGizmo == true)
+        #expect(model.showsEdges == true)
         #expect(model.kernelTolerances == KernelTolerances.default)
 
         // Check fresh model picks up reset defaults
@@ -1095,6 +1101,7 @@ import MadeCore
         #expect(modelRestored.commandPanelPlacement == .floatingHUD)
         #expect(modelRestored.lengthUnit == .millimeters)
         #expect(modelRestored.showsGrid == true)
+        #expect(modelRestored.showsEdges == true)
     }
 
     @Test @MainActor func testResetTolerancesToDefaults() {

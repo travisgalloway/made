@@ -251,6 +251,7 @@ struct DisplaySettingsTab: View {
                 Toggle("Show Ground Grid (Z = 0)", isOn: $workspace.showsGrid)
                 Toggle("Show Origin Axes (XYZ)", isOn: $workspace.showsAxes)
                 Toggle("Show Transform Gizmo", isOn: $workspace.showsGizmo)
+                Toggle("Show Boundary Edges", isOn: $workspace.showsEdges)
 
                 Text("Toggling viewport overlays immediately updates the live Metal 4 scene.")
                     .font(.caption)

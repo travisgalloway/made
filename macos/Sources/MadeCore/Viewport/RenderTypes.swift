@@ -132,6 +132,39 @@ public struct EdgeHighlightUniforms: BitwiseCopyable {
     }
 }
 
+public struct CadEdgeUniforms: BitwiseCopyable {
+    public var modelMatrix: simd_float4x4
+    public var viewMatrix: simd_float4x4
+    public var projectionMatrix: simd_float4x4
+    public var color: SIMD4<Float>
+    public var viewportWidth: Float
+    public var viewportHeight: Float
+    public var lineWidth: Float
+    public var depthBias: Float
+    private var _padding: SIMD2<Float> = SIMD2<Float>(0, 0)
+
+    public init(
+        modelMatrix: simd_float4x4 = matrix_identity_float4x4,
+        viewMatrix: simd_float4x4 = matrix_identity_float4x4,
+        projectionMatrix: simd_float4x4 = matrix_identity_float4x4,
+        color: SIMD4<Float> = SIMD4<Float>(0.15, 0.15, 0.18, 1.0),
+        viewportWidth: Float = 800,
+        viewportHeight: Float = 600,
+        lineWidth: Float = 1.2,
+        depthBias: Float = 0.003
+    ) {
+        self.modelMatrix = modelMatrix
+        self.viewMatrix = viewMatrix
+        self.projectionMatrix = projectionMatrix
+        self.color = color
+        self.viewportWidth = viewportWidth
+        self.viewportHeight = viewportHeight
+        self.lineWidth = lineWidth
+        self.depthBias = depthBias
+        self._padding = SIMD2<Float>(0, 0)
+    }
+}
+
 public struct PickUniforms: BitwiseCopyable {
     public var modelMatrix: simd_float4x4
     public var viewMatrix: simd_float4x4
@@ -281,6 +314,7 @@ public struct SceneSnapshot: Sendable {
     public let preselectedSubElement: SelectedSubElement?
     public let activeSnap: SnapResult?
     public let activeGizmoHandle: GizmoHandle?
+    public let showsEdges: Bool
 
     public init(
         meshes: [SolidId: MetalMesh] = [:],
@@ -290,7 +324,8 @@ public struct SceneSnapshot: Sendable {
         selectedSubElement: SelectedSubElement? = nil,
         preselectedSubElement: SelectedSubElement? = nil,
         activeSnap: SnapResult? = nil,
-        activeGizmoHandle: GizmoHandle? = nil
+        activeGizmoHandle: GizmoHandle? = nil,
+        showsEdges: Bool = true
     ) {
         self.meshes = meshes
         self.hiddenSolidIds = hiddenSolidIds
@@ -300,5 +335,6 @@ public struct SceneSnapshot: Sendable {
         self.preselectedSubElement = preselectedSubElement
         self.activeSnap = activeSnap
         self.activeGizmoHandle = activeGizmoHandle
+        self.showsEdges = showsEdges
     }
 }
