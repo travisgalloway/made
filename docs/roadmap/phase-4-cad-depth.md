@@ -1,6 +1,6 @@
 # Phase 4: CAD Depth
 
-**Status**: In progress. No Phase 4 issue is closed.  
+**Status**: In progress. Milestones 4.0 to 4C have no open issues. Milestones 4D and 4E hold 30 open issues.  
 **Package Targets**: `MadeCore`, `MadeApp`
 
 Phase 4 expands `made` from a parametric primitive viewer with agentic capabilities into a full-featured Computer-Aided Design application. It builds on the N-object [`DocumentModel`](../../macos/Sources/MadeCore/Scene/DocumentModel.swift), the [`KernelClient`](../../macos/Sources/MadeCore/Kernel/KernelClient.swift) actor, and the [`MetalRenderer`](../../macos/Sources/MadeCore/Viewport/MetalRenderer.swift).
@@ -28,7 +28,7 @@ Phase 4.0 records the architecture decisions that gate the milestones after it a
 
 The document model currently holds an ordered array of objects with `addObject`, `removeObject`, `setParam`, and `setTransform`. Under ADR-D2 ([ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143), the scene transitions to an ordered feature list with multi-body parts by default (#150). The 4.N labels below are local to this page. GitHub issue titles use a different numbering, so the cited issue number is the key.
 
-- Open scene work: ordered feature list (#150, ADR-D2), generalize the scene and inspector (#66, #67), selection (#69, #70), add and remove objects (#73), feature tree (#34, ADR-D2).
+- Scene work (closed): ordered feature list (#150, ADR-D2), generalize the scene and inspector (#66, #67), selection (#69, #70), add and remove objects (#73), feature tree (#34, ADR-D2).
 
 - **4.1 Native `.made` Document Package** (#83, [ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), [ADR-D7](../architecture/adr/ADR-D7-made-encoding.md)):
   - Conforms to Apple's `FileDocument` / `ReferenceFileDocument` protocols with exported UTType `com.made.cad.document`.
@@ -43,8 +43,8 @@ The document model currently holds an ordered array of objects with `addObject`,
 
 - **4.3 OCCTSwift B-Rep & STEP Exchange (Tier 2)** (#82, #38, [ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md)):
   - Integrates `SecondMouseAU/OCCTSwift` via pre-built `OCCT.xcframework` as the canonical B-rep kernel ([ADR-D1](../architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142).
-  - Imports and exports ISO 10303 STEP (AP203/AP214) and IGES boundary representation files.
-  - Adds true topological fillets, chamfers, and draft angles.
+  - Imports and exports ISO 10303 STEP (AP203/AP214) and IGES boundary representation files. STEP ships. IGES is open as #404.
+  - Adds true topological fillets, chamfers, and draft angles. Fillets ship (#35). Chamfer (#294) and draft (#296) are open.
   - Persistent topological naming using query-based references from generation history (`BRepTools_History`) with fallback geometric signatures and raw index prohibition ([ADR-D3](../architecture/adr/ADR-D3-topological-naming.md), #144, #152).
 - **4.4 Multi-Body CSG Boolean Operations** (#35, [ADR-D2](../architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md)):
   - Builds on `EuclidEngine.subtract/union/intersect` (and canonical OCCT booleans under #82) to allow complex tree-based boolean operations across arbitrary solids within multi-body parts (ADR-D2).

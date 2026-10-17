@@ -64,7 +64,7 @@ Data structures crossing actor boundaries conform to `Sendable`:
 - **`MetalMesh`**: Encapsulates `MTLBuffer` references and is marked `@unchecked Sendable`.
 
 ### Current Isolation
-Seven types opt out of compiler checking with `@unchecked Sendable`: `GestureArbiter`, `PointerRouter`, `MCPServer`, `InAppAgentController`, `RenderInstrumentation`, `MetalRenderer`, and `MetalMesh`. Each holds mutable state without a lock or actor. Removing the opt-outs belongs to DSN-1eb23904.
+Seventeen types opt out of compiler checking with `@unchecked Sendable`: `MeshStorage`, `PartFileWatcher`, `PartRuntime`, `JSCWorkerThread`, `PointerRouter`, `GestureArbiter`, two `Coordinator` classes in `CADMetalViewRepresentable.swift`, `MCPServer`, `InAppAgentController`, `DeviceBox`, `ObserverToken`, `GizmoGeometryBuffers`, `MetalRenderer`, `RenderInstrumentation`, `ViewportCoordinator`, and `MetalMesh`. Each holds mutable state without a lock or actor. Removing the opt-outs belongs to DSN-1eb23904.
 
 ---
 

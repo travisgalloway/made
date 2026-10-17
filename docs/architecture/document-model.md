@@ -1,6 +1,6 @@
 # Document Model & Scene Graph
 
-The document model in `made` is the single source of truth for all 3D scene objects, parametric feature trees, dimensional configurations, and spatial transformations. It is implemented as an `@Observable` Swift class (`final class DocumentModel: @unchecked Sendable`, with no actor isolation, see #91) in [`DocumentModel.swift`](../../macos/Sources/MadeCore/Scene/DocumentModel.swift) conforming to Invariant 3.
+The document model in `made` is the single source of truth for all 3D scene objects, parametric feature trees, dimensional configurations, and spatial transformations. It is implemented as an `@Observable` Swift class (`@MainActor public final class DocumentModel`) in [`DocumentModel.swift`](../../macos/Sources/MadeCore/Scene/DocumentModel.swift) conforming to Invariant 3.
 
 ---
 
@@ -176,20 +176,27 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
 public enum ObjectDef: Sendable, Equatable {
     case box(BoxParams)                  // width, depth, height
     case cylinder(CylinderParams)        // radius, height
-    case imported(name: String)
+    case sphere(SphereParams)
+    case cone(ConeParams)
+    case torus(TorusParams)
+    case wedge(WedgeParams)
+    case imported(name: String, sourceURL: URL? = nil, data: Data? = nil)
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
-    case part(url: URL, shape: ShapeNode?)
+    case part(url: URL, shape: ShapeNode? = nil)
+    case extrude(ExtrudeParams)         // solid extruded from a 2D sketch profile
 }
 ```
 
 The model stores an object name, a visibility flag, a lock flag, and material attributes. Selection is stored in `DocumentModel.selectedId` in `MadeCore` with a no-op on unchanged values (invariant 2), and delegated to by `WorkspaceModel.selectedId` (#69).
 
 ### Supported Object Types
-1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`) and Cylinders (`radius`, `height`).
-2. **Imported Placeholder**: `.imported(name:)` carries a name only.
+1. **Parametric Primitives**: Boxes (`width`, `depth`, `height`), Cylinders (`radius`, `height`), and the sphere, cone, torus, and wedge cases.
+2. **Imported Solids**: `.imported(name:sourceURL:data:)` carries a name, an optional source URL, and optional STEP data.
 3. **Boolean Result**: `.boolean(op:solidA:solidB:)` records the operation and both operand IDs (`DOC-11`). `DocumentModel.reserveId(for:)` mints its `boolean-<seq>` ID before the kernel call, so the document and the kernel cache share it. `DocumentModel.dependentObjects(of:)` queries direct and transitive dependents in topological order. When operands are edited, recomputations cascade to dependent booleans; when operands are removed, dependent booleans recompute and record typed `unknownSolid` errors. Kernel regeneration replays base solids before recomputing booleans in topological order (#35).
 4. **Scripted Parts**: `.part(url:shape:)` references a `.part.ts` or `.part.js` file on disk with its evaluated shape tree (#427).
-5. **Planned**: B-Rep solids loaded from STEP or IGES files (#38, #82).
+5. **Extruded Sketch Solids**: `.extrude(ExtrudeParams)` records a solid extruded from a 2D sketch profile.
+
+STEP files import as `.imported` objects (#38, #82). IGES has no entry point (#404).
 
 ---
 

@@ -2,7 +2,7 @@
 
 **made** (macOS-native Computer Aided Design and Engineering) is a native CAD application for macOS 26+ built with Swift 6, SwiftUI, Metal 4, [Euclid](https://github.com/nicklockwood/Euclid) CSG, a [Cadova](https://github.com/tomasf/Cadova)-inspired declarative CAD DSL, and an embedded Model Context Protocol (MCP) server for AI copilot workflows.
 
-Originally prototyped as `wade` (a web-based CAD PWA), the project has moved to a native Apple architecture. It keeps the nine architectural invariants. Several features are not yet wired into the application. [`docs/feature-matrix.md`](docs/feature-matrix.md) lists the status of each capability, and [`docs/roadmap/phases.md`](docs/roadmap/phases.md) lists the open issues.
+Originally prototyped as `wade` (a web-based CAD PWA), the project has moved to a native Apple architecture. It keeps the nine architectural invariants. Some capabilities are not yet wired into the application. [`docs/feature-matrix.md`](docs/feature-matrix.md) lists the status of each capability, and [`docs/roadmap/phases.md`](docs/roadmap/phases.md) lists the open issues.
 
 ## Platform and Toolchain
 
@@ -15,7 +15,7 @@ Originally prototyped as `wade` (a web-based CAD PWA), the project has moved to 
 | Rendering | Metal 4 (`MTL4CommandQueue`, argument tables, residency sets) through MetalKit |
 | Build system | Swift Build (`--build-system swiftbuild`), which compiles `Shaders.metal` |
 | Shader toolchain | Metal Toolchain, installed with `xcodebuild -downloadComponent MetalToolchain` |
-| Tests | Swift Testing (`@Test`) in `macos/Tests/MadeCoreTests` |
+| Tests | Swift Testing (`@Test`) in `macos/Tests/MadeCoreTests` and `macos/Tests/MadeAppTests` |
 | Agent protocol | MCP over JSON-RPC 2.0, protocol version `2024-11-05` |
 
 An iPadOS target is planned (#84). The package does not declare one yet.
@@ -24,9 +24,9 @@ An iPadOS target is planned (#84). The package does not declare one yet.
 
 | Project | Role in `made` | Status |
 | --- | --- | --- |
-| [Euclid](https://github.com/nicklockwood/Euclid) | Pure-Swift mesh geometry and CSG (constructive solid geometry) kernel | The only package dependency (`from: "0.9.6"`) |
+| [Euclid](https://github.com/nicklockwood/Euclid) | Pure-Swift mesh geometry and CSG (constructive solid geometry) kernel | Package dependency (`from: "0.9.6"`), Tier 1 fast preview engine |
 | [Cadova](https://github.com/tomasf/Cadova) | Model for the declarative CAD DSL in `Scripting/CADDSL.swift` | Design reference, not a dependency |
-| [OCCTSwift](https://github.com/SecondMouseAU/OCCTSwift) | OpenCASCADE B-rep kernel for STEP and IGES exchange, fillets, and chamfers | Planned (#82), not a dependency |
+| [OCCTSwift](https://github.com/SecondMouseAU/OCCTSwift) | OpenCASCADE B-rep kernel for STEP exchange (IGES has no entry point, #404) | Package dependency (`from: "3.0.0"`, #82) |
 | [Model Context Protocol](https://github.com/modelcontextprotocol/modelcontextprotocol) | Specification for the embedded agent server | Implemented natively in `Agent/`, with no SDK dependency |
 
 ## Native Application (`macos/`)
@@ -34,6 +34,7 @@ An iPadOS target is planned (#84). The package does not declare one yet.
 The native application and core modules live in `macos/`:
 - **MadeCore**: Geometry engine (Euclid CSG), document state model, gesture arbiter, snapping engine, Metal 4 renderer, Cadova-style declarative DSL, and MCP server.
 - **MadeApp**: macOS SwiftUI application and command-line MCP stdio server.
+- **MadeKernelService**: XPC service that runs geometry out of process in the bundled app.
 
 ### Building & Running
 
@@ -55,7 +56,7 @@ Launch the application GUI, or run the MCP server over standard I/O:
 make run            # or: cd macos && swift run --build-system swiftbuild MadeApp
 make run-mcp        # or: cd macos && swift run --build-system swiftbuild MadeApp --mcp-stdio
 ```
-The window also starts an in-app MCP server over TCP on port 9820 (see `docs/architecture/agent-api.md`). The listener must accept connections only from the local machine, and it binds every interface today (#129). The `--mcp-stdio` mode still declares the SwiftUI window scene. Its tool registry has no snapshot provider, so `cad_capture_snapshot` returns an error (#89).
+The window also starts an in-app MCP server over TCP on port 9820 (see `docs/architecture/agent-api.md`). The listener accepts connections only on the loopback interface (#129). The `--mcp-stdio` mode still declares the SwiftUI window scene. Its tool registry uses a `HeadlessSnapshotProvider`, so `cad_capture_snapshot` renders offscreen (#89).
 
 ### Declarative CAD Scripting (Cadova-Style Swift DSL)
 

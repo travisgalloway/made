@@ -10,9 +10,9 @@ This document identifies technical risks, deferred decisions, and architectural 
 Integrating full OpenCASCADE (`OCCT.xcframework`) adds approximately 60–100 MB of compiled C++ binaries, increases build times, and introduces C++/Swift bridging headers that can complicate CI pipelines.
 
 ### Mitigation
-The design uses a **multi-tier geometry engine strategy**. Only Tier 1 exists in the code today:
-- **Tier 1 (Implemented)**: Pure-Swift [`EuclidEngine`](../macos/Sources/MadeCore/Kernel/EuclidEngine.swift) has zero C++ dependencies. `Package.swift` declares Euclid as the only dependency. It handles box and cylinder primitives and CSG booleans.
-- **Tier 2 (Planned, #82)**: OpenCASCADE would sit in a separate SPM target (`OCCTSwift`) backed by a pre-built xcframework, so builds do not compile OCCT from source. No such target or dependency exists yet. `importStep` returns `geometryFailed` with the message "STEP import pending OpenCASCADE bridge".
+The design uses a **multi-tier geometry engine strategy**. Tiers 1 and 2 exist in the code today:
+- **Tier 1 (Implemented)**: Pure-Swift [`EuclidEngine`](../macos/Sources/MadeCore/Kernel/EuclidEngine.swift) has zero C++ dependencies. `Package.swift` also declares OCCTSwift. It handles box and cylinder primitives and CSG booleans.
+- **Tier 2 (Implemented, #82)**: OpenCASCADE comes in through the `OCCTSwift` 3.0.0 package, declared in `Package.swift`, so builds do not compile OCCT from source. `OCCTEngine.importStep` and `OCCTEngine.exportStep` run STEP exchange. IGES has no entry point (#404).
 
 ---
 
@@ -34,10 +34,10 @@ macOS App Sandbox rules restrict arbitrary standard I/O pipe inheritance and chi
 BSP-tree constructive solid geometry (CSG) algorithms can experience degenerate polygons or non-manifold meshes when evaluating perfectly coplanar overlapping faces.
 
 ### Mitigation
-None of the following is implemented. The code applies no rounding tolerance and no cutter extension. It relies on the Euclid booleans as they are.
+None of the following is implemented. The code applies no rounding tolerance and no cutter extension. `LocalKernelEngine` runs a boolean through OCCT when both solids have an OCCT shape, and through Euclid otherwise (`LocalKernelEngine.swift:130-150`).
 - Planned: round parameter inputs to an engineering tolerance (proposed $10^{-5}\text{ mm}$).
 - Planned: extend cutters by a small epsilon (proposed $0.001\text{ mm}$) where a difference meets a coplanar boundary.
-- Planned (#82): Tier 2 OpenCASCADE B-Rep as the exact fallback for complex industrial tooling.
+- Available (#82): Tier 2 OpenCASCADE B-Rep as the exact fallback for complex industrial tooling.
 
 ---
 
@@ -47,7 +47,7 @@ None of the following is implemented. The code applies no rounding tolerance and
 Direct manipulation with the Apple Pencil demands sub-16 ms latency. Recalculating complex CSG meshes on every stylus drag event would drop frames and cause noticeable lag.
 
 ### Mitigation
-The Apple Pencil channel is planned (#84), and the gizmo interactions are planned (#71, #72). The viewport receives mouse and trackpad input today (orbit, pan, zoom, and snapping), but Pencil input and gizmos do not exist.
+The Apple Pencil channel is planned (#84). The viewport receives mouse and trackpad input today (orbit, pan, zoom, snapping, and transform gizmos from #71 and #72), but Pencil input does not exist.
 - **Two-Physics Rule (planned)**: Stylus translation drags modify only the object's rigid transform matrix ($4\times 4$) on the GPU. The geometry kernel is not called during move or rotate gestures.
 - Stylus dimension resize drags preview a GPU scale transform, then dispatch one debounced re-tessellation to the background actor on stylus lift.
 
