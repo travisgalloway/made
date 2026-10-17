@@ -392,6 +392,9 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case part(PartFeatureData)
     case imported(ImportedFeatureData)
     case datumPlane(DatumPlaneFeatureData)
+    case datumAxis(DatumAxisFeatureData)
+    case datumPoint(DatumPointFeatureData)
+    case datumCoordinateSystem(DatumCoordinateSystemFeatureData)
 }
 
 /// Canonical parametric modeling feature in an ordered linear history (ADR-D2).
@@ -541,7 +544,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             def = .part(url: p.url, shape: p.shape)
         case .imported(let imp):
             def = .imported(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
-        case .sketch, .datumPlane:
+        case .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             return nil
         case .extrude(let data):
             guard let profile = data.profile else { return nil }

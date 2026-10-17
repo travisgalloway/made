@@ -67,7 +67,37 @@ struct InspectorPanelView: View {
                 .controlSize(.small)
                 .padding()
             }
-        } else if workspace.document.objects.isEmpty && !hasAnySketches && !hasAnyDatumPlanes {
+        } else if let datumAxis = workspace.selectedDatumAxisFeature {
+            ScrollView {
+                Form {
+                    datumAxisIdentitySection(datumAxis)
+                    datumAxisParametersSection(datumAxis)
+                }
+                .formStyle(.columns)
+                .controlSize(.small)
+                .padding()
+            }
+        } else if let datumPoint = workspace.selectedDatumPointFeature {
+            ScrollView {
+                Form {
+                    datumPointIdentitySection(datumPoint)
+                    datumPointParametersSection(datumPoint)
+                }
+                .formStyle(.columns)
+                .controlSize(.small)
+                .padding()
+            }
+        } else if let ucs = workspace.selectedDatumCoordinateSystemFeature {
+            ScrollView {
+                Form {
+                    datumCoordinateSystemIdentitySection(ucs)
+                    datumCoordinateSystemParametersSection(ucs)
+                }
+                .formStyle(.columns)
+                .controlSize(.small)
+                .padding()
+            }
+        } else if workspace.document.objects.isEmpty && !hasAnySketches && !hasAnyDatums {
             ContentUnavailableView {
                 Label("No Objects in Scene", systemImage: "cube.transparent")
             } description: {
@@ -100,10 +130,14 @@ struct InspectorPanelView: View {
         }
     }
 
-    private var hasAnyDatumPlanes: Bool {
+    private var hasAnyDatums: Bool {
         workspace.document.features.contains {
-            if case .datumPlane = $0.operation { return true }
-            return false
+            switch $0.operation {
+            case .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
+                return true
+            default:
+                return false
+            }
         }
     }
 
@@ -328,6 +362,175 @@ struct InspectorPanelView: View {
                     }
                 }
             ))
+        } header: {
+            sectionHeader("Parameters")
+        })
+    }
+
+    private func datumAxisIdentitySection(_ datumAxis: Feature) -> some View {
+        Section {
+            TextField("Name", text: Binding(
+                get: { datumAxis.name },
+                set: { newName in
+                    var updated = datumAxis
+                    updated.name = newName
+                    workspace.document.updateFeature(updated)
+                }
+            ))
+            if case .datumAxis(let data) = datumAxis.operation {
+                LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+                if let cached = data.cachedAxis {
+                    LabeledContent("Origin", value: String(format: "(%.1f, %.1f, %.1f)", cached.origin.x, cached.origin.y, cached.origin.z))
+                    LabeledContent("Direction", value: String(format: "(%.2f, %.2f, %.2f)", cached.direction.x, cached.direction.y, cached.direction.z))
+                }
+            }
+        } header: {
+            sectionHeader("Datum Axis Identity", isFirst: true)
+        }
+    }
+
+    private func datumAxisParametersSection(_ datumAxis: Feature) -> some View {
+        guard case .datumAxis(let data) = datumAxis.operation else { return AnyView(EmptyView()) }
+        return AnyView(Section {
+            LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+            switch data.mode {
+            case .preset:
+                LabeledContent("Preset Axis", value: data.presetName ?? "Z")
+            case .twoPoints:
+                if let p1 = data.point1 {
+                    LabeledContent("Point 1", value: String(format: "(%.1f, %.1f, %.1f)", p1.x, p1.y, p1.z))
+                }
+                if let p2 = data.point2 {
+                    LabeledContent("Point 2", value: String(format: "(%.1f, %.1f, %.1f)", p2.x, p2.y, p2.z))
+                }
+            case .edge:
+                LabeledContent("Source", value: "Referenced Edge / Line")
+            case .cylinder:
+                LabeledContent("Source", value: "Cylinder Axis")
+            case .normalToPlane:
+                LabeledContent("Source", value: "Plane Normal")
+            }
+            Toggle("Flipped Direction", isOn: Binding(
+                get: { data.isFlipped },
+                set: { flipped in
+                    var updatedData = data
+                    updatedData.isFlipped = flipped
+                    var updatedFeature = datumAxis
+                    updatedFeature.operation = .datumAxis(updatedData)
+                    _ = workspace.document.updateFeature(updatedFeature)
+                    Task {
+                        await KernelRegeneration.regenerateIncremental(from: datumAxis.id, in: workspace.document, client: workspace.kernelClient)
+                    }
+                }
+            ))
+        } header: {
+            sectionHeader("Parameters")
+        })
+    }
+
+    private func datumPointIdentitySection(_ datumPoint: Feature) -> some View {
+        Section {
+            TextField("Name", text: Binding(
+                get: { datumPoint.name },
+                set: { newName in
+                    var updated = datumPoint
+                    updated.name = newName
+                    workspace.document.updateFeature(updated)
+                }
+            ))
+            if case .datumPoint(let data) = datumPoint.operation {
+                LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+                if let cached = data.cachedPoint {
+                    LabeledContent("Position", value: String(format: "(%.1f, %.1f, %.1f)", cached.position.x, cached.position.y, cached.position.z))
+                }
+            }
+        } header: {
+            sectionHeader("Datum Point Identity", isFirst: true)
+        }
+    }
+
+    private func datumPointParametersSection(_ datumPoint: Feature) -> some View {
+        guard case .datumPoint(let data) = datumPoint.operation else { return AnyView(EmptyView()) }
+        return AnyView(Section {
+            LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+            switch data.mode {
+            case .coordinates:
+                if let c = data.coordinates {
+                    LabeledContent("Coordinates", value: String(format: "(%.1f, %.1f, %.1f)", c.x, c.y, c.z))
+                }
+            case .alongCurve:
+                LabeledContent("Parameter t", value: String(format: "%.2f", data.curveParameter))
+            case .onVertex:
+                LabeledContent("Source", value: "Referenced Vertex")
+            case .arcCenter:
+                LabeledContent("Source", value: "Arc / Circle Center")
+            case .midpoint:
+                LabeledContent("Source", value: "Midpoint between References")
+            case .intersection:
+                LabeledContent("Source", value: "Line-Plane Intersection")
+            }
+        } header: {
+            sectionHeader("Parameters")
+        })
+    }
+
+    private func datumCoordinateSystemIdentitySection(_ ucs: Feature) -> some View {
+        Section {
+            TextField("Name", text: Binding(
+                get: { ucs.name },
+                set: { newName in
+                    var updated = ucs
+                    updated.name = newName
+                    workspace.document.updateFeature(updated)
+                }
+            ))
+            if case .datumCoordinateSystem(let data) = ucs.operation {
+                LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+                if let cached = data.cachedCoordinateSystem {
+                    LabeledContent("Origin", value: String(format: "(%.1f, %.1f, %.1f)", cached.origin.x, cached.origin.y, cached.origin.z))
+                    LabeledContent("X Axis", value: String(format: "(%.2f, %.2f, %.2f)", cached.xAxis.x, cached.xAxis.y, cached.xAxis.z))
+                    LabeledContent("Y Axis", value: String(format: "(%.2f, %.2f, %.2f)", cached.yAxis.x, cached.yAxis.y, cached.yAxis.z))
+                    LabeledContent("Z Axis", value: String(format: "(%.2f, %.2f, %.2f)", cached.zAxis.x, cached.zAxis.y, cached.zAxis.z))
+                }
+            }
+        } header: {
+            sectionHeader("Coordinate System Identity", isFirst: true)
+        }
+    }
+
+    private func datumCoordinateSystemParametersSection(_ ucs: Feature) -> some View {
+        guard case .datumCoordinateSystem(let data) = ucs.operation else { return AnyView(EmptyView()) }
+        return AnyView(Section {
+            LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+            switch data.mode {
+            case .originAndAxes:
+                if let orig = data.origin {
+                    LabeledContent("Origin", value: String(format: "(%.1f, %.1f, %.1f)", orig.x, orig.y, orig.z))
+                }
+            case .threePoints:
+                if let p1 = data.point1 {
+                    LabeledContent("Origin (P1)", value: String(format: "(%.1f, %.1f, %.1f)", p1.x, p1.y, p1.z))
+                }
+                if let p2 = data.point2 {
+                    LabeledContent("+X Axis (P2)", value: String(format: "(%.1f, %.1f, %.1f)", p2.x, p2.y, p2.z))
+                }
+                if let p3 = data.point3 {
+                    LabeledContent("+XY Plane (P3)", value: String(format: "(%.1f, %.1f, %.1f)", p3.x, p3.y, p3.z))
+                }
+            case .alignedWithPlane:
+                LabeledContent("Alignment", value: "Aligned with Reference Plane")
+            case .offsetFromParent:
+                if let off = data.offsetDistance {
+                    LabeledContent("Offset", value: String(format: "(%.1f, %.1f, %.1f) mm", off.x, off.y, off.z))
+                }
+                if let rot = data.rotationAngles {
+                    LabeledContent("Euler Angles", value: String(format: "(%.1f°, %.1f°, %.1f°)", rot.x, rot.y, rot.z))
+                }
+            }
+            if let cached = data.cachedCoordinateSystem {
+                let m = cached.transformMatrix
+                LabeledContent("Transform Matrix", value: String(format: "[%.2f %.2f %.2f | %.1f]\n[%.2f %.2f %.2f | %.1f]\n[%.2f %.2f %.2f | %.1f]", m.columns.0.x, m.columns.1.x, m.columns.2.x, m.columns.3.x, m.columns.0.y, m.columns.1.y, m.columns.2.y, m.columns.3.y, m.columns.0.z, m.columns.1.z, m.columns.2.z, m.columns.3.z))
+            }
         } header: {
             sectionHeader("Parameters")
         })

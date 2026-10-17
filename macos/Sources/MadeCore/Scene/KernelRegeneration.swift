@@ -31,7 +31,7 @@ public enum KernelRegeneration {
                 return .importStep(jobId: jobId, solidId: solidId, data: fileData)
             }
             return nil
-        case .sketch, .datumPlane:
+        case .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             return nil
         case .extrude(let data):
             guard let profile = data.profile, let solidId = feature.outputSolidId else { return nil }
@@ -100,6 +100,7 @@ public enum KernelRegeneration {
                     document.setFeatureError(id: feature.id, error: errorState)
                     continue
                 } else if feature.errorState?.code == "parent-failed" {
+                    feature.errorState = nil
                     document.setFeatureError(id: feature.id, error: nil)
                 }
 
@@ -118,6 +119,7 @@ public enum KernelRegeneration {
                     }
                     continue
                 } else if feature.errorState?.code == "reference-broken" {
+                    feature.errorState = nil
                     document.setFeatureError(id: feature.id, error: nil)
                 }
 
@@ -125,13 +127,192 @@ public enum KernelRegeneration {
                     let evaluatedPlane = try DatumPlaneEvaluator.evaluate(feature: feature, data: planeData, in: document)
                     planeData.cachedPlane = evaluatedPlane
                     feature.operation = .datumPlane(planeData)
+                    feature.errorState = nil
                     _ = document.updateFeature(feature)
-                    if feature.errorState?.code == "datum-plane-error" {
-                        document.setFeatureError(id: feature.id, error: nil)
-                    }
+                    document.setFeatureError(id: feature.id, error: nil)
                 } catch {
                     let errorState = FeatureErrorState(
                         code: "datum-plane-error",
+                        message: error.localizedDescription,
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                }
+                continue
+            }
+
+            // Evaluate datum axis features
+            if case .datumAxis(var axisData) = feature.operation {
+                let upstreamIds = document.directDependencies(of: feature)
+                let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
+                if failedParent != nil {
+                    let errorState = FeatureErrorState(
+                        code: "parent-failed",
+                        message: "parent failed",
+                        severity: .warning
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    continue
+                } else if feature.errorState?.code == "parent-failed" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
+                    let errorState = FeatureErrorState(
+                        code: "reference-broken",
+                        message: "Reference broken: \(brokenErr.description)",
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                    continue
+                } else if feature.errorState?.code == "reference-broken" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                do {
+                    let evaluatedAxis = try DatumAxisEvaluator.evaluate(feature: feature, data: axisData, in: document)
+                    axisData.cachedAxis = evaluatedAxis
+                    feature.operation = .datumAxis(axisData)
+                    feature.errorState = nil
+                    _ = document.updateFeature(feature)
+                    document.setFeatureError(id: feature.id, error: nil)
+                } catch {
+                    let errorState = FeatureErrorState(
+                        code: "datum-axis-error",
+                        message: error.localizedDescription,
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                }
+                continue
+            }
+
+            // Evaluate datum point features
+            if case .datumPoint(var pointData) = feature.operation {
+                let upstreamIds = document.directDependencies(of: feature)
+                let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
+                if failedParent != nil {
+                    let errorState = FeatureErrorState(
+                        code: "parent-failed",
+                        message: "parent failed",
+                        severity: .warning
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    continue
+                } else if feature.errorState?.code == "parent-failed" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
+                    let errorState = FeatureErrorState(
+                        code: "reference-broken",
+                        message: "Reference broken: \(brokenErr.description)",
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                    continue
+                } else if feature.errorState?.code == "reference-broken" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                do {
+                    let evaluatedPoint = try DatumPointEvaluator.evaluate(feature: feature, data: pointData, in: document)
+                    pointData.cachedPoint = evaluatedPoint
+                    feature.operation = .datumPoint(pointData)
+                    feature.errorState = nil
+                    _ = document.updateFeature(feature)
+                    document.setFeatureError(id: feature.id, error: nil)
+                } catch {
+                    let errorState = FeatureErrorState(
+                        code: "datum-point-error",
+                        message: error.localizedDescription,
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                }
+                continue
+            }
+
+            // Evaluate datum coordinate system features
+            if case .datumCoordinateSystem(var ucsData) = feature.operation {
+                let upstreamIds = document.directDependencies(of: feature)
+                let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
+                if failedParent != nil {
+                    let errorState = FeatureErrorState(
+                        code: "parent-failed",
+                        message: "parent failed",
+                        severity: .warning
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    continue
+                } else if feature.errorState?.code == "parent-failed" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
+                    let errorState = FeatureErrorState(
+                        code: "reference-broken",
+                        message: "Reference broken: \(brokenErr.description)",
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                    continue
+                } else if feature.errorState?.code == "reference-broken" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                do {
+                    let evaluatedUCS = try DatumCoordinateSystemEvaluator.evaluate(feature: feature, data: ucsData, in: document)
+                    ucsData.cachedCoordinateSystem = evaluatedUCS
+                    feature.operation = .datumCoordinateSystem(ucsData)
+                    feature.errorState = nil
+                    _ = document.updateFeature(feature)
+                    document.setFeatureError(id: feature.id, error: nil)
+                } catch {
+                    let errorState = FeatureErrorState(
+                        code: "datum-coordinate-system-error",
                         message: error.localizedDescription,
                         severity: .error
                     )
