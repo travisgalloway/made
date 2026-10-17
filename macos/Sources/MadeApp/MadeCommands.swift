@@ -215,6 +215,10 @@ struct SolidMenuCommands: Commands {
                 workspace.startExtrudeCommand()
             }
 
+            Button("New Datum Plane…") {
+                workspace.startDatumPlaneCommand()
+            }
+
             Divider()
 
             Button(workspace.hideToggleTitle) {

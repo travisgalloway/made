@@ -1478,6 +1478,71 @@ public final class DocumentModel {
         return feature
     }
 
+    // MARK: - Datum Plane Mutators & Sketch Plane Resolution
+
+    @discardableResult
+    public func addDatumPlaneFeature(
+        name: String? = nil,
+        data: DatumPlaneFeatureData = DatumPlaneFeatureData(),
+        references: [Reference] = []
+    ) -> Feature {
+        let datumCount = features.filter {
+            if case .datumPlane = $0.operation { return true }
+            return false
+        }.count + 1
+        let featureName = name ?? "Plane \(datumCount)"
+        var datumData = data
+        var feature = Feature(
+            name: featureName,
+            operation: .datumPlane(datumData),
+            references: references
+        )
+        if let evaluated = try? DatumPlaneEvaluator.evaluate(feature: feature, data: datumData, in: self) {
+            datumData.cachedPlane = evaluated
+            feature.operation = .datumPlane(datumData)
+        }
+        _ = addFeature(feature)
+        selection = [Reference.feature(feature.id)]
+        return feature
+    }
+
+    /// Resolves the 3D coordinate frame for a sketch by checking datum plane ID or name before falling back to presets.
+    public func resolveSketchPlane(for sketchData: SketchFeatureData) -> SketchPlane {
+        if let datumId = sketchData.datumPlaneFeatureId,
+           let feat = feature(for: datumId),
+           case .datumPlane(let datumData) = feat.operation {
+            if let cached = datumData.cachedPlane {
+                return cached
+            }
+            if let evaluated = try? DatumPlaneEvaluator.evaluate(feature: feat, data: datumData, in: self) {
+                return evaluated
+            }
+        }
+        if let planeRef = sketchData.planeReference,
+           let feat = feature(for: planeRef.sourceFeatureId),
+           case .datumPlane(let datumData) = feat.operation {
+            if let cached = datumData.cachedPlane {
+                return cached
+            }
+            if let evaluated = try? DatumPlaneEvaluator.evaluate(feature: feat, data: datumData, in: self) {
+                return evaluated
+            }
+        }
+        if let name = sketchData.planeName {
+            if let feat = features.first(where: { $0.name == name }),
+               case .datumPlane(let datumData) = feat.operation {
+                if let cached = datumData.cachedPlane {
+                    return cached
+                }
+                if let evaluated = try? DatumPlaneEvaluator.evaluate(feature: feat, data: datumData, in: self) {
+                    return evaluated
+                }
+            }
+            return DatumPlaneEvaluator.presetPlane(named: name)
+        }
+        return .xy
+    }
+
     @discardableResult
     public func addSketchEntity(to featureId: UUID, entity: SketchEntity) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.id == featureId }) else {
@@ -1602,7 +1667,8 @@ public final class DocumentModel {
             throw DocumentMutationError.objectNotFound(ObjectId(sketchFeatureId.uuidString))
         }
 
-        let profile = try SketchProfileBuilder.build(from: sketchData.entities)
+        let sketchPlane = resolveSketchPlane(for: sketchData)
+        let profile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
         let clampedDistance = Double(DocumentLimits.extrudeDistance.clamp(Float(distance)))
 
         seq += 1
@@ -1678,7 +1744,13 @@ public final class DocumentModel {
             if let planeRef = s.planeReference {
                 result.insert(planeRef.sourceFeatureId)
             }
-        case .primitive, .part, .imported:
+            if let datumId = s.datumPlaneFeatureId {
+                result.insert(datumId)
+            }
+            if let name = s.planeName, let feat = features.first(where: { $0.name == name }) {
+                result.insert(feat.id)
+            }
+        case .primitive, .part, .imported, .datumPlane:
             break
         }
 
@@ -1760,7 +1832,7 @@ public final class DocumentModel {
             case "distance": return Float(data.distance)
             default: return nil
             }
-        case .imported, .boolean, .part, .sketch:
+        case .imported, .boolean, .part, .sketch, .datumPlane:
             return nil
         }
     }
@@ -2060,7 +2132,7 @@ public final class DocumentModel {
             updatedFeature.operation = .extrude(data)
             updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
 
-        case .imported, .boolean, .part, .sketch:
+        case .imported, .boolean, .part, .sketch, .datumPlane:
             return .success(())
         }
 

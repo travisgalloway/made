@@ -31,7 +31,7 @@ public enum KernelRegeneration {
                 return .importStep(jobId: jobId, solidId: solidId, data: fileData)
             }
             return nil
-        case .sketch:
+        case .sketch, .datumPlane:
             return nil
         case .extrude(let data):
             guard let profile = data.profile, let solidId = feature.outputSolidId else { return nil }
@@ -85,14 +85,74 @@ public enum KernelRegeneration {
             var feature = document.feature(for: feat.id) ?? feat
             guard !feature.isSuppressed else { continue }
             guard document.isFeatureActive(id: feature.id) else { continue }
-            guard feature.outputSolidId != excluded else { continue }
+            if let excluded, feature.outputSolidId == excluded { continue }
+
+            // Evaluate datum plane features
+            if case .datumPlane(var planeData) = feature.operation {
+                let upstreamIds = document.directDependencies(of: feature)
+                let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
+                if failedParent != nil {
+                    let errorState = FeatureErrorState(
+                        code: "parent-failed",
+                        message: "parent failed",
+                        severity: .warning
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    continue
+                } else if feature.errorState?.code == "parent-failed" {
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
+                    let errorState = FeatureErrorState(
+                        code: "reference-broken",
+                        message: "Reference broken: \(brokenErr.description)",
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                    continue
+                } else if feature.errorState?.code == "reference-broken" {
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                do {
+                    let evaluatedPlane = try DatumPlaneEvaluator.evaluate(feature: feature, data: planeData, in: document)
+                    planeData.cachedPlane = evaluatedPlane
+                    feature.operation = .datumPlane(planeData)
+                    _ = document.updateFeature(feature)
+                    if feature.errorState?.code == "datum-plane-error" {
+                        document.setFeatureError(id: feature.id, error: nil)
+                    }
+                } catch {
+                    let errorState = FeatureErrorState(
+                        code: "datum-plane-error",
+                        message: error.localizedDescription,
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                }
+                continue
+            }
 
             // Rebuild profile from upstream sketch entities for extrude features
             if case .extrude(var extrudeData) = feature.operation {
                 if let sketchId = extrudeData.sketchFeatureId, let sketchFeature = document.feature(for: sketchId),
                    case .sketch(let sketchData) = sketchFeature.operation {
                     do {
-                        let newProfile = try SketchProfileBuilder.build(from: sketchData.entities)
+                        let sketchPlane = document.resolveSketchPlane(for: sketchData)
+                        let newProfile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
                         extrudeData.profile = newProfile
                         feature.operation = .extrude(extrudeData)
                         _ = document.updateFeature(feature)

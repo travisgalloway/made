@@ -492,6 +492,58 @@ extension WorkspaceModelTests {
         // Custom validation should fail because profile is open
         #expect(!session.canCommit)
     }
+
+    @Test @MainActor func testMakeDatumPlaneLifecycle() async {
+        let workspace = WorkspaceModel()
+        let initialFeatureCount = workspace.document.features.count
+
+        let session = CommandSession.makeDatumPlane(workspace: workspace)
+        #expect(session.canCommit)
+        #expect(session.choiceValue(for: "mode") == "Origin")
+        #expect(session.choiceValue(for: "originPreset") == "XY")
+        #expect(session.numberValue(for: "offset") == 0.0)
+        #expect(session.toggleValue(for: "flip") == false)
+
+        // Test parameter mutations
+        session.setNumberValue(25.0, for: "offset")
+        session.setToggleValue(true, for: "flip")
+        #expect(session.numberValue(for: "offset") == 25.0)
+        #expect(session.toggleValue(for: "flip") == true)
+        #expect(session.canCommit)
+
+        // Test custom validation for Three Points mode
+        session.setChoiceValue("Three Points", for: "mode")
+        // Default points: (0,0,0), (10,0,0), (0,10,0) -> non-collinear
+        #expect(session.canCommit)
+
+        // Make points collinear
+        session.setNumberValue(20.0, for: "point3X")
+        session.setNumberValue(0.0, for: "point3Y")
+        session.setNumberValue(0.0, for: "point3Z")
+        #expect(!session.canCommit)
+
+        // Restore valid non-collinear points
+        session.setNumberValue(0.0, for: "point3X")
+        session.setNumberValue(15.0, for: "point3Y")
+        #expect(session.canCommit)
+
+        // Commit datum plane
+        session.commit()
+        await Task.yield()
+
+        #expect(workspace.document.features.count == initialFeatureCount + 1)
+        let addedFeature = workspace.document.features.last
+        #expect(addedFeature != nil)
+        #expect(workspace.selectedDatumPlaneFeature?.id == addedFeature?.id)
+
+        if case .datumPlane(let data) = addedFeature?.operation {
+            #expect(data.mode == .threePoints)
+            #expect(data.point3?.y == 15.0)
+            #expect(data.cachedPlane != nil)
+        } else {
+            Issue.record("Expected .datumPlane feature operation")
+        }
+    }
 }
 
 }

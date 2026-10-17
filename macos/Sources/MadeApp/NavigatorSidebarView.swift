@@ -32,10 +32,18 @@ struct NavigatorSidebarView: View {
                             }
                         }
                     }
+
+                    if !datumPlaneFeatures.isEmpty {
+                        Section("Datum Planes") {
+                            ForEach(datumPlaneFeatures) { datum in
+                                NavigatorDatumPlaneRow(feature: datum)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.objects.isEmpty && sketchFeatures.isEmpty {
+                    if workspace.document.objects.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty {
                         ContentUnavailableView {
                             Label("No Objects", systemImage: "cube.transparent")
                         } description: {
@@ -177,6 +185,9 @@ struct NavigatorSidebarView: View {
                 Button("Extrude Sketch…", systemImage: "arrow.up.forward.app.fill") {
                     workspace.startExtrudeCommand()
                 }
+                Button("New Datum Plane…", systemImage: "square.dashed") {
+                    workspace.startDatumPlaneCommand()
+                }
                 Divider()
                 Button("Part Script File…", systemImage: "curlybraces") {
                     workspace.promptOpenPartFile()
@@ -210,6 +221,13 @@ struct NavigatorSidebarView: View {
     private var sketchFeatures: [Feature] {
         workspace.document.activeFeatures.filter {
             if case .sketch = $0.operation { return true }
+            return false
+        }
+    }
+
+    private var datumPlaneFeatures: [Feature] {
+        workspace.document.activeFeatures.filter {
+            if case .datumPlane = $0.operation { return true }
             return false
         }
     }
@@ -374,6 +392,53 @@ private struct NavigatorSketchRow: View {
 
                 if case .sketch(let data) = feature.operation {
                     Text("\(data.entities.count) entities")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectFeature(feature.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+    }
+}
+
+/// Outline row for a datum plane feature in the Navigator sidebar.
+private struct NavigatorDatumPlaneRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let feature: Feature
+
+    var body: some View {
+        let isSelected = workspace.selectedDatumPlaneFeature?.id == feature.id
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "square.dashed")
+                .foregroundStyle(Color.blue)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(feature.name)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text("Datum")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                if case .datumPlane(let data) = feature.operation {
+                    Text(data.mode.rawValue.capitalized)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

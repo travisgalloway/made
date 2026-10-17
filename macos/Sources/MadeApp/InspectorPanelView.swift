@@ -56,7 +56,17 @@ struct InspectorPanelView: View {
                 .controlSize(.small)
                 .padding()
             }
-        } else if workspace.document.objects.isEmpty && !hasAnySketches {
+        } else if let datumPlane = workspace.selectedDatumPlaneFeature {
+            ScrollView {
+                Form {
+                    datumPlaneIdentitySection(datumPlane)
+                    datumPlaneParametersSection(datumPlane)
+                }
+                .formStyle(.columns)
+                .controlSize(.small)
+                .padding()
+            }
+        } else if workspace.document.objects.isEmpty && !hasAnySketches && !hasAnyDatumPlanes {
             ContentUnavailableView {
                 Label("No Objects in Scene", systemImage: "cube.transparent")
             } description: {
@@ -85,6 +95,13 @@ struct InspectorPanelView: View {
     private var hasAnySketches: Bool {
         workspace.document.features.contains {
             if case .sketch = $0.operation { return true }
+            return false
+        }
+    }
+
+    private var hasAnyDatumPlanes: Bool {
+        workspace.document.features.contains {
+            if case .datumPlane = $0.operation { return true }
             return false
         }
     }
@@ -244,6 +261,75 @@ struct InspectorPanelView: View {
         } header: {
             sectionHeader("Sketch Identity", isFirst: true)
         }
+    }
+
+    private func datumPlaneIdentitySection(_ datumPlane: Feature) -> some View {
+        Section {
+            TextField("Name", text: Binding(
+                get: { datumPlane.name },
+                set: { newName in
+                    var updated = datumPlane
+                    updated.name = newName
+                    workspace.document.updateFeature(updated)
+                }
+            ))
+            if case .datumPlane(let data) = datumPlane.operation {
+                LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+                if let cached = data.cachedPlane {
+                    LabeledContent("Origin", value: String(format: "(%.1f, %.1f, %.1f)", cached.origin.x, cached.origin.y, cached.origin.z))
+                    LabeledContent("Normal", value: String(format: "(%.2f, %.2f, %.2f)", cached.normal.x, cached.normal.y, cached.normal.z))
+                }
+            }
+        } header: {
+            sectionHeader("Datum Plane Identity", isFirst: true)
+        }
+    }
+
+    private func datumPlaneParametersSection(_ datumPlane: Feature) -> some View {
+        guard case .datumPlane(let data) = datumPlane.operation else { return AnyView(EmptyView()) }
+        return AnyView(Section {
+            LabeledContent("Mode", value: data.mode.rawValue.capitalized)
+            switch data.mode {
+            case .origin:
+                LabeledContent("Preset", value: data.originPreset ?? "XY")
+                LabeledContent("Offset", value: String(format: "%.1f mm", data.offsetDistance))
+            case .offset:
+                LabeledContent("Offset Distance", value: String(format: "%.1f mm", data.offsetDistance))
+            case .atAngle:
+                LabeledContent("Angle", value: String(format: "%.1f°", data.angleDegrees))
+            case .threePoints:
+                if let p1 = data.point1 {
+                    LabeledContent("Point 1", value: String(format: "(%.1f, %.1f, %.1f)", p1.x, p1.y, p1.z))
+                }
+                if let p2 = data.point2 {
+                    LabeledContent("Point 2", value: String(format: "(%.1f, %.1f, %.1f)", p2.x, p2.y, p2.z))
+                }
+                if let p3 = data.point3 {
+                    LabeledContent("Point 3", value: String(format: "(%.1f, %.1f, %.1f)", p3.x, p3.y, p3.z))
+                }
+            case .normalToCurve:
+                LabeledContent("Parameter t", value: String(format: "%.2f", data.curveParameter))
+            case .midplane:
+                LabeledContent("Type", value: data.point1 != nil ? "Between Points" : "Between Planes")
+            case .tangent:
+                LabeledContent("Type", value: "Curved Face Tangent")
+            }
+            Toggle("Flipped Normal", isOn: Binding(
+                get: { data.isFlipped },
+                set: { flipped in
+                    var updatedData = data
+                    updatedData.isFlipped = flipped
+                    var updatedFeature = datumPlane
+                    updatedFeature.operation = .datumPlane(updatedData)
+                    _ = workspace.document.updateFeature(updatedFeature)
+                    Task {
+                        await KernelRegeneration.regenerateIncremental(from: datumPlane.id, in: workspace.document, client: workspace.kernelClient)
+                    }
+                }
+            ))
+        } header: {
+            sectionHeader("Parameters")
+        })
     }
 
     private func sketchEntitiesSection(_ sketch: Feature) -> some View {
