@@ -240,4 +240,67 @@ import simd
         }
         #expect([UInt8](data.prefix(8)) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
+
+    @Test func testGridGenerationOnXZPlane() {
+        let grid = GridGenerator.generateGrid(plane: .xz, size: 100.0, spacing: 10.0)
+        #expect(grid.lineCount == 22)
+        #expect(grid.vertexCount == 44)
+        
+        for line in grid.lines {
+            #expect(abs(line.start.y - 0.0) <= 1e-5, "XZ plane vertices must lie at Y = 0")
+            #expect(abs(line.end.y - 0.0) <= 1e-5, "XZ plane vertices must lie at Y = 0")
+        }
+    }
+
+    @Test func testGridGenerationOnYZPlane() {
+        let grid = GridGenerator.generateGrid(plane: .yz, size: 100.0, spacing: 10.0)
+        #expect(grid.lineCount == 22)
+        
+        for line in grid.lines {
+            #expect(abs(line.start.x - 0.0) <= 1e-5, "YZ plane vertices must lie at X = 0")
+            #expect(abs(line.end.x - 0.0) <= 1e-5, "YZ plane vertices must lie at X = 0")
+        }
+    }
+
+    @Test func testGridGenerationOnOffsetPlane() {
+        let offsetPlane = SketchPlane.xy.offset(50.0)
+        let grid = GridGenerator.generateGrid(plane: offsetPlane, size: 100.0, spacing: 10.0)
+        #expect(grid.lineCount == 22)
+        
+        for line in grid.lines {
+            #expect(abs(line.start.z - 50.0) <= 1e-5, "Offset XY plane vertices must lie at Z = 50")
+            #expect(abs(line.end.z - 50.0) <= 1e-5, "Offset XY plane vertices must lie at Z = 50")
+        }
+    }
+
+    @Test func testGridGenerationOnAngledPlane() {
+        let normal = simd_normalize(SIMD3<Float>(0, 1, 1))
+        let origin = SIMD3<Float>(10, 20, 30)
+        let xAxis = SIMD3<Float>(1, 0, 0)
+        let angledPlane = SketchPlane(origin: origin, normal: normal, xAxis: xAxis)
+        
+        let grid = GridGenerator.generateGrid(plane: angledPlane, size: 80.0, spacing: 10.0)
+        #expect(grid.lineCount == 18)
+        
+        for line in grid.lines {
+            let distStart = abs(simd_dot(line.start - origin, normal))
+            let distEnd = abs(simd_dot(line.end - origin, normal))
+            #expect(distStart <= 1e-4, "Start must lie on angled plane")
+            #expect(distEnd <= 1e-4, "End must lie on angled plane")
+        }
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable")) func testRendererUpdateGridWithSketchPlane() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+        
+        #expect(renderer.activeSketchPlane == nil)
+        
+        let xzPlane = SketchPlane.xz
+        renderer.updateGrid(plane: xzPlane)
+        #expect(renderer.activeSketchPlane == xzPlane)
+        
+        renderer.updateGrid(plane: nil)
+        #expect(renderer.activeSketchPlane == nil)
+    }
 }

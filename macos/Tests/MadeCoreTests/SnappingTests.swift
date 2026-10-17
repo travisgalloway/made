@@ -455,4 +455,389 @@ import simd
         #expect(snapResult?.kind == .vertex)
         #expect(snapResult?.point == corner)
     }
+
+    // MARK: - 2D Sketch Snapping & Priority Hierarchy Tests (BL-SKT-17)
+
+    @Test func testSnapKindPriorityHierarchyOrder() {
+        let sorted = SnapKind.allCases.sorted()
+        #expect(sorted == [.endpoint, .vertex, .center, .intersection, .midpoint, .quadrant, .edge, .grid])
+        
+        #expect(SnapKind.endpoint < SnapKind.vertex)
+        #expect(SnapKind.vertex < SnapKind.center)
+        #expect(SnapKind.center < SnapKind.intersection)
+        #expect(SnapKind.intersection < SnapKind.midpoint)
+        #expect(SnapKind.midpoint < SnapKind.quadrant)
+        #expect(SnapKind.quadrant < SnapKind.edge)
+        #expect(SnapKind.edge < SnapKind.grid)
+        
+        #expect(SnapKind.endpoint.priority == 0)
+        #expect(SnapKind.vertex.priority == 1)
+        #expect(SnapKind.center.priority == 2)
+        #expect(SnapKind.intersection.priority == 3)
+        #expect(SnapKind.midpoint.priority == 4)
+        #expect(SnapKind.quadrant.priority == 5)
+        #expect(SnapKind.edge.priority == 6)
+        #expect(SnapKind.grid.priority == 7)
+    }
+
+    @Test func testResolveSnapStrictPriorityAcrossAllKinds() {
+        // Construct candidates where lower-priority kinds are physically closer on screen
+        let candidates = [
+            SnapCandidate(kind: .grid, point: SIMD3<Float>(0, 0, 0), screenDistancePx: 1.0),
+            SnapCandidate(kind: .edge, point: SIMD3<Float>(1, 0, 0), screenDistancePx: 2.0),
+            SnapCandidate(kind: .quadrant, point: SIMD3<Float>(2, 0, 0), screenDistancePx: 3.0),
+            SnapCandidate(kind: .midpoint, point: SIMD3<Float>(3, 0, 0), screenDistancePx: 4.0),
+            SnapCandidate(kind: .intersection, point: SIMD3<Float>(4, 0, 0), screenDistancePx: 5.0),
+            SnapCandidate(kind: .center, point: SIMD3<Float>(5, 0, 0), screenDistancePx: 6.0),
+            SnapCandidate(kind: .vertex, point: SIMD3<Float>(6, 0, 0), screenDistancePx: 7.0),
+            SnapCandidate(kind: .endpoint, point: SIMD3<Float>(7, 0, 0), screenDistancePx: 8.0)
+        ]
+        
+        // Endpoint (priority 0) must win even though distance is 8.0 vs 1.0 for grid
+        let winner1 = resolveSnap(candidates: candidates, tolerancePx: 20.0)
+        #expect(winner1?.kind == .endpoint)
+        #expect(winner1?.point == SIMD3<Float>(7, 0, 0))
+
+        // Remove endpoint -> vertex wins
+        let winner2 = resolveSnap(candidates: candidates.filter { $0.kind != .endpoint }, tolerancePx: 20.0)
+        #expect(winner2?.kind == .vertex)
+        #expect(winner2?.point == SIMD3<Float>(6, 0, 0))
+
+        // Remove vertex -> center wins
+        let winner3 = resolveSnap(candidates: candidates.filter { $0.kind != .endpoint && $0.kind != .vertex }, tolerancePx: 20.0)
+        #expect(winner3?.kind == .center)
+        #expect(winner3?.point == SIMD3<Float>(5, 0, 0))
+
+        // Remove center -> intersection wins
+        let winner4 = resolveSnap(candidates: candidates.filter { $0.kind.priority >= 3 }, tolerancePx: 20.0)
+        #expect(winner4?.kind == .intersection)
+        #expect(winner4?.point == SIMD3<Float>(4, 0, 0))
+
+        // Remove intersection -> midpoint wins
+        let winner5 = resolveSnap(candidates: candidates.filter { $0.kind.priority >= 4 }, tolerancePx: 20.0)
+        #expect(winner5?.kind == .midpoint)
+        #expect(winner5?.point == SIMD3<Float>(3, 0, 0))
+
+        // Remove midpoint -> quadrant wins
+        let winner6 = resolveSnap(candidates: candidates.filter { $0.kind.priority >= 5 }, tolerancePx: 20.0)
+        #expect(winner6?.kind == .quadrant)
+        #expect(winner6?.point == SIMD3<Float>(2, 0, 0))
+
+        // Remove quadrant -> edge wins
+        let winner7 = resolveSnap(candidates: candidates.filter { $0.kind.priority >= 6 }, tolerancePx: 20.0)
+        #expect(winner7?.kind == .edge)
+        #expect(winner7?.point == SIMD3<Float>(1, 0, 0))
+
+        // Remove edge -> grid wins
+        let winner8 = resolveSnap(candidates: candidates.filter { $0.kind.priority >= 7 }, tolerancePx: 20.0)
+        #expect(winner8?.kind == .grid)
+        #expect(winner8?.point == SIMD3<Float>(0, 0, 0))
+    }
+
+    @Test func testRay3DPlaneIntersectionMath() {
+        let ray = Ray3D(origin: SIMD3<Float>(0, 0, 50), direction: SIMD3<Float>(0, 0, -1))
+        
+        // 1. Ground plane Z = 0
+        let hitGround = ray.intersectPlane(origin: .zero, normal: SIMD3<Float>(0, 0, 1))
+        #expect(hitGround != nil)
+        #expect(hitGround == SIMD3<Float>(0, 0, 0))
+
+        // 2. SketchPlane offset in Z
+        let offsetPlane = SketchPlane.xy.offset(20.0)
+        let hitOffset = ray.intersectPlane(offsetPlane)
+        #expect(hitOffset != nil)
+        #expect(hitOffset == SIMD3<Float>(0, 0, 20))
+
+        // 3. Parallel ray (direction perpendicular to normal) returns nil
+        let parallelRay = Ray3D(origin: SIMD3<Float>(10, 20, 30), direction: SIMD3<Float>(1, 0, 0))
+        #expect(parallelRay.intersectPlane(SketchPlane.xy) == nil)
+
+        // 4. Ray pointing away from plane (t <= 0) returns nil
+        let upwardRay = Ray3D(origin: SIMD3<Float>(0, 0, 10), direction: SIMD3<Float>(0, 0, 1))
+        #expect(upwardRay.intersectPlane(SketchPlane.xy) == nil)
+    }
+
+    @Test func testGenerateSketchCandidatesEndpointsAndMidpoints() {
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(40, 0))
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(20, -50, 50), target: SIMD3<Float>(20, 0, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+        let vp = projMatrix * viewMatrix
+
+        // Query near midpoint (20, 0, 0)
+        let midWorld = SIMD3<Float>(20, 0, 0)
+        let screenMid = projectToScreen(point: midWorld, viewProjectionMatrix: vp, viewportSize: viewportSize)!
+        
+        let candidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [line],
+            plane: plane,
+            pointer: screenMid,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+
+        let midpointCandidate = candidates.first { $0.kind == .midpoint }
+        #expect(midpointCandidate != nil)
+        #expect(midpointCandidate?.planePoint == SIMD2<Double>(20, 0))
+        #expect(abs(midpointCandidate!.point.x - 20.0) <= 1e-4)
+
+        // Query near endpoint (40, 0, 0)
+        let endWorld = SIMD3<Float>(40, 0, 0)
+        let screenEnd = projectToScreen(point: endWorld, viewProjectionMatrix: vp, viewportSize: viewportSize)!
+
+        let endCandidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [line],
+            plane: plane,
+            pointer: screenEnd,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+
+        let endCandidate = endCandidates.first { $0.kind == .endpoint }
+        #expect(endCandidate != nil)
+        #expect(endCandidate?.planePoint == SIMD2<Double>(40, 0))
+    }
+
+    @Test func testGenerateSketchCandidatesArcMidpointAndTrajectory() {
+        // 90° arc from (10, 0) to (0, 10) centered at (0, 0), radius 10, counter-clockwise
+        let arc = SketchEntity.arc(start: SIMD2<Double>(10, 0), end: SIMD2<Double>(0, 10), center: SIMD2<Double>(0, 0), clockwise: false)
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(5, -40, 40), target: SIMD3<Float>(5, 5, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+        let vp = projMatrix * viewMatrix
+
+        // Arc midpoint is at 45°: (10*cos(45°), 10*sin(45°)) ≈ (7.071, 7.071)
+        let expectedMid = SIMD2<Double>(10.0 * cos(.pi / 4.0), 10.0 * sin(.pi / 4.0))
+        let midWorld = plane.unprojectPoint(expectedMid)
+        let screenMid = projectToScreen(point: midWorld, viewProjectionMatrix: vp, viewportSize: viewportSize)!
+
+        let candidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [arc],
+            plane: plane,
+            pointer: screenMid,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+
+        let midCandidate = candidates.first { $0.kind == .midpoint }
+        #expect(midCandidate != nil)
+        if let midCandidate, let planePt = midCandidate.planePoint {
+            #expect(abs(planePt.x - expectedMid.x) <= 1e-4)
+            #expect(abs(planePt.y - expectedMid.y) <= 1e-4)
+        }
+    }
+
+    @Test func testGenerateSketchCandidatesCenterAndQuadrants() {
+        let circle = SketchEntity.circle(center: SIMD2<Double>(20, 20), radius: 10.0)
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(20, -20, 50), target: SIMD3<Float>(20, 20, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+        let vp = projMatrix * viewMatrix
+
+        // 1. Center snap
+        let centerScreen = projectToScreen(point: SIMD3<Float>(20, 20, 0), viewProjectionMatrix: vp, viewportSize: viewportSize)!
+        let centerCandidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [circle],
+            plane: plane,
+            pointer: centerScreen,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+        let centerCandidate = centerCandidates.first { $0.kind == .center }
+        #expect(centerCandidate != nil)
+        #expect(centerCandidate?.planePoint == SIMD2<Double>(20, 20))
+
+        // 2. Right quadrant snap at (30, 20)
+        let quadScreen = projectToScreen(point: SIMD3<Float>(30, 20, 0), viewProjectionMatrix: vp, viewportSize: viewportSize)!
+        let quadCandidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [circle],
+            plane: plane,
+            pointer: quadScreen,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+        let quadCandidate = quadCandidates.first { $0.kind == .quadrant }
+        #expect(quadCandidate != nil)
+        #expect(quadCandidate?.planePoint == SIMD2<Double>(30, 20))
+    }
+
+    @Test func testArcQuadrantClippingRejectsPointsOutsideSweep() {
+        // Arc from 0° (10, 0) to 90° (0, 10), CCW. Only quadrants in sweep are 0° and 90°
+        // Cardinals 180° (-10, 0) and 270° (0, -10) must be rejected!
+        let arc = SketchEntity.arc(start: SIMD2<Double>(10, 0), end: SIMD2<Double>(0, 10), center: SIMD2<Double>(0, 0), clockwise: false)
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(0, -40, 40), target: SIMD3<Float>(0, 0, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+        let vp = projMatrix * viewMatrix
+
+        // Test pointer near 180° quadrant (-10, 0, 0)
+        let offQuadScreen = projectToScreen(point: SIMD3<Float>(-10, 0, 0), viewProjectionMatrix: vp, viewportSize: viewportSize)!
+        let candidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [arc],
+            plane: plane,
+            pointer: offQuadScreen,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+
+        let offQuad = candidates.first { $0.kind == .quadrant && $0.planePoint == SIMD2<Double>(-10, 0) }
+        #expect(offQuad == nil, "180° quadrant outside arc sweep must be rejected")
+    }
+
+    @Test func testGenerateSketchCandidatesIntersections() {
+        // Crossing lines: (0, 10) -> (20, 10) and (10, 0) -> (10, 20), intersection at (10, 10)
+        let l1 = SketchEntity.line(start: SIMD2<Double>(0, 10), end: SIMD2<Double>(20, 10))
+        let l2 = SketchEntity.line(start: SIMD2<Double>(10, 0), end: SIMD2<Double>(10, 20))
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(10, -20, 40), target: SIMD3<Float>(10, 10, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+        let vp = projMatrix * viewMatrix
+
+        let isectScreen = projectToScreen(point: SIMD3<Float>(10, 10, 0), viewProjectionMatrix: vp, viewportSize: viewportSize)!
+        let candidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [l1, l2],
+            plane: plane,
+            pointer: isectScreen,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+
+        let isectCandidate = candidates.first { $0.kind == .intersection }
+        #expect(isectCandidate != nil)
+        #expect(isectCandidate?.planePoint == SIMD2<Double>(10, 10))
+        #expect(isectCandidate?.point == SIMD3<Float>(10, 10, 0))
+    }
+
+    @Test func testNonIntersectingEntitiesProduceNoIntersections() {
+        // Two parallel lines
+        let l1 = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(20, 0))
+        let l2 = SketchEntity.line(start: SIMD2<Double>(0, 10), end: SIMD2<Double>(20, 10))
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(10, -20, 40), target: SIMD3<Float>(10, 5, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+
+        let candidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [l1, l2],
+            plane: plane,
+            pointer: SIMD2<Float>(400, 300),
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+        let isects = candidates.filter { $0.kind == .intersection }
+        #expect(isects.isEmpty)
+    }
+
+    @Test func testSketchPlaneUVGridSnappingOnAngledPlane() {
+        let normal = simd_normalize(SIMD3<Float>(0, 1, 1))
+        let origin = SIMD3<Float>(0, 10, 10)
+        let xAxis = SIMD3<Float>(1, 0, 0)
+        let plane = SketchPlane(origin: origin, normal: normal, xAxis: xAxis)
+
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(10, -20, 80), target: SIMD3<Float>(10, 10, 10), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+        let vp = projMatrix * viewMatrix
+
+        // Pick a target UV point on the grid: (20.0, 10.0)
+        let targetUV = SIMD2<Double>(20.0, 10.0)
+        let targetWorld = plane.unprojectPoint(targetUV)
+        let screenTarget = projectToScreen(point: targetWorld, viewProjectionMatrix: vp, viewportSize: viewportSize)!
+
+        let candidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [],
+            plane: plane,
+            pointer: screenTarget,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+
+        let gridCandidate = candidates.first { $0.kind == .grid }
+        #expect(gridCandidate != nil)
+        if let gridCandidate, let planePt = gridCandidate.planePoint {
+            #expect(abs(planePt.x - 20.0) <= 1e-4)
+            #expect(abs(planePt.y - 10.0) <= 1e-4)
+        }
+    }
+
+    @Test func testDegenerateEntitiesProduceNoCandidates() {
+        let degenLine = SketchEntity.line(start: SIMD2<Double>(5, 5), end: SIMD2<Double>(5, 5))
+        let degenCircle = SketchEntity.circle(center: SIMD2<Double>(10, 10), radius: 0.0)
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(5, -20, 20), target: SIMD3<Float>(5, 5, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+
+        let candidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: [degenLine, degenCircle],
+            plane: plane,
+            pointer: SIMD2<Float>(400, 300),
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 0.0, // disable grid to inspect entity candidates
+            tolerancePx: 50.0
+        )
+        #expect(candidates.isEmpty, "Degenerate entities must produce zero snap candidates")
+    }
+
+    @Test func testEndToEndSketchPlaneSnapResolution() {
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(20, 0))
+        let plane = SketchPlane.xy
+        let viewportSize = CGSize(width: 800, height: 600)
+        let viewMatrix = Orientation.makeLookAt(eye: SIMD3<Float>(10, -30, 30), target: SIMD3<Float>(10, 0, 0), up: SIMD3<Float>(0, 0, 1))
+        let projMatrix = Orientation.makePerspective(fovyRadians: 45.0 * Float.pi / 180.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 500.0)
+        let vp = projMatrix * viewMatrix
+
+        let screenStart = projectToScreen(point: SIMD3<Float>(0, 0, 0), viewProjectionMatrix: vp, viewportSize: viewportSize)!
+        let result = resolveSnapAtPointer(
+            meshes: [],
+            sketchEntities: [line],
+            sketchPlane: plane,
+            pointer: screenStart,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            gridSpacing: 10.0,
+            tolerancePx: 20.0
+        )
+
+        #expect(result != nil)
+        #expect(result?.kind == .endpoint)
+        #expect(result?.point == SIMD3<Float>(0, 0, 0))
+        #expect(result?.screenPoint != nil)
+        #expect(result?.planePoint == SIMD2<Double>(0, 0))
+    }
 }

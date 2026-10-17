@@ -67,6 +67,10 @@ struct ViewportCanvasView: View {
                             if case .sketch(let data) = $0.operation { return workspace.document.resolveSketchPlane(for: data) }
                             return nil
                         }
+                        let sketchEntities: [SketchEntity] = workspace.selectedSketchFeature.flatMap {
+                            if case .sketch(let data) = $0.operation { return data.entities }
+                            return []
+                        } ?? []
 
                         CADMetalViewRepresentable(
                             document: workspace.document,
@@ -94,6 +98,7 @@ struct ViewportCanvasView: View {
                             onDoubleTapFace: { solidId, faceId in workspace.snapCameraToFace(solidId: solidId, faceId: faceId) },
                             onCancelAnimation: { workspace.cancelCameraAnimation() },
                             activeSketchPlane: activePlane,
+                            sketchEntities: sketchEntities,
                             sketchRegions: workspace.detectedSketchRegions,
                             onHoverSketchRegion: { regionId in workspace.setHoveredSketchRegion(regionId) },
                             onSelectSketchRegion: { regionId in
@@ -114,6 +119,10 @@ struct ViewportCanvasView: View {
                                 }
                             }
                         )
+
+                        if let snap = workspace.activeSnapResult, snap.screenPoint != nil {
+                            SnapOverlayView(snap: snap)
+                        }
 
                         if workspace.document.objects.isEmpty {
                             EmptySceneGuidanceOverlayView()

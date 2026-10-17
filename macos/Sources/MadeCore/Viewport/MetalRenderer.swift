@@ -355,17 +355,25 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         return buffer
     }
 
-    private func setupGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
-        let grid = GridGenerator.generateGrid(size: size, spacing: spacing)
+    public private(set) var activeSketchPlane: SketchPlane? = nil
+
+    private func setupGrid(plane: SketchPlane = .xy, size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
+        let grid = GridGenerator.generateGrid(plane: plane, size: size, spacing: spacing)
         gridVertexCount = grid.vertexCount
         gridPositionBuffer = makeBuffer(grid.positions, label: "Grid Positions")
         gridColorBuffer = makeBuffer(grid.colors, label: "Grid Colors")
         updateResidency()
     }
 
+    /// Updates the active sketch plane grid and rebuilds the grid buffers.
+    public func updateGrid(plane: SketchPlane?, size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
+        self.activeSketchPlane = plane
+        setupGrid(plane: plane ?? .xy, size: size, spacing: spacing)
+    }
+
     /// Updates the ground grid dimensions or spacing.
     public func updateGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
-        setupGrid(size: size, spacing: spacing)
+        setupGrid(plane: activeSketchPlane ?? .xy, size: size, spacing: spacing)
     }
 
     private func setupAxes(length: Float = AxesGenerator.defaultLength, labelSize: Float = AxesGenerator.defaultLabelSize) {
@@ -977,7 +985,12 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             modelMatrix.columns.3 = SIMD4<Float>(snap.point, 1.0)
             let color: SIMD4<Float>
             switch snap.kind {
+            case .endpoint: color = SIMD4(0.0, 0.8, 0.4, 1.0)  // emerald
             case .vertex: color = SIMD4(1.0, 0.65, 0.0, 1.0)  // amber
+            case .center: color = SIMD4(1.0, 0.84, 0.0, 1.0)  // gold
+            case .intersection: color = SIMD4(0.95, 0.2, 0.2, 1.0) // red
+            case .midpoint: color = SIMD4(0.0, 0.85, 1.0, 1.0) // cyan
+            case .quadrant: color = SIMD4(0.7, 0.3, 0.9, 1.0) // purple
             case .edge: color = SIMD4(0.0, 0.85, 1.0, 1.0)    // cyan
             case .grid: color = SIMD4(0.2, 0.9, 0.2, 1.0)     // green
             }

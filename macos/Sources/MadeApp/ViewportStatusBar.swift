@@ -67,12 +67,12 @@ struct ViewportStatusBar: View {
         Divider().frame(height: 16)
     }
 
+    nonisolated public static func snapColor(for kind: SnapKind) -> Color {
+        SnapOverlayView.color(for: kind)
+    }
+
     private func color(for kind: SnapKind) -> Color {
-        switch kind {
-        case .vertex: return .orange
-        case .edge: return .cyan
-        case .grid: return .green
-        }
+        Self.snapColor(for: kind)
     }
 
     static func dofColor(for status: SketchDOFStatus) -> Color? {

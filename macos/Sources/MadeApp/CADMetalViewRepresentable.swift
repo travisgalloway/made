@@ -170,6 +170,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onDoubleTapFace: ((SolidId, Int) -> Void)?
     var onCancelAnimation: (() -> Void)?
     var activeSketchPlane: SketchPlane?
+    var sketchEntities: [SketchEntity]
     var sketchRegions: [SketchRegion]
     var onHoverSketchRegion: ((UUID?) -> Void)?
     var onSelectSketchRegion: ((UUID) -> Void)?
@@ -202,6 +203,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onDoubleTapFace: ((SolidId, Int) -> Void)? = nil,
         onCancelAnimation: (() -> Void)? = nil,
         activeSketchPlane: SketchPlane? = nil,
+        sketchEntities: [SketchEntity] = [],
         sketchRegions: [SketchRegion] = [],
         onHoverSketchRegion: ((UUID?) -> Void)? = nil,
         onSelectSketchRegion: ((UUID) -> Void)? = nil,
@@ -233,6 +235,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onDoubleTapFace = onDoubleTapFace
         self.onCancelAnimation = onCancelAnimation
         self.activeSketchPlane = activeSketchPlane
+        self.sketchEntities = sketchEntities
         self.sketchRegions = sketchRegions
         self.onHoverSketchRegion = onHoverSketchRegion
         self.onSelectSketchRegion = onSelectSketchRegion
@@ -279,6 +282,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         renderer.showsEdges = showsEdges
         renderer.displayMode = displayMode
         renderer.showsGizmo = showsGizmo && !isLocked
+        if let plane = activeSketchPlane {
+            renderer.updateGrid(plane: plane)
+        }
         return view
     }
     
@@ -321,6 +327,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         if renderer.showsGrid != showsGrid {
             renderer.showsGrid = showsGrid
+            needsInvalidate = true
+        }
+        if renderer.activeSketchPlane != activeSketchPlane {
+            renderer.updateGrid(plane: activeSketchPlane)
             needsInvalidate = true
         }
         if renderer.showsAxes != showsAxes {
@@ -654,12 +664,14 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private func resolveSnap(at loc: CGPoint, in view: MTKView) {
             let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
             let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
-            
+            let vp = matrices.projection * matrices.view
             let candidateMeshes = parent.renderer.candidateMeshes()
             let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
             
-            let result = resolveSnapAtPointer(
+            var result = resolveSnapAtPointer(
                 meshes: candidateMeshes,
+                sketchEntities: parent.sketchEntities,
+                sketchPlane: parent.activeSketchPlane,
                 pointer: pointer,
                 viewportSize: view.bounds.size,
                 viewMatrix: matrices.view,
@@ -667,6 +679,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 gridSpacing: defaultGridSpacing,
                 tolerancePx: defaultSnapTolerancePx
             )
+            
+            if let r = result, r.screenPoint == nil {
+                let scr = projectToScreen(point: r.point, viewProjectionMatrix: vp, viewportSize: view.bounds.size)
+                result = SnapResult(kind: r.kind, point: r.point, screenPoint: scr, planePoint: r.planePoint)
+            }
             
             if result != activeSnapResult {
                 activeSnapResult = result
@@ -1031,6 +1048,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
             lastHoverLocation = loc
 
+            if parent.activeSketchPlane != nil {
+                resolveSnap(at: loc, in: view)
+            }
+
             // Hit-test sketch regions on active sketch plane if present
             if let plane = parent.activeSketchPlane, !parent.sketchRegions.isEmpty {
                 if let ray = unprojectCursorRay(at: loc, in: view) {
@@ -1086,6 +1107,12 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         public func clearPreselection() {
             lastHoverLocation = nil
             parent.onHoverSketchRegion?(nil)
+            if activeSnapResult != nil {
+                activeSnapResult = nil
+                parent.renderer.activeSnap = nil
+                parent.onSnapChanged?(nil)
+                invalidate(reason: .interaction)
+            }
             if preselectedSubElement != nil || parent.renderer.preselectedSubElement != nil {
                 preselectedSubElement = nil
                 parent.renderer.preselectedSubElement = nil

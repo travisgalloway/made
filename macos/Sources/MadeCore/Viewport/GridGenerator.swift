@@ -47,9 +47,10 @@ public enum GridGenerator {
     /// Major / center line color (slightly highlighted)
     public static let defaultMajorColor = SIMD4<Float>(0.42, 0.45, 0.50, 1.0)
     
-    /// Generates grid geometry on the ground plane (Z = 0) with lines spaced by `spacing`.
-    /// Lines are centered at (0, 0, 0) and aligned with the origin so snapToGrid points match grid lines.
+    /// Generates grid geometry on `plane` (defaulting to .xy ground plane Z = 0) with lines spaced by `spacing`.
+    /// Lines are centered at the plane origin and aligned with its coordinate axes so snap points match grid lines.
     public static func generateGrid(
+        plane: SketchPlane = .xy,
         size: Float = defaultSize,
         spacing: Float = defaultSpacing,
         minorColor: SIMD4<Float> = defaultMinorColor,
@@ -75,26 +76,22 @@ public enum GridGenerator {
             colors.append(contentsOf: [color.x, color.y, color.z, color.w])
         }
         
-        // Lines parallel to Y (varying X, from -halfSize to +halfSize along Y)
+        // Lines parallel to V (varying U, from -halfSize to +halfSize along V)
         for i in -steps...steps {
-            let x = Float(i) * spacing
+            let u = Double(Float(i) * spacing)
             let isMajor = (i == 0)
-            appendLine(
-                start: SIMD3<Float>(x, -halfSize, 0.0),
-                end: SIMD3<Float>(x, halfSize, 0.0),
-                isMajor: isMajor
-            )
+            let start = plane.unprojectPoint(SIMD2<Double>(u, Double(-halfSize)))
+            let end = plane.unprojectPoint(SIMD2<Double>(u, Double(halfSize)))
+            appendLine(start: start, end: end, isMajor: isMajor)
         }
         
-        // Lines parallel to X (varying Y, from -halfSize to +halfSize along X)
+        // Lines parallel to U (varying V, from -halfSize to +halfSize along U)
         for j in -steps...steps {
-            let y = Float(j) * spacing
+            let v = Double(Float(j) * spacing)
             let isMajor = (j == 0)
-            appendLine(
-                start: SIMD3<Float>(-halfSize, y, 0.0),
-                end: SIMD3<Float>(halfSize, y, 0.0),
-                isMajor: isMajor
-            )
+            let start = plane.unprojectPoint(SIMD2<Double>(Double(-halfSize), v))
+            let end = plane.unprojectPoint(SIMD2<Double>(Double(halfSize), v))
+            appendLine(start: start, end: end, isMajor: isMajor)
         }
         
         return GridGeometry(
