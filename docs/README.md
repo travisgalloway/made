@@ -18,6 +18,7 @@ Then navigate based on your task:
 | Touching pointer input, gestures, or snapping | [input](./architecture/input.md) |
 | Connecting an AI agent or editing the MCP server | [agent-api](./architecture/agent-api.md) |
 | Building inspector controls or scene state | [ui-controls](./architecture/ui-controls.md) + [document-model](./architecture/document-model.md) |
+| Choosing colors, type, spacing, or styling a view | [design system](./design-system/README.md) |
 | Handling errors or kernel failures | [state and errors](./architecture/state-and-errors.md) |
 | Writing tests or running verification | [testing](./guides/testing.md) |
 | About to open a PR | [conventions](./guides/conventions.md) |
@@ -74,6 +75,7 @@ macos/
   Tests/
     MadeCoreTests/        # 18 test suites (DSL, CSG, Kernel, Arbiter, Snapping, Document, Tools, MCP, camera, grid, axes, viewport, renderer, shader)
 docs/
+  design-system/          # Color, type, spacing tokens and per-view UI guidelines
   architecture/           # Canonical architecture reference specifications
     adr/                  # Accepted architecture decision records
   roadmap/                # Phased delivery status and backlog migration audit
