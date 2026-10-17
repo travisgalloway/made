@@ -51,6 +51,7 @@ struct InspectorPanelView: View {
                 Form {
                     sketchIdentitySection(sketch)
                     sketchEntitiesSection(sketch)
+                    sketchConstraintsSection(sketch)
                 }
                 .formStyle(.columns)
                 .controlSize(.small)
@@ -531,6 +532,148 @@ struct InspectorPanelView: View {
                 EmptyView()
             }
             Divider().padding(.vertical, 2)
+        }
+    }
+
+    private func sketchConstraintsSection(_ sketch: Feature) -> some View {
+        guard case .sketch(let data) = sketch.operation else { return AnyView(EmptyView()) }
+
+        return AnyView(Section {
+            if let overConstrainedMsg = workspace.overConstrainedMessage {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                    Text(overConstrainedMsg)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+                .padding(6)
+                .background(Color.red.opacity(0.1))
+                .cornerRadius(4)
+            } else if case .overConstrained(let dof) = workspace.sketchDOFStatus {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                    Text("Over-constrained sketch (\(dof) excess DOF). Delete conflicting constraints.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+                .padding(6)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(4)
+            }
+
+            if workspace.isLiveInferenceEnabled && !workspace.inferredConstraints.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(workspace.inferredConstraints) { inferred in
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .foregroundStyle(.blue)
+                                .font(.caption2)
+                            Text("Inferred: \(inferred.kind.rawValue.capitalized)")
+                                .font(.caption2)
+                            Spacer()
+                            Button("Apply") {
+                                workspace.applyInferredConstraint(inferred)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.mini)
+                        }
+                    }
+                }
+                .padding(6)
+                .background(Color.blue.opacity(0.08))
+                .cornerRadius(4)
+            }
+
+            Toggle("Infer Constraints Live", isOn: Binding(
+                get: { workspace.isLiveInferenceEnabled },
+                set: { _ in workspace.toggleLiveInference() }
+            ))
+            .font(.caption)
+
+            HStack(spacing: 6) {
+                Button("+ Parallel") {
+                    workspace.applyConstraintToSelectedSketch(.parallel)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+ Perpendicular") {
+                    workspace.applyConstraintToSelectedSketch(.perpendicular)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+ Tangent") {
+                    workspace.applyConstraintToSelectedSketch(.tangent)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+ Concentric") {
+                    workspace.applyConstraintToSelectedSketch(.concentric)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+ Symmetric") {
+                    workspace.applyConstraintToSelectedSketch(.symmetric)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+
+            if data.constraints.isEmpty {
+                Text("No constraints applied. Use buttons or live inference to constrain geometry.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(data.constraints) { constraint in
+                    sketchConstraintRow(sketchId: sketch.id, constraint: constraint)
+                }
+            }
+        } header: {
+            sectionHeader("Constraints")
+        })
+    }
+
+    private func sketchConstraintRow(sketchId: UUID, constraint: SketchConstraint) -> some View {
+        HStack {
+            Image(systemName: constraintIcon(for: constraint.kind))
+                .font(.caption)
+                .foregroundStyle(.primary)
+
+            Text(constraint.kind.rawValue.capitalized)
+                .font(.caption.bold())
+
+            Spacer()
+
+            Button(role: .destructive) {
+                workspace.removeSketchConstraint(from: sketchId, constraintId: constraint.id)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+        }
+    }
+
+    private func constraintIcon(for kind: SketchConstraint.Kind) -> String {
+        switch kind {
+        case .parallel: return "equal"
+        case .perpendicular: return "angle"
+        case .tangent: return "circle.dotted"
+        case .concentric: return "circle.circle"
+        case .symmetric: return "arrow.left.and.right"
+        case .coincident: return "point.topleft.down.to.point.bottomright.filled"
+        case .horizontal: return "arrow.left.and.right.line"
+        case .vertical: return "arrow.up.and.down.line"
         }
     }
 

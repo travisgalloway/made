@@ -395,6 +395,34 @@ struct ToolsMenuCommands: Commands {
                 Button("Zoom") { workspace.tool = .zoom }
                     .keyboardShortcut(WorkspaceModel.toolZoomShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
             }
+
+            Divider()
+
+            Menu("Sketch Constraints") {
+                Button("Apply Parallel Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.parallel)
+                }
+                Button("Apply Perpendicular Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.perpendicular)
+                }
+                Button("Apply Tangent Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.tangent)
+                }
+                Button("Apply Concentric Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.concentric)
+                }
+                Button("Apply Symmetric Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.symmetric)
+                }
+                Divider()
+                Button("Solve Sketch Constraints") {
+                    workspace.solveActiveSketchConstraints()
+                }
+                Button("Toggle Live Constraint Inference") {
+                    workspace.toggleLiveInference()
+                }
+            }
+            .disabled(workspace.selectedSketchFeature == nil)
         }
     }
 }

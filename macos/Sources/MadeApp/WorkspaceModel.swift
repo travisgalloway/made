@@ -53,6 +53,12 @@ final class WorkspaceModel {
     var activeSnapKind: SnapKind?
     /// Current sketch degrees-of-freedom constraint status (ADR-D4, BL-WSP-10).
     var sketchDOFStatus: SketchDOFStatus = .inactive
+    /// Whether predictive live constraint inference is enabled during sketch editing (ADR-D4, #37).
+    var isLiveInferenceEnabled: Bool = true
+    /// Current candidate constraint inferences generated live from sketch geometry (ADR-D4, #37).
+    var inferredConstraints: [SketchConstraint] = []
+    /// Diagnostic message when sketch constraints are over-constrained or conflicting (ADR-D4, #37).
+    var overConstrainedMessage: String? = nil
     /// Duration of the most recent solid kernel recomputation (BL-WSP-10).
     private(set) var lastRegenerationDuration: Duration? = nil
 
@@ -448,10 +454,12 @@ final class WorkspaceModel {
     func selectFeature(_ featureId: UUID) {
         selectedId = nil
         document.selection = [Reference.feature(featureId)]
-        if let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation {
-            setSketchDOFStatus(.underConstrained(dof: max(1, sketchData.entities.count * 2)))
+        if let feat = document.feature(for: featureId), case .sketch = feat.operation {
+            refreshSketchStatus(for: featureId)
         } else {
             setSketchDOFStatus(.inactive)
+            overConstrainedMessage = nil
+            inferredConstraints = []
         }
     }
 
@@ -721,19 +729,179 @@ final class WorkspaceModel {
         }
     }
 
+    func refreshSketchStatus(for featureId: UUID) {
+        guard let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation else {
+            setSketchDOFStatus(.inactive)
+            overConstrainedMessage = nil
+            inferredConstraints = []
+            return
+        }
+        let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
+        let dofStatus = ConstraintSolver.computeDOFStatus(system: system)
+        setSketchDOFStatus(dofStatus)
+        if isLiveInferenceEnabled {
+            inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
+        } else {
+            inferredConstraints = []
+        }
+    }
+
+    func solveSketchConstraints(featureId: UUID, draggedEntityId: UUID? = nil) {
+        guard let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation else { return }
+        guard !sketchData.constraints.isEmpty else {
+            refreshSketchStatus(for: featureId)
+            return
+        }
+
+        let dragTarget: DragTarget?
+        if let draggedId = draggedEntityId, let entity = sketchData.entities.first(where: { $0.id == draggedId }) {
+            if let end = entity.endPoint {
+                dragTarget = DragTarget(entityId: draggedId, endpoint: .end, targetPosition: end)
+            } else if let center = entity.centerPoint {
+                dragTarget = DragTarget(entityId: draggedId, endpoint: .center, targetPosition: center)
+            } else {
+                dragTarget = nil
+            }
+        } else {
+            dragTarget = nil
+        }
+
+        let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
+        let result = ConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        switch result.status {
+        case .converged, .redundant:
+            overConstrainedMessage = nil
+            if result.dof == 0 {
+                setSketchDOFStatus(.fullyConstrained)
+            } else {
+                setSketchDOFStatus(.underConstrained(dof: result.dof))
+            }
+            if result.solvedEntities != sketchData.entities {
+                _ = document.updateSketchEntities(in: featureId, entities: result.solvedEntities)
+            }
+        case .overConstrained(let conflicting):
+            let names = conflicting.compactMap { id in
+                sketchData.constraints.first(where: { $0.id == id })?.kind.rawValue.capitalized
+            }
+            let desc = names.isEmpty ? "Conflicting constraints" : names.joined(separator: " and ")
+            overConstrainedMessage = "Over-constrained: \(desc) conflict on sketch entities"
+            setSketchDOFStatus(.overConstrained(dof: result.dof))
+        case .failedToConverge(let reason):
+            overConstrainedMessage = "Failed to converge: \(reason)"
+            setSketchDOFStatus(.overConstrained(dof: result.dof))
+        }
+    }
+
     func addSketchEntity(to featureId: UUID, entity: SketchEntity) {
         _ = document.addSketchEntity(to: featureId, entity: entity)
+        refreshSketchStatus(for: featureId)
         recomputeDependents(of: featureId)
     }
 
     func updateSketchEntity(in featureId: UUID, entity: SketchEntity) {
         _ = document.updateSketchEntity(in: featureId, entity: entity)
+        solveSketchConstraints(featureId: featureId, draggedEntityId: entity.id)
+        if isLiveInferenceEnabled {
+            if let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation {
+                inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
+            }
+        }
         recomputeDependents(of: featureId)
     }
 
     func removeSketchEntity(from featureId: UUID, entityId: UUID) {
         _ = document.removeSketchEntity(from: featureId, entityId: entityId)
+        refreshSketchStatus(for: featureId)
         recomputeDependents(of: featureId)
+    }
+
+    func addSketchConstraint(to featureId: UUID, constraint: SketchConstraint) {
+        _ = document.addSketchConstraint(to: featureId, constraint: constraint)
+        solveSketchConstraints(featureId: featureId)
+        if isLiveInferenceEnabled {
+            if let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation {
+                inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
+            }
+        }
+        recomputeDependents(of: featureId)
+    }
+
+    func removeSketchConstraint(from featureId: UUID, constraintId: UUID) {
+        _ = document.removeSketchConstraint(from: featureId, constraintId: constraintId)
+        solveSketchConstraints(featureId: featureId)
+        if isLiveInferenceEnabled {
+            if let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation {
+                inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
+            }
+        }
+        recomputeDependents(of: featureId)
+    }
+
+    func toggleLiveInference() {
+        isLiveInferenceEnabled.toggle()
+        if isLiveInferenceEnabled, let sketch = selectedSketchFeature {
+            refreshSketchStatus(for: sketch.id)
+        } else {
+            inferredConstraints = []
+        }
+    }
+
+    func applyInferredConstraint(_ constraint: SketchConstraint) {
+        guard let sketch = selectedSketchFeature else { return }
+        var committed = constraint
+        committed.isTemporary = false
+        addSketchConstraint(to: sketch.id, constraint: committed)
+    }
+
+    func solveActiveSketchConstraints() {
+        guard let sketch = selectedSketchFeature else { return }
+        solveSketchConstraints(featureId: sketch.id)
+    }
+
+    func applyConstraintToSelectedSketch(_ kind: SketchConstraint.Kind) {
+        guard let sketch = selectedSketchFeature, case .sketch(let data) = sketch.operation else { return }
+        let lines = data.entities.filter { $0.kind == "line" }
+        let circles = data.entities.filter { $0.kind == "circle" }
+
+        switch kind {
+        case .parallel, .perpendicular:
+            if lines.count >= 2 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [lines[0].id, lines[1].id])
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            }
+        case .tangent:
+            if let line = lines.first, let circle = circles.first {
+                let constraint = SketchConstraint(kind: kind, entityIds: [line.id, circle.id])
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            } else if circles.count >= 2 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id])
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            }
+        case .concentric:
+            if circles.count >= 2 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id])
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            }
+        case .symmetric:
+            if lines.count >= 3 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [lines[0].id, lines[1].id], referenceEntityId: lines[2].id)
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            } else if lines.count >= 1 && circles.count >= 2 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id], referenceEntityId: lines[0].id)
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            }
+        case .horizontal, .vertical:
+            if let line = lines.first {
+                let constraint = SketchConstraint(kind: kind, entityIds: [line.id])
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            }
+        case .coincident:
+            if data.entities.count >= 2 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [data.entities[0].id, data.entities[1].id])
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            }
+        }
     }
 
     private func recomputeDependents(of featureId: UUID) {

@@ -116,7 +116,7 @@ A modular, pure-Swift sparse non-linear constraint solver developed in `libs/` u
 - **Engine Neutrality (Invariant 4):** UI panels, Metal viewport shaders, scene documents, and agent tools interact solely with pure Swift value types. The underlying solver backend can be switched between `planegcs` and the pure-Swift engine with zero impact on the rest of the application.
 - **Robust Error Diagnostics and Agent Autonomy:** Typed diagnostic envelopes allow external AI agents connected via MCP to identify conflicting constraints, remove redundant constraints, and repair broken sketches deterministically.
 - **Unblocks Phase 4C Milestones:**
-  - #37 (BL-CON-01..04): 2D constraint solver with live inference
+  - #37 (BL-CON-01..04): 2D constraint solver with live inference (implemented by #37: pure-Swift Levenberg-Marquardt solver, `ConstraintSolverActor`, predictive inference, typed over-constraint diagnostics, and inspector UI)
   - #196 (BL-CON-05): Degrees of freedom analysis per entity
   - #197 (BL-CON-06): Over-constraint and conflict diagnosis
   - #198 (BL-CON-07): Interactive drag solving with minimal-movement objective
