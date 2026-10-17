@@ -75,7 +75,7 @@ struct ViewportStatusBar: View {
         Self.snapColor(for: kind)
     }
 
-    static func dofColor(for status: SketchDOFStatus) -> Color? {
+    nonisolated public static func dofColor(for status: SketchDOFStatus) -> Color? {
         switch status {
         case .inactive:
             return nil

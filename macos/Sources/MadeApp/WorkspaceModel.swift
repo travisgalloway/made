@@ -54,6 +54,8 @@ final class WorkspaceModel {
     var activeSnapKind: SnapKind?
     /// Current sketch degrees-of-freedom constraint status (ADR-D4, BL-WSP-10).
     var sketchDOFStatus: SketchDOFStatus = .inactive
+    /// Current per-entity degrees-of-freedom constraint statuses (BL-CON-05, #196).
+    public var entityDOFStatus: [UUID: SketchDOFStatus] = [:]
     /// Whether predictive live constraint inference is enabled during sketch editing (ADR-D4, #37).
     var isLiveInferenceEnabled: Bool = true
     /// Current candidate constraint inferences generated live from sketch geometry (ADR-D4, #37).
@@ -85,6 +87,14 @@ final class WorkspaceModel {
 
     func setSketchDOFStatus(_ status: SketchDOFStatus) {
         sketchDOFStatus = status
+        if status == .inactive {
+            entityDOFStatus = [:]
+        }
+    }
+
+    /// Returns the degree of freedom status for a specific sketch entity (BL-CON-05, #196).
+    public func dofStatus(for entityId: UUID) -> SketchDOFStatus {
+        entityDOFStatus[entityId] ?? .inactive
     }
 
     func setHoveredSketchRegion(_ id: UUID?) {
@@ -920,6 +930,7 @@ final class WorkspaceModel {
         let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
         let dofStatus = ConstraintSolver.computeDOFStatus(system: system)
         setSketchDOFStatus(dofStatus)
+        entityDOFStatus = ConstraintSolver.computeEntityDOF(system: system)
         if isLiveInferenceEnabled {
             inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
         } else {
@@ -949,6 +960,7 @@ final class WorkspaceModel {
 
         let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
         let result = ConstraintSolver.solve(system: system, dragTarget: dragTarget)
+        entityDOFStatus = result.entityDOF
 
         switch result.status {
         case .converged, .redundant:

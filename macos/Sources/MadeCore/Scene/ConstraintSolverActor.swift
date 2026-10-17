@@ -13,4 +13,9 @@ public actor ConstraintSolverActor {
     public func computeDOFStatus(system: ConstraintSystem) -> SketchDOFStatus {
         ConstraintSolver.computeDOFStatus(system: system)
     }
+
+    /// Evaluates per-entity degrees of freedom status asynchronously off the main thread (BL-CON-05, #196).
+    public func computeEntityDOF(system: ConstraintSystem) -> [UUID: SketchDOFStatus] {
+        ConstraintSolver.computeEntityDOF(system: system)
+    }
 }
