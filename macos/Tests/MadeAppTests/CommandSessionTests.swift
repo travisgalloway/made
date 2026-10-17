@@ -545,6 +545,148 @@ extension WorkspaceModelTests {
         }
     }
 
+    @Test @MainActor func testMakeDatumAxisLifecycle() async {
+        let workspace = WorkspaceModel()
+        let initialFeatureCount = workspace.document.features.count
+
+        let session = CommandSession.makeDatumAxis(workspace: workspace)
+        #expect(session.canCommit)
+        #expect(session.choiceValue(for: "mode") == "Preset")
+        #expect(session.choiceValue(for: "preset") == "Z")
+        #expect(session.toggleValue(for: "flip") == false)
+
+        // Mutate parameters
+        session.setChoiceValue("X", for: "preset")
+        session.setToggleValue(true, for: "flip")
+        #expect(session.choiceValue(for: "preset") == "X")
+        #expect(session.toggleValue(for: "flip") == true)
+        #expect(session.canCommit)
+
+        // Switch to Two Points mode
+        session.setChoiceValue("Two Points", for: "mode")
+        #expect(session.canCommit)
+
+        // Make coincident -> validation fails
+        session.setNumberValue(0.0, for: "point2Z")
+        #expect(!session.canCommit)
+
+        // Restore valid endpoints
+        session.setNumberValue(50.0, for: "point2Z")
+        #expect(session.canCommit)
+
+        // Commit
+        session.commit()
+        await Task.yield()
+
+        #expect(workspace.document.features.count == initialFeatureCount + 1)
+        let addedFeature = workspace.document.features.last
+        #expect(addedFeature != nil)
+        #expect(workspace.selectedDatumAxisFeature?.id == addedFeature?.id)
+
+        if case .datumAxis(let data) = addedFeature?.operation {
+            #expect(data.mode == .twoPoints)
+            #expect(data.point2?.z == 50.0)
+            #expect(data.cachedAxis != nil)
+        } else {
+            Issue.record("Expected .datumAxis feature operation")
+        }
+    }
+
+    @Test @MainActor func testMakeDatumPointLifecycle() async {
+        let workspace = WorkspaceModel()
+        let initialFeatureCount = workspace.document.features.count
+
+        let session = CommandSession.makeDatumPoint(workspace: workspace)
+        #expect(session.canCommit)
+        #expect(session.choiceValue(for: "mode") == "Coordinates")
+
+        // Mutate coordinates
+        session.setNumberValue(10.0, for: "coordX")
+        session.setNumberValue(20.0, for: "coordY")
+        session.setNumberValue(30.0, for: "coordZ")
+        #expect(session.canCommit)
+
+        // Switch to Midpoint mode
+        session.setChoiceValue("Midpoint", for: "mode")
+        #expect(session.canCommit)
+
+        // Make points coincident -> validation fails
+        session.setNumberValue(0.0, for: "point1X")
+        session.setNumberValue(0.0, for: "point1Y")
+        session.setNumberValue(0.0, for: "point1Z")
+        session.setNumberValue(0.0, for: "point2X")
+        session.setNumberValue(0.0, for: "point2Y")
+        session.setNumberValue(0.0, for: "point2Z")
+        #expect(!session.canCommit)
+
+        // Restore distinct points
+        session.setNumberValue(100.0, for: "point2X")
+        #expect(session.canCommit)
+
+        // Commit
+        session.commit()
+        await Task.yield()
+
+        #expect(workspace.document.features.count == initialFeatureCount + 1)
+        let addedFeature = workspace.document.features.last
+        #expect(addedFeature != nil)
+        #expect(workspace.selectedDatumPointFeature?.id == addedFeature?.id)
+
+        if case .datumPoint(let data) = addedFeature?.operation {
+            #expect(data.mode == .midpoint)
+            #expect(data.cachedPoint?.position == SIMD3<Float>(50, 0, 0))
+        } else {
+            Issue.record("Expected .datumPoint feature operation")
+        }
+    }
+
+    @Test @MainActor func testMakeDatumCoordinateSystemLifecycle() async {
+        let workspace = WorkspaceModel()
+        let initialFeatureCount = workspace.document.features.count
+
+        let session = CommandSession.makeDatumCoordinateSystem(workspace: workspace)
+        #expect(session.canCommit)
+        #expect(session.choiceValue(for: "mode") == "Origin and Axes")
+
+        // Switch to Three Points mode
+        session.setChoiceValue("Three Points", for: "mode")
+        #expect(session.canCommit)
+
+        // Make points collinear -> validation fails
+        session.setNumberValue(0.0, for: "point1X")
+        session.setNumberValue(0.0, for: "point1Y")
+        session.setNumberValue(0.0, for: "point1Z")
+        session.setNumberValue(10.0, for: "point2X")
+        session.setNumberValue(0.0, for: "point2Y")
+        session.setNumberValue(0.0, for: "point2Z")
+        session.setNumberValue(20.0, for: "point3X")
+        session.setNumberValue(0.0, for: "point3Y")
+        session.setNumberValue(0.0, for: "point3Z")
+        #expect(!session.canCommit)
+
+        // Restore valid non-collinear points
+        session.setNumberValue(0.0, for: "point3X")
+        session.setNumberValue(10.0, for: "point3Y")
+        #expect(session.canCommit)
+
+        // Commit
+        session.commit()
+        await Task.yield()
+
+        #expect(workspace.document.features.count == initialFeatureCount + 1)
+        let addedFeature = workspace.document.features.last
+        #expect(addedFeature != nil)
+        #expect(workspace.selectedDatumCoordinateSystemFeature?.id == addedFeature?.id)
+
+        if case .datumCoordinateSystem(let data) = addedFeature?.operation {
+            #expect(data.mode == .threePoints)
+            #expect(data.cachedCoordinateSystem != nil)
+            #expect(data.cachedCoordinateSystem?.zAxis == SIMD3<Float>(0, 0, 1))
+        } else {
+            Issue.record("Expected .datumCoordinateSystem feature operation")
+        }
+    }
+
     @Test @MainActor func testMakeDimensionCommandSessionLifecycle() {
         let workspace = WorkspaceModel()
         let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))

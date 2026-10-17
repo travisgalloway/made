@@ -40,10 +40,34 @@ struct NavigatorSidebarView: View {
                             }
                         }
                     }
+
+                    if !datumAxisFeatures.isEmpty {
+                        Section("Datum Axes") {
+                            ForEach(datumAxisFeatures) { datum in
+                                NavigatorDatumAxisRow(feature: datum)
+                            }
+                        }
+                    }
+
+                    if !datumPointFeatures.isEmpty {
+                        Section("Datum Points") {
+                            ForEach(datumPointFeatures) { datum in
+                                NavigatorDatumPointRow(feature: datum)
+                            }
+                        }
+                    }
+
+                    if !datumCoordinateSystemFeatures.isEmpty {
+                        Section("Coordinate Systems") {
+                            ForEach(datumCoordinateSystemFeatures) { datum in
+                                NavigatorDatumCoordinateSystemRow(feature: datum)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.objects.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty {
+                    if workspace.document.objects.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty {
                         ContentUnavailableView {
                             Label("No Objects", systemImage: "cube.transparent")
                         } description: {
@@ -228,6 +252,27 @@ struct NavigatorSidebarView: View {
     private var datumPlaneFeatures: [Feature] {
         workspace.document.activeFeatures.filter {
             if case .datumPlane = $0.operation { return true }
+            return false
+        }
+    }
+
+    private var datumAxisFeatures: [Feature] {
+        workspace.document.activeFeatures.filter {
+            if case .datumAxis = $0.operation { return true }
+            return false
+        }
+    }
+
+    private var datumPointFeatures: [Feature] {
+        workspace.document.activeFeatures.filter {
+            if case .datumPoint = $0.operation { return true }
+            return false
+        }
+    }
+
+    private var datumCoordinateSystemFeatures: [Feature] {
+        workspace.document.activeFeatures.filter {
+            if case .datumCoordinateSystem = $0.operation { return true }
             return false
         }
     }
@@ -438,6 +483,147 @@ private struct NavigatorDatumPlaneRow: View {
                 }
 
                 if case .datumPlane(let data) = feature.operation {
+                    Text(data.mode.rawValue.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectFeature(feature.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+    }
+}
+
+/// Outline row for a datum axis feature in the Navigator sidebar.
+private struct NavigatorDatumAxisRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let feature: Feature
+
+    var body: some View {
+        let isSelected = workspace.selectedDatumAxisFeature?.id == feature.id
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "line.diagonal")
+                .foregroundStyle(Color.orange)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(feature.name)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text("Axis")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                if case .datumAxis(let data) = feature.operation {
+                    Text(data.mode.rawValue.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectFeature(feature.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+    }
+}
+
+/// Outline row for a datum point feature in the Navigator sidebar.
+private struct NavigatorDatumPointRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let feature: Feature
+
+    var body: some View {
+        let isSelected = workspace.selectedDatumPointFeature?.id == feature.id
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "smallcircle.filled.circle")
+                .foregroundStyle(Color.green)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(feature.name)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text("Point")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                if case .datumPoint(let data) = feature.operation {
+                    Text(data.mode.rawValue.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectFeature(feature.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+    }
+}
+
+/// Outline row for a User Coordinate System (UCS) feature in the Navigator sidebar.
+private struct NavigatorDatumCoordinateSystemRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let feature: Feature
+
+    var body: some View {
+        let isSelected = workspace.selectedDatumCoordinateSystemFeature?.id == feature.id
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "dot.scope")
+                .foregroundStyle(Color.purple)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(feature.name)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text("UCS")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                if case .datumCoordinateSystem(let data) = feature.operation {
                     Text(data.mode.rawValue.capitalized)
                         .font(.caption2)
                         .foregroundStyle(.secondary)

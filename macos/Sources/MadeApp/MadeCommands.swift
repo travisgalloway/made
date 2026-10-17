@@ -219,6 +219,18 @@ struct SolidMenuCommands: Commands {
                 workspace.startDatumPlaneCommand()
             }
 
+            Button("New Datum Axis…") {
+                workspace.startDatumAxisCommand()
+            }
+
+            Button("New Datum Point…") {
+                workspace.startDatumPointCommand()
+            }
+
+            Button("New Coordinate System…") {
+                workspace.startDatumCoordinateSystemCommand()
+            }
+
             Divider()
 
             Button(workspace.hideToggleTitle) {

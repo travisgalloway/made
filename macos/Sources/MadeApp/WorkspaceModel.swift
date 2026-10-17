@@ -483,6 +483,42 @@ final class WorkspaceModel {
         return nil
     }
 
+    var selectedDatumAxisFeature: Feature? {
+        if let sel = document.selection.first, case .feature(let featId) = sel.target {
+            if let feat = document.feature(for: featId), case .datumAxis = feat.operation {
+                return feat
+            }
+        }
+        if let feat = selectedFeature, case .datumAxis = feat.operation {
+            return feat
+        }
+        return nil
+    }
+
+    var selectedDatumPointFeature: Feature? {
+        if let sel = document.selection.first, case .feature(let featId) = sel.target {
+            if let feat = document.feature(for: featId), case .datumPoint = feat.operation {
+                return feat
+            }
+        }
+        if let feat = selectedFeature, case .datumPoint = feat.operation {
+            return feat
+        }
+        return nil
+    }
+
+    var selectedDatumCoordinateSystemFeature: Feature? {
+        if let sel = document.selection.first, case .feature(let featId) = sel.target {
+            if let feat = document.feature(for: featId), case .datumCoordinateSystem = feat.operation {
+                return feat
+            }
+        }
+        if let feat = selectedFeature, case .datumCoordinateSystem = feat.operation {
+            return feat
+        }
+        return nil
+    }
+
     func selectFeature(_ featureId: UUID) {
         selectedId = nil
         document.selection = [Reference.feature(featureId)]
@@ -742,6 +778,18 @@ final class WorkspaceModel {
 
     func startDatumPlaneCommand() {
         startCommand(CommandSession.makeDatumPlane(workspace: self))
+    }
+
+    func startDatumAxisCommand() {
+        startCommand(CommandSession.makeDatumAxis(workspace: self))
+    }
+
+    func startDatumPointCommand() {
+        startCommand(CommandSession.makeDatumPoint(workspace: self))
+    }
+
+    func startDatumCoordinateSystemCommand() {
+        startCommand(CommandSession.makeDatumCoordinateSystem(workspace: self))
     }
 
     func startDimensionCommand(sketchFeatureId: UUID? = nil, entityId: UUID? = nil) {

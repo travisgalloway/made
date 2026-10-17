@@ -1142,6 +1142,352 @@ extension CommandSession {
         return session
     }
 
+    static func makeDatumAxis(workspace: WorkspaceModel) -> CommandSession {
+        let datumCount = workspace.document.activeFeatures.filter {
+            if case .datumAxis = $0.operation { return true }
+            return false
+        }.count + 1
+        let defaultName = "Axis \(datumCount)"
+
+        let session = CommandSession(
+            title: "New Datum Axis",
+            inputs: [
+                CommandInput(id: "name", label: "Name", value: .text(defaultName)),
+                CommandInput(id: "mode", label: "Mode", value: .choice("Preset", options: [
+                    "Preset", "Two Points", "Edge", "Cylinder", "Normal to Plane"
+                ])),
+                CommandInput(id: "preset", label: "Preset Axis", value: .choice("Z", options: ["X", "Y", "Z"])),
+                CommandInput(id: "point1X", label: "Point 1 X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1Y", label: "Point 1 Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1Z", label: "Point 1 Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2X", label: "Point 2 X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2Y", label: "Point 2 Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2Z", label: "Point 2 Z", value: .number(10.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "flip", label: "Flip Direction", value: .toggle(false))
+            ],
+            isPreviewEnabled: false
+        )
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let modeChoice = session.choiceValue(for: "mode") ?? "Preset"
+            if modeChoice == "Two Points" {
+                let p1 = SIMD3<Float>(
+                    session.numberValue(for: "point1X") ?? 0,
+                    session.numberValue(for: "point1Y") ?? 0,
+                    session.numberValue(for: "point1Z") ?? 0
+                )
+                let p2 = SIMD3<Float>(
+                    session.numberValue(for: "point2X") ?? 0,
+                    session.numberValue(for: "point2Y") ?? 0,
+                    session.numberValue(for: "point2Z") ?? 0
+                )
+                if simd_length(p2 - p1) < 1e-6 {
+                    return false
+                }
+            }
+            return true
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            let name = session.textValue(for: "name") ?? defaultName
+            let modeStr = session.choiceValue(for: "mode") ?? "Preset"
+            let mode: DatumAxisMode
+            switch modeStr {
+            case "Two Points": mode = .twoPoints
+            case "Edge": mode = .edge
+            case "Cylinder": mode = .cylinder
+            case "Normal to Plane": mode = .normalToPlane
+            default: mode = .preset
+            }
+
+            let presetName = session.choiceValue(for: "preset") ?? "Z"
+            let isFlipped = session.toggleValue(for: "flip") ?? false
+
+            let p1 = SIMD3<Float>(
+                session.numberValue(for: "point1X") ?? 0,
+                session.numberValue(for: "point1Y") ?? 0,
+                session.numberValue(for: "point1Z") ?? 0
+            )
+            let p2 = SIMD3<Float>(
+                session.numberValue(for: "point2X") ?? 0,
+                session.numberValue(for: "point2Y") ?? 0,
+                session.numberValue(for: "point2Z") ?? 0
+            )
+
+            var references: [Reference] = []
+            if let selectedAxis = workspace.selectedDatumAxisFeature {
+                references.append(.feature(selectedAxis.id))
+            } else if let selectedPlane = workspace.selectedDatumPlaneFeature {
+                references.append(.feature(selectedPlane.id))
+            }
+
+            let data = DatumAxisFeatureData(
+                mode: mode,
+                presetName: presetName,
+                point1: p1,
+                point2: p2,
+                isFlipped: isFlipped
+            )
+
+            let feature = workspace.document.addDatumAxisFeature(
+                name: name.isEmpty ? defaultName : name,
+                data: data,
+                references: references
+            )
+            workspace.selectFeature(feature.id)
+        }
+
+        return session
+    }
+
+    static func makeDatumPoint(workspace: WorkspaceModel) -> CommandSession {
+        let datumCount = workspace.document.activeFeatures.filter {
+            if case .datumPoint = $0.operation { return true }
+            return false
+        }.count + 1
+        let defaultName = "Point \(datumCount)"
+
+        let session = CommandSession(
+            title: "New Datum Point",
+            inputs: [
+                CommandInput(id: "name", label: "Name", value: .text(defaultName)),
+                CommandInput(id: "mode", label: "Mode", value: .choice("Coordinates", options: [
+                    "Coordinates", "On Vertex", "Arc Center", "Along Curve", "Midpoint", "Intersection"
+                ])),
+                CommandInput(id: "coordX", label: "Position X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "coordY", label: "Position Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "coordZ", label: "Position Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1X", label: "Point 1 X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1Y", label: "Point 1 Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1Z", label: "Point 1 Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2X", label: "Point 2 X", value: .number(10.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2Y", label: "Point 2 Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2Z", label: "Point 2 Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "curveParameter", label: "Curve Parameter t", value: .number(0.5, range: 0.0...1.0, step: 0.1, unit: "t"))
+            ],
+            isPreviewEnabled: false
+        )
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let modeChoice = session.choiceValue(for: "mode") ?? "Coordinates"
+            if modeChoice == "Midpoint" {
+                let p1 = SIMD3<Float>(
+                    session.numberValue(for: "point1X") ?? 0,
+                    session.numberValue(for: "point1Y") ?? 0,
+                    session.numberValue(for: "point1Z") ?? 0
+                )
+                let p2 = SIMD3<Float>(
+                    session.numberValue(for: "point2X") ?? 0,
+                    session.numberValue(for: "point2Y") ?? 0,
+                    session.numberValue(for: "point2Z") ?? 0
+                )
+                if simd_length(p2 - p1) < 1e-6 {
+                    return false
+                }
+            }
+            return true
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            let name = session.textValue(for: "name") ?? defaultName
+            let modeStr = session.choiceValue(for: "mode") ?? "Coordinates"
+            let mode: DatumPointMode
+            switch modeStr {
+            case "On Vertex": mode = .onVertex
+            case "Arc Center": mode = .arcCenter
+            case "Along Curve": mode = .alongCurve
+            case "Midpoint": mode = .midpoint
+            case "Intersection": mode = .intersection
+            default: mode = .coordinates
+            }
+
+            let coords = SIMD3<Float>(
+                session.numberValue(for: "coordX") ?? 0,
+                session.numberValue(for: "coordY") ?? 0,
+                session.numberValue(for: "coordZ") ?? 0
+            )
+            let p1 = SIMD3<Float>(
+                session.numberValue(for: "point1X") ?? 0,
+                session.numberValue(for: "point1Y") ?? 0,
+                session.numberValue(for: "point1Z") ?? 0
+            )
+            let p2 = SIMD3<Float>(
+                session.numberValue(for: "point2X") ?? 0,
+                session.numberValue(for: "point2Y") ?? 0,
+                session.numberValue(for: "point2Z") ?? 0
+            )
+            let curveParameter = Double(session.numberValue(for: "curveParameter") ?? 0.5)
+
+            var references: [Reference] = []
+            if let selectedPt = workspace.selectedDatumPointFeature {
+                references.append(.feature(selectedPt.id))
+            }
+
+            let data = DatumPointFeatureData(
+                mode: mode,
+                coordinates: coords,
+                point1: p1,
+                point2: p2,
+                curveParameter: curveParameter
+            )
+
+            let feature = workspace.document.addDatumPointFeature(
+                name: name.isEmpty ? defaultName : name,
+                data: data,
+                references: references
+            )
+            workspace.selectFeature(feature.id)
+        }
+
+        return session
+    }
+
+    static func makeDatumCoordinateSystem(workspace: WorkspaceModel) -> CommandSession {
+        let datumCount = workspace.document.activeFeatures.filter {
+            if case .datumCoordinateSystem = $0.operation { return true }
+            return false
+        }.count + 1
+        let defaultName = "UCS \(datumCount)"
+
+        let session = CommandSession(
+            title: "New Coordinate System",
+            inputs: [
+                CommandInput(id: "name", label: "Name", value: .text(defaultName)),
+                CommandInput(id: "mode", label: "Mode", value: .choice("Origin and Axes", options: [
+                    "Origin and Axes", "Three Points", "Aligned with Plane", "Offset from Parent"
+                ])),
+                CommandInput(id: "originX", label: "Origin X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "originY", label: "Origin Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "originZ", label: "Origin Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1X", label: "Point 1 (Origin) X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1Y", label: "Point 1 (Origin) Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point1Z", label: "Point 1 (Origin) Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2X", label: "Point 2 (+X) X", value: .number(10.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2Y", label: "Point 2 (+X) Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point2Z", label: "Point 2 (+X) Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point3X", label: "Point 3 (+XY) X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point3Y", label: "Point 3 (+XY) Y", value: .number(10.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "point3Z", label: "Point 3 (+XY) Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "offsetX", label: "Offset X", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "offsetY", label: "Offset Y", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "offsetZ", label: "Offset Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
+                CommandInput(id: "rotX", label: "Rotation X", value: .number(0.0, range: -360.0...360.0, step: 5.0, unit: "°")),
+                CommandInput(id: "rotY", label: "Rotation Y", value: .number(0.0, range: -360.0...360.0, step: 5.0, unit: "°")),
+                CommandInput(id: "rotZ", label: "Rotation Z", value: .number(0.0, range: -360.0...360.0, step: 5.0, unit: "°"))
+            ],
+            isPreviewEnabled: false
+        )
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let modeChoice = session.choiceValue(for: "mode") ?? "Origin and Axes"
+            if modeChoice == "Three Points" {
+                let p1 = SIMD3<Float>(
+                    session.numberValue(for: "point1X") ?? 0,
+                    session.numberValue(for: "point1Y") ?? 0,
+                    session.numberValue(for: "point1Z") ?? 0
+                )
+                let p2 = SIMD3<Float>(
+                    session.numberValue(for: "point2X") ?? 0,
+                    session.numberValue(for: "point2Y") ?? 0,
+                    session.numberValue(for: "point2Z") ?? 0
+                )
+                let p3 = SIMD3<Float>(
+                    session.numberValue(for: "point3X") ?? 0,
+                    session.numberValue(for: "point3Y") ?? 0,
+                    session.numberValue(for: "point3Z") ?? 0
+                )
+                let v1 = p2 - p1
+                let v2 = p3 - p1
+                let v3 = p3 - p2
+                if simd_length(v1) < 1e-6 || simd_length(v2) < 1e-6 || simd_length(v3) < 1e-6 {
+                    return false
+                }
+                if simd_length(simd_cross(v1, v2)) < 1e-6 {
+                    return false
+                }
+            }
+            return true
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            let name = session.textValue(for: "name") ?? defaultName
+            let modeStr = session.choiceValue(for: "mode") ?? "Origin and Axes"
+            let mode: DatumCoordinateSystemMode
+            switch modeStr {
+            case "Three Points": mode = .threePoints
+            case "Aligned with Plane": mode = .alignedWithPlane
+            case "Offset from Parent": mode = .offsetFromParent
+            default: mode = .originAndAxes
+            }
+
+            let origin = SIMD3<Float>(
+                session.numberValue(for: "originX") ?? 0,
+                session.numberValue(for: "originY") ?? 0,
+                session.numberValue(for: "originZ") ?? 0
+            )
+            let p1 = SIMD3<Float>(
+                session.numberValue(for: "point1X") ?? 0,
+                session.numberValue(for: "point1Y") ?? 0,
+                session.numberValue(for: "point1Z") ?? 0
+            )
+            let p2 = SIMD3<Float>(
+                session.numberValue(for: "point2X") ?? 0,
+                session.numberValue(for: "point2Y") ?? 0,
+                session.numberValue(for: "point2Z") ?? 0
+            )
+            let p3 = SIMD3<Float>(
+                session.numberValue(for: "point3X") ?? 0,
+                session.numberValue(for: "point3Y") ?? 0,
+                session.numberValue(for: "point3Z") ?? 0
+            )
+            let offset = SIMD3<Float>(
+                session.numberValue(for: "offsetX") ?? 0,
+                session.numberValue(for: "offsetY") ?? 0,
+                session.numberValue(for: "offsetZ") ?? 0
+            )
+            let rot = SIMD3<Float>(
+                session.numberValue(for: "rotX") ?? 0,
+                session.numberValue(for: "rotY") ?? 0,
+                session.numberValue(for: "rotZ") ?? 0
+            )
+
+            var references: [Reference] = []
+            if let selectedUCS = workspace.selectedDatumCoordinateSystemFeature {
+                references.append(.feature(selectedUCS.id))
+            } else if let selectedPlane = workspace.selectedDatumPlaneFeature {
+                references.append(.feature(selectedPlane.id))
+            }
+
+            let data = DatumCoordinateSystemFeatureData(
+                mode: mode,
+                origin: origin,
+                xAxis: SIMD3<Float>(1, 0, 0),
+                yAxis: SIMD3<Float>(0, 1, 0),
+                zAxis: SIMD3<Float>(0, 0, 1),
+                point1: p1,
+                point2: p2,
+                point3: p3,
+                offsetDistance: offset,
+                rotationAngles: rot
+            )
+
+            let feature = workspace.document.addDatumCoordinateSystemFeature(
+                name: name.isEmpty ? defaultName : name,
+                data: data,
+                references: references
+            )
+            workspace.selectFeature(feature.id)
+        }
+
+        return session
+    }
+
     static func makeDimension(
         workspace: WorkspaceModel,
         sketchFeatureId: UUID? = nil,

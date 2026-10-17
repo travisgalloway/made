@@ -1506,6 +1506,115 @@ public final class DocumentModel {
         return feature
     }
 
+    // MARK: - Datum Axis, Point & Coordinate System Mutators
+
+    @discardableResult
+    public func addDatumAxisFeature(
+        name: String? = nil,
+        data: DatumAxisFeatureData = DatumAxisFeatureData(),
+        references: [Reference] = []
+    ) -> Feature {
+        let datumCount = features.filter {
+            if case .datumAxis = $0.operation { return true }
+            return false
+        }.count + 1
+        let featureName = name ?? "Axis \(datumCount)"
+        var axisData = data
+        var feature = Feature(
+            name: featureName,
+            operation: .datumAxis(axisData),
+            references: references
+        )
+        if let evaluated = try? DatumAxisEvaluator.evaluate(feature: feature, data: axisData, in: self) {
+            axisData.cachedAxis = evaluated
+            feature.operation = .datumAxis(axisData)
+        }
+        _ = addFeature(feature)
+        selection = [Reference.feature(feature.id)]
+        return feature
+    }
+
+    @discardableResult
+    public func addDatumPointFeature(
+        name: String? = nil,
+        data: DatumPointFeatureData = DatumPointFeatureData(),
+        references: [Reference] = []
+    ) -> Feature {
+        let datumCount = features.filter {
+            if case .datumPoint = $0.operation { return true }
+            return false
+        }.count + 1
+        let featureName = name ?? "Point \(datumCount)"
+        var pointData = data
+        var feature = Feature(
+            name: featureName,
+            operation: .datumPoint(pointData),
+            references: references
+        )
+        if let evaluated = try? DatumPointEvaluator.evaluate(feature: feature, data: pointData, in: self) {
+            pointData.cachedPoint = evaluated
+            feature.operation = .datumPoint(pointData)
+        }
+        _ = addFeature(feature)
+        selection = [Reference.feature(feature.id)]
+        return feature
+    }
+
+    @discardableResult
+    public func addDatumCoordinateSystemFeature(
+        name: String? = nil,
+        data: DatumCoordinateSystemFeatureData = DatumCoordinateSystemFeatureData(),
+        references: [Reference] = []
+    ) -> Feature {
+        let datumCount = features.filter {
+            if case .datumCoordinateSystem = $0.operation { return true }
+            return false
+        }.count + 1
+        let featureName = name ?? "UCS \(datumCount)"
+        var ucsData = data
+        var feature = Feature(
+            name: featureName,
+            operation: .datumCoordinateSystem(ucsData),
+            references: references
+        )
+        if let evaluated = try? DatumCoordinateSystemEvaluator.evaluate(feature: feature, data: ucsData, in: self) {
+            ucsData.cachedCoordinateSystem = evaluated
+            feature.operation = .datumCoordinateSystem(ucsData)
+        }
+        _ = addFeature(feature)
+        selection = [Reference.feature(feature.id)]
+        return feature
+    }
+
+    // MARK: - User Coordinate System Queries
+
+    /// Returns all active, unsuppressed coordinate system features in the document timeline.
+    public func activeCoordinateSystems() -> [Feature] {
+        activeFeatures.filter {
+            if case .datumCoordinateSystem = $0.operation { return true }
+            return false
+        }
+    }
+
+    /// Returns the evaluated geometry for a coordinate system feature by ID.
+    public func coordinateSystemGeometry(id: UUID) -> DatumCoordinateSystemGeometry? {
+        guard let feat = feature(for: id), case .datumCoordinateSystem(let ucsData) = feat.operation else {
+            return nil
+        }
+        if let cached = ucsData.cachedCoordinateSystem {
+            return cached
+        }
+        return try? DatumCoordinateSystemEvaluator.evaluate(feature: feat, data: ucsData, in: self)
+    }
+
+    /// Returns the rigid transform matrix for export or simulation referencing a coordinate system.
+    public func exportTransform(coordinateSystemId: UUID) -> Transform? {
+        guard let geom = coordinateSystemGeometry(id: coordinateSystemId) else {
+            return nil
+        }
+        return geom.asTransform
+    }
+
     /// Resolves the 3D coordinate frame for a sketch by checking datum plane ID or name before falling back to presets.
     public func resolveSketchPlane(for sketchData: SketchFeatureData) -> SketchPlane {
         if let datumId = sketchData.datumPlaneFeatureId,
@@ -1935,7 +2044,7 @@ public final class DocumentModel {
             if let name = s.planeName, let feat = features.first(where: { $0.name == name }) {
                 result.insert(feat.id)
             }
-        case .primitive, .part, .imported, .datumPlane:
+        case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
         }
 
@@ -2017,7 +2126,7 @@ public final class DocumentModel {
             case "distance": return Float(data.distance)
             default: return nil
             }
-        case .imported, .boolean, .part, .sketch, .datumPlane:
+        case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             return nil
         }
     }
@@ -2317,7 +2426,7 @@ public final class DocumentModel {
             updatedFeature.operation = .extrude(data)
             updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
 
-        case .imported, .boolean, .part, .sketch, .datumPlane:
+        case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             return .success(())
         }
 
