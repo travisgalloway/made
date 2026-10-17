@@ -63,6 +63,11 @@ struct ViewportCanvasView: View {
             if let renderer = workspace.viewportManager.renderer {
                 ZStack(alignment: .topTrailing) {
                     ZStack(alignment: .topLeading) {
+                        let activePlane = workspace.selectedSketchFeature.flatMap {
+                            if case .sketch(let data) = $0.operation { return workspace.document.resolveSketchPlane(for: data) }
+                            return nil
+                        }
+
                         CADMetalViewRepresentable(
                             document: workspace.document,
                             renderer: renderer,
@@ -87,7 +92,15 @@ struct ViewportCanvasView: View {
                             onResetView: { workspace.resetView() },
                             onCommitParam: { id, key, value in workspace.setParam(id, key, value) },
                             onDoubleTapFace: { solidId, faceId in workspace.snapCameraToFace(solidId: solidId, faceId: faceId) },
-                            onCancelAnimation: { workspace.cancelCameraAnimation() }
+                            onCancelAnimation: { workspace.cancelCameraAnimation() },
+                            activeSketchPlane: activePlane,
+                            sketchRegions: workspace.detectedSketchRegions,
+                            onHoverSketchRegion: { regionId in workspace.setHoveredSketchRegion(regionId) },
+                            onSelectSketchRegion: { regionId in
+                                if let sketchId = workspace.selectedSketchFeature?.id {
+                                    workspace.selectSketchRegion(featureId: sketchId, regionId: regionId)
+                                }
+                            }
                         )
 
                         if workspace.document.objects.isEmpty {

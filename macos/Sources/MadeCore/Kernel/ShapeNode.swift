@@ -29,14 +29,36 @@ public struct SketchPlane: Hashable, Equatable, Sendable, Codable {
     }
 }
 
-/// A closed 2D polygon defined on a `SketchPlane`.
+/// A closed 2D polygon with optional inner holes defined on a `SketchPlane`.
 public struct SketchProfile: Hashable, Equatable, Sendable, Codable {
     public var plane: SketchPlane
     public var points: [SIMD2<Float>]
+    public var holes: [[SIMD2<Float>]]
 
-    public init(plane: SketchPlane = .xy, points: [SIMD2<Float>]) {
+    public init(plane: SketchPlane = .xy, points: [SIMD2<Float>], holes: [[SIMD2<Float>]] = []) {
         self.plane = plane
         self.points = points
+        self.holes = holes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case plane, points, holes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.plane = try container.decodeIfPresent(SketchPlane.self, forKey: .plane) ?? .xy
+        self.points = try container.decodeIfPresent([SIMD2<Float>].self, forKey: .points) ?? []
+        self.holes = try container.decodeIfPresent([[SIMD2<Float>]].self, forKey: .holes) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(plane, forKey: .plane)
+        try container.encode(points, forKey: .points)
+        if !holes.isEmpty {
+            try container.encode(holes, forKey: .holes)
+        }
     }
 }
 

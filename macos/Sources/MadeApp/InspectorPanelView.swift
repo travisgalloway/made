@@ -52,6 +52,7 @@ struct InspectorPanelView: View {
                     sketchIdentitySection(sketch)
                     sketchEntitiesSection(sketch)
                     sketchConstraintsSection(sketch)
+                    sketchRegionsSection(sketch)
                 }
                 .formStyle(.columns)
                 .controlSize(.small)
@@ -901,6 +902,57 @@ struct InspectorPanelView: View {
         case .horizontal: return "arrow.left.and.right.line"
         case .vertical: return "arrow.up.and.down.line"
         }
+    }
+
+    @ViewBuilder
+    private func sketchRegionsSection(_ sketch: Feature) -> some View {
+        if case .sketch = sketch.operation {
+            let regions = workspace.detectedSketchRegions
+            if !regions.isEmpty {
+                Section("Regions (\(regions.count))") {
+                ForEach(Array(regions.enumerated()), id: \.element.id) { index, region in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Region \(index + 1)")
+                                .fontWeight(workspace.selectedSketchRegionId == region.id ? .bold : .regular)
+                            HStack(spacing: 6) {
+                                Text(String(format: "Area: %.1f mm²", region.area))
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                                if !region.innerLoops.isEmpty {
+                                    Text("(\(region.innerLoops.count) \(region.innerLoops.count == 1 ? "hole" : "holes"))")
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                        Spacer()
+                        Button("Extrude") {
+                            workspace.selectSketchRegion(featureId: sketch.id, regionId: region.id)
+                            Task { @MainActor in
+                                _ = await workspace.extrudeSketch(
+                                    sketchFeatureId: sketch.id,
+                                    distance: 20.0,
+                                    isSymmetric: false,
+                                    regionId: region.id
+                                )
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+                    .onHover { isHovered in
+                        workspace.setHoveredSketchRegion(isHovered ? region.id : nil)
+                    }
+                    .onTapGesture {
+                        workspace.selectSketchRegion(featureId: sketch.id, regionId: region.id)
+                    }
+                }
+            }
+        }
+    }
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {

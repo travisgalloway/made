@@ -168,6 +168,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onCommitParam: ((ObjectId, String, Float) -> Void)?
     var onDoubleTapFace: ((SolidId, Int) -> Void)?
     var onCancelAnimation: (() -> Void)?
+    var activeSketchPlane: SketchPlane?
+    var sketchRegions: [SketchRegion]
+    var onHoverSketchRegion: ((UUID?) -> Void)?
+    var onSelectSketchRegion: ((UUID) -> Void)?
     
     public init(
         document: DocumentModel,
@@ -193,7 +197,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onResetView: (() -> Void)? = nil,
         onCommitParam: ((ObjectId, String, Float) -> Void)? = nil,
         onDoubleTapFace: ((SolidId, Int) -> Void)? = nil,
-        onCancelAnimation: (() -> Void)? = nil
+        onCancelAnimation: (() -> Void)? = nil,
+        activeSketchPlane: SketchPlane? = nil,
+        sketchRegions: [SketchRegion] = [],
+        onHoverSketchRegion: ((UUID?) -> Void)? = nil,
+        onSelectSketchRegion: ((UUID) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -219,6 +227,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onCommitParam = onCommitParam
         self.onDoubleTapFace = onDoubleTapFace
         self.onCancelAnimation = onCancelAnimation
+        self.activeSketchPlane = activeSketchPlane
+        self.sketchRegions = sketchRegions
+        self.onHoverSketchRegion = onHoverSketchRegion
+        self.onSelectSketchRegion = onSelectSketchRegion
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -879,6 +891,26 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         selectedSub = nil
                     }
 
+                    if let plane = parent.activeSketchPlane, !parent.sketchRegions.isEmpty,
+                       let ray = unprojectCursorRay(at: loc, in: view) {
+                        let normal = plane.normal
+                        let denom = simd_dot(ray.direction, normal)
+                        if abs(denom) > 1e-6 {
+                            let t = simd_dot(plane.origin - ray.origin, normal) / denom
+                            if t > 0 {
+                                let p3D = ray.origin + t * ray.direction
+                                let delta = p3D - plane.origin
+                                let u = simd_dot(delta, plane.xAxis)
+                                let yAxis = simd_normalize(simd_cross(normal, plane.xAxis))
+                                let v = simd_dot(delta, yAxis)
+                                let uv = SIMD2<Float>(u, v)
+                                if let hitRegion = parent.sketchRegions.first(where: { $0.contains(point: uv) }) {
+                                    parent.onSelectSketchRegion?(hitRegion.id)
+                                }
+                            }
+                        }
+                    }
+
                     parent.document.selectedId = hitId
                     parent.document.selectedSubElement = selectedSub
                     if let hitId, parent.isCommandActive {
@@ -929,6 +961,38 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 }
             }
             lastHoverLocation = loc
+
+            // Hit-test sketch regions on active sketch plane if present
+            if let plane = parent.activeSketchPlane, !parent.sketchRegions.isEmpty {
+                if let ray = unprojectCursorRay(at: loc, in: view) {
+                    let normal = plane.normal
+                    let denom = simd_dot(ray.direction, normal)
+                    if abs(denom) > 1e-6 {
+                        let t = simd_dot(plane.origin - ray.origin, normal) / denom
+                        if t > 0 {
+                            let p3D = ray.origin + t * ray.direction
+                            let delta = p3D - plane.origin
+                            let u = simd_dot(delta, plane.xAxis)
+                            let yAxis = simd_normalize(simd_cross(normal, plane.xAxis))
+                            let v = simd_dot(delta, yAxis)
+                            let uv = SIMD2<Float>(u, v)
+                            let hitRegion = parent.sketchRegions.first(where: { $0.contains(point: uv) })
+                            parent.onHoverSketchRegion?(hitRegion?.id)
+                        } else {
+                            parent.onHoverSketchRegion?(nil)
+                        }
+                    } else {
+                        parent.onHoverSketchRegion?(nil)
+                    }
+                }
+            } else {
+                parent.onHoverSketchRegion?(nil)
+            }
+
+            guard parent.selectionFilter.allowsSubElements else {
+                return
+            }
+
             let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
             let pickResult = parent.renderer.pickSubElement(at: pointer, viewportSize: view.bounds.size, filter: parent.selectionFilter)
             let newPreselection = pickResult.map {
@@ -952,6 +1016,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
 
         public func clearPreselection() {
             lastHoverLocation = nil
+            parent.onHoverSketchRegion?(nil)
             if preselectedSubElement != nil || parent.renderer.preselectedSubElement != nil {
                 preselectedSubElement = nil
                 parent.renderer.preselectedSubElement = nil
