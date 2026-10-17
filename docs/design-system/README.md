@@ -67,7 +67,7 @@ made is a native macOS CAD and engineering app. Its interface is SwiftUI on macO
 - Use SF Symbols everywhere, at `.imageScale(.medium)` in bars.
 - Each object kind has its own symbol and system tint in the Navigator, for example `shippingbox.fill` in blue for a box, `cylinder.fill` in orange for a cylinder, `curlybraces.square.fill` in teal for a part script and `cube.transparent` in purple for an imported mesh. A sketch's symbol and tint follow its constraint state.
 - Snap glyphs are custom 1.5pt stroked shapes drawn at 8 to 12pt (square, triangle, circle with cross, X, diamond, bars, plus). They are not SF Symbols.
-- The app icon is [`img/icon.svg`](../../img/icon.svg), with its raster layer in [`img/made.icon/`](../../img/made.icon/). It is an extruded glass M over a navy radial gradient (`icon-navy` to `icon-navy-deep`), with `icon-steel`, `icon-slate`, `icon-frost` and `icon-ice` on the M. Use the file; never redraw or recolor it. There is no separate wordmark; set the name in lowercase SF Pro.
+- The app icon is [`img/icon.png`](../../img/icon.png), a 1024px raster with no vector version; the same image is the layer in [`img/made.icon/`](../../img/made.icon/). It is a translucent glass M, outlined in `icon-edge`, standing on a ground grid (`icon-grid`) over a dark navy field (`icon-navy`, darkening to `icon-navy-deep` at the corners). Its faces run from `icon-glass-shade` to `icon-glass`, and bolt-hole rings in `icon-ice` mark each corner of the M. Use the file at 1024px or smaller; never redraw, recolor or upscale it. There is no separate wordmark; set the name in lowercase SF Pro.
 
 ## Files
 
@@ -92,7 +92,7 @@ made is a native macOS CAD and engineering app. Its interface is SwiftUI on macO
 
 ## Sources and gaps
 
-- Synced from `main@f539e33`. The app has no token file or asset catalog, so colors, sizes and radii were read from literals in the SwiftUI and Metal sources listed in `tokens.json` `meta`. When one of those literals changes, update `tokens.json` in the same commit.
+- Synced from `main@f539e33`. The app has no token file or asset catalog, so colors, sizes and radii were read from literals in the SwiftUI and Metal sources listed in `tokens.json` `meta`. The `icon-*` colors are sampled from the raster icon and are approximate. When one of those literals changes, update `tokens.json` in the same commit.
 - System colors, label colors and text style sizes are Apple reference values for use outside the app, not values from this repo. Accent follows the user's setting. In Swift, use the semantic API.
 - No font files. SF Pro and SF Mono are system fonts.
 - Component pages are guidelines only, with no previews, because the views are SwiftUI.
