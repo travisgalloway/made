@@ -127,6 +127,21 @@ struct ViewportCanvasView: View {
                             },
                             onSketchDragEnd: { featId in
                                 workspace.endInteractiveSketchDrag(featureId: featId)
+                            },
+                            activeRectangleKind: workspace.activeRectangleKind,
+                            onRectangleCompleted: { start, end in
+                                guard let feat = workspace.selectedSketchFeature else { return }
+                                switch workspace.activeRectangleKind {
+                                case .corner:
+                                    _ = try? workspace.addCornerRectangle(to: feat.id, corner1: start, corner2: end)
+                                case .center:
+                                    _ = try? workspace.addCenterRectangle(to: feat.id, center: start, corner: end)
+                                case .threePoint:
+                                    let baseVec = end - start
+                                    let normal = SIMD2<Double>(-baseVec.y, baseVec.x)
+                                    let p3 = start + normal * 0.5
+                                    _ = try? workspace.addThreePointRectangle(to: feat.id, point1: start, point2: end, point3: p3)
+                                }
                             }
                         )
 

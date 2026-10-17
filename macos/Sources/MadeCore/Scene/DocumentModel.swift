@@ -1963,6 +1963,75 @@ public final class DocumentModel {
         return .success(())
     }
 
+    @discardableResult
+    public func addSketchEntitiesAndConstraints(
+        to featureId: UUID,
+        entities: [SketchEntity],
+        constraints: [SketchConstraint],
+        actionName: String = "Add Sketch Geometry"
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let addedEntityIds = entities.map(\.id)
+        let addedConstraintIds = constraints.map(\.id)
+
+        sketchData.entities.append(contentsOf: entities)
+        sketchData.constraints.append(contentsOf: constraints)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.removeSketchEntitiesAndConstraints(
+                    from: featureId,
+                    entityIds: addedEntityIds,
+                    constraintIds: addedConstraintIds,
+                    actionName: actionName
+                )
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    private func removeSketchEntitiesAndConstraints(
+        from featureId: UUID,
+        entityIds: [UUID],
+        constraintIds: [UUID],
+        actionName: String
+    ) {
+        guard let index = features.firstIndex(where: { $0.id == featureId }),
+              case .sketch(var sketchData) = features[index].operation else {
+            return
+        }
+        let removedEntities = sketchData.entities.filter { entityIds.contains($0.id) }
+        let removedConstraints = sketchData.constraints.filter { constraintIds.contains($0.id) }
+        sketchData.entities.removeAll(where: { entityIds.contains($0.id) })
+        sketchData.constraints.removeAll(where: { constraintIds.contains($0.id) })
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.addSketchEntitiesAndConstraints(
+                    to: featureId,
+                    entities: removedEntities,
+                    constraints: removedConstraints,
+                    actionName: actionName
+                )
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+    }
+
     // MARK: - Interactive Sketch Drag Sessions (BL-CON-07)
 
     public func beginInteractiveSketchDrag(featureId: UUID) {
