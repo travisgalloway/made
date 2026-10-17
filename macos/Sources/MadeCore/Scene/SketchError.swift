@@ -8,6 +8,9 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
     case emptySketch
     case noClosedLoop
     case invalidEntity(String)
+    case overConstrained(message: String, conflictingConstraints: [UUID])
+    case redundantConstraints(message: String, redundantConstraints: [UUID])
+    case solverNonConvergence(message: String)
 
     public var errorDescription: String? {
         switch self {
@@ -23,6 +26,12 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
             return "Sketch does not form a closed loop"
         case .invalidEntity(let msg):
             return "Invalid sketch entity: \(msg)"
+        case .overConstrained(let msg, _):
+            return "Over-constrained sketch: \(msg)"
+        case .redundantConstraints(let msg, _):
+            return "Redundant constraints: \(msg)"
+        case .solverNonConvergence(let msg):
+            return "Solver failed to converge: \(msg)"
         }
     }
 }

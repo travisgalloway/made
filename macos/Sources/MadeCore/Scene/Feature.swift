@@ -226,17 +226,37 @@ public struct SketchFeatureData: Sendable, Codable, Equatable {
     public var planeReference: TopologicalReference?
     public var datumPlaneFeatureId: UUID?
     public var entities: [SketchEntity]
+    public var constraints: [SketchConstraint]
 
     public init(
         planeName: String? = nil,
         planeReference: TopologicalReference? = nil,
         datumPlaneFeatureId: UUID? = nil,
-        entities: [SketchEntity] = []
+        entities: [SketchEntity] = [],
+        constraints: [SketchConstraint] = []
     ) {
         self.planeName = planeName
         self.planeReference = planeReference
         self.datumPlaneFeatureId = datumPlaneFeatureId
         self.entities = entities
+        self.constraints = constraints
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case planeName
+        case planeReference
+        case datumPlaneFeatureId
+        case entities
+        case constraints
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.planeName = try container.decodeIfPresent(String.self, forKey: .planeName)
+        self.planeReference = try container.decodeIfPresent(TopologicalReference.self, forKey: .planeReference)
+        self.datumPlaneFeatureId = try container.decodeIfPresent(UUID.self, forKey: .datumPlaneFeatureId)
+        self.entities = try container.decodeIfPresent([SketchEntity].self, forKey: .entities) ?? []
+        self.constraints = try container.decodeIfPresent([SketchConstraint].self, forKey: .constraints) ?? []
     }
 }
 

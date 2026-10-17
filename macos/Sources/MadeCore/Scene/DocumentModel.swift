@@ -1654,6 +1654,139 @@ public final class DocumentModel {
     }
 
     @discardableResult
+    public func addSketchConstraint(to featureId: UUID, constraint: SketchConstraint) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let constraintId = constraint.id
+        sketchData.constraints.append(constraint)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeSketchConstraint(from: featureId, constraintId: constraintId)
+            }
+        }
+        undoManager?.setActionName("Add Sketch Constraint")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeSketchConstraint(from featureId: UUID, constraintId: UUID) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let constraintIndex = sketchData.constraints.firstIndex(where: { $0.id == constraintId }) else {
+            return .failure(.objectNotFound(ObjectId(constraintId.uuidString)))
+        }
+
+        let removed = sketchData.constraints.remove(at: constraintIndex)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertSketchConstraint(to: featureId, constraint: removed, at: constraintIndex)
+            }
+        }
+        undoManager?.setActionName("Delete Sketch Constraint")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertSketchConstraint(to featureId: UUID, constraint: SketchConstraint, at insertIndex: Int) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let clamped = min(max(0, insertIndex), sketchData.constraints.count)
+        sketchData.constraints.insert(constraint, at: clamped)
+        features[index].operation = .sketch(sketchData)
+
+        let constraintId = constraint.id
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeSketchConstraint(from: featureId, constraintId: constraintId)
+            }
+        }
+        undoManager?.setActionName("Add Sketch Constraint")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSketchConstraints(in featureId: UUID, constraints: [SketchConstraint]) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let oldConstraints = sketchData.constraints
+        sketchData.constraints = constraints
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchConstraints(in: featureId, constraints: oldConstraints)
+            }
+        }
+        undoManager?.setActionName("Update Sketch Constraints")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSketchEntities(in featureId: UUID, entities: [SketchEntity]) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let oldEntities = sketchData.entities
+        sketchData.entities = entities
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchEntities(in: featureId, entities: oldEntities)
+            }
+        }
+        undoManager?.setActionName("Update Sketch Entities")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
     public func extrudeSketch(
         sketchFeatureId: UUID,
         distance: Double,
