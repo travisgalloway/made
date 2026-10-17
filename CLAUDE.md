@@ -69,7 +69,7 @@ macos/
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView,
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
                            SnapOverlayView, EmptySceneGuidanceOverlayView, Document/MadeDocument
-  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests)
+  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests)
   Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, and application unit tests
 ```
 
