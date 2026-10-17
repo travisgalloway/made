@@ -41,30 +41,35 @@ import MadeCore
         #expect(workspace.sketchDOFStatus == .inactive)
         #expect(workspace.sketchDOFStatus.statusText == "DOF: --")
         #expect(ViewportStatusBar.dofColor(for: workspace.sketchDOFStatus) == nil)
+        #expect(ViewportStatusBar.dofSystemImage(for: workspace.sketchDOFStatus) == nil)
 
         // Under-constrained with 3 degrees of freedom
         workspace.setSketchDOFStatus(.underConstrained(dof: 3))
         #expect(workspace.sketchDOFStatus == .underConstrained(dof: 3))
         #expect(workspace.sketchDOFStatus.statusText == "DOF: 3 under")
         #expect(ViewportStatusBar.dofColor(for: workspace.sketchDOFStatus) == .blue)
+        #expect(ViewportStatusBar.dofSystemImage(for: workspace.sketchDOFStatus) == "pencil.and.ruler")
 
         // Fully constrained
         workspace.setSketchDOFStatus(.fullyConstrained)
         #expect(workspace.sketchDOFStatus == .fullyConstrained)
         #expect(workspace.sketchDOFStatus.statusText == "DOF: fully constrained")
         #expect(ViewportStatusBar.dofColor(for: workspace.sketchDOFStatus) == .green)
+        #expect(ViewportStatusBar.dofSystemImage(for: workspace.sketchDOFStatus) == "checkmark.circle.fill")
 
         // Over-constrained
         workspace.setSketchDOFStatus(.overConstrained())
         #expect(workspace.sketchDOFStatus == .overConstrained(dof: 0))
         #expect(workspace.sketchDOFStatus.statusText == "DOF: over-constrained")
         #expect(ViewportStatusBar.dofColor(for: workspace.sketchDOFStatus) == .red)
+        #expect(ViewportStatusBar.dofSystemImage(for: workspace.sketchDOFStatus) == "exclamationmark.triangle.fill")
 
         // Over-constrained with specific count
         workspace.setSketchDOFStatus(.overConstrained(dof: 2))
         #expect(workspace.sketchDOFStatus == .overConstrained(dof: 2))
         #expect(workspace.sketchDOFStatus.statusText == "DOF: over-constrained")
         #expect(ViewportStatusBar.dofColor(for: workspace.sketchDOFStatus) == .red)
+        #expect(ViewportStatusBar.dofSystemImage(for: workspace.sketchDOFStatus) == "exclamationmark.triangle.fill")
     }
 
     @Test @MainActor func testStatusBarSelectionCountTracksDocumentSelection() {

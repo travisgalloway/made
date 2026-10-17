@@ -88,13 +88,38 @@ struct ViewportStatusBar: View {
         }
     }
 
+    nonisolated public static func dofSystemImage(for status: SketchDOFStatus) -> String? {
+        switch status {
+        case .inactive:
+            return nil
+        case .underConstrained:
+            return "pencil.and.ruler"
+        case .fullyConstrained:
+            return "checkmark.circle.fill"
+        case .overConstrained:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
     @ViewBuilder
     var sketchDOFView: some View {
-        if let color = Self.dofColor(for: workspace.sketchDOFStatus) {
-            Text(workspace.sketchDOFStatus.statusText)
-                .foregroundStyle(color)
+        let status = workspace.sketchDOFStatus
+        let icon = Self.dofSystemImage(for: status)
+        if let color = Self.dofColor(for: status) {
+            HStack(spacing: 4) {
+                if let icon {
+                    Image(systemName: icon)
+                }
+                Text(status.statusText)
+            }
+            .foregroundStyle(color)
         } else {
-            Text(workspace.sketchDOFStatus.statusText)
+            HStack(spacing: 4) {
+                if let icon {
+                    Image(systemName: icon)
+                }
+                Text(status.statusText)
+            }
         }
     }
 }
