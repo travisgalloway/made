@@ -623,10 +623,16 @@ struct InspectorPanelView: View {
 
     private func sketchEntityRow(sketchId: UUID, entity: SketchEntity) -> some View {
         let isSelected = workspace.selectedSketchEntity?.entity.id == entity.id
+        let status = workspace.dofStatus(for: entity.id)
+        let statusColor = ViewportStatusBar.dofColor(for: status)
+        let bg = isSelected ? Color.accentColor.opacity(0.12) : (statusColor?.opacity(0.04) ?? Color.clear)
+        let strokeColor = isSelected ? Color.accentColor : (statusColor?.opacity(0.35) ?? Color.clear)
+
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(entity.kind.capitalized)
                     .font(.caption.bold())
+                entityDOFBadge(for: status)
                 if entity.isConstruction {
                     Text("Construction")
                         .font(.system(size: 9, weight: .semibold))
@@ -838,15 +844,65 @@ struct InspectorPanelView: View {
             }
         }
         .padding(4)
-        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        .background(bg)
         .cornerRadius(4)
         .overlay(
             RoundedRectangle(cornerRadius: 4)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+                .stroke(strokeColor, lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
             workspace.selectSketchEntity(featureId: sketchId, entityId: entity.id)
+        }
+    }
+
+    @ViewBuilder
+    private func entityDOFBadge(for status: SketchDOFStatus) -> some View {
+        switch status {
+        case .underConstrained(let dof):
+            Text("\(dof) DOF")
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .foregroundStyle(.blue)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.blue.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(Color.blue.opacity(0.35), lineWidth: 1)
+                )
+        case .fullyConstrained:
+            Text("Constrained")
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .foregroundStyle(.green)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.green.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(Color.green.opacity(0.35), lineWidth: 1)
+                )
+        case .overConstrained:
+            Text("Over-constrained")
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .foregroundStyle(.red)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.red.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(Color.red.opacity(0.35), lineWidth: 1)
+                )
+        case .inactive:
+            EmptyView()
         }
     }
 

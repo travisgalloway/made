@@ -18,23 +18,26 @@ public enum SolverStatus: Sendable, Codable, Equatable {
     }
 }
 
-/// Result envelope returned by the 2D geometric constraint solver (ADR-D4, #37).
+/// Result envelope returned by the 2D geometric constraint solver (ADR-D4, #37, #196).
 public struct SolverResult: Sendable, Codable, Equatable {
     public var status: SolverStatus
     public var solvedEntities: [SketchEntity]
     public var dof: Int
     public var message: String?
+    public var entityDOF: [UUID: SketchDOFStatus]
 
     public init(
         status: SolverStatus,
         solvedEntities: [SketchEntity],
         dof: Int,
-        message: String? = nil
+        message: String? = nil,
+        entityDOF: [UUID: SketchDOFStatus] = [:]
     ) {
         self.status = status
         self.solvedEntities = solvedEntities
         self.dof = dof
         self.message = message
+        self.entityDOF = entityDOF
     }
 }
 
@@ -48,21 +51,22 @@ public struct ConstraintSolver: Sendable {
     /// Solves the given constraint system with an optional interactive drag target.
     public static func solve(system: ConstraintSystem, dragTarget: DragTarget? = nil) -> SolverResult {
         guard !system.entities.isEmpty else {
-            return SolverResult(status: .converged, solvedEntities: [], dof: 0)
+            return SolverResult(status: .converged, solvedEntities: [], dof: 0, entityDOF: [:])
         }
 
         let dofBaseline = calculateEntityDOF(entities: system.entities, fixedIds: system.fixedEntityIds)
 
         // If no constraints, just apply drag target if any and return
         if system.constraints.isEmpty {
+            let entityDOF = baselineEntityDOF(entities: system.entities, fixedIds: system.fixedEntityIds)
             if let drag = dragTarget {
                 var updated = system.entities
                 if let idx = updated.firstIndex(where: { $0.id == drag.entityId }) {
                     applyDragToEntity(&updated[idx], drag: drag)
                 }
-                return SolverResult(status: .converged, solvedEntities: updated, dof: dofBaseline)
+                return SolverResult(status: .converged, solvedEntities: updated, dof: dofBaseline, entityDOF: entityDOF)
             }
-            return SolverResult(status: .converged, solvedEntities: system.entities, dof: dofBaseline)
+            return SolverResult(status: .converged, solvedEntities: system.entities, dof: dofBaseline, entityDOF: entityDOF)
         }
 
         // Check for redundant constraints before or during solving
@@ -91,19 +95,28 @@ public struct ConstraintSolver: Sendable {
             )
 
             let finalEntities = system.unpackParameters(solveOutcome.finalX)
+            let entityDOF = evaluateEntityDOF(
+                system: system,
+                activeConstraints: activeConstraints,
+                solvedX: solveOutcome.finalX,
+                conflictingConstraintIds: [],
+                isConverged: true
+            )
             if !redundant.isEmpty {
                 return SolverResult(
                     status: .redundant(redundantConstraints: redundant),
                     solvedEntities: finalEntities,
                     dof: remainingDOF,
-                    message: "Redundant constraints detected: \(redundant.map { $0.uuidString.prefix(8) }.joined(separator: ", "))"
+                    message: "Redundant constraints detected: \(redundant.map { $0.uuidString.prefix(8) }.joined(separator: ", "))",
+                    entityDOF: entityDOF
                 )
             }
 
             return SolverResult(
                 status: .converged,
                 solvedEntities: finalEntities,
-                dof: remainingDOF
+                dof: remainingDOF,
+                entityDOF: entityDOF
             )
         } else {
             // The system did not converge. Perform conflict isolation.
@@ -116,19 +129,28 @@ public struct ConstraintSolver: Sendable {
             )
 
             let finalEntities = system.unpackParameters(solveOutcome.finalX)
+            let entityDOF = evaluateEntityDOF(
+                system: system,
+                activeConstraints: activeConstraints,
+                solvedX: solveOutcome.finalX,
+                conflictingConstraintIds: conflicting,
+                isConverged: false
+            )
             if !conflicting.isEmpty {
                 return SolverResult(
                     status: .overConstrained(conflictingConstraints: conflicting),
                     solvedEntities: finalEntities,
                     dof: remainingDOF,
-                    message: "Over-constrained system: conflicting constraints \(conflicting.map { $0.uuidString.prefix(8) }.joined(separator: ", "))"
+                    message: "Over-constrained system: conflicting constraints \(conflicting.map { $0.uuidString.prefix(8) }.joined(separator: ", "))",
+                    entityDOF: entityDOF
                 )
             } else {
                 return SolverResult(
                     status: .failedToConverge(reason: "Non-linear solver failed to converge within \(maxIterations) iterations (residual: \(String(format: "%.5f", solveOutcome.maxResidual)))"),
                     solvedEntities: finalEntities,
                     dof: remainingDOF,
-                    message: "Solver failed to converge to a valid geometric solution"
+                    message: "Solver failed to converge to a valid geometric solution",
+                    entityDOF: entityDOF
                 )
             }
         }
@@ -150,6 +172,47 @@ public struct ConstraintSolver: Sendable {
         case .failedToConverge:
             return .overConstrained(dof: result.dof)
         }
+    }
+
+    /// Computes the degree of freedom status for each entity in the constraint system (BL-CON-05, #196).
+    public static func computeEntityDOF(system: ConstraintSystem) -> [UUID: SketchDOFStatus] {
+        guard !system.entities.isEmpty else { return [:] }
+        if system.constraints.isEmpty {
+            return baselineEntityDOF(entities: system.entities, fixedIds: system.fixedEntityIds)
+        }
+
+        let activeConstraints = system.constraints.filter { !$0.isDriven }
+        let initialX = system.packParameters()
+        let paramRanges = system.parameterRanges()
+
+        let solveOutcome = solveInternal(
+            system: system,
+            constraints: activeConstraints,
+            dragTarget: nil,
+            initialX: initialX,
+            paramRanges: paramRanges
+        )
+
+        let conflicting: [UUID]
+        if !solveOutcome.converged {
+            conflicting = isolateConflictingConstraints(
+                system: system,
+                constraints: activeConstraints,
+                dragTarget: nil,
+                initialX: initialX,
+                paramRanges: paramRanges
+            )
+        } else {
+            conflicting = []
+        }
+
+        return evaluateEntityDOF(
+            system: system,
+            activeConstraints: activeConstraints,
+            solvedX: solveOutcome.finalX,
+            conflictingConstraintIds: conflicting,
+            isConverged: solveOutcome.converged
+        )
     }
 
     // MARK: - Internal Solver
@@ -531,6 +594,75 @@ public struct ConstraintSolver: Sendable {
         return rank
     }
 
+    /// Computes an exact basis of the null space (kernel) of a matrix via Gauss-Jordan elimination to RREF (BL-CON-05, #196).
+    /// Returns a basis matrix V in R^{n x k} whose columns span ker(matrix).
+    public static func computeNullSpaceBasis(_ matrix: [[Double]], tolerance: Double = 1e-4) -> [[Double]] {
+        guard !matrix.isEmpty && !matrix[0].isEmpty else { return [] }
+        let m = matrix.count
+        let n = matrix[0].count
+        var mat = matrix
+
+        var pivotCols: [Int] = []
+        var lead = 0
+
+        for col in 0..<n {
+            var pivotRow = -1
+            var maxVal = tolerance
+            for r in lead..<m {
+                let val = abs(mat[r][col])
+                if val > maxVal {
+                    maxVal = val
+                    pivotRow = r
+                }
+            }
+
+            if pivotRow != -1 {
+                mat.swapAt(lead, pivotRow)
+                let pivot = mat[lead][col]
+                for c in 0..<n {
+                    mat[lead][c] /= pivot
+                }
+                for r in 0..<m {
+                    if r != lead {
+                        let factor = mat[r][col]
+                        if abs(factor) > 1e-12 {
+                            for c in 0..<n {
+                                mat[r][c] -= factor * mat[lead][c]
+                            }
+                        }
+                    }
+                }
+                pivotCols.append(col)
+                lead += 1
+                if lead == m { break }
+            }
+        }
+
+        let pivotSet = Set(pivotCols)
+        var freeCols: [Int] = []
+        for c in 0..<n {
+            if !pivotSet.contains(c) {
+                freeCols.append(c)
+            }
+        }
+
+        let k = freeCols.count
+        guard k > 0 else {
+            return Array(repeating: [Double](), count: n)
+        }
+
+        var V = Array(repeating: Array(repeating: 0.0, count: k), count: n)
+        for (colIdx, f) in freeCols.enumerated() {
+            V[f][colIdx] = 1.0
+            for (rowIdx, c) in pivotCols.enumerated() {
+                let coeff = mat[rowIdx][f]
+                V[c][colIdx] = abs(coeff) < 1e-10 ? 0.0 : -coeff
+            }
+        }
+
+        return V
+    }
+
     private static func computeSystemRank(system: ConstraintSystem, constraints: [SketchConstraint], X: [Double]) -> Int {
         let entities = system.unpackParameters(X)
         let F = evaluateResiduals(entities: entities, constraints: constraints)
@@ -539,21 +671,144 @@ public struct ConstraintSolver: Sendable {
         return computeRank(J)
     }
 
+    private static func baselineDOF(for entity: SketchEntity) -> Int {
+        switch entity.kind {
+        case "line":
+            return 4
+        case "circle":
+            return 3
+        case "arc":
+            return 5
+        default:
+            return 0
+        }
+    }
+
     private static func calculateEntityDOF(entities: [SketchEntity], fixedIds: Set<UUID>) -> Int {
         var total = 0
         for e in entities where !fixedIds.contains(e.id) {
-            switch e.kind {
-            case "line":
-                total += 4
-            case "circle":
-                total += 3
-            case "arc":
-                total += 5
-            default:
-                break
-            }
+            total += baselineDOF(for: e)
         }
         return total
+    }
+
+    private static func baselineEntityDOF(entities: [SketchEntity], fixedIds: Set<UUID>) -> [UUID: SketchDOFStatus] {
+        var statuses: [UUID: SketchDOFStatus] = [:]
+        for entity in entities {
+            if fixedIds.contains(entity.id) {
+                statuses[entity.id] = .fullyConstrained
+            } else {
+                let base = baselineDOF(for: entity)
+                statuses[entity.id] = base == 0 ? .fullyConstrained : .underConstrained(dof: base)
+            }
+        }
+        return statuses
+    }
+
+    private static func evaluateEntityDOF(
+        system: ConstraintSystem,
+        activeConstraints: [SketchConstraint],
+        solvedX: [Double],
+        conflictingConstraintIds: [UUID],
+        isConverged: Bool = true
+    ) -> [UUID: SketchDOFStatus] {
+        guard !system.entities.isEmpty else { return [:] }
+        if activeConstraints.isEmpty {
+            return baselineEntityDOF(entities: system.entities, fixedIds: system.fixedEntityIds)
+        }
+
+        var effectiveConflicting = conflictingConstraintIds
+        if effectiveConflicting.isEmpty && !isConverged {
+            let entities = system.unpackParameters(solvedX)
+            let entityMap = Dictionary(uniqueKeysWithValues: entities.map { ($0.id, $0) })
+            for c in activeConstraints {
+                let res = evaluateSingleConstraint(c, entityMap: entityMap)
+                if (res.map { abs($0) }.max() ?? 0.0) > convergenceTolerance {
+                    effectiveConflicting.append(c.id)
+                }
+            }
+        }
+
+        var conflictingEntityIds = Set<UUID>()
+        for cId in effectiveConflicting {
+            if let c = system.constraints.first(where: { $0.id == cId }) {
+                conflictingEntityIds.formUnion(c.entityIds)
+                if let refId = c.referenceEntityId {
+                    conflictingEntityIds.insert(refId)
+                }
+            }
+        }
+
+        let paramRanges = system.parameterRanges()
+        let n = solvedX.count
+        guard n > 0 else {
+            return baselineEntityDOF(entities: system.entities, fixedIds: system.fixedEntityIds)
+        }
+
+        let entities = system.unpackParameters(solvedX)
+        let residuals = evaluateResiduals(entities: entities, constraints: activeConstraints)
+        let J = evaluateJacobian(system: system, constraints: activeConstraints, X: solvedX, currentF: residuals)
+
+        var fixedIndices = Set<Int>()
+        for fixedId in system.fixedEntityIds {
+            if let range = paramRanges.first(where: { $0.entityId == fixedId }) {
+                for i in range.startIndex..<(range.startIndex + range.count) {
+                    fixedIndices.insert(i)
+                }
+            }
+        }
+
+        var J_aug = J
+        for idx in fixedIndices.sorted() {
+            var lockRow = Array(repeating: 0.0, count: n)
+            lockRow[idx] = 1.0
+            J_aug.append(lockRow)
+        }
+
+        let V = computeNullSpaceBasis(J_aug, tolerance: convergenceTolerance)
+
+        var result: [UUID: SketchDOFStatus] = [:]
+
+        for entity in system.entities {
+            if conflictingEntityIds.contains(entity.id) {
+                result[entity.id] = .overConstrained(dof: 0)
+                continue
+            }
+
+            if system.fixedEntityIds.contains(entity.id) {
+                result[entity.id] = .fullyConstrained
+                continue
+            }
+
+            guard let range = paramRanges.first(where: { $0.entityId == entity.id }) else {
+                result[entity.id] = .fullyConstrained
+                continue
+            }
+
+            let base = baselineDOF(for: entity)
+            if base == 0 {
+                result[entity.id] = .fullyConstrained
+                continue
+            }
+
+            let Ve: [[Double]]
+            if range.startIndex < V.count && (range.startIndex + range.count) <= V.count {
+                Ve = Array(V[range.startIndex..<(range.startIndex + range.count)])
+            } else {
+                Ve = []
+            }
+
+            let rankVe = computeRank(Ve, tolerance: convergenceTolerance)
+            let remaining = min(base, rankVe)
+
+            if remaining == 0 {
+                result[entity.id] = .fullyConstrained
+            } else {
+                result[entity.id] = .underConstrained(dof: remaining)
+            }
+        }
+
+        return result
     }
 
     // MARK: - Redundancy & Conflict Isolation

@@ -220,4 +220,41 @@ import MadeCore
             try workspace.dimensionSketchLine(featureId: feature.id, entityId: lineA.id, length: 25.0)
         }
     }
+
+    @Test @MainActor func testWorkspaceEntityDOFTrackingAndAccessor() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 8))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        // Select sketch feature
+        workspace.selectFeature(feature.id)
+
+        // Initially without constraints: lineA and lineB report 4 DOF
+        #expect(workspace.dofStatus(for: lineA.id) == .underConstrained(dof: 4))
+        #expect(workspace.dofStatus(for: lineB.id) == .underConstrained(dof: 4))
+        #expect(workspace.dofStatus(for: UUID()) == .inactive)
+
+        // Add horizontal constraint on lineA
+        let c1 = SketchConstraint(kind: .horizontal, entityIds: [lineA.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c1)
+
+        // Solving updates entity DOF status: lineA reduced to 3 DOF, lineB unchanged at 4 DOF
+        #expect(workspace.dofStatus(for: lineA.id) == .underConstrained(dof: 3))
+        #expect(workspace.dofStatus(for: lineB.id) == .underConstrained(dof: 4))
+
+        // Deselect sketch: entityDOFStatus is cleared
+        workspace.setSketchDOFStatus(.inactive)
+        #expect(workspace.entityDOFStatus.isEmpty)
+        #expect(workspace.dofStatus(for: lineA.id) == .inactive)
+    }
+
+    @Test @MainActor func testViewportStatusBarSemanticColorMapping() {
+        #expect(ViewportStatusBar.dofColor(for: .inactive) == nil)
+        #expect(ViewportStatusBar.dofColor(for: .underConstrained(dof: 3)) == .blue)
+        #expect(ViewportStatusBar.dofColor(for: .fullyConstrained) == .green)
+        #expect(ViewportStatusBar.dofColor(for: .overConstrained(dof: 0)) == .red)
+    }
 }
