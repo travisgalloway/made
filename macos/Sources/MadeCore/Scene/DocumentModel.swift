@@ -1964,6 +1964,41 @@ public final class DocumentModel {
     }
 
     @discardableResult
+    public func setSketchConstraintDriven(in featureId: UUID, constraintId: UUID, isDriven: Bool) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let constraintIndex = sketchData.constraints.firstIndex(where: { $0.id == constraintId }) else {
+            return .failure(.objectNotFound(ObjectId(constraintId.uuidString)))
+        }
+
+        let previousDriven = sketchData.constraints[constraintIndex].isDriven
+        if previousDriven == isDriven {
+            return .success(())
+        }
+
+        sketchData.constraints[constraintIndex].isDriven = isDriven
+        features[index].operation = .sketch(sketchData)
+
+        let currentDriven = isDriven
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.setSketchConstraintDriven(in: featureId, constraintId: constraintId, isDriven: previousDriven)
+                target.undoManager?.setActionName(currentDriven ? "Convert Constraint to Driven" : "Convert Constraint to Driving")
+            }
+        }
+        undoManager?.setActionName(currentDriven ? "Convert Constraint to Driven" : "Convert Constraint to Driving")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
     public func addSketchEntitiesAndConstraints(
         to featureId: UUID,
         entities: [SketchEntity],

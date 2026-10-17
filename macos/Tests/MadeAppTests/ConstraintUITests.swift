@@ -355,4 +355,208 @@ import MadeCore
         #expect(workspace.dofStatus(for: lineA.id) != .inactive)
         #expect(workspace.overConstrainedMessage == nil)
     }
+
+    @Test @MainActor func testDocumentModelSetSketchConstraintDrivenUndoRedo() {
+        let doc = DocumentModel()
+        let undo = UndoManager()
+        doc.undoManager = undo
+
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 10), end: SIMD2<Double>(10, 10))
+        let constraint = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id], isDriven: false)
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB], constraints: [constraint])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        doc.addFeature(feature)
+        undo.removeAllActions()
+
+        // Mutate to driven
+        let result = doc.setSketchConstraintDriven(in: feature.id, constraintId: constraint.id, isDriven: true)
+        #expect(result == .success(()))
+
+        if case .sketch(let data) = doc.feature(for: feature.id)?.operation {
+            #expect(data.constraints.first?.isDriven == true)
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+        #expect(undo.canUndo)
+        #expect(undo.undoActionName == "Convert Constraint to Driven")
+
+        // Undo mutation
+        undo.undo()
+        if case .sketch(let data) = doc.feature(for: feature.id)?.operation {
+            #expect(data.constraints.first?.isDriven == false)
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+        #expect(undo.canRedo)
+        #expect(undo.redoActionName == "Convert Constraint to Driven")
+
+        // Redo mutation
+        undo.redo()
+        if case .sketch(let data) = doc.feature(for: feature.id)?.operation {
+            #expect(data.constraints.first?.isDriven == true)
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+
+        // Mutate back to driving
+        let drivingResult = doc.setSketchConstraintDriven(in: feature.id, constraintId: constraint.id, isDriven: false)
+        #expect(drivingResult == .success(()))
+        #expect(undo.undoActionName == "Convert Constraint to Driving")
+        if case .sketch(let data) = doc.feature(for: feature.id)?.operation {
+            #expect(data.constraints.first?.isDriven == false)
+        }
+    }
+
+    @Test @MainActor func testWorkspaceConflictingConstraintsDiagnosisAndDrivenResolution() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        workspace.selectFeature(feature.id)
+
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c1)
+
+        let c2 = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c2)
+
+        // Conflicting diagnosis populated
+        #expect(workspace.conflictingConstraintIds.contains(c1.id))
+        #expect(workspace.conflictingConstraintIds.contains(c2.id))
+        #expect(workspace.overConstrainedMessage != nil)
+        if case .overConstrained = workspace.sketchDOFStatus {} else {
+            Issue.record("Expected overConstrained DOF status, got \(workspace.sketchDOFStatus)")
+        }
+
+        // Convert perpendicular constraint to driven
+        workspace.setSketchConstraintDriven(in: feature.id, constraintId: c2.id, isDriven: true)
+
+        #expect(workspace.conflictingConstraintIds.isEmpty)
+        #expect(workspace.overConstrainedMessage == nil)
+        if case .overConstrained = workspace.sketchDOFStatus {
+            Issue.record("Expected status to recover from over-constrained after driven conversion")
+        }
+
+        // Convert back to driving: conflict reappears
+        workspace.toggleSketchConstraintDriven(in: feature.id, constraintId: c2.id)
+        #expect(workspace.conflictingConstraintIds.contains(c1.id))
+        #expect(workspace.conflictingConstraintIds.contains(c2.id))
+        #expect(workspace.overConstrainedMessage != nil)
+        if case .overConstrained = workspace.sketchDOFStatus {} else {
+            Issue.record("Expected overConstrained DOF status to return")
+        }
+    }
+
+    @Test @MainActor func testWorkspaceRedundantConstraintsDiagnosisAndDrivenResolution() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        workspace.selectFeature(feature.id)
+
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c1)
+
+        let c2 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c2)
+
+        // Redundancy detected
+        #expect(workspace.redundantConstraintIds.contains(c1.id) || workspace.redundantConstraintIds.contains(c2.id))
+        #expect(workspace.redundantConstraintsMessage != nil)
+        if case .overConstrained = workspace.sketchDOFStatus {
+            Issue.record("Redundant system should converge, not report overConstrained")
+        }
+
+        // Target whichever constraint was marked redundant
+        let redundantId = workspace.redundantConstraintIds.first ?? c2.id
+        workspace.setSketchConstraintDriven(in: feature.id, constraintId: redundantId, isDriven: true)
+
+        #expect(workspace.redundantConstraintIds.isEmpty)
+        #expect(workspace.redundantConstraintsMessage == nil)
+
+        // Toggling back to driving restores redundancy diagnosis
+        workspace.toggleSketchConstraintDriven(in: feature.id, constraintId: redundantId)
+        #expect(!workspace.redundantConstraintIds.isEmpty)
+        #expect(workspace.redundantConstraintsMessage != nil)
+    }
+
+    @Test @MainActor func testWorkspaceUndoRedoRestoresConstraintDiagnostics() {
+        let workspace = WorkspaceModel()
+        let undo = UndoManager()
+        workspace.document.undoManager = undo
+
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        let c2 = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB], constraints: [c1, c2])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+        undo.removeAllActions()
+
+        workspace.selectFeature(feature.id)
+
+        #expect(workspace.conflictingConstraintIds.contains(c1.id))
+        #expect(workspace.conflictingConstraintIds.contains(c2.id))
+        #expect(workspace.overConstrainedMessage != nil)
+
+        // Convert c2 to driven
+        workspace.setSketchConstraintDriven(in: feature.id, constraintId: c2.id, isDriven: true)
+        #expect(workspace.conflictingConstraintIds.isEmpty)
+        #expect(workspace.overConstrainedMessage == nil)
+
+        // Undo restores conflict diagnostics
+        workspace.undo()
+        #expect(workspace.conflictingConstraintIds.contains(c1.id))
+        #expect(workspace.conflictingConstraintIds.contains(c2.id))
+        #expect(workspace.overConstrainedMessage != nil)
+
+        // Redo restores resolution
+        workspace.redo()
+        #expect(workspace.conflictingConstraintIds.isEmpty)
+        #expect(workspace.overConstrainedMessage == nil)
+    }
+
+    @Test @MainActor func testWorkspaceDeselectClearsDiagnosticState() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        let c2 = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB], constraints: [c1, c2])
+        let sketchFeature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        let nonSketchFeature = Feature(name: "Box 1", operation: .primitive(.box(BoxParams(width: 10, depth: 10, height: 10))))
+        workspace.document.addFeature(sketchFeature)
+        workspace.document.addFeature(nonSketchFeature)
+
+        workspace.selectFeature(sketchFeature.id)
+        #expect(!workspace.conflictingConstraintIds.isEmpty)
+        #expect(workspace.overConstrainedMessage != nil)
+
+        // Selecting a non-sketch feature clears diagnostic state
+        workspace.selectFeature(nonSketchFeature.id)
+        #expect(workspace.conflictingConstraintIds.isEmpty)
+        #expect(workspace.redundantConstraintIds.isEmpty)
+        #expect(workspace.overConstrainedMessage == nil)
+        #expect(workspace.redundantConstraintsMessage == nil)
+        #expect(workspace.sketchDOFStatus == .inactive)
+
+        // Select sketch feature again
+        workspace.selectFeature(sketchFeature.id)
+        #expect(!workspace.conflictingConstraintIds.isEmpty)
+
+        // Explicit .inactive status clears diagnostic state
+        workspace.setSketchDOFStatus(.inactive)
+        #expect(workspace.conflictingConstraintIds.isEmpty)
+        #expect(workspace.redundantConstraintIds.isEmpty)
+        #expect(workspace.overConstrainedMessage == nil)
+        #expect(workspace.redundantConstraintsMessage == nil)
+    }
 }

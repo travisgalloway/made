@@ -61,7 +61,13 @@ final class WorkspaceModel {
     /// Current candidate constraint inferences generated live from sketch geometry (ADR-D4, #37).
     var inferredConstraints: [SketchConstraint] = []
     /// Diagnostic message when sketch constraints are over-constrained or conflicting (ADR-D4, #37).
-    var overConstrainedMessage: String? = nil
+    public var overConstrainedMessage: String? = nil
+    /// Identifiers of constraints involved in an over-constrained conflict (BL-CON-06, #197).
+    public var conflictingConstraintIds: Set<UUID> = []
+    /// Identifiers of constraints identified as algebraically redundant (BL-CON-06, #197).
+    public var redundantConstraintIds: Set<UUID> = []
+    /// Diagnostic message when sketch constraints are redundant (BL-CON-06, #197).
+    public var redundantConstraintsMessage: String? = nil
     /// Currently hovered sketch region identifier for viewport preview highlight (BL-SKT-12).
     var hoveredSketchRegionId: UUID? = nil
     /// Currently selected sketch region identifier for feature extrusion (BL-SKT-12).
@@ -89,6 +95,10 @@ final class WorkspaceModel {
         sketchDOFStatus = status
         if status == .inactive {
             entityDOFStatus = [:]
+            conflictingConstraintIds = []
+            redundantConstraintIds = []
+            redundantConstraintsMessage = nil
+            overConstrainedMessage = nil
         }
     }
 
@@ -962,18 +972,77 @@ final class WorkspaceModel {
         }
     }
 
+    private func processSolverResult(
+        _ result: SolverResult,
+        for featureId: UUID,
+        sketchData: SketchFeatureData,
+        updateEntities: Bool
+    ) {
+        entityDOFStatus = result.entityDOF
+
+        switch result.status {
+        case .converged:
+            conflictingConstraintIds = []
+            redundantConstraintIds = []
+            overConstrainedMessage = nil
+            redundantConstraintsMessage = nil
+            if result.dof == 0 {
+                setSketchDOFStatus(.fullyConstrained)
+            } else {
+                setSketchDOFStatus(.underConstrained(dof: result.dof))
+            }
+            if updateEntities && result.solvedEntities != sketchData.entities {
+                _ = document.updateSketchEntities(in: featureId, entities: result.solvedEntities)
+            }
+
+        case .redundant(let redundant):
+            conflictingConstraintIds = []
+            overConstrainedMessage = nil
+            redundantConstraintIds = Set(redundant)
+            let names = redundant.compactMap { id in
+                sketchData.constraints.first(where: { $0.id == id })?.kind.rawValue.capitalized
+            }
+            let desc = names.isEmpty ? "Redundant constraints" : names.joined(separator: " and ")
+            redundantConstraintsMessage = "Redundant: \(desc) have no effect on degrees of freedom"
+            if result.dof == 0 {
+                setSketchDOFStatus(.fullyConstrained)
+            } else {
+                setSketchDOFStatus(.underConstrained(dof: result.dof))
+            }
+            if updateEntities && result.solvedEntities != sketchData.entities {
+                _ = document.updateSketchEntities(in: featureId, entities: result.solvedEntities)
+            }
+
+        case .overConstrained(let conflicting):
+            redundantConstraintIds = []
+            redundantConstraintsMessage = nil
+            conflictingConstraintIds = Set(conflicting)
+            let names = conflicting.compactMap { id in
+                sketchData.constraints.first(where: { $0.id == id })?.kind.rawValue.capitalized
+            }
+            let desc = names.isEmpty ? "Conflicting constraints" : names.joined(separator: " and ")
+            overConstrainedMessage = "Over-constrained: \(desc) conflict on sketch entities"
+            setSketchDOFStatus(.overConstrained(dof: result.dof))
+
+        case .failedToConverge(let reason):
+            redundantConstraintIds = []
+            redundantConstraintsMessage = nil
+            conflictingConstraintIds = []
+            overConstrainedMessage = "Failed to converge: \(reason)"
+            setSketchDOFStatus(.overConstrained(dof: result.dof))
+        }
+    }
+
     func refreshSketchStatus(for featureId: UUID) {
         refreshDetectedSketchRegions(for: featureId)
         guard let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation else {
             setSketchDOFStatus(.inactive)
-            overConstrainedMessage = nil
             inferredConstraints = []
             return
         }
         let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
-        let dofStatus = ConstraintSolver.computeDOFStatus(system: system)
-        setSketchDOFStatus(dofStatus)
-        entityDOFStatus = ConstraintSolver.computeEntityDOF(system: system)
+        let result = ConstraintSolver.solve(system: system)
+        processSolverResult(result, for: featureId, sketchData: sketchData, updateEntities: false)
         if isLiveInferenceEnabled {
             inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
         } else {
@@ -998,30 +1067,7 @@ final class WorkspaceModel {
 
         let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
         let result = ConstraintSolver.solve(system: system, dragTarget: dragTarget)
-        entityDOFStatus = result.entityDOF
-
-        switch result.status {
-        case .converged, .redundant:
-            overConstrainedMessage = nil
-            if result.dof == 0 {
-                setSketchDOFStatus(.fullyConstrained)
-            } else {
-                setSketchDOFStatus(.underConstrained(dof: result.dof))
-            }
-            if result.solvedEntities != sketchData.entities {
-                _ = document.updateSketchEntities(in: featureId, entities: result.solvedEntities)
-            }
-        case .overConstrained(let conflicting):
-            let names = conflicting.compactMap { id in
-                sketchData.constraints.first(where: { $0.id == id })?.kind.rawValue.capitalized
-            }
-            let desc = names.isEmpty ? "Conflicting constraints" : names.joined(separator: " and ")
-            overConstrainedMessage = "Over-constrained: \(desc) conflict on sketch entities"
-            setSketchDOFStatus(.overConstrained(dof: result.dof))
-        case .failedToConverge(let reason):
-            overConstrainedMessage = "Failed to converge: \(reason)"
-            setSketchDOFStatus(.overConstrained(dof: result.dof))
-        }
+        processSolverResult(result, for: featureId, sketchData: sketchData, updateEntities: true)
 
         if isLiveInferenceEnabled {
             if let updatedFeat = document.feature(for: featureId), case .sketch(let updatedData) = updatedFeat.operation {
@@ -1052,30 +1098,7 @@ final class WorkspaceModel {
 
         let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
         let result = ConstraintSolver.solve(system: system, dragTarget: dragTarget)
-        entityDOFStatus = result.entityDOF
-
-        switch result.status {
-        case .converged, .redundant:
-            overConstrainedMessage = nil
-            if result.dof == 0 {
-                setSketchDOFStatus(.fullyConstrained)
-            } else {
-                setSketchDOFStatus(.underConstrained(dof: result.dof))
-            }
-            if result.solvedEntities != sketchData.entities {
-                _ = document.updateSketchEntities(in: featureId, entities: result.solvedEntities)
-            }
-        case .overConstrained(let conflicting):
-            let names = conflicting.compactMap { id in
-                sketchData.constraints.first(where: { $0.id == id })?.kind.rawValue.capitalized
-            }
-            let desc = names.isEmpty ? "Conflicting constraints" : names.joined(separator: " and ")
-            overConstrainedMessage = "Over-constrained: \(desc) conflict on sketch entities"
-            setSketchDOFStatus(.overConstrained(dof: result.dof))
-        case .failedToConverge(let reason):
-            overConstrainedMessage = "Failed to converge: \(reason)"
-            setSketchDOFStatus(.overConstrained(dof: result.dof))
-        }
+        processSolverResult(result, for: featureId, sketchData: sketchData, updateEntities: true)
     }
 
     func addSketchEntity(to featureId: UUID, entity: SketchEntity) {
@@ -1383,6 +1406,23 @@ final class WorkspaceModel {
             }
         }
         recomputeDependents(of: featureId)
+    }
+
+    public func setSketchConstraintDriven(in featureId: UUID, constraintId: UUID, isDriven: Bool) {
+        _ = document.setSketchConstraintDriven(in: featureId, constraintId: constraintId, isDriven: isDriven)
+        solveSketchConstraints(featureId: featureId)
+        if isLiveInferenceEnabled {
+            if let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation {
+                inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
+            }
+        }
+        recomputeDependents(of: featureId)
+    }
+
+    public func toggleSketchConstraintDriven(in featureId: UUID, constraintId: UUID) {
+        guard let feat = document.feature(for: featureId), case .sketch(let data) = feat.operation,
+              let constraint = data.constraints.first(where: { $0.id == constraintId }) else { return }
+        setSketchConstraintDriven(in: featureId, constraintId: constraintId, isDriven: !constraint.isDriven)
     }
 
     func toggleLiveInference() {
@@ -2405,6 +2445,9 @@ final class WorkspaceModel {
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)
         }
+        if let sketch = selectedSketchFeature {
+            refreshSketchStatus(for: sketch.id)
+        }
     }
 
     func redo() {
@@ -2415,6 +2458,9 @@ final class WorkspaceModel {
         let oldSet = Set(oldObjects.map(\.id))
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)
+        }
+        if let sketch = selectedSketchFeature {
+            refreshSketchStatus(for: sketch.id)
         }
     }
 
