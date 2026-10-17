@@ -97,6 +97,48 @@ final class WorkspaceModel {
         entityDOFStatus[entityId] ?? .inactive
     }
 
+    /// Returns whether the specified feature is actively selected in the document (BL-SKT-18, #366).
+    public func isFeatureSelected(_ feature: Feature) -> Bool {
+        if document.selection.contains(where: { ref in
+            switch ref.target {
+            case .feature(let featId):
+                return featId == feature.id
+            case .sketchEntity(let featId, _):
+                return featId == feature.id
+            default:
+                return false
+            }
+        }) {
+            return true
+        }
+        if let selectedId {
+            if let feat = document.feature(for: selectedId), feat.id == feature.id {
+                return true
+            }
+            if let uuid = UUID(uuidString: selectedId.rawValue), uuid == feature.id {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Returns the degrees-of-freedom constraint status for a sketch feature (BL-SKT-18, #366).
+    /// If the feature is currently selected, returns the live workspace status; otherwise evaluates the constraint system directly.
+    public func sketchDOFStatus(for feature: Feature) -> SketchDOFStatus {
+        if isFeatureSelected(feature) {
+            return sketchDOFStatus
+        }
+        guard case .sketch(let sketchData) = feature.operation else { return .inactive }
+        let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
+        return ConstraintSolver.computeDOFStatus(system: system)
+    }
+
+    /// Returns the degrees-of-freedom constraint status for a feature by identifier (BL-SKT-18, #366).
+    public func sketchDOFStatus(for featureId: UUID) -> SketchDOFStatus {
+        guard let feature = document.feature(for: featureId) else { return .inactive }
+        return sketchDOFStatus(for: feature)
+    }
+
     func setHoveredSketchRegion(_ id: UUID?) {
         guard hoveredSketchRegionId != id else { return }
         hoveredSketchRegionId = id

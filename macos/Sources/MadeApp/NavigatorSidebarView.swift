@@ -406,17 +406,21 @@ private struct NavigatorRow: View {
     }
 }
 
-/// Outline row for a 2D sketch feature in the Navigator sidebar.
-private struct NavigatorSketchRow: View {
+/// Outline row for a 2D sketch feature in the Navigator sidebar (BL-SKT-18, #366).
+struct NavigatorSketchRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
 
     var body: some View {
-        let isSelected = workspace.selectedSketchFeature?.id == feature.id
+        let isSelected = workspace.isFeatureSelected(feature)
+        let status = workspace.sketchDOFStatus(for: feature)
+        let count = entityCount
+
         HStack(alignment: .center, spacing: 8) {
-            Image(systemName: "pencil.and.ruler.fill")
-                .foregroundStyle(Color.purple)
+            Image(systemName: Self.treeIconSystemImage(for: status))
+                .foregroundStyle(Self.treeIconColor(for: status))
                 .frame(width: 16)
+                .help(status.statusText)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -433,13 +437,15 @@ private struct NavigatorSketchRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if !status.isInactive {
+                        dofBadge(for: status)
+                    }
                 }
 
-                if case .sketch(let data) = feature.operation {
-                    Text("\(data.entities.count) entities")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                Text(Self.subtitle(entityCount: count, status: status))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 4)
@@ -450,6 +456,74 @@ private struct NavigatorSketchRow: View {
             workspace.selectFeature(feature.id)
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, entityCount: count, status: status))
+    }
+
+    private var entityCount: Int {
+        if case .sketch(let data) = feature.operation {
+            return data.entities.count
+        }
+        return 0
+    }
+
+    @ViewBuilder
+    private func dofBadge(for status: SketchDOFStatus) -> some View {
+        let color = ViewportStatusBar.dofColor(for: status) ?? .secondary
+        Text(status.badgeText)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(color.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(color.opacity(0.35), lineWidth: 1)
+            )
+    }
+
+    nonisolated static func treeIconSystemImage(for status: SketchDOFStatus) -> String {
+        switch status {
+        case .inactive:
+            return "pencil.and.ruler.fill"
+        case .underConstrained:
+            return "pencil.and.ruler.fill"
+        case .fullyConstrained:
+            return "checkmark.circle.fill"
+        case .overConstrained:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    nonisolated static func treeIconColor(for status: SketchDOFStatus) -> Color {
+        switch status {
+        case .inactive:
+            return .purple
+        case .underConstrained:
+            return .blue
+        case .fullyConstrained:
+            return .green
+        case .overConstrained:
+            return .red
+        }
+    }
+
+    nonisolated static func badgeText(for status: SketchDOFStatus) -> String {
+        status.badgeText
+    }
+
+    nonisolated static func subtitle(entityCount: Int, status: SketchDOFStatus) -> String {
+        if status.isInactive {
+            return "\(entityCount) entities"
+        } else {
+            return "\(entityCount) entities • \(status.summaryDescription)"
+        }
+    }
+
+    nonisolated static func accessibilityLabel(featureName: String, entityCount: Int, status: SketchDOFStatus) -> String {
+        "\(featureName), Sketch, \(entityCount) entities, \(status.statusText)"
     }
 }
 

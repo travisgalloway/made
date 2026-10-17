@@ -70,7 +70,7 @@ macos/
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
                            SnapOverlayView, EmptySceneGuidanceOverlayView, Document/MadeDocument
   Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests)
-  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, and application unit tests
+  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, SketchStatusIndicatorTests, and application unit tests
 ```
 
 ## Architectural invariants
