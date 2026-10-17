@@ -1,12 +1,12 @@
 # Testing Strategy & Verification
 
-The testing architecture in `made` is built on Swift Package Manager (`swift test`) using **Swift Testing** (`@Test` and `#expect`) and Swift Concurrency testing primitives. The package has one test target, `MadeCoreTests`, with focused suites in [`macos/Tests/MadeCoreTests`](../../macos/Tests/MadeCoreTests).
+The testing architecture in `made` is built on Swift Package Manager (`swift test`) using **Swift Testing** (`@Test` and `#expect`) and Swift Concurrency testing primitives. The package has two test targets. `MadeCoreTests` holds focused suites in [`macos/Tests/MadeCoreTests`](../../macos/Tests/MadeCoreTests), and `MadeAppTests` holds suites for `MadeApp` in [`macos/Tests/MadeAppTests`](../../macos/Tests/MadeAppTests).
 
 ---
 
 ## Test Suites Overview
 
-`MadeCoreTests` has 28 suites and 235 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite, and no test creates a SwiftUI view. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
+`MadeCoreTests` has 69 test files and 951 tests, and `MadeAppTests` has 16 files and 200 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite. `MadeAppTests` constructs individual SwiftUI views, such as `ViewportStatusBar`, and tests `WorkspaceModel`. The table below lists a subset of the suites. `docs/test-plan.md` Table 2 maps 1,150 of the 1,151 tests to capabilities. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
 
 | Suite Name | Target Module | What It Verifies |
 | ---------- | ------------- | ---------------- |
@@ -90,7 +90,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$BIN" --mcp
 ```sh
 echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | "$BIN" --mcp-stdio
 ```
-**Expected Output**: JSON list of all 8 CAD tools with their JSON Schema parameters.
+**Expected Output**: JSON list of all 12 CAD tools with their JSON Schema parameters.
 
 ### 3. Tool Execution
 ```sh

@@ -39,7 +39,7 @@ Then navigate based on your task:
 | **3D Rendering** | Metal 4, MetalKit (`MTKView`), MSL shaders compiled at build time |
 | **Memory Architecture** | Metal buffers allocated with `.storageModeShared`; mesh arrays are copied in at upload |
 | **Geometry Kernel (Tier 1)** | Pure-Swift CSG (`nicklockwood/Euclid` 0.9.6) permanently retained for fast preview and tests ([ADR-D9](./architecture/adr/ADR-D9-fate-of-euclid-mesh-path.md), #247) |
-| **Geometry Kernel (Tier 2)** | Canonical B-rep kernel ([ADR-D1](./architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142), planned in `Package.swift`: OpenCASCADE B-Rep and STEP/IGES through `OCCTSwift` (#82) with Swift fallback (#418) |
+| **Geometry Kernel (Tier 2)** | Canonical B-rep kernel ([ADR-D1](./architecture/adr/ADR-D1-canonical-geometry-kernel.md), #142), OpenCASCADE B-Rep and STEP import and export through `OCCTSwift` 3.0.0, declared in `Package.swift` (#82). IGES has no entry point (#404). The Swift fallback is planned (#418) |
 | **Modeling Paradigm** | Hybrid history-based feature list recording direct edits as features; multi-body parts by default ([ADR-D2](./architecture/adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150) |
 | **Topological Naming** | Query-based references from generation history (`BRepTools_History`) with fallback geometric signatures; index prohibition ([ADR-D3](./architecture/adr/ADR-D3-topological-naming.md), #144, #152) |
 | **2D Constraint Solver** | FreeCAD `planegcs` (LGPL-2.1) with clean-room Swift fallback in `libs/` ([ADR-D4](./architecture/adr/ADR-D4-2d-constraint-solver.md), #146, #37, #415) |
@@ -54,7 +54,7 @@ Then navigate based on your task:
 
 ```
 macos/
-  Package.swift           # Swift 6 Package manifest defining MadeCore & MadeApp
+  Package.swift           # Swift 6 Package manifest defining MadeCore, MadeApp, and MadeKernelService
   Sources/
     MadeCore/             # Core engineering library
       Kernel/             # Geometry generators, CSG engine, KernelClient actor
@@ -62,8 +62,11 @@ macos/
       Input/              # Pointer router, gesture arbiter, priority snapping
       Scene/              # @Observable DocumentModel, scene commands
       Agent/              # MCP protocol, server, CAD tools registry
-      Scripting/          # Cadova-inspired declarative Swift CAD DSL
+      Scripting/          # Cadova-inspired declarative Swift CAD DSL and the `.part.ts` JavaScriptCore runtime
+      Serialization/      # `.made` package coder, manifest, migration, crash recovery
+      Licenses/           # Open-source license catalog and resources
       Platform/           # AppKit / UIKit platform abstraction shims
+    MadeKernelService/    # Kernel XPC service executable
     MadeApp/              # Application executable target
       MadeApp.swift       # SwiftUI @main entrypoint & --mcp-stdio handler
       ContentView.swift   # NavigationSplitView and toolbar
@@ -73,7 +76,8 @@ macos/
       ConsoleDrawerView.swift, MCPServerPopoverView.swift # Console pane and MCP popover
       CADMetalViewRepresentable.swift # MTKView representable (AppKit; UIKit branch is not built)
   Tests/
-    MadeCoreTests/        # 18 test suites (DSL, CSG, Kernel, Arbiter, Snapping, Document, Tools, MCP, camera, grid, axes, viewport, renderer, shader)
+    MadeCoreTests/        # 69 test files (kernel, sketch and solver, document, serialization, input, viewport, MCP, scripting)
+    MadeAppTests/         # 16 test files (WorkspaceModel, commands, panes, sketch UI, document)
 docs/
   design-system/          # Color, type, spacing tokens and per-view UI guidelines
   architecture/           # Canonical architecture reference specifications
@@ -84,7 +88,7 @@ docs/
   feature-matrix.md       # Implementation status per capability
   test-plan.md            # Test coverage by type
   parked-findings.md      # Audit findings deferred from the current scope
-  reviews/                # Audit reports (2026-10-10, 2026-10-11)
+  reviews/                # Audit reports (2026-10-10, 2026-10-11, 2026-10-13, 2026-10-17)
 ```
 
 ---

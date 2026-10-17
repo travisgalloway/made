@@ -29,7 +29,7 @@ swift run --build-system swiftbuild MadeApp --mcp-stdio
 - Where SDK types lack formal Sendable annotations (e.g., `MTLBuffer` pointers in MetalKit), annotate wrapping structs as `@unchecked Sendable` only after verifying thread-safety invariants by review.
 
 ### MainActor vs Background Actors
-- Target: presentation views, gesture handling, and `@Observable DocumentModel` belong on `@MainActor`. Today only the two `Coordinator` classes carry `@MainActor`; `DocumentModel`, `GestureArbiter`, and `PointerRouter` are `@unchecked Sendable` (#91).
+- Target: presentation views, gesture handling, and `@Observable DocumentModel` belong on `@MainActor`. Today `DocumentModel`, `CADToolRegistry`, and the two `Coordinator` classes carry `@MainActor`. `GestureArbiter` and `PointerRouter` are `@unchecked Sendable` (DSN-1eb23904).
 - Math-heavy and tessellation tasks execute in the `KernelClient` actor.
 - Use `await withCheckedContinuation` for adapting legacy asynchronous delegate APIs, and never use blocking waits (`cmdBuffer.waitUntilCompleted()`) inside asynchronous Swift contexts.
 
@@ -38,11 +38,11 @@ swift run --build-system swiftbuild MadeApp --mcp-stdio
 ## 2. Dependency Discipline
 
 - **`MadeCore` is lean by design.**
-  - `nicklockwood/Euclid` (0.9.6) is the single core dependency for pure-Swift CSG geometry.
+  - `nicklockwood/Euclid` (0.9.6) provides pure-Swift CSG geometry, and `SecondMouseAU/OCCTSwift` (3.0.0) provides the exact B-rep kernel. These are the two core dependencies.
   - No bloated third-party packages for geometry or networking.
   - Standard Apple frameworks are preferred: `MetalKit`, `simd`, `ImageIO`, `UniformTypeIdentifiers`.
 - **C++ Framework Boundaries**:
-  - Planned (#82): the OpenCASCADE integration (`OCCTSwift`) will sit behind a dedicated framework module. It must not leak raw OpenCASCADE symbols into the SwiftUI presentation layer. `Package.swift` does not declare it yet.
+  - The OpenCASCADE integration (`OCCTSwift`, #82) sits behind `OCCTEngine` in `MadeCore/Kernel`. It must not leak raw OpenCASCADE symbols into the SwiftUI presentation layer. `LayeringTests.nonKernelLayersReferenceNoOCCT` enforces this for `Viewport`, `Scripting`, and `Scene`.
 
 ---
 

@@ -64,3 +64,7 @@ As `made` expands to support exact B-Rep modeling, topological naming ([ADR-D3](
 - **Test suite velocity:** The existing 417+ test suite runs in under 3 seconds in pure Swift without requiring XPC service setup or heavy framework boots.
 - **Clear limitations:** Euclid cannot perform exact CAD operations (fillets, chamfers, draft angles, STEP exchange, persistent topological naming). When such operations are requested, the request routes to Tier 2 (OCCT), returning explicit error diagnostics (`geometryFailed`) if the Tier 2 engine is unavailable.
 - **Licensing:** Euclid's MIT license is cataloged in `LicenseCatalog.swift` and `Resources/licenses.json`, completely compliant with `made`'s MPL-2.0 project license ([ADR-D8](./ADR-D8-project-license.md)).
+
+## Notes
+
+- 2026-10-17: `LayeringTests.scriptingReferencesNoEuclid` was renamed. `LayeringTests.scriptingReferencesNoKernelInternals` (`macos/Tests/MadeCoreTests/LayeringTests.swift:27`) now enforces the boundary in Decision item 3.
