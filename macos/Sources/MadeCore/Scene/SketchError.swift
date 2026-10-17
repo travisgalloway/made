@@ -13,6 +13,7 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
     case solverNonConvergence(message: String)
     case noIntersection(String)
     case pointNotOnEntity(entityId: UUID)
+    case degenerateProjection(String)
 
     public var errorDescription: String? {
         switch self {
@@ -38,6 +39,8 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
             return "No intersection found: \(msg)"
         case .pointNotOnEntity(let id):
             return "Point does not lie on sketch entity \(id.uuidString)"
+        case .degenerateProjection(let msg):
+            return "Degenerate projection: \(msg)"
         }
     }
 }

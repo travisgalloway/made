@@ -413,6 +413,13 @@ struct ToolsMenuCommands: Commands {
             Divider()
 
             Menu("Sketch Operations") {
+                Button("Project Selected Geometry") {
+                    _ = workspace.projectSelectedGeometry()
+                }
+                .keyboardShortcut(WorkspaceModel.projectGeometryShortcutKey, modifiers: WorkspaceModel.projectGeometryShortcutModifiers)
+
+                Divider()
+
                 Button("Trim Entity") {
                     workspace.tool = .trim
                 }

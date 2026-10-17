@@ -327,6 +327,110 @@ public enum KernelRegeneration {
                 continue
             }
 
+            // Evaluate sketch features: validate references and re-project geometry
+            if case .sketch(var sketchData) = feature.operation {
+                let upstreamIds = document.directDependencies(of: feature)
+                let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
+                if failedParent != nil {
+                    let errorState = FeatureErrorState(
+                        code: "parent-failed",
+                        message: "parent failed",
+                        severity: .warning
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                    continue
+                } else if feature.errorState?.code == "parent-failed" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
+                    let errorState = FeatureErrorState(
+                        code: "reference-broken",
+                        message: "Reference broken: \(brokenErr.description)",
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                    continue
+                } else if feature.errorState?.code == "reference-broken" {
+                    feature.errorState = nil
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                let plane = document.resolveSketchPlane(for: sketchData)
+                var entitiesUpdated = false
+                var projectionFailed = false
+
+                for i in 0..<sketchData.entities.count {
+                    guard let ref = sketchData.entities[i].reference else { continue }
+                    switch ModelEdgeEvaluator.evaluate(reference: ref, in: document) {
+                    case .success(let curve):
+                        do {
+                            let reprojected = try SketchOperations.project(curve: curve, onto: plane, reference: ref)
+                            var updated = reprojected
+                            updated.id = sketchData.entities[i].id
+                            updated.isConstruction = sketchData.entities[i].isConstruction
+                            if sketchData.entities[i] != updated {
+                                sketchData.entities[i] = updated
+                                entitiesUpdated = true
+                            }
+                        } catch {
+                            projectionFailed = true
+                            let errorState = FeatureErrorState(
+                                code: "reference-broken",
+                                message: "Projection failed: \(error.localizedDescription)",
+                                severity: .error
+                            )
+                            document.setFeatureError(id: feature.id, error: errorState)
+                            for dep in document.dependentFeatures(referencing: feature.id) {
+                                document.setFeatureError(
+                                    id: dep.id,
+                                    error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                                )
+                            }
+                            break
+                        }
+                    case .failure(let err):
+                        projectionFailed = true
+                        let errorState = FeatureErrorState(
+                            code: "reference-broken",
+                            message: "Reference broken: \(err.description)",
+                            severity: .error
+                        )
+                        document.setFeatureError(id: feature.id, error: errorState)
+                        for dep in document.dependentFeatures(referencing: feature.id) {
+                            document.setFeatureError(
+                                id: dep.id,
+                                error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                            )
+                        }
+                        break
+                    }
+                }
+
+                if projectionFailed {
+                    continue
+                }
+
+                if entitiesUpdated {
+                    feature.operation = .sketch(sketchData)
+                    _ = document.updateFeature(feature)
+                }
+                continue
+            }
+
             // Rebuild profile from upstream sketch entities for extrude features
             if case .extrude(var extrudeData) = feature.operation {
                 if let sketchId = extrudeData.sketchFeatureId, let sketchFeature = document.feature(for: sketchId),

@@ -877,4 +877,82 @@ public enum SketchOperations {
 
         return closest?.entity
     }
+
+    // MARK: - 3D-to-2D Projection
+
+    /// Projects an evaluated 3D curve onto a target sketch plane, associating the result with an optional parametric reference.
+    public static func project(
+        curve: EvaluatedCurve3D,
+        onto plane: SketchPlane,
+        reference: Reference? = nil
+    ) throws -> SketchEntity {
+        switch curve {
+        case .line(let start3D, let end3D):
+            let start2D = plane.projectPoint(start3D)
+            let end2D = plane.projectPoint(end3D)
+            let len = hypot(end2D.x - start2D.x, end2D.y - start2D.y)
+            if len < tolerance {
+                throw SketchError.degenerateProjection("Projected line length is less than \(tolerance) mm")
+            }
+            return SketchEntity.line(start: start2D, end: end2D, reference: reference)
+
+        case .circle(let center3D, let normal3D, let radius):
+            let normC = simd_length(normal3D) > 1e-6 ? simd_normalize(normal3D) : SIMD3<Float>(0, 0, 1)
+            let normP = simd_length(plane.normal) > 1e-6 ? simd_normalize(plane.normal) : SIMD3<Float>(0, 0, 1)
+            let dot = Double(abs(simd_dot(normC, normP)))
+
+            if dot > 1.0 - tolerance {
+                // Parallel or coplanar
+                let center2D = plane.projectPoint(center3D)
+                return SketchEntity.circle(center: center2D, radius: radius, reference: reference)
+            } else if dot < tolerance {
+                // Perpendicular: projects to a line of length 2r
+                let cross = simd_cross(normC, normP)
+                guard simd_length(cross) > 1e-6 else {
+                    throw SketchError.invalidEntity("Degenerate circle orientation")
+                }
+                let dir = simd_normalize(cross)
+                let p1 = plane.projectPoint(center3D - Float(radius) * dir)
+                let p2 = plane.projectPoint(center3D + Float(radius) * dir)
+                let len = hypot(p2.x - p1.x, p2.y - p1.y)
+                if len < tolerance {
+                    throw SketchError.degenerateProjection("Perpendicular circle projection is degenerate")
+                }
+                return SketchEntity.line(start: p1, end: p2, reference: reference)
+            } else {
+                throw SketchError.invalidEntity("Non-coplanar circle projection onto oblique plane is not supported")
+            }
+
+        case .arc(let center3D, let normal3D, _, _, _, let startPoint3D, let endPoint3D, let clockwise):
+            let normA = simd_length(normal3D) > 1e-6 ? simd_normalize(normal3D) : SIMD3<Float>(0, 0, 1)
+            let normP = simd_length(plane.normal) > 1e-6 ? simd_normalize(plane.normal) : SIMD3<Float>(0, 0, 1)
+            let dot = Double(simd_dot(normA, normP))
+
+            if abs(dot) > 1.0 - tolerance {
+                // Parallel or coplanar
+                let center2D = plane.projectPoint(center3D)
+                let start2D = plane.projectPoint(startPoint3D)
+                let end2D = plane.projectPoint(endPoint3D)
+                let isCw = dot > 0 ? clockwise : !clockwise
+                return SketchEntity.arc(
+                    start: start2D,
+                    end: end2D,
+                    center: center2D,
+                    clockwise: isCw,
+                    reference: reference
+                )
+            } else if abs(dot) < tolerance {
+                // Perpendicular: projects to a line segment
+                let start2D = plane.projectPoint(startPoint3D)
+                let end2D = plane.projectPoint(endPoint3D)
+                let len = hypot(end2D.x - start2D.x, end2D.y - start2D.y)
+                if len < tolerance {
+                    throw SketchError.degenerateProjection("Perpendicular arc projection is degenerate")
+                }
+                return SketchEntity.line(start: start2D, end: end2D, reference: reference)
+            } else {
+                throw SketchError.invalidEntity("Non-coplanar arc projection onto oblique plane is not supported")
+            }
+        }
+    }
 }

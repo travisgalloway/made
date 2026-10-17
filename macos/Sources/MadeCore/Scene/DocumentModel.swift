@@ -452,6 +452,7 @@ public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConve
     case objectLocked(ObjectId)
     case objectNotFound(ObjectId)
     case sketchError(SketchError)
+    case referenceResolutionFailed(ReferenceResolutionError)
 
     public var description: String {
         switch self {
@@ -461,6 +462,8 @@ public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConve
             return "Solid '\(id.rawValue)' not found"
         case .sketchError(let err):
             return "Sketch error: \(err.localizedDescription)"
+        case .referenceResolutionFailed(let err):
+            return "Reference resolution failed: \(err.description)"
         }
     }
 }
@@ -2185,6 +2188,119 @@ public final class DocumentModel {
     }
 
     @discardableResult
+    public func projectEntity(
+        reference: Reference,
+        into sketchFeatureId: UUID
+    ) -> Result<SketchEntity, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == sketchFeatureId }) else {
+            return .failure(.objectNotFound(ObjectId(sketchFeatureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(sketchFeatureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(sketchFeatureId.uuidString)))
+        }
+
+        // Validate reference ordering and existence
+        switch ReferenceResolver.resolve(reference: reference, for: features[index], in: self) {
+        case .failure(let error):
+            return .failure(.referenceResolutionFailed(error))
+        case .success:
+            break
+        }
+
+        // Evaluate 3D curve
+        let curveResult = ModelEdgeEvaluator.evaluate(reference: reference, in: self)
+        let curve: EvaluatedCurve3D
+        switch curveResult {
+        case .success(let evaluated):
+            curve = evaluated
+        case .failure(let error):
+            return .failure(.referenceResolutionFailed(error))
+        }
+
+        // Resolve sketch plane
+        let plane = resolveSketchPlane(for: sketchData)
+
+        // Project into 2D
+        let projectedEntity: SketchEntity
+        do {
+            projectedEntity = try SketchOperations.project(curve: curve, onto: plane, reference: reference)
+        } catch let sketchErr as SketchError {
+            return .failure(.sketchError(sketchErr))
+        } catch {
+            return .failure(.sketchError(.invalidEntity(error.localizedDescription)))
+        }
+
+        // Append to sketch entities and register reference in feature.references
+        sketchData.entities.append(projectedEntity)
+        features[index].operation = .sketch(sketchData)
+        let referenceWasAdded: Bool
+        if !features[index].references.contains(reference) {
+            features[index].references.append(reference)
+            referenceWasAdded = true
+        } else {
+            referenceWasAdded = false
+        }
+
+        let entityId = projectedEntity.id
+        let actionName = "Project Geometry"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.unprojectEntity(from: sketchFeatureId, entityId: entityId, reference: referenceWasAdded ? reference : nil)
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+
+        return .success(projectedEntity)
+    }
+
+    private func unprojectEntity(from sketchFeatureId: UUID, entityId: UUID, reference: Reference?) {
+        guard let index = features.firstIndex(where: { $0.id == sketchFeatureId }),
+              case .sketch(var sketchData) = features[index].operation,
+              let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entityId }) else {
+            return
+        }
+        let removed = sketchData.entities.remove(at: entityIndex)
+        features[index].operation = .sketch(sketchData)
+        if let reference {
+            features[index].references.removeAll(where: { $0 == reference })
+        }
+        let actionName = "Project Geometry"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.reprojectEntity(into: sketchFeatureId, entity: removed, at: entityIndex, reference: reference)
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+    }
+
+    private func reprojectEntity(into sketchFeatureId: UUID, entity: SketchEntity, at insertIndex: Int, reference: Reference?) {
+        guard let index = features.firstIndex(where: { $0.id == sketchFeatureId }),
+              case .sketch(var sketchData) = features[index].operation else {
+            return
+        }
+        let safeIndex = max(0, min(insertIndex, sketchData.entities.count))
+        sketchData.entities.insert(entity, at: safeIndex)
+        features[index].operation = .sketch(sketchData)
+        if let reference, !features[index].references.contains(reference) {
+            features[index].references.append(reference)
+        }
+        let entityId = entity.id
+        let actionName = "Project Geometry"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.unprojectEntity(from: sketchFeatureId, entityId: entityId, reference: reference)
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+    }
+
+    @discardableResult
     public func extrudeSketch(
         sketchFeatureId: UUID,
         distance: Double,
@@ -2289,6 +2405,11 @@ public final class DocumentModel {
             }
             if let name = s.planeName, let feat = features.first(where: { $0.name == name }) {
                 result.insert(feat.id)
+            }
+            for entity in s.entities {
+                if let refId = entity.reference?.referencedFeatureId {
+                    result.insert(refId)
+                }
             }
         case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
