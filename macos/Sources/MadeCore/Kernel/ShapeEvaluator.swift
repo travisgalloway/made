@@ -42,13 +42,30 @@ enum ShapeEvaluator {
     }
 
     private static func extrudeMesh(profile: SketchProfile, distance: Float, centered: Bool) -> Euclid.Mesh {
-        var pts = orientedPoints(profile.points, clockwise: false)
-        if let first = pts.first {
-            pts.append(first)
+        var outerPts = orientedPoints(profile.points, clockwise: false)
+        if let first = outerPts.first {
+            outerPts.append(first)
         }
-        let pathPoints = pts.map { PathPoint.point(Double($0.x), Double($0.y), 0) }
-        let path = Path(pathPoints)
-        var extruded = Mesh.extrude(path, depth: Double(distance))
+        let outerPathPoints = outerPts.map { PathPoint.point(Double($0.x), Double($0.y), 0) }
+        let outerPath = Path(outerPathPoints)
+
+        let compositePath: Path
+        if profile.holes.isEmpty {
+            compositePath = outerPath
+        } else {
+            let holeSubpaths: [Path] = profile.holes.compactMap { hole in
+                guard !hole.isEmpty else { return nil }
+                var holePts = orientedPoints(hole, clockwise: true)
+                if let first = holePts.first {
+                    holePts.append(first)
+                }
+                let holePathPoints = holePts.map { PathPoint.point(Double($0.x), Double($0.y), 0) }
+                return Path(holePathPoints)
+            }
+            compositePath = Path(subpaths: [outerPath] + holeSubpaths)
+        }
+
+        var extruded = Mesh.extrude(compositePath, depth: Double(distance))
         if !centered {
             extruded = extruded.translated(by: Vector(0, 0, Double(distance) / 2.0))
         }

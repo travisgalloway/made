@@ -59,6 +59,12 @@ final class WorkspaceModel {
     var inferredConstraints: [SketchConstraint] = []
     /// Diagnostic message when sketch constraints are over-constrained or conflicting (ADR-D4, #37).
     var overConstrainedMessage: String? = nil
+    /// Currently hovered sketch region identifier for viewport preview highlight (BL-SKT-12).
+    var hoveredSketchRegionId: UUID? = nil
+    /// Currently selected sketch region identifier for feature extrusion (BL-SKT-12).
+    var selectedSketchRegionId: UUID? = nil
+    /// Detected closed planar regions for the active or selected sketch (BL-SKT-12).
+    var detectedSketchRegions: [SketchRegion] = []
     /// Duration of the most recent solid kernel recomputation (BL-WSP-10).
     private(set) var lastRegenerationDuration: Duration? = nil
 
@@ -78,6 +84,72 @@ final class WorkspaceModel {
 
     func setSketchDOFStatus(_ status: SketchDOFStatus) {
         sketchDOFStatus = status
+    }
+
+    func setHoveredSketchRegion(_ id: UUID?) {
+        guard hoveredSketchRegionId != id else { return }
+        hoveredSketchRegionId = id
+        updateRegionHighlightMesh()
+    }
+
+    func selectSketchRegion(featureId: UUID, regionId: UUID?) {
+        selectedSketchRegionId = regionId
+        updateRegionHighlightMesh()
+    }
+
+    func refreshDetectedSketchRegions(for sketchFeatureId: UUID? = nil) {
+        let targetId = sketchFeatureId ?? selectedSketchFeature?.id
+        guard let targetId,
+              let feat = document.feature(for: targetId),
+              case .sketch(let data) = feat.operation else {
+            detectedSketchRegions = []
+            if hoveredSketchRegionId != nil || selectedSketchRegionId != nil {
+                hoveredSketchRegionId = nil
+                selectedSketchRegionId = nil
+                updateRegionHighlightMesh()
+            }
+            return
+        }
+        let plane = document.resolveSketchPlane(for: data)
+        detectedSketchRegions = (try? SketchProfileBuilder.detectRegions(from: data.entities, plane: plane)) ?? []
+        updateRegionHighlightMesh()
+    }
+
+    func updateRegionHighlightMesh() {
+        let highlightId = ObjectId("sketch-hover-region")
+        let targetRegionId = hoveredSketchRegionId ?? selectedSketchRegionId
+        if let targetRegionId,
+           let region = detectedSketchRegions.first(where: { $0.id == targetRegionId }) {
+            let plane = selectedSketchFeature.flatMap {
+                if case .sketch(let data) = $0.operation { return document.resolveSketchPlane(for: data) }
+                return nil
+            } ?? .xy
+            let profile = region.toProfile(plane: plane)
+            Task { @MainActor in
+                let req = KernelRequest.evaluateShape(
+                    jobId: JobId("highlight-\(UUID().uuidString)"),
+                    solidId: highlightId,
+                    shape: .extrude(profile: profile, distance: 0.05, centered: true)
+                )
+                let result = await kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let color = (hoveredSketchRegionId != nil && hoveredSketchRegionId == targetRegionId) ?
+                        SIMD4<Float>(0.2, 0.7, 1.0, 0.45) :
+                        SIMD4<Float>(0.2, 0.9, 0.4, 0.55)
+                    _ = viewportManager.renderer?.installMesh(
+                        payload,
+                        for: highlightId,
+                        transform: .identity,
+                        color: color,
+                        isHidden: false
+                    )
+                    invalidateViewport(.interaction)
+                }
+            }
+        } else {
+            _ = viewportManager.renderer?.removeMesh(for: highlightId)
+            invalidateViewport(.interaction)
+        }
     }
 
     func setLastRegenerationDuration(_ duration: Duration?) {
@@ -797,12 +869,13 @@ final class WorkspaceModel {
     }
 
     @discardableResult
-    func extrudeSketch(sketchFeatureId: UUID, distance: Double, isSymmetric: Bool = false) async -> ObjectId? {
+    func extrudeSketch(sketchFeatureId: UUID, distance: Double, isSymmetric: Bool = false, regionId: UUID? = nil) async -> ObjectId? {
         do {
             let extrudeFeature = try document.extrudeSketch(
                 sketchFeatureId: sketchFeatureId,
                 distance: distance,
-                isSymmetric: isSymmetric
+                isSymmetric: isSymmetric,
+                regionId: regionId
             )
             guard let solidId = extrudeFeature.outputSolidId else { return nil }
             selectedId = solidId
@@ -814,6 +887,7 @@ final class WorkspaceModel {
     }
 
     func refreshSketchStatus(for featureId: UUID) {
+        refreshDetectedSketchRegions(for: featureId)
         guard let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation else {
             setSketchDOFStatus(.inactive)
             overConstrainedMessage = nil

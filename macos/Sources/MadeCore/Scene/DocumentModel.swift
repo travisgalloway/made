@@ -1952,7 +1952,8 @@ public final class DocumentModel {
         sketchFeatureId: UUID,
         distance: Double,
         isSymmetric: Bool = false,
-        draftAngle: Double = 0.0
+        draftAngle: Double = 0.0,
+        regionId: UUID? = nil
     ) throws -> Feature {
         guard let sketchFeature = feature(for: sketchFeatureId) else {
             throw DocumentMutationError.objectNotFound(ObjectId(sketchFeatureId.uuidString))
@@ -1962,7 +1963,14 @@ public final class DocumentModel {
         }
 
         let sketchPlane = resolveSketchPlane(for: sketchData)
-        let profile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
+        let profile: SketchProfile
+        if let regionId,
+           let regions = try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: sketchPlane),
+           let matched = regions.first(where: { $0.id == regionId }) {
+            profile = matched.toProfile(plane: sketchPlane)
+        } else {
+            profile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
+        }
         let clampedDistance = Double(DocumentLimits.extrudeDistance.clamp(Float(distance)))
 
         seq += 1
@@ -1974,7 +1982,8 @@ public final class DocumentModel {
                 distance: clampedDistance,
                 isSymmetric: isSymmetric,
                 draftAngle: draftAngle,
-                profile: profile
+                profile: profile,
+                regionId: regionId
             )),
             inputExpressions: ["distance": FeatureExpression(value: clampedDistance)],
             references: [.feature(sketchFeatureId, role: "sketchProfile")],

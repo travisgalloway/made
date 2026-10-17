@@ -333,7 +333,14 @@ public enum KernelRegeneration {
                    case .sketch(let sketchData) = sketchFeature.operation {
                     do {
                         let sketchPlane = document.resolveSketchPlane(for: sketchData)
-                        let newProfile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
+                        let newProfile: SketchProfile
+                        if let targetRegionId = extrudeData.regionId,
+                           let regions = try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: sketchPlane),
+                           let matched = regions.first(where: { $0.id == targetRegionId }) {
+                            newProfile = matched.toProfile(plane: sketchPlane)
+                        } else {
+                            newProfile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
+                        }
                         extrudeData.profile = newProfile
                         feature.operation = .extrude(extrudeData)
                         _ = document.updateFeature(feature)

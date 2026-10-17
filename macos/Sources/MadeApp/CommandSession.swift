@@ -837,6 +837,23 @@ extension CommandSession {
             inputs.insert(CommandInput(id: "sketch", label: "Sketch", value: .choice(initialChoice, options: sketchOptions)), at: 0)
         }
 
+        var initialRegions: [SketchRegion] = []
+        if let initialSketchId,
+           let feat = workspace.document.feature(for: initialSketchId),
+           case .sketch(let data) = feat.operation {
+            let plane = workspace.document.resolveSketchPlane(for: data)
+            initialRegions = (try? SketchProfileBuilder.detectRegions(from: data.entities, plane: plane)) ?? []
+        }
+        if initialRegions.count > 1 {
+            let regionOptions = initialRegions.indices.map { "Region \($0 + 1)" }
+            var initialRegionChoice = regionOptions.first ?? "Region 1"
+            if let selRegId = workspace.selectedSketchRegionId,
+               let idx = initialRegions.firstIndex(where: { $0.id == selRegId }) {
+                initialRegionChoice = regionOptions[idx]
+            }
+            inputs.append(CommandInput(id: "region", label: "Region", value: .choice(initialRegionChoice, options: regionOptions)))
+        }
+
         let session = CommandSession(
             title: "Extrude",
             inputs: inputs,
@@ -855,8 +872,12 @@ extension CommandSession {
             }
             guard let targetSketch, case .sketch(let sketchData) = targetSketch.operation else { return false }
             guard !sketchData.entities.isEmpty else { return false }
+            let plane = workspace.document.resolveSketchPlane(for: sketchData)
+            if let regions = try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: plane), !regions.isEmpty {
+                return true
+            }
             do {
-                _ = try SketchProfileBuilder.build(from: sketchData.entities)
+                _ = try SketchProfileBuilder.build(from: sketchData.entities, plane: plane)
                 return true
             } catch {
                 return false
@@ -893,8 +914,23 @@ extension CommandSession {
                 return
             }
 
-            do {
-                let profile = try SketchProfileBuilder.build(from: sketchData.entities)
+            let plane = workspace.document.resolveSketchPlane(for: sketchData)
+            let regions = (try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: plane)) ?? []
+            let profile: SketchProfile?
+            if let regionChoice = session.choiceValue(for: "region"),
+               let num = Int(regionChoice.replacingOccurrences(of: "Region ", with: "")),
+               num >= 1, num <= regions.count {
+                profile = regions[num - 1].toProfile(plane: plane)
+            } else if let selectedRegionId = workspace.selectedSketchRegionId,
+                      let matched = regions.first(where: { $0.id == selectedRegionId }) {
+                profile = matched.toProfile(plane: plane)
+            } else if let primary = regions.first {
+                profile = primary.toProfile(plane: plane)
+            } else {
+                profile = try? SketchProfileBuilder.build(from: sketchData.entities, plane: plane)
+            }
+
+            if let profile {
                 Task { @MainActor in
                     let req = KernelRequest.evaluateShape(
                         jobId: JobId("preview-\(UUID().uuidString)"),
@@ -914,7 +950,7 @@ extension CommandSession {
                         workspace.invalidateViewport(.interaction)
                     }
                 }
-            } catch {
+            } else {
                 _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
                 workspace.invalidateViewport(.interaction)
             }
@@ -935,14 +971,28 @@ extension CommandSession {
                 }
                 return false
             }
-            guard let targetSketch else { return }
+            guard let targetSketch, case .sketch(let sketchData) = targetSketch.operation else { return }
             let dist = session.numberValue(for: "distance") ?? 20.0
             let isSym = session.toggleValue(for: "symmetric") ?? false
+
+            let plane = workspace.document.resolveSketchPlane(for: sketchData)
+            let regions = (try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: plane)) ?? []
+            var chosenRegionId: UUID? = nil
+            if let regionChoice = session.choiceValue(for: "region"),
+               let num = Int(regionChoice.replacingOccurrences(of: "Region ", with: "")),
+               num >= 1, num <= regions.count {
+                chosenRegionId = regions[num - 1].id
+            } else if let selectedRegionId = workspace.selectedSketchRegionId,
+                      regions.contains(where: { $0.id == selectedRegionId }) {
+                chosenRegionId = selectedRegionId
+            }
+
             Task { @MainActor in
                 _ = await workspace.extrudeSketch(
                     sketchFeatureId: targetSketch.id,
                     distance: Double(dist),
-                    isSymmetric: isSym
+                    isSymmetric: isSym,
+                    regionId: chosenRegionId
                 )
             }
         }

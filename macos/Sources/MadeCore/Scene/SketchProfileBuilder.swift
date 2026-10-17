@@ -42,6 +42,14 @@ public enum SketchProfileBuilder {
         }
     }
 
+    /// Detects all closed planar regions and holes from sketch entities.
+    public static func detectRegions(
+        from entities: [SketchEntity],
+        plane: SketchPlane = .xy
+    ) throws -> [SketchRegion] {
+        try SketchRegionDetector.detectRegions(from: entities)
+    }
+
     /// Chains entities, discretizes curved geometry, and returns an oriented, closed `SketchProfile`.
     public static func build(
         from entities: [SketchEntity],
@@ -55,7 +63,7 @@ public enum SketchProfileBuilder {
             try validateEntity(entity)
         }
 
-        // Single circle loop
+        // Single circle loop fast path
         if entities.count == 1, entities[0].kind == "circle" {
             let circle = entities[0]
             guard let r = circle.radius, r > minEntityTolerance else {
@@ -71,6 +79,16 @@ public enum SketchProfileBuilder {
                 points.append(SIMD2<Float>(x, y))
             }
             return SketchProfile(plane: plane, points: points)
+        }
+
+        // Validate that sketch does not contain dangling or open endpoints
+        if hasOpenEndpoints(in: entities) {
+            throw SketchError.openProfile(message: "Sketch contains disconnected or dangling entities")
+        }
+
+        // If sketch forms closed regions (e.g. nested loops with holes or complex planar arrangements), extract primary region
+        if let regions = try? detectRegions(from: entities, plane: plane), let primary = regions.first {
+            return primary.toProfile(plane: plane)
         }
 
         // Chaining curve segments (lines and arcs)
@@ -196,5 +214,90 @@ public enum SketchProfileBuilder {
 
         let orientedPoints = (signedArea > 0) ? deduped : Array(deduped.reversed())
         return SketchProfile(plane: plane, points: orientedPoints)
+    }
+
+    private static func hasOpenEndpoints(in entities: [SketchEntity]) -> Bool {
+        for (i, entity) in entities.enumerated() {
+            let endpoints: [SIMD2<Double>]
+            switch entity.kind {
+            case "line", "arc":
+                guard let sp = entity.startPoint, let ep = entity.endPoint else { continue }
+                endpoints = [sp, ep]
+            default:
+                continue
+            }
+
+            for pt in endpoints {
+                var connects = false
+                for (j, other) in entities.enumerated() {
+                    if i == j { continue }
+                    if isPointOnEntity(pt, entity: other, tolerance: snappingTolerance) {
+                        connects = true
+                        break
+                    }
+                }
+                if !connects {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static func isPointOnEntity(_ pt: SIMD2<Double>, entity: SketchEntity, tolerance: Double) -> Bool {
+        switch entity.kind {
+        case "line":
+            guard let sp = entity.startPoint, let ep = entity.endPoint else { return false }
+            if hypot(pt.x - sp.x, pt.y - sp.y) <= tolerance || hypot(pt.x - ep.x, pt.y - ep.y) <= tolerance {
+                return true
+            }
+            let d = ep - sp
+            let lenSq = simd_dot(d, d)
+            if lenSq < 1e-12 { return false }
+            let t = simd_dot(pt - sp, d) / lenSq
+            if t >= -1e-4 && t <= 1.0 + 1e-4 {
+                let proj = sp + max(0.0, min(1.0, t)) * d
+                return hypot(pt.x - proj.x, pt.y - proj.y) <= tolerance
+            }
+            return false
+
+        case "arc":
+            guard let cp = entity.centerPoint, let r = entity.radius,
+                  let sp = entity.startPoint, let ep = entity.endPoint else { return false }
+            if hypot(pt.x - sp.x, pt.y - sp.y) <= tolerance || hypot(pt.x - ep.x, pt.y - ep.y) <= tolerance {
+                return true
+            }
+            let dist = hypot(pt.x - cp.x, pt.y - cp.y)
+            guard abs(dist - r) <= tolerance else { return false }
+            let a0 = atan2(sp.y - cp.y, sp.x - cp.x)
+            let a1 = atan2(ep.y - cp.y, ep.x - cp.x)
+            let ptA = atan2(pt.y - cp.y, pt.x - cp.x)
+            let sweep: Double
+            let offset: Double
+            if !entity.isClockwise {
+                var s = a1 - a0
+                if s < 0 { s += 2.0 * .pi }
+                var o = ptA - a0
+                if o < 0 { o += 2.0 * .pi }
+                sweep = s
+                offset = o
+            } else {
+                var s = a0 - a1
+                if s < 0 { s += 2.0 * .pi }
+                var o = a0 - ptA
+                if o < 0 { o += 2.0 * .pi }
+                sweep = s
+                offset = o
+            }
+            return offset <= sweep + 1e-4
+
+        case "circle":
+            guard let cp = entity.centerPoint, let r = entity.radius else { return false }
+            let dist = hypot(pt.x - cp.x, pt.y - cp.y)
+            return abs(dist - r) <= tolerance
+
+        default:
+            return false
+        }
     }
 }

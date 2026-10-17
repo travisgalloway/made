@@ -282,19 +282,22 @@ public struct ExtrudeParams: Sendable, Codable, Equatable {
     public var isSymmetric: Bool
     public var draftAngle: Double
     public var sketchFeatureId: UUID?
+    public var regionId: UUID?
 
     public init(
         profile: SketchProfile,
         distance: Double,
         isSymmetric: Bool = false,
         draftAngle: Double = 0.0,
-        sketchFeatureId: UUID? = nil
+        sketchFeatureId: UUID? = nil,
+        regionId: UUID? = nil
     ) {
         self.profile = profile
         self.distance = distance
         self.isSymmetric = isSymmetric
         self.draftAngle = draftAngle
         self.sketchFeatureId = sketchFeatureId
+        self.regionId = regionId
     }
 }
 
@@ -305,19 +308,22 @@ public struct ExtrudeFeatureData: Sendable, Codable, Equatable {
     public var isSymmetric: Bool
     public var draftAngle: Double
     public var profile: SketchProfile?
+    public var regionId: UUID?
 
     public init(
         sketchFeatureId: UUID? = nil,
         distance: Double,
         isSymmetric: Bool = false,
         draftAngle: Double = 0.0,
-        profile: SketchProfile? = nil
+        profile: SketchProfile? = nil,
+        regionId: UUID? = nil
     ) {
         self.sketchFeatureId = sketchFeatureId
         self.distance = distance
         self.isSymmetric = isSymmetric
         self.draftAngle = draftAngle
         self.profile = profile
+        self.regionId = regionId
     }
 }
 
