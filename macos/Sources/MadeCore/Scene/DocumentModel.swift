@@ -1599,6 +1599,58 @@ public final class DocumentModel {
     }
 
     @discardableResult
+    public func setSketchLineLength(
+        in featureId: UUID,
+        entityId: UUID,
+        length: Double
+    ) throws -> SketchEntity {
+        guard length > 0, length.isFinite else {
+            throw SketchError.zeroLengthLine(entityId: entityId)
+        }
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            throw SketchError.invalidEntity("Feature \(featureId) not found")
+        }
+        guard !features[index].isLocked else {
+            throw SketchError.invalidEntity("Feature \(featureId) is locked")
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            throw SketchError.invalidEntity("Feature \(featureId) is not a sketch")
+        }
+        guard let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entityId }) else {
+            throw SketchError.invalidEntity("Entity \(entityId) not found in sketch")
+        }
+        let entity = sketchData.entities[entityIndex]
+        guard entity.kind == "line" else {
+            throw SketchError.invalidEntity("Entity \(entityId) is not a line")
+        }
+
+        let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
+        let dofStatus = ConstraintSolver.computeDOFStatus(system: system)
+        if case .overConstrained = dofStatus {
+            let solveRes = ConstraintSolver.solve(system: system)
+            var conflicting: [UUID] = []
+            if case .overConstrained(let ids) = solveRes.status { conflicting = ids }
+            throw SketchError.overConstrained(message: "Cannot dimension line in over-constrained sketch", conflictingConstraints: conflicting)
+        }
+
+        let oldEntity = entity
+        let updatedEntity = entity.updatingLength(length)
+        sketchData.entities[entityIndex] = updatedEntity
+        features[index].operation = .sketch(sketchData)
+
+        let actionName = "Dimension Sketch Line"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchEntity(in: featureId, entity: oldEntity)
+                target.undoManager?.setActionName(actionName)
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+        return updatedEntity
+    }
+
+    @discardableResult
     public func removeSketchEntity(from featureId: UUID, entityId: UUID) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.id == featureId }) else {
             return .failure(.objectNotFound(ObjectId(featureId.uuidString)))

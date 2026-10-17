@@ -439,6 +439,38 @@ final class WorkspaceModel {
         return nil
     }
 
+    var selectedSketchEntity: (featureId: UUID, entity: SketchEntity)? {
+        guard let sel = document.selection.first, case .sketchEntity(let featId, let entityId) = sel.target else {
+            return nil
+        }
+        guard let feat = document.feature(for: featId), case .sketch(let sketchData) = feat.operation else {
+            return nil
+        }
+        guard let entity = sketchData.entities.first(where: { $0.id == entityId }) else {
+            return nil
+        }
+        return (featureId: featId, entity: entity)
+    }
+
+    var selectedSketchLineEntity: (featureId: UUID, entity: SketchEntity)? {
+        guard let pair = selectedSketchEntity, pair.entity.kind == "line" else { return nil }
+        return pair
+    }
+
+    var hasAvailableSketchLine: Bool {
+        if selectedSketchLineEntity != nil { return true }
+        if let feat = selectedSketchFeature, case .sketch(let sketchData) = feat.operation {
+            return sketchData.entities.contains(where: { $0.kind == "line" })
+        }
+        return false
+    }
+
+    func selectSketchEntity(featureId: UUID, entityId: UUID) {
+        selectedId = nil
+        document.selection = [Reference.sketchEntity(featureId: featureId, entityId: entityId)]
+        refreshSketchStatus(for: featureId)
+    }
+
     var selectedDatumPlaneFeature: Feature? {
         if let sel = document.selection.first, case .feature(let featId) = sel.target {
             if let feat = document.feature(for: featId), case .datumPlane = feat.operation {
@@ -712,6 +744,10 @@ final class WorkspaceModel {
         startCommand(CommandSession.makeDatumPlane(workspace: self))
     }
 
+    func startDimensionCommand(sketchFeatureId: UUID? = nil, entityId: UUID? = nil) {
+        startCommand(CommandSession.makeDimension(workspace: self, sketchFeatureId: sketchFeatureId, entityId: entityId))
+    }
+
     @discardableResult
     func extrudeSketch(sketchFeatureId: UUID, distance: Double, isSymmetric: Bool = false) async -> ObjectId? {
         do {
@@ -808,6 +844,19 @@ final class WorkspaceModel {
             }
         }
         recomputeDependents(of: featureId)
+    }
+
+    @discardableResult
+    func dimensionSketchLine(featureId: UUID, entityId: UUID, length: Double) throws -> SketchEntity {
+        let updated = try document.setSketchLineLength(in: featureId, entityId: entityId, length: length)
+        solveSketchConstraints(featureId: featureId, draggedEntityId: entityId)
+        if isLiveInferenceEnabled {
+            if let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation {
+                inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
+            }
+        }
+        recomputeDependents(of: featureId)
+        return updated
     }
 
     func removeSketchEntity(from featureId: UUID, entityId: UUID) {
@@ -2252,6 +2301,9 @@ final class WorkspaceModel {
     static let addCylinderShortcutKey: KeyEquivalent = "c"
     static let addCylinderShortcutModifiers: EventModifiers = [.command, .shift]
 
+    static let dimensionLineShortcutKey: KeyEquivalent = "d"
+    static let dimensionLineShortcutModifiers: EventModifiers = [.command, .shift]
+
     static let hideSolidShortcutKey: KeyEquivalent = "h"
     static let hideSolidShortcutModifiers: EventModifiers = [.command, .shift]
 
@@ -2367,6 +2419,7 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Redo", shortcut: "⇧⌘Z", category: .editing, description: "Redo previously undone edit"),
         ShortcutCheatsheetEntry(title: "Add Box", shortcut: "⇧⌘B", category: .editing, description: "Add new parametric box solid to document"),
         ShortcutCheatsheetEntry(title: "Add Cylinder", shortcut: "⇧⌘C", category: .editing, description: "Add new parametric cylinder solid to document"),
+        ShortcutCheatsheetEntry(title: "Dimension Line", shortcut: "⇧⌘D", category: .editing, description: "Dimension selected 2D sketch line to target length"),
         ShortcutCheatsheetEntry(title: "Hide/Show Solid", shortcut: "⇧⌘H", category: .editing, description: "Toggle visibility of selected solid"),
         ShortcutCheatsheetEntry(title: "Lock/Unlock Solid", shortcut: "⇧⌘L", category: .editing, description: "Toggle lock state of selected solid to prevent edits"),
         ShortcutCheatsheetEntry(title: "Reload Part", shortcut: "⌃⌘R", category: .editing, description: "Force recompute and rebuild active CAD part or script"),

@@ -1141,4 +1141,90 @@ extension CommandSession {
 
         return session
     }
+
+    static func makeDimension(
+        workspace: WorkspaceModel,
+        sketchFeatureId: UUID? = nil,
+        entityId: UUID? = nil
+    ) -> CommandSession {
+        let targetFeatureId = sketchFeatureId ?? workspace.selectedSketchLineEntity?.featureId ?? workspace.selectedSketchFeature?.id
+        var initialLength: Double = 10.0
+        if let targetFeatureId,
+           let feat = workspace.document.feature(for: targetFeatureId),
+           case .sketch(let sketchData) = feat.operation {
+            let targetEntityId = entityId ?? workspace.selectedSketchLineEntity?.entity.id ?? sketchData.entities.first(where: { $0.kind == "line" })?.id
+            if let targetEntityId,
+               let entity = sketchData.entities.first(where: { $0.id == targetEntityId }),
+               let len = entity.length, len > 0 {
+                initialLength = len
+            }
+        }
+
+        let session = CommandSession(
+            title: "Dimension Line",
+            inputs: [
+                CommandInput(
+                    id: "length",
+                    label: "Length",
+                    value: .number(Float(initialLength), range: 0.01...10000.0, step: 1.0, unit: "mm")
+                )
+            ],
+            isPreviewEnabled: false
+        )
+
+        session.customValidation = { [weak workspace, weak session] in
+            guard let workspace, let session else { return false }
+            let len = session.numberValue(for: "length") ?? 0
+            guard len > 0, len.isFinite, len >= 0.01, len <= 10000.0 else { return false }
+
+            let resolvedFeatureId = sketchFeatureId ?? workspace.selectedSketchLineEntity?.featureId ?? workspace.selectedSketchFeature?.id
+            guard let resolvedFeatureId,
+                  let feat = workspace.document.feature(for: resolvedFeatureId),
+                  case .sketch(let sketchData) = feat.operation else {
+                return false
+            }
+
+            let resolvedEntityId = entityId ?? workspace.selectedSketchLineEntity?.entity.id ?? sketchData.entities.first(where: { $0.kind == "line" })?.id
+            guard let resolvedEntityId,
+                  let entity = sketchData.entities.first(where: { $0.id == resolvedEntityId }),
+                  entity.kind == "line" else {
+                return false
+            }
+
+            let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
+            if case .overConstrained = ConstraintSolver.computeDOFStatus(system: system) {
+                return false
+            }
+
+            return true
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            let len = session.numberValue(for: "length") ?? 0
+            guard len > 0, len.isFinite else { return }
+
+            let resolvedFeatureId = sketchFeatureId ?? workspace.selectedSketchLineEntity?.featureId ?? workspace.selectedSketchFeature?.id
+            guard let resolvedFeatureId,
+                  let feat = workspace.document.feature(for: resolvedFeatureId),
+                  case .sketch(let sketchData) = feat.operation else {
+                return
+            }
+
+            let resolvedEntityId = entityId ?? workspace.selectedSketchLineEntity?.entity.id ?? sketchData.entities.first(where: { $0.kind == "line" })?.id
+            guard let resolvedEntityId else { return }
+
+            do {
+                _ = try workspace.dimensionSketchLine(
+                    featureId: resolvedFeatureId,
+                    entityId: resolvedEntityId,
+                    length: Double(len)
+                )
+            } catch {
+                // If over-constrained or error, captured by workspace
+            }
+        }
+
+        return session
+    }
 }

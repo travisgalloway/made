@@ -412,7 +412,8 @@ struct InspectorPanelView: View {
     }
 
     private func sketchEntityRow(sketchId: UUID, entity: SketchEntity) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let isSelected = workspace.selectedSketchEntity?.entity.id == entity.id
+        return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(entity.kind.capitalized)
                     .font(.caption.bold())
@@ -453,6 +454,17 @@ struct InspectorPanelView: View {
                             e.endPoint = SIMD2<Double>(end.x, $0)
                             workspace.updateSketchEntity(in: sketchId, entity: e)
                         }
+                    }
+                    HStack(spacing: 6) {
+                        Text("Length:").font(.caption2).foregroundStyle(.secondary)
+                        CommitNumberField(label: "Length", value: entity.length ?? 0.0, width: 56, minimum: 0.0001) { newLen in
+                            do {
+                                try workspace.dimensionSketchLine(featureId: sketchId, entityId: entity.id, length: newLen)
+                            } catch {
+                                // Error handled by workspace
+                            }
+                        }
+                        .id(entity.id)
                     }
                 }
             case "circle":
@@ -532,6 +544,17 @@ struct InspectorPanelView: View {
                 EmptyView()
             }
             Divider().padding(.vertical, 2)
+        }
+        .padding(4)
+        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        .cornerRadius(4)
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectSketchEntity(featureId: sketchId, entityId: entity.id)
         }
     }
 
