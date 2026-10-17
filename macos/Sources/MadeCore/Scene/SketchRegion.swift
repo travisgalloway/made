@@ -145,9 +145,10 @@ public enum SketchRegionDetector {
 
     /// Detects all closed planar regions and holes from sketch entities.
     public static func detectRegions(from entities: [SketchEntity]) throws -> [SketchRegion] {
-        guard !entities.isEmpty else { return [] }
+        let activeEntities = entities.filter { !$0.isConstruction }
+        guard !activeEntities.isEmpty else { return [] }
 
-        for entity in entities {
+        for entity in activeEntities {
             try SketchProfileBuilder.validateEntity(entity)
         }
 
@@ -158,7 +159,7 @@ public enum SketchRegionDetector {
         var arcIntersections: [UUID: [SIMD2<Double>]] = [:]
         var circleIntersections: [UUID: [SIMD2<Double>]] = [:]
 
-        for e in entities {
+        for e in activeEntities {
             switch e.kind {
             case "line": lineIntersections[e.id] = []
             case "arc": arcIntersections[e.id] = []
@@ -167,11 +168,11 @@ public enum SketchRegionDetector {
             }
         }
 
-        let n = entities.count
+        let n = activeEntities.count
         for i in 0..<n {
             for j in (i + 1)..<n {
-                let e1 = entities[i]
-                let e2 = entities[j]
+                let e1 = activeEntities[i]
+                let e2 = activeEntities[j]
                 let pts = findIntersections(e1, e2)
                 for p in pts {
                     if lineIntersections[e1.id] != nil { lineIntersections[e1.id]?.append(p) }
@@ -189,7 +190,7 @@ public enum SketchRegionDetector {
         var atomicCurves: [AtomicCurve] = []
         var standaloneCircles: [(center: SIMD2<Double>, radius: Double)] = []
 
-        for entity in entities {
+        for entity in activeEntities {
             switch entity.kind {
             case "line":
                 guard let sp = entity.startPoint, let ep = entity.endPoint else { continue }

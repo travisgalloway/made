@@ -1760,6 +1760,39 @@ public final class DocumentModel {
     }
 
     @discardableResult
+    public func toggleSketchEntityConstruction(in featureId: UUID, entityId: UUID) -> Result<SketchEntity, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entityId }) else {
+            return .failure(.objectNotFound(ObjectId(entityId.uuidString)))
+        }
+
+        let oldEntity = sketchData.entities[entityIndex]
+        var updated = oldEntity
+        updated.isConstruction.toggle()
+        sketchData.entities[entityIndex] = updated
+        features[index].operation = .sketch(sketchData)
+
+        let actionName = "Toggle Construction Geometry"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchEntity(in: featureId, entity: oldEntity)
+                target.undoManager?.setActionName(actionName)
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+        return .success(updated)
+    }
+
+    @discardableResult
     public func removeSketchEntity(from featureId: UUID, entityId: UUID) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.id == featureId }) else {
             return .failure(.objectNotFound(ObjectId(featureId.uuidString)))

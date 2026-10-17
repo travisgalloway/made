@@ -322,4 +322,36 @@ import simd
         #expect(regions.count == 1)
         #expect(abs(regions[0].area - 100.0) < 1e-2)
     }
+
+    // MARK: - Construction Geometry Tests
+
+    @Test func testConstructionEntitiesExcludedFromRegionDetection() throws {
+        // Rectangle [-10, 10] x [-10, 10] with a bisecting centerline at x = 0 marked as construction
+        let l1 = SketchEntity.line(start: SIMD2(-10, -10), end: SIMD2(10, -10))
+        let l2 = SketchEntity.line(start: SIMD2(10, -10), end: SIMD2(10, 10))
+        let l3 = SketchEntity.line(start: SIMD2(10, 10), end: SIMD2(-10, 10))
+        let l4 = SketchEntity.line(start: SIMD2(-10, 10), end: SIMD2(-10, -10))
+        let divider = SketchEntity.line(start: SIMD2(0, -10), end: SIMD2(0, 10), isConstruction: true)
+
+        let regions = try SketchRegionDetector.detectRegions(from: [l1, l2, l3, l4, divider])
+        // Since divider is construction, it does not partition the face into 2 sub-regions
+        #expect(regions.count == 1)
+        #expect(abs(regions[0].area - 400.0) < 1.0)
+        #expect(regions[0].innerLoops.isEmpty)
+    }
+
+    @Test func testConstructionCircleIgnoredInRegionHoles() throws {
+        // Outer rectangle [-20, 20] x [-20, 20] containing a construction circle
+        let l1 = SketchEntity.line(start: SIMD2(-20, -20), end: SIMD2(20, -20))
+        let l2 = SketchEntity.line(start: SIMD2(20, -20), end: SIMD2(20, 20))
+        let l3 = SketchEntity.line(start: SIMD2(20, 20), end: SIMD2(-20, 20))
+        let l4 = SketchEntity.line(start: SIMD2(-20, 20), end: SIMD2(-20, -20))
+        let circle = SketchEntity.circle(center: SIMD2(0, 0), radius: 5.0, isConstruction: true)
+
+        let regions = try SketchRegionDetector.detectRegions(from: [l1, l2, l3, l4, circle])
+        #expect(regions.count == 1)
+        // Construction circle does not create an inner hole
+        #expect(regions[0].innerLoops.isEmpty)
+        #expect(abs(regions[0].area - 1600.0) < 1.0)
+    }
 }

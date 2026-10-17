@@ -500,8 +500,11 @@ final class WorkspaceModel {
     }
 
     var selectedSketchFeature: Feature? {
-        if let sel = document.selection.first, case .feature(let featId) = sel.target {
-            if let feat = document.feature(for: featId), case .sketch = feat.operation {
+        if let sel = document.selection.first {
+            if case .feature(let featId) = sel.target, let feat = document.feature(for: featId), case .sketch = feat.operation {
+                return feat
+            }
+            if case .sketchEntity(let featId, _) = sel.target, let feat = document.feature(for: featId), case .sketch = feat.operation {
                 return feat
             }
         }
@@ -985,6 +988,19 @@ final class WorkspaceModel {
         _ = document.removeSketchEntity(from: featureId, entityId: entityId)
         refreshSketchStatus(for: featureId)
         recomputeDependents(of: featureId)
+    }
+
+    func toggleSelectedSketchEntityConstruction() {
+        guard let pair = selectedSketchEntity else { return }
+        _ = document.toggleSketchEntityConstruction(in: pair.featureId, entityId: pair.entity.id)
+        refreshDetectedSketchRegions(for: pair.featureId)
+        solveSketchConstraints(featureId: pair.featureId, draggedEntityId: pair.entity.id)
+        if isLiveInferenceEnabled {
+            if let feat = document.feature(for: pair.featureId), case .sketch(let sketchData) = feat.operation {
+                inferredConstraints = ConstraintInference.inferCandidates(for: sketchData.entities, existingConstraints: sketchData.constraints)
+            }
+        }
+        recomputeDependents(of: pair.featureId)
     }
 
     func addSketchConstraint(to featureId: UUID, constraint: SketchConstraint) {
@@ -2426,6 +2442,9 @@ final class WorkspaceModel {
     static let dimensionLineShortcutKey: KeyEquivalent = "d"
     static let dimensionLineShortcutModifiers: EventModifiers = [.command, .shift]
 
+    static let toggleConstructionShortcutKey: KeyEquivalent = "x"
+    static let toggleConstructionShortcutModifiers: EventModifiers = [.command, .shift]
+
     static let hideSolidShortcutKey: KeyEquivalent = "h"
     static let hideSolidShortcutModifiers: EventModifiers = [.command, .shift]
 
@@ -2542,6 +2561,7 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Add Box", shortcut: "⇧⌘B", category: .editing, description: "Add new parametric box solid to document"),
         ShortcutCheatsheetEntry(title: "Add Cylinder", shortcut: "⇧⌘C", category: .editing, description: "Add new parametric cylinder solid to document"),
         ShortcutCheatsheetEntry(title: "Dimension Line", shortcut: "⇧⌘D", category: .editing, description: "Dimension selected 2D sketch line to target length"),
+        ShortcutCheatsheetEntry(title: "Toggle Construction", shortcut: "⇧⌘X", category: .editing, description: "Toggle construction geometry for selected sketch entity"),
         ShortcutCheatsheetEntry(title: "Hide/Show Solid", shortcut: "⇧⌘H", category: .editing, description: "Toggle visibility of selected solid"),
         ShortcutCheatsheetEntry(title: "Lock/Unlock Solid", shortcut: "⇧⌘L", category: .editing, description: "Toggle lock state of selected solid to prevent edits"),
         ShortcutCheatsheetEntry(title: "Reload Part", shortcut: "⌃⌘R", category: .editing, description: "Force recompute and rebuild active CAD part or script"),

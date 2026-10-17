@@ -618,10 +618,37 @@ struct InspectorPanelView: View {
     private func sketchEntityRow(sketchId: UUID, entity: SketchEntity) -> some View {
         let isSelected = workspace.selectedSketchEntity?.entity.id == entity.id
         return VStack(alignment: .leading, spacing: 4) {
-            HStack {
+            HStack(spacing: 6) {
                 Text(entity.kind.capitalized)
                     .font(.caption.bold())
+                if entity.isConstruction {
+                    Text("Construction")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                                .foregroundStyle(.secondary)
+                        )
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
+                Toggle(isOn: Binding(
+                    get: { entity.isConstruction },
+                    set: { newVal in
+                        var e = entity
+                        e.isConstruction = newVal
+                        workspace.updateSketchEntity(in: sketchId, entity: e)
+                    }
+                )) {
+                    Image(systemName: "line.diagonal")
+                        .font(.caption2)
+                }
+                .toggleStyle(.button)
+                .controlSize(.mini)
+                .help("Toggle construction geometry (excluded from extrude profiles)")
+
                 Button(role: .destructive) {
                     workspace.removeSketchEntity(from: sketchId, entityId: entity.id)
                 } label: {
@@ -747,7 +774,15 @@ struct InspectorPanelView: View {
             default:
                 EmptyView()
             }
-            Divider().padding(.vertical, 2)
+            if entity.isConstruction {
+                Rectangle()
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .frame(height: 1)
+                    .foregroundStyle(Color.secondary.opacity(0.8))
+                    .padding(.vertical, 2)
+            } else {
+                Divider().padding(.vertical, 2)
+            }
         }
         .padding(4)
         .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
