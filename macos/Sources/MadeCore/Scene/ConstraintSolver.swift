@@ -524,9 +524,37 @@ public struct ConstraintSolver: Sendable {
             return [0.0]
 
         case .coincident:
-            let pA = entityA.startPoint ?? entityA.centerPoint ?? .zero
-            let pB = entityB?.startPoint ?? entityB?.centerPoint ?? .zero
-            return [pA.x - pB.x, pA.y - pB.y]
+            if let lineA = entityA.asLine(), let lineB = entityB?.asLine() {
+                let dStartStart = hypot(lineA.start.x - lineB.start.x, lineA.start.y - lineB.start.y)
+                let dStartEnd = hypot(lineA.start.x - lineB.end.x, lineA.start.y - lineB.end.y)
+                let dEndStart = hypot(lineA.end.x - lineB.start.x, lineA.end.y - lineB.start.y)
+                let dEndEnd = hypot(lineA.end.x - lineB.end.x, lineA.end.y - lineB.end.y)
+
+                let minDist = min(dStartStart, dStartEnd, dEndStart, dEndEnd)
+                if dStartStart <= minDist + 1e-3 {
+                    return [lineA.start.x - lineB.start.x, lineA.start.y - lineB.start.y]
+                } else if dStartEnd <= minDist + 1e-3 {
+                    return [lineA.start.x - lineB.end.x, lineA.start.y - lineB.end.y]
+                } else if dEndStart <= minDist + 1e-3 {
+                    return [lineA.end.x - lineB.start.x, lineA.end.y - lineB.start.y]
+                } else {
+                    return [lineA.end.x - lineB.end.x, lineA.end.y - lineB.end.y]
+                }
+            } else if let lineA = entityA.asLine(), let cB = entityB?.centerPoint {
+                let dStart = hypot(lineA.start.x - cB.x, lineA.start.y - cB.y)
+                let dEnd = hypot(lineA.end.x - cB.x, lineA.end.y - cB.y)
+                let pA = dStart <= min(dStart, dEnd) + 1e-3 ? lineA.start : lineA.end
+                return [pA.x - cB.x, pA.y - cB.y]
+            } else if let cA = entityA.centerPoint, let lineB = entityB?.asLine() {
+                let dStart = hypot(cA.x - lineB.start.x, cA.y - lineB.start.y)
+                let dEnd = hypot(cA.x - lineB.end.x, cA.y - lineB.end.y)
+                let pB = dStart <= min(dStart, dEnd) + 1e-3 ? lineB.start : lineB.end
+                return [cA.x - pB.x, cA.y - pB.y]
+            } else {
+                let pA = entityA.startPoint ?? entityA.centerPoint ?? .zero
+                let pB = entityB?.startPoint ?? entityB?.centerPoint ?? .zero
+                return [pA.x - pB.x, pA.y - pB.y]
+            }
 
         case .horizontal:
             guard let line = entityA.asLine() else { return [0.0] }

@@ -14,6 +14,7 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
     case noIntersection(String)
     case pointNotOnEntity(entityId: UUID)
     case degenerateProjection(String)
+    case degenerateRectangle(String)
 
     public var errorDescription: String? {
         switch self {
@@ -41,6 +42,8 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
             return "Point does not lie on sketch entity \(id.uuidString)"
         case .degenerateProjection(let msg):
             return "Degenerate projection: \(msg)"
+        case .degenerateRectangle(let msg):
+            return "Degenerate rectangle: \(msg)"
         }
     }
 }

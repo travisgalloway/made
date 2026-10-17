@@ -68,6 +68,7 @@ final class CADMTKView: MTKView {
         case .pan: return .openHand
         case .zoom: return .resizeUpDown
         case .trim: return .crosshair
+        case .rectangle: return .crosshair
         }
     }
     
@@ -180,6 +181,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onSketchDragStart: ((UUID, UUID) -> Void)?
     var onSketchDragUpdate: ((UUID, DragTarget) -> Void)?
     var onSketchDragEnd: ((UUID) -> Void)?
+    var activeRectangleKind: SketchRectangleKind
+    var onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)?
     
     public init(
         document: DocumentModel,
@@ -216,7 +219,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         activeSketchFeatureId: UUID? = nil,
         onSketchDragStart: ((UUID, UUID) -> Void)? = nil,
         onSketchDragUpdate: ((UUID, DragTarget) -> Void)? = nil,
-        onSketchDragEnd: ((UUID) -> Void)? = nil
+        onSketchDragEnd: ((UUID) -> Void)? = nil,
+        activeRectangleKind: SketchRectangleKind = .corner,
+        onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -253,6 +258,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onSketchDragStart = onSketchDragStart
         self.onSketchDragUpdate = onSketchDragUpdate
         self.onSketchDragEnd = onSketchDragEnd
+        self.activeRectangleKind = activeRectangleKind
+        self.onRectangleCompleted = onRectangleCompleted
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -397,6 +404,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private var activeSnapResult: SnapResult? = nil
         private var trimStrokePoints: [SIMD2<Double>] = []
         private var trimMouseDownLocation: CGPoint = .zero
+        private var rectangleMouseDownLocation: CGPoint = .zero
+        private var rectangleStartUV: SIMD2<Double>?
 
         public struct SketchDragState {
             public var featureId: UUID
@@ -459,6 +468,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 if let uv = unprojectToSketchPlane(loc: loc, in: view) {
                     trimStrokePoints.append(uv)
                 }
+            }
+
+            if button == .left && parent.tool == .rectangle {
+                rectangleMouseDownLocation = loc
+                rectangleStartUV = unprojectToSketchPlane(loc: loc, in: view)
             }
             
             let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
@@ -1002,6 +1016,19 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     }
                 }
                 trimStrokePoints.removeAll()
+                pointerRouter.arbiter.reset()
+                invalidate(reason: .interaction)
+                return
+            }
+
+            if button == .left && parent.tool == .rectangle {
+                guard let view = mtkView else { return }
+                let loc = view.convert(event.locationInWindow, from: nil)
+                let movement = hypot(loc.x - rectangleMouseDownLocation.x, loc.y - rectangleMouseDownLocation.y)
+                if movement > 2.0, let start = rectangleStartUV, let end = unprojectToSketchPlane(loc: loc, in: view) {
+                    parent.onRectangleCompleted?(start, end)
+                }
+                rectangleStartUV = nil
                 pointerRouter.arbiter.reset()
                 invalidate(reason: .interaction)
                 return

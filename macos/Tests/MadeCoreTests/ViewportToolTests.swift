@@ -4,7 +4,14 @@ import Foundation
 
 @Suite struct ViewportToolTests {
     @Test func testPlainPrimaryDragFollowsTheTool() {
-        let expected: [ViewportTool: ViewportDragAction] = [.select: .manipulate, .orbit: .orbit, .pan: .pan, .zoom: .zoom]
+        let expected: [ViewportTool: ViewportDragAction] = [
+            .select: .manipulate,
+            .orbit: .orbit,
+            .pan: .pan,
+            .zoom: .zoom,
+            .trim: .manipulate,
+            .rectangle: .manipulate
+        ]
         for (tool, action) in expected {
             #expect(ViewportTool.dragAction(tool: tool, button: .primary, option: false, shift: false) == action, "\(tool)")
         }

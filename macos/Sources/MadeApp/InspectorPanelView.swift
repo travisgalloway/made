@@ -586,18 +586,27 @@ struct InspectorPanelView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
 
-                Button("+ Rect") {
-                    let offset = Double(data.entities.count * 5)
-                    let p0 = SIMD2<Double>(offset, offset)
-                    let p1 = SIMD2<Double>(offset + 40, offset)
-                    let p2 = SIMD2<Double>(offset + 40, offset + 30)
-                    let p3 = SIMD2<Double>(offset, offset + 30)
-                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p0, end: p1))
-                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p1, end: p2))
-                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p2, end: p3))
-                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p3, end: p0))
+                Menu("+ Rect") {
+                    Button("Corner Rectangle") {
+                        let offset = Double(data.entities.count * 5)
+                        let p0 = SIMD2<Double>(offset, offset)
+                        let p1 = SIMD2<Double>(offset + 40, offset + 30)
+                        _ = try? workspace.addCornerRectangle(to: sketch.id, corner1: p0, corner2: p1)
+                    }
+                    Button("Center Rectangle") {
+                        let offset = Double(data.entities.count * 5)
+                        let center = SIMD2<Double>(offset + 20, offset + 15)
+                        let corner = SIMD2<Double>(offset + 40, offset + 30)
+                        _ = try? workspace.addCenterRectangle(to: sketch.id, center: center, corner: corner)
+                    }
+                    Button("Three-Point Rectangle") {
+                        let offset = Double(data.entities.count * 5)
+                        let p0 = SIMD2<Double>(offset, offset)
+                        let p1 = SIMD2<Double>(offset + 40, offset)
+                        let p2 = SIMD2<Double>(offset + 40, offset + 30)
+                        _ = try? workspace.addThreePointRectangle(to: sketch.id, point1: p0, point2: p1, point3: p2)
+                    }
                 }
-                .buttonStyle(.bordered)
                 .controlSize(.mini)
 
                 Button("+ Project") {

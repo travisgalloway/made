@@ -35,7 +35,7 @@ import MadeCore
 
         // Filter by category
         let toolsOnly = entries.filter { $0.category == .tools }
-        #expect(toolsOnly.count == 4)
+        #expect(toolsOnly.count == 5)
         for entry in toolsOnly {
             #expect(entry.category == .tools)
         }

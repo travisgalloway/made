@@ -187,6 +187,7 @@ final class WorkspaceModel {
             if tool != oldValue { log(.info, "Viewport", "Selected \(tool.title) tool") }
         }
     }
+    var activeRectangleKind: SketchRectangleKind = .corner
     var selectionFilter: SelectionFilter = .all {
         didSet {
             if selectionFilter != oldValue {
@@ -1039,6 +1040,89 @@ final class WorkspaceModel {
         _ = document.addSketchEntity(to: featureId, entity: entity)
         refreshSketchStatus(for: featureId)
         recomputeDependents(of: featureId)
+    }
+
+    @discardableResult
+    func addCornerRectangle(
+        to featureId: UUID? = nil,
+        corner1: SIMD2<Double>? = nil,
+        corner2: SIMD2<Double>? = nil
+    ) throws -> SketchRectangleResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let c1 = corner1 ?? SIMD2<Double>(0, 0)
+        let c2 = corner2 ?? SIMD2<Double>(40, 30)
+        let result = try SketchRectangle.makeCornerRectangle(corner1: c1, corner2: c2)
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Corner Rectangle"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func addCenterRectangle(
+        to featureId: UUID? = nil,
+        center: SIMD2<Double>? = nil,
+        corner: SIMD2<Double>? = nil
+    ) throws -> SketchRectangleResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let c = center ?? SIMD2<Double>(0, 0)
+        let cr = corner ?? SIMD2<Double>(20, 15)
+        let result = try SketchRectangle.makeCenterRectangle(center: c, corner: cr)
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Center Rectangle"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func addThreePointRectangle(
+        to featureId: UUID? = nil,
+        point1: SIMD2<Double>? = nil,
+        point2: SIMD2<Double>? = nil,
+        point3: SIMD2<Double>? = nil
+    ) throws -> SketchRectangleResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let p1 = point1 ?? SIMD2<Double>(0, 0)
+        let p2 = point2 ?? SIMD2<Double>(40, 0)
+        let p3 = point3 ?? SIMD2<Double>(40, 30)
+        let result = try SketchRectangle.makeThreePointRectangle(point1: p1, point2: p2, point3: p3)
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Three-Point Rectangle"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
     }
 
     func updateSketchEntity(in featureId: UUID, entity: SketchEntity) {
@@ -2715,6 +2799,7 @@ final class WorkspaceModel {
     static let toolPanShortcutKey: KeyEquivalent = "3"
     static let toolZoomShortcutKey: KeyEquivalent = "4"
     static let toolTrimShortcutKey: KeyEquivalent = "5"
+    static let toolRectangleShortcutKey: KeyEquivalent = "6"
     static let toolShortcutModifiers: EventModifiers = [.command, .option]
     static let projectGeometryShortcutKey: KeyEquivalent = "j"
     static let projectGeometryShortcutModifiers: EventModifiers = [.command]
@@ -2775,6 +2860,7 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Orbit", shortcut: "O / ⌥⌘2", category: .tools, description: "Orbit tool — orbit camera view around target or cursor"),
         ShortcutCheatsheetEntry(title: "Pan", shortcut: "P / ⌥⌘3", category: .tools, description: "Pan tool — pan camera view parallel to screen"),
         ShortcutCheatsheetEntry(title: "Zoom", shortcut: "Z / ⌥⌘4", category: .tools, description: "Zoom tool — drag to smoothly zoom in or out"),
+        ShortcutCheatsheetEntry(title: "Rectangle", shortcut: "R / ⌥⌘6", category: .tools, description: "Rectangle tool — draw corner, center, or 3-point rectangles"),
 
         ShortcutCheatsheetEntry(title: "Filter Faces", shortcut: "⌥F", category: .editing, description: "Filter selection to faces"),
         ShortcutCheatsheetEntry(title: "Filter Edges", shortcut: "⌥E", category: .editing, description: "Filter selection to edges"),

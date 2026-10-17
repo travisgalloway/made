@@ -408,6 +408,8 @@ struct ToolsMenuCommands: Commands {
                     .keyboardShortcut(WorkspaceModel.toolZoomShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
                 Button("Trim") { workspace.tool = .trim }
                     .keyboardShortcut(WorkspaceModel.toolTrimShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
+                Button("Rectangle") { workspace.tool = .rectangle }
+                    .keyboardShortcut(WorkspaceModel.toolRectangleShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
             }
 
             Divider()
@@ -417,6 +419,24 @@ struct ToolsMenuCommands: Commands {
                     _ = workspace.projectSelectedGeometry()
                 }
                 .keyboardShortcut(WorkspaceModel.projectGeometryShortcutKey, modifiers: WorkspaceModel.projectGeometryShortcutModifiers)
+
+                Divider()
+
+                Menu("Rectangle") {
+                    Button("Corner Rectangle") {
+                        workspace.activeRectangleKind = .corner
+                        _ = try? workspace.addCornerRectangle()
+                    }
+                    Button("Center Rectangle") {
+                        workspace.activeRectangleKind = .center
+                        _ = try? workspace.addCenterRectangle()
+                    }
+                    Button("Three-Point Rectangle") {
+                        workspace.activeRectangleKind = .threePoint
+                        _ = try? workspace.addThreePointRectangle()
+                    }
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
 
                 Divider()
 
