@@ -6,7 +6,22 @@ struct CommitNumberField: View {
     let label: String
     let value: Double
     var width: CGFloat = 56
+    var minimum: Double? = nil
     let commit: (Double) -> Void
+
+    init(
+        label: String,
+        value: Double,
+        width: CGFloat = 56,
+        minimum: Double? = nil,
+        commit: @escaping (Double) -> Void
+    ) {
+        self.label = label
+        self.value = value
+        self.width = width
+        self.minimum = minimum
+        self.commit = commit
+    }
 
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -38,6 +53,9 @@ struct CommitNumberField: View {
         let draft = text.trimmingCharacters(in: .whitespaces)
         text = Self.format.format(value)
         if let parsed = try? Double(draft, format: .number), parsed.isFinite, parsed != value {
+            if let minimum, parsed < minimum {
+                return
+            }
             commit(parsed)
         }
     }

@@ -202,6 +202,21 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         }
     }
 
+    public var length: Double? {
+        guard kind == "line", let start = startPoint, let end = endPoint else { return nil }
+        return hypot(end.x - start.x, end.y - start.y)
+    }
+
+    public func updatingLength(_ newLength: Double, anchor: SIMD2<Double>? = nil) -> SketchEntity {
+        guard kind == "line", let start = startPoint, let end = endPoint, newLength > 0, newLength.isFinite else { return self }
+        let curLen = hypot(end.x - start.x, end.y - start.y)
+        guard curLen > 1e-9 else { return self }
+        let fixedStart = anchor ?? start
+        let dir = SIMD2<Double>((end.x - start.x) / curLen, (end.y - start.y) / curLen)
+        let newEnd = SIMD2<Double>(fixedStart.x + dir.x * newLength, fixedStart.y + dir.y * newLength)
+        return updatingEndpoints(start: fixedStart, end: newEnd)
+    }
+
     public func updatingEndpoints(start: SIMD2<Double>? = nil, end: SIMD2<Double>? = nil) -> SketchEntity {
         var copy = self
         if let start {

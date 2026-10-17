@@ -300,4 +300,163 @@ import simd
         #expect(brokenExtrude?.errorState != nil)
         #expect(brokenExtrude?.errorState?.code == "sketch-error")
     }
+
+    @Test func testSketchEntityLengthAndUpdatingLength() {
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(3, 4))
+        #expect(line.length == 5.0)
+
+        let circle = SketchEntity.circle(center: SIMD2(0, 0), radius: 10)
+        #expect(circle.length == nil)
+
+        // Updating length anchors start by default and extends end
+        let stretched = line.updatingLength(10.0)
+        #expect(stretched.startPoint == SIMD2(0, 0))
+        #expect(stretched.endPoint?.x == 6.0)
+        #expect(stretched.endPoint?.y == 8.0)
+        #expect(stretched.length == 10.0)
+
+        // Custom anchor
+        let anchored = line.updatingLength(10.0, anchor: SIMD2(1, 1))
+        #expect(anchored.startPoint == SIMD2(1, 1))
+        #expect(anchored.endPoint?.x == 7.0)
+        #expect(anchored.endPoint?.y == 9.0)
+        #expect(anchored.length == 10.0)
+
+        // Non-positive or non-finite length is rejected (returns unchanged copy)
+        let zeroLen = line.updatingLength(0.0)
+        #expect(zeroLen.endPoint == line.endPoint)
+        let negLen = line.updatingLength(-5.0)
+        #expect(negLen.endPoint == line.endPoint)
+        let nanLen = line.updatingLength(.nan)
+        #expect(nanLen.endPoint == line.endPoint)
+    }
+
+    @MainActor
+    @Test func testSetSketchLineLengthMutatorAndUndoRedo() throws {
+        let doc = DocumentModel()
+        let undo = UndoManager()
+        doc.undoManager = undo
+
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let sketchFeat = doc.addSketchFeature(planeName: "xy", entities: [line])
+        undo.removeAllActions()
+
+        let updated = try doc.setSketchLineLength(in: sketchFeat.id, entityId: line.id, length: 25.0)
+        #expect(updated.length == 25.0)
+        #expect(updated.startPoint == SIMD2(0, 0))
+        #expect(updated.endPoint == SIMD2(25, 0))
+
+        if case .sketch(let data) = doc.feature(for: sketchFeat.id)?.operation {
+            #expect(data.entities.first?.length == 25.0)
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+
+        #expect(undo.canUndo)
+        #expect(undo.undoActionName == "Dimension Sketch Line")
+
+        // Undo restores original length 10.0
+        undo.undo()
+        if case .sketch(let data) = doc.feature(for: sketchFeat.id)?.operation {
+            #expect(data.entities.first?.length == 10.0)
+            #expect(data.entities.first?.endPoint == SIMD2(10, 0))
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+
+        #expect(undo.canRedo)
+        #expect(undo.redoActionName == "Dimension Sketch Line")
+
+        // Redo restores 25.0
+        undo.redo()
+        if case .sketch(let data) = doc.feature(for: sketchFeat.id)?.operation {
+            #expect(data.entities.first?.length == 25.0)
+            #expect(data.entities.first?.endPoint == SIMD2(25, 0))
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+    }
+
+    @MainActor
+    @Test func testSetSketchLineLengthDownstreamExtrudeRegeneration() async throws {
+        let doc = DocumentModel()
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let l2 = SketchEntity.line(start: SIMD2(10, 0), end: SIMD2(10, 10))
+        let l3 = SketchEntity.line(start: SIMD2(10, 10), end: SIMD2(0, 10))
+        let l4 = SketchEntity.line(start: SIMD2(0, 10), end: SIMD2(0, 0))
+        let sketchFeat = doc.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+        let extrudeFeat = try doc.extrudeSketch(sketchFeatureId: sketchFeat.id, distance: 10.0)
+
+        let kernel = KernelClient(engine: LocalKernelEngine(), debounceDuration: .milliseconds(5))
+        await KernelRegeneration.regenerate(features: doc.activeFeatures, in: doc, client: kernel)
+
+        // Modify line 1 length from 10 to 25 and adjust l2, l3 to keep closed profile
+        _ = try doc.setSketchLineLength(in: sketchFeat.id, entityId: l1.id, length: 25.0)
+        var modifiedL2 = l2
+        modifiedL2.startPoint = SIMD2(25, 0)
+        modifiedL2.endPoint = SIMD2(25, 10)
+        var modifiedL3 = l3
+        modifiedL3.startPoint = SIMD2(25, 10)
+
+        _ = doc.updateSketchEntity(in: sketchFeat.id, entity: modifiedL2)
+        _ = doc.updateSketchEntity(in: sketchFeat.id, entity: modifiedL3)
+
+        await KernelRegeneration.regenerate(features: doc.activeFeatures, in: doc, client: kernel)
+        let updatedExtrude = doc.feature(for: extrudeFeat.id)
+        if case .extrude(let extrudeData) = updatedExtrude?.operation {
+            #expect(extrudeData.profile?.points.contains(SIMD2(25, 0)) == true)
+        } else {
+            Issue.record("Expected extrude feature with updated profile containing (25, 0)")
+        }
+    }
+
+    @MainActor
+    @Test func testSetSketchLineLengthValidationAndRejections() throws {
+        let doc = DocumentModel()
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let circle = SketchEntity.circle(center: SIMD2(5, 5), radius: 5)
+        let sketchFeat = doc.addSketchFeature(planeName: "xy", entities: [line, circle])
+
+        // Non-positive length throws zeroLengthLine
+        #expect(throws: SketchError.self) {
+            try doc.setSketchLineLength(in: sketchFeat.id, entityId: line.id, length: 0.0)
+        }
+        #expect(throws: SketchError.self) {
+            try doc.setSketchLineLength(in: sketchFeat.id, entityId: line.id, length: -10.0)
+        }
+        #expect(throws: SketchError.self) {
+            try doc.setSketchLineLength(in: sketchFeat.id, entityId: line.id, length: .nan)
+        }
+
+        // Non-existent feature throws invalidEntity
+        #expect(throws: SketchError.self) {
+            try doc.setSketchLineLength(in: UUID(), entityId: line.id, length: 20.0)
+        }
+
+        // Non-existent entity throws invalidEntity
+        #expect(throws: SketchError.self) {
+            try doc.setSketchLineLength(in: sketchFeat.id, entityId: UUID(), length: 20.0)
+        }
+
+        // Circle entity is not a line -> throws invalidEntity
+        #expect(throws: SketchError.self) {
+            try doc.setSketchLineLength(in: sketchFeat.id, entityId: circle.id, length: 20.0)
+        }
+    }
+
+    @MainActor
+    @Test func testSetSketchLineLengthOverConstrainedSketchThrows() {
+        let doc = DocumentModel()
+        let lineA = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2(0, 5), end: SIMD2(10, 5))
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        let c2 = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB], constraints: [c1, c2])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        doc.addFeature(feature)
+
+        #expect(throws: SketchError.self) {
+            try doc.setSketchLineLength(in: feature.id, entityId: lineA.id, length: 25.0)
+        }
+    }
 }

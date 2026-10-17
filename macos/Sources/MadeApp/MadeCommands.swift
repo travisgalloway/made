@@ -399,6 +399,14 @@ struct ToolsMenuCommands: Commands {
             Divider()
 
             Menu("Sketch Constraints") {
+                Button("Dimension Line…") {
+                    workspace.startDimensionCommand()
+                }
+                .keyboardShortcut(WorkspaceModel.dimensionLineShortcutKey, modifiers: WorkspaceModel.dimensionLineShortcutModifiers)
+                .disabled(!workspace.hasAvailableSketchLine)
+
+                Divider()
+
                 Button("Apply Parallel Constraint") {
                     workspace.applyConstraintToSelectedSketch(.parallel)
                 }

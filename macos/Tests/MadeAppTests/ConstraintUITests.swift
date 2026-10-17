@@ -149,4 +149,75 @@ import MadeCore
             Issue.record("Expected sketch feature with parallel constraint")
         }
     }
+
+    @Test @MainActor func testWorkspaceDimensionSketchLineAndSelection() throws {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        // Select sketch entity
+        workspace.selectSketchEntity(featureId: feature.id, entityId: lineA.id)
+        #expect(workspace.selectedSketchEntity?.entity.id == lineA.id)
+        #expect(workspace.selectedSketchLineEntity?.entity.id == lineA.id)
+        #expect(workspace.hasAvailableSketchLine)
+
+        // Dimension sketch line
+        let updated = try workspace.dimensionSketchLine(featureId: feature.id, entityId: lineA.id, length: 30.0)
+        #expect(updated.length == 30.0)
+        #expect(updated.endPoint == SIMD2<Double>(30, 0))
+
+        if case .sketch(let data) = workspace.document.feature(for: feature.id)?.operation {
+            #expect(data.entities.first?.length == 30.0)
+        } else {
+            Issue.record("Expected sketch feature with updated entity")
+        }
+    }
+
+    @Test @MainActor func testWorkspaceDimensionSelectionInvariance() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let circle = SketchEntity.circle(center: SIMD2<Double>(0, 0), radius: 5.0)
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB, circle])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        // Select line A
+        workspace.selectSketchEntity(featureId: feature.id, entityId: lineA.id)
+        #expect(workspace.selectedSketchLineEntity?.entity.id == lineA.id)
+
+        // Switch selection to line B
+        workspace.selectSketchEntity(featureId: feature.id, entityId: lineB.id)
+        #expect(workspace.selectedSketchLineEntity?.entity.id == lineB.id)
+
+        // Switch selection to circle
+        workspace.selectSketchEntity(featureId: feature.id, entityId: circle.id)
+        #expect(workspace.selectedSketchEntity?.entity.id == circle.id)
+        #expect(workspace.selectedSketchLineEntity == nil)
+
+        // Clear selection
+        workspace.document.selection = []
+        #expect(workspace.selectedSketchEntity == nil)
+        #expect(workspace.selectedSketchLineEntity == nil)
+    }
+
+    @Test @MainActor func testWorkspaceDimensionOverConstrainedThrows() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c1)
+        let c2 = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c2)
+
+        #expect(throws: SketchError.self) {
+            try workspace.dimensionSketchLine(featureId: feature.id, entityId: lineA.id, length: 25.0)
+        }
+    }
 }

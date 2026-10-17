@@ -544,6 +544,56 @@ extension WorkspaceModelTests {
             Issue.record("Expected .datumPlane feature operation")
         }
     }
+
+    @Test @MainActor func testMakeDimensionCommandSessionLifecycle() {
+        let workspace = WorkspaceModel()
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [line])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+        workspace.selectSketchEntity(featureId: feature.id, entityId: line.id)
+
+        let session = CommandSession.makeDimension(workspace: workspace)
+        #expect(session.title == "Dimension Line")
+        #expect(session.numberValue(for: "length") == 10.0)
+        #expect(session.canCommit)
+
+        // Invalid negative value
+        session.setNumberValue(-5.0, for: "length")
+        #expect(!session.canCommit)
+
+        // Invalid below minimum range (0.01)
+        session.setNumberValue(0.001, for: "length")
+        #expect(!session.canCommit)
+
+        // Invalid above maximum range (10000.0)
+        session.setNumberValue(20000.0, for: "length")
+        #expect(!session.canCommit)
+
+        // Valid value
+        session.setNumberValue(25.0, for: "length")
+        #expect(session.canCommit)
+
+        // Commit updates line in document
+        session.commit()
+        if case .sketch(let data) = workspace.document.feature(for: feature.id)?.operation {
+            #expect(data.entities.first?.length == 25.0)
+            #expect(data.entities.first?.endPoint == SIMD2(25, 0))
+        } else {
+            Issue.record("Expected sketch feature with updated entity")
+        }
+
+        // Over-constrained sketch blocks commit
+        let line2 = SketchEntity.line(start: SIMD2(0, 5), end: SIMD2(10, 5))
+        _ = workspace.document.addSketchEntity(to: feature.id, entity: line2)
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [line.id, line2.id])
+        let c2 = SketchConstraint(kind: .perpendicular, entityIds: [line.id, line2.id])
+        workspace.addSketchConstraint(to: feature.id, constraint: c1)
+        workspace.addSketchConstraint(to: feature.id, constraint: c2)
+
+        let overConstrainedSession = CommandSession.makeDimension(workspace: workspace, sketchFeatureId: feature.id, entityId: line.id)
+        #expect(!overConstrainedSession.canCommit)
+    }
 }
 
 }
