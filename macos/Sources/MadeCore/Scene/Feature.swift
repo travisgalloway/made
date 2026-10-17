@@ -92,6 +92,132 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         self.kind = kind
         self.data = data
     }
+
+    public static func line(id: UUID = UUID(), start: SIMD2<Double>, end: SIMD2<Double>) -> SketchEntity {
+        SketchEntity(id: id, kind: "line", data: [
+            "startX": start.x,
+            "startY": start.y,
+            "endX": end.x,
+            "endY": end.y
+        ])
+    }
+
+    public static func arc(
+        id: UUID = UUID(),
+        start: SIMD2<Double>,
+        end: SIMD2<Double>,
+        center: SIMD2<Double>,
+        clockwise: Bool = false
+    ) -> SketchEntity {
+        SketchEntity(id: id, kind: "arc", data: [
+            "startX": start.x,
+            "startY": start.y,
+            "endX": end.x,
+            "endY": end.y,
+            "centerX": center.x,
+            "centerY": center.y,
+            "clockwise": clockwise ? 1.0 : 0.0
+        ])
+    }
+
+    public static func circle(id: UUID = UUID(), center: SIMD2<Double>, radius: Double) -> SketchEntity {
+        SketchEntity(id: id, kind: "circle", data: [
+            "centerX": center.x,
+            "centerY": center.y,
+            "radius": radius
+        ])
+    }
+
+    public var startPoint: SIMD2<Double>? {
+        get {
+            guard let sx = data["startX"], let sy = data["startY"] else { return nil }
+            return SIMD2<Double>(sx, sy)
+        }
+        set {
+            if let newValue {
+                data["startX"] = newValue.x
+                data["startY"] = newValue.y
+            } else {
+                data.removeValue(forKey: "startX")
+                data.removeValue(forKey: "startY")
+            }
+        }
+    }
+
+    public var endPoint: SIMD2<Double>? {
+        get {
+            guard let ex = data["endX"], let ey = data["endY"] else { return nil }
+            return SIMD2<Double>(ex, ey)
+        }
+        set {
+            if let newValue {
+                data["endX"] = newValue.x
+                data["endY"] = newValue.y
+            } else {
+                data.removeValue(forKey: "endX")
+                data.removeValue(forKey: "endY")
+            }
+        }
+    }
+
+    public var centerPoint: SIMD2<Double>? {
+        get {
+            guard let cx = data["centerX"], let cy = data["centerY"] else { return nil }
+            return SIMD2<Double>(cx, cy)
+        }
+        set {
+            if let newValue {
+                data["centerX"] = newValue.x
+                data["centerY"] = newValue.y
+            } else {
+                data.removeValue(forKey: "centerX")
+                data.removeValue(forKey: "centerY")
+            }
+        }
+    }
+
+    public var radius: Double? {
+        get {
+            if let r = data["radius"] { return r }
+            if let cp = centerPoint, let sp = startPoint {
+                return hypot(sp.x - cp.x, sp.y - cp.y)
+            }
+            return nil
+        }
+        set {
+            if let newValue {
+                data["radius"] = newValue
+            } else {
+                data.removeValue(forKey: "radius")
+            }
+        }
+    }
+
+    public var isClockwise: Bool {
+        get {
+            data["clockwise"] == 1.0
+        }
+        set {
+            data["clockwise"] = newValue ? 1.0 : 0.0
+        }
+    }
+
+    public func updatingEndpoints(start: SIMD2<Double>? = nil, end: SIMD2<Double>? = nil) -> SketchEntity {
+        var copy = self
+        if let start {
+            copy.data["startX"] = start.x
+            copy.data["startY"] = start.y
+        }
+        if let end {
+            copy.data["endX"] = end.x
+            copy.data["endY"] = end.y
+        }
+        return copy
+    }
+
+    public func withEndpoints(start: SIMD2<Double>? = nil, end: SIMD2<Double>? = nil) -> SketchEntity {
+        updatingEndpoints(start: start, end: end)
+    }
 }
 
 /// Definition of a 2D sketch plane and its constituent geometric entities.
@@ -107,23 +233,49 @@ public struct SketchFeatureData: Sendable, Codable, Equatable {
     }
 }
 
+/// Parameters defining an extruded solid in the scene graph.
+public struct ExtrudeParams: Sendable, Codable, Equatable {
+    public var profile: SketchProfile
+    public var distance: Double
+    public var isSymmetric: Bool
+    public var draftAngle: Double
+    public var sketchFeatureId: UUID?
+
+    public init(
+        profile: SketchProfile,
+        distance: Double,
+        isSymmetric: Bool = false,
+        draftAngle: Double = 0.0,
+        sketchFeatureId: UUID? = nil
+    ) {
+        self.profile = profile
+        self.distance = distance
+        self.isSymmetric = isSymmetric
+        self.draftAngle = draftAngle
+        self.sketchFeatureId = sketchFeatureId
+    }
+}
+
 /// Extrusion operation parameters projecting a sketch profile into 3D.
 public struct ExtrudeFeatureData: Sendable, Codable, Equatable {
     public var sketchFeatureId: UUID?
     public var distance: Double
     public var isSymmetric: Bool
     public var draftAngle: Double
+    public var profile: SketchProfile?
 
     public init(
         sketchFeatureId: UUID? = nil,
         distance: Double,
         isSymmetric: Bool = false,
-        draftAngle: Double = 0.0
+        draftAngle: Double = 0.0,
+        profile: SketchProfile? = nil
     ) {
         self.sketchFeatureId = sketchFeatureId
         self.distance = distance
         self.isSymmetric = isSymmetric
         self.draftAngle = draftAngle
+        self.profile = profile
     }
 }
 
@@ -346,8 +498,17 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             def = .part(url: p.url, shape: p.shape)
         case .imported(let imp):
             def = .imported(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
-        case .sketch, .extrude:
+        case .sketch:
             return nil
+        case .extrude(let data):
+            guard let profile = data.profile else { return nil }
+            def = .extrude(ExtrudeParams(
+                profile: profile,
+                distance: data.distance,
+                isSymmetric: data.isSymmetric,
+                draftAngle: data.draftAngle,
+                sketchFeatureId: data.sketchFeatureId
+            ))
         }
         return SceneObject(
             id: solidId,
@@ -1311,6 +1472,26 @@ extension Feature {
             self.init(
                 name: object.name,
                 operation: .imported(ImportedFeatureData(name: name, sourceURL: sourceURL, data: data)),
+                outputSolidId: object.id,
+                bodyOperation: .create,
+                targetBodyId: nil,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .extrude(let params):
+            self.init(
+                name: object.name,
+                operation: .extrude(ExtrudeFeatureData(
+                    sketchFeatureId: params.sketchFeatureId,
+                    distance: params.distance,
+                    isSymmetric: params.isSymmetric,
+                    draftAngle: params.draftAngle,
+                    profile: params.profile
+                )),
+                inputExpressions: ["distance": FeatureExpression(value: params.distance)],
+                references: params.sketchFeatureId.map { [.feature($0, role: "sketchProfile")] } ?? [],
                 outputSolidId: object.id,
                 bodyOperation: .create,
                 targetBodyId: nil,

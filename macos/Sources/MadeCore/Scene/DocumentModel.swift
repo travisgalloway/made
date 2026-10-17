@@ -16,6 +16,8 @@ public enum ObjectDef: Sendable, Equatable {
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
     /// A scripted `.part.ts` or `.part.js` source file on disk, with its last evaluated shape tree (#427).
     case part(url: URL, shape: ShapeNode? = nil)
+    /// A solid extruded from a 2D sketch profile.
+    case extrude(ExtrudeParams)
     
     public var kind: String {
         switch self {
@@ -28,6 +30,7 @@ public enum ObjectDef: Sendable, Equatable {
         case .imported: return "imported"
         case .boolean: return "boolean"
         case .part: return "part"
+        case .extrude: return "extrude"
         }
     }
 }
@@ -63,6 +66,8 @@ extension ObjectDef {
         case .part(let url, _):
             let filename = url.lastPathComponent
             return (filename.isEmpty || filename == "/") ? "part" : filename
+        case .extrude(let p):
+            return "h \(Self.formatDim(Float(p.distance))) mm"
         }
     }
 
@@ -181,6 +186,9 @@ extension ObjectDef: Codable {
                 url = URL(fileURLWithPath: urlString)
             }
             self = DocumentLimits.clamp(.part(url: url, shape: nil))
+        case "extrude":
+            let params = try container.decode(ExtrudeParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.extrude(params))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
@@ -232,6 +240,9 @@ extension ObjectDef: Codable {
             } else {
                 try container.encode(url.isFileURL ? url.path : url.absoluteString, forKey: .url)
             }
+        case .extrude(let params):
+            try container.encode("extrude", forKey: .kind)
+            try container.encode(params, forKey: .params)
         }
     }
 }
@@ -313,6 +324,7 @@ public enum DocumentLimits {
     public static let wedgeDepth = ParamRange(min: 5, max: 90)
     public static let wedgeHeight = ParamRange(min: 5, max: 90)
     public static let wedgeTopWidth = ParamRange(min: 0, max: 90)
+    public static let extrudeDistance = ParamRange(min: 0.01, max: 10_000)
     
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
@@ -386,6 +398,13 @@ public enum DocumentLimits {
         }
     }
 
+    public static func clampExtrude(key: String, value: Float) -> Float {
+        switch key {
+        case "distance": return extrudeDistance.clamp(value)
+        default: return value
+        }
+    }
+
     public static func clamp(_ def: ObjectDef) -> ObjectDef {
         switch def {
         case .box(let p):
@@ -419,6 +438,10 @@ public enum DocumentLimits {
             return .wedge(WedgeParams(width: w, depth: d, height: h, topWidth: tw))
         case .part(let url, let shape):
             return .part(url: url.standardizedFileURL, shape: shape)
+        case .extrude(var p):
+            let clamped = extrudeDistance.clamp(Float(p.distance))
+            p.distance = Double(clamped)
+            return .extrude(p)
         case .imported, .boolean:
             return def
         }
@@ -1435,6 +1458,175 @@ public final class DocumentModel {
         features.first(where: { $0.outputSolidId == solidId })
     }
 
+    // MARK: - Sketch Feature Mutators
+
+    @discardableResult
+    public func addSketchFeature(
+        planeName: String = "XY",
+        entities: [SketchEntity] = []
+    ) -> Feature {
+        let sketchCount = features.filter {
+            if case .sketch = $0.operation { return true }
+            return false
+        }.count + 1
+        let feature = Feature(
+            name: "Sketch \(sketchCount)",
+            operation: .sketch(SketchFeatureData(planeName: planeName, entities: entities))
+        )
+        _ = addFeature(feature)
+        selection = [Reference.feature(feature.id)]
+        return feature
+    }
+
+    @discardableResult
+    public func addSketchEntity(to featureId: UUID, entity: SketchEntity) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let entityId = entity.id
+        sketchData.entities.append(entity)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeSketchEntity(from: featureId, entityId: entityId)
+            }
+        }
+        undoManager?.setActionName("Add Sketch Entity")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSketchEntity(in featureId: UUID, entity: SketchEntity) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entity.id }) else {
+            return .failure(.objectNotFound(ObjectId(entity.id.uuidString)))
+        }
+
+        let oldEntity = sketchData.entities[entityIndex]
+        sketchData.entities[entityIndex] = entity
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchEntity(in: featureId, entity: oldEntity)
+            }
+        }
+        undoManager?.setActionName("Update Sketch Entity")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeSketchEntity(from featureId: UUID, entityId: UUID) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entityId }) else {
+            return .failure(.objectNotFound(ObjectId(entityId.uuidString)))
+        }
+
+        let removedEntity = sketchData.entities.remove(at: entityIndex)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertSketchEntity(to: featureId, entity: removedEntity, at: entityIndex)
+            }
+        }
+        undoManager?.setActionName("Delete Sketch Entity")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertSketchEntity(to featureId: UUID, entity: SketchEntity, at insertIndex: Int) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let clampedIndex = min(max(0, insertIndex), sketchData.entities.count)
+        sketchData.entities.insert(entity, at: clampedIndex)
+        features[index].operation = .sketch(sketchData)
+
+        let entityId = entity.id
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeSketchEntity(from: featureId, entityId: entityId)
+            }
+        }
+        undoManager?.setActionName("Add Sketch Entity")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func extrudeSketch(
+        sketchFeatureId: UUID,
+        distance: Double,
+        isSymmetric: Bool = false,
+        draftAngle: Double = 0.0
+    ) throws -> Feature {
+        guard let sketchFeature = feature(for: sketchFeatureId) else {
+            throw DocumentMutationError.objectNotFound(ObjectId(sketchFeatureId.uuidString))
+        }
+        guard case .sketch(let sketchData) = sketchFeature.operation else {
+            throw DocumentMutationError.objectNotFound(ObjectId(sketchFeatureId.uuidString))
+        }
+
+        let profile = try SketchProfileBuilder.build(from: sketchData.entities)
+        let clampedDistance = Double(DocumentLimits.extrudeDistance.clamp(Float(distance)))
+
+        seq += 1
+        let solidId = ObjectId("extrude-\(seq)")
+        let extrudeFeature = Feature(
+            name: "Extrude \(seq)",
+            operation: .extrude(ExtrudeFeatureData(
+                sketchFeatureId: sketchFeatureId,
+                distance: clampedDistance,
+                isSymmetric: isSymmetric,
+                draftAngle: draftAngle,
+                profile: profile
+            )),
+            inputExpressions: ["distance": FeatureExpression(value: clampedDistance)],
+            references: [.feature(sketchFeatureId, role: "sketchProfile")],
+            outputSolidId: solidId,
+            bodyOperation: .create,
+            targetBodyId: nil
+        )
+
+        _ = addFeature(extrudeFeature)
+        return extrudeFeature
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -1563,7 +1755,12 @@ public final class DocumentModel {
             case "topWidth": return p.topWidth
             default: return nil
             }
-        case .imported, .boolean, .part, .sketch, .extrude:
+        case .extrude(let data):
+            switch key {
+            case "distance": return Float(data.distance)
+            default: return nil
+            }
+        case .imported, .boolean, .part, .sketch:
             return nil
         }
     }
@@ -1853,7 +2050,17 @@ public final class DocumentModel {
             updatedFeature.operation = .primitive(.wedge(params))
             updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
             
-        case .imported, .boolean, .part, .sketch, .extrude:
+        case .extrude(var data):
+            switch key {
+            case "distance":
+                data.distance = Double(DocumentLimits.clampExtrude(key: "distance", value: value))
+            default: break
+            }
+            clampedValue = Float(data.distance)
+            updatedFeature.operation = .extrude(data)
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+
+        case .imported, .boolean, .part, .sketch:
             return .success(())
         }
 

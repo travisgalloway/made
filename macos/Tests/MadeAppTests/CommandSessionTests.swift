@@ -445,6 +445,53 @@ extension WorkspaceModelTests {
         #expect(workspace.document.objects.first(where: { $0.id == boxId })?.isVisible == false)
         #expect(workspace.document.objects.first(where: { $0.id == cylId })?.isVisible == true)
     }
+
+    @Test @MainActor func testMakeExtrudeCommandSessionLifecycle() async {
+        let workspace = WorkspaceModel()
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(20, 0))
+        let l2 = SketchEntity.line(start: SIMD2(20, 0), end: SIMD2(20, 20))
+        let l3 = SketchEntity.line(start: SIMD2(20, 20), end: SIMD2(0, 20))
+        let l4 = SketchEntity.line(start: SIMD2(0, 20), end: SIMD2(0, 0))
+        let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+
+        let session = CommandSession.makeExtrude(workspace: workspace, sketchFeatureId: sketch.id)
+        #expect(session.canCommit)
+        #expect(session.numberValue(for: "distance") == 20.0)
+        #expect(session.toggleValue(for: "symmetric") == false)
+
+        session.setNumberValue(35.0, for: "distance")
+        session.setToggleValue(true, for: "symmetric")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        // Yield to allow Task @MainActor onCommit to run
+        await Task.yield()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .extrude(let params)? = added?.def {
+            #expect(params.distance == 35.0)
+            #expect(params.isSymmetric == true)
+            #expect(params.sketchFeatureId == sketch.id)
+        } else {
+            Issue.record("Expected .extrude def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakeExtrudeValidationRejectsOpenProfile() {
+        let workspace = WorkspaceModel()
+        // Open sketch: two disconnected lines
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let l2 = SketchEntity.line(start: SIMD2(10, 0), end: SIMD2(10, 10))
+        let openSketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1, l2])
+
+        let session = CommandSession.makeExtrude(workspace: workspace, sketchFeatureId: openSketch.id)
+        // Custom validation should fail because profile is open
+        #expect(!session.canCommit)
+    }
 }
 
 }

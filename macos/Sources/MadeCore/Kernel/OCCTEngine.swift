@@ -110,10 +110,7 @@ enum OCCTEngine {
                 return try importStep(data: fileData)
             }
             throw EngineError.emptyData
-        case .boolean:
-            // Boolean shape export will be delivered with topological boolean recovery in #35 / #143
-            throw EngineError.tessellationFailed
-        case .part:
+        case .boolean, .extrude, .part:
             throw EngineError.tessellationFailed
         }
     }

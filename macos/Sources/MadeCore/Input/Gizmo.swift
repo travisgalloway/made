@@ -447,6 +447,9 @@ public func computeResizedParameters(
         let h = DocumentLimits.clampWedge(key: "height", value: params.height * scale.z)
         let tw = DocumentLimits.clampWedge(key: "topWidth", value: params.topWidth * scale.x)
         return [("width", w), ("depth", d), ("height", h), ("topWidth", tw)]
+    case .extrude(let params):
+        let d = DocumentLimits.clampExtrude(key: "distance", value: Float(params.distance) * scale.z)
+        return [("distance", d)]
     case .imported, .boolean, .part:
         return []
     }

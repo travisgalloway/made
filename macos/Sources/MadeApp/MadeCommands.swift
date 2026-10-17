@@ -207,6 +207,16 @@ struct SolidMenuCommands: Commands {
 
             Divider()
 
+            Button("New Ground Sketch") {
+                workspace.startNewSketchCommand()
+            }
+
+            Button("Extrude Sketch…") {
+                workspace.startExtrudeCommand()
+            }
+
+            Divider()
+
             Button(workspace.hideToggleTitle) {
                 workspace.toggleSelectedObjectVisibility()
             }

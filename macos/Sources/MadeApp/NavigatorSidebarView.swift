@@ -24,10 +24,18 @@ struct NavigatorSidebarView: View {
                                 .id(obj.id)
                         }
                     }
+
+                    if !sketchFeatures.isEmpty {
+                        Section("Sketches") {
+                            ForEach(sketchFeatures) { sketch in
+                                NavigatorSketchRow(feature: sketch)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.objects.isEmpty {
+                    if workspace.document.objects.isEmpty && sketchFeatures.isEmpty {
                         ContentUnavailableView {
                             Label("No Objects", systemImage: "cube.transparent")
                         } description: {
@@ -163,6 +171,13 @@ struct NavigatorSidebarView: View {
                     workspace.addDefaultWedge()
                 }
                 Divider()
+                Button("New Ground Sketch", systemImage: "pencil.and.ruler.fill") {
+                    workspace.startNewSketchCommand()
+                }
+                Button("Extrude Sketch…", systemImage: "arrow.up.forward.app.fill") {
+                    workspace.startExtrudeCommand()
+                }
+                Divider()
                 Button("Part Script File…", systemImage: "curlybraces") {
                     workspace.promptOpenPartFile()
                 }
@@ -190,6 +205,13 @@ struct NavigatorSidebarView: View {
 
     private var filteredObjects: [SceneObject] {
         Self.filter(objects: workspace.document.objects, query: filterText)
+    }
+
+    private var sketchFeatures: [Feature] {
+        workspace.document.activeFeatures.filter {
+            if case .sketch = $0.operation { return true }
+            return false
+        }
     }
 }
 
@@ -301,6 +323,7 @@ private struct NavigatorRow: View {
         case .imported: return "cube.transparent"
         case .boolean: return "square.on.circle"
         case .part: return "curlybraces.square.fill"
+        case .extrude: return "arrow.up.forward.app.fill"
         }
     }
 
@@ -315,6 +338,54 @@ private struct NavigatorRow: View {
         case .imported: return .purple
         case .boolean: return .green
         case .part: return .teal
+        case .extrude: return .purple
         }
+    }
+}
+
+/// Outline row for a 2D sketch feature in the Navigator sidebar.
+private struct NavigatorSketchRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let feature: Feature
+
+    var body: some View {
+        let isSelected = workspace.selectedSketchFeature?.id == feature.id
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "pencil.and.ruler.fill")
+                .foregroundStyle(Color.purple)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(feature.name)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text("Sketch")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                if case .sketch(let data) = feature.operation {
+                    Text("\(data.entities.count) entities")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectFeature(feature.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
     }
 }
