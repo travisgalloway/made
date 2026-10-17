@@ -599,6 +599,12 @@ struct InspectorPanelView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
+
+                Button("+ Project") {
+                    _ = workspace.projectSelectedGeometry()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
             }
 
             if data.entities.isEmpty {
@@ -632,6 +638,17 @@ struct InspectorPanelView: View {
                                 .foregroundStyle(.secondary)
                         )
                         .foregroundStyle(.secondary)
+                }
+                if entity.isProjected {
+                    Text("Projected")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.purple.opacity(0.2))
+                        )
+                        .foregroundStyle(.purple)
                 }
                 Spacer()
                 Toggle(isOn: Binding(

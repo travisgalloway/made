@@ -491,7 +491,12 @@ final class WorkspaceModel {
 
     var selectedFeature: Feature? {
         if let selectedId {
-            return document.feature(for: selectedId)
+            if let feat = document.feature(for: selectedId) {
+                return feat
+            }
+            if let uuid = UUID(uuidString: selectedId.rawValue), let feat = document.feature(for: uuid) {
+                return feat
+            }
         }
         if let sel = document.selection.first, case .feature(let featId) = sel.target {
             return document.feature(for: featId)
@@ -510,6 +515,20 @@ final class WorkspaceModel {
         }
         if let feat = selectedFeature, case .sketch = feat.operation {
             return feat
+        }
+        if let selectedId {
+            if let feat = document.feature(for: selectedId), case .sketch = feat.operation {
+                return feat
+            }
+            if let uuid = UUID(uuidString: selectedId.rawValue), let feat = document.feature(for: uuid), case .sketch = feat.operation {
+                return feat
+            }
+        }
+        if let sketch = document.features.last(where: {
+            if case .sketch = $0.operation { return true }
+            return false
+        }) {
+            return sketch
         }
         return nil
     }
@@ -1056,6 +1075,69 @@ final class WorkspaceModel {
             recomputeDependents(of: featureId)
         }
         return res
+    }
+
+    @discardableResult
+    func projectReference(_ reference: Reference, into sketchFeatureId: UUID? = nil) -> Result<SketchEntity, DocumentMutationError> {
+        guard let targetId = sketchFeatureId ?? selectedSketchFeature?.id else {
+            return .failure(.objectNotFound(ObjectId("sketch")))
+        }
+        let res = document.projectEntity(reference: reference, into: targetId)
+        if case .success = res {
+            solveSketchConstraints(featureId: targetId)
+            refreshDetectedSketchRegions(for: targetId)
+            refreshSketchStatus(for: targetId)
+            recomputeDependents(of: targetId)
+            markDocumentModified()
+        }
+        return res
+    }
+
+    @discardableResult
+    func projectSelectedGeometry() -> Result<SketchEntity, DocumentMutationError>? {
+        guard let targetSketch = selectedSketchFeature else { return nil }
+
+        // 1. Check sub-element selection for an edge
+        if let sub = document.selectedSubElement, sub.elementType == .edge {
+            if let feat = document.feature(for: sub.solidId) {
+                let topRef: TopologicalReference
+                if let detId = sub.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                    topRef = existing
+                } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "edge:\(sub.elementId)" }) {
+                    topRef = named
+                } else {
+                    topRef = TopologicalReference(
+                        sourceFeatureId: feat.id,
+                        elementType: .edge,
+                        historyPath: [HistoryStep(kind: .generated, label: "edge:\(sub.elementId)")]
+                    )
+                }
+                let ref = Reference.edge(topRef)
+                return projectReference(ref, into: targetSketch.id)
+            }
+        }
+
+        // 2. Check selected upstream sketch entity
+        if let pair = selectedSketchEntity, pair.featureId != targetSketch.id {
+            let ref = Reference.sketchEntity(featureId: pair.featureId, entityId: pair.entity.id)
+            return projectReference(ref, into: targetSketch.id)
+        }
+
+        // 3. Check document selection references
+        for selRef in document.selection {
+            switch selRef.target {
+            case .edge:
+                return projectReference(selRef, into: targetSketch.id)
+            case .sketchEntity(let featId, _):
+                if featId != targetSketch.id {
+                    return projectReference(selRef, into: targetSketch.id)
+                }
+            default:
+                break
+            }
+        }
+
+        return nil
     }
 
     func extendSelectedSketchEntity(targetEnd: SketchEntityEnd) {
@@ -2571,6 +2653,8 @@ final class WorkspaceModel {
     static let toolZoomShortcutKey: KeyEquivalent = "4"
     static let toolTrimShortcutKey: KeyEquivalent = "5"
     static let toolShortcutModifiers: EventModifiers = [.command, .option]
+    static let projectGeometryShortcutKey: KeyEquivalent = "j"
+    static let projectGeometryShortcutModifiers: EventModifiers = [.command]
 
     // MARK: - Selection Filter Shortcuts (BL-SEL-06)
 
@@ -2653,6 +2737,7 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Add Cylinder", shortcut: "⇧⌘C", category: .editing, description: "Add new parametric cylinder solid to document"),
         ShortcutCheatsheetEntry(title: "Dimension Line", shortcut: "⇧⌘D", category: .editing, description: "Dimension selected 2D sketch line to target length"),
         ShortcutCheatsheetEntry(title: "Toggle Construction", shortcut: "⇧⌘X", category: .editing, description: "Toggle construction geometry for selected sketch entity"),
+        ShortcutCheatsheetEntry(title: "Project Geometry", shortcut: "⌘J", category: .editing, description: "Project selected 3D model edge or upstream sketch entity into active sketch"),
         ShortcutCheatsheetEntry(title: "Hide/Show Solid", shortcut: "⇧⌘H", category: .editing, description: "Toggle visibility of selected solid"),
         ShortcutCheatsheetEntry(title: "Lock/Unlock Solid", shortcut: "⇧⌘L", category: .editing, description: "Toggle lock state of selected solid to prevent edits"),
         ShortcutCheatsheetEntry(title: "Reload Part", shortcut: "⌃⌘R", category: .editing, description: "Force recompute and rebuild active CAD part or script"),

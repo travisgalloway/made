@@ -465,6 +465,8 @@ public final class CADToolRegistry {
             return .error("Solid '\(idStr)' not found in scene")
         case .failure(.sketchError(let err)):
             return .error("Sketch error: \(err.localizedDescription)")
+        case .failure(.referenceResolutionFailed(let err)):
+            return .error("Reference resolution error: \(err.description)")
         case .success:
             break
         }
@@ -575,6 +577,8 @@ public final class CADToolRegistry {
             return .error("Solid '\(idStr)' not found in scene")
         case .failure(.sketchError(let err)):
             return .error("Sketch error: \(err.localizedDescription)")
+        case .failure(.referenceResolutionFailed(let err)):
+            return .error("Reference resolution error: \(err.description)")
         case .success:
             break
         }

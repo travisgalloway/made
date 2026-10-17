@@ -17,6 +17,27 @@ public struct SketchPlane: Hashable, Equatable, Sendable, Codable {
         self.xAxis = xAxis
     }
 
+    public var yAxis: SIMD3<Float> {
+        let n = simd_length(normal) > 1e-6 ? simd_normalize(normal) : SIMD3<Float>(0, 0, 1)
+        let x = simd_length(xAxis) > 1e-6 ? simd_normalize(xAxis) : SIMD3<Float>(1, 0, 0)
+        return simd_cross(n, x)
+    }
+
+    public func projectPoint(_ p: SIMD3<Float>) -> SIMD2<Double> {
+        let delta = p - origin
+        let x = simd_length(xAxis) > 1e-6 ? simd_normalize(xAxis) : SIMD3<Float>(1, 0, 0)
+        let y = yAxis
+        let u = Double(simd_dot(delta, x))
+        let v = Double(simd_dot(delta, y))
+        return SIMD2<Double>(u, v)
+    }
+
+    public func unprojectPoint(_ p: SIMD2<Double>) -> SIMD3<Float> {
+        let x = simd_length(xAxis) > 1e-6 ? simd_normalize(xAxis) : SIMD3<Float>(1, 0, 0)
+        let y = yAxis
+        return origin + Float(p.x) * x + Float(p.y) * y
+    }
+
     public static let xy = SketchPlane(origin: .zero, normal: SIMD3(0, 0, 1), xAxis: SIMD3(1, 0, 0))
     public static let xz = SketchPlane(origin: .zero, normal: SIMD3(0, -1, 0), xAxis: SIMD3(1, 0, 0))
     public static let yz = SketchPlane(origin: .zero, normal: SIMD3(1, 0, 0), xAxis: SIMD3(0, 1, 0))

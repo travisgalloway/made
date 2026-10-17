@@ -87,21 +87,28 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
     public var kind: String
     public var data: [String: Double]
     public var isConstruction: Bool
+    public var reference: Reference?
+
+    public var isProjected: Bool {
+        reference != nil
+    }
 
     public init(
         id: UUID = UUID(),
         kind: String,
         data: [String: Double] = [:],
-        isConstruction: Bool = false
+        isConstruction: Bool = false,
+        reference: Reference? = nil
     ) {
         self.id = id
         self.kind = kind
         self.data = data
         self.isConstruction = isConstruction
+        self.reference = reference
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, data, isConstruction
+        case id, kind, data, isConstruction, reference
     }
 
     public init(from decoder: Decoder) throws {
@@ -110,6 +117,7 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         self.kind = try container.decode(String.self, forKey: .kind)
         self.data = try container.decode([String: Double].self, forKey: .data)
         self.isConstruction = try container.decodeIfPresent(Bool.self, forKey: .isConstruction) ?? false
+        self.reference = try container.decodeIfPresent(Reference.self, forKey: .reference)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -120,13 +128,17 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         if isConstruction {
             try container.encode(isConstruction, forKey: .isConstruction)
         }
+        if let reference {
+            try container.encode(reference, forKey: .reference)
+        }
     }
 
     public static func line(
         id: UUID = UUID(),
         start: SIMD2<Double>,
         end: SIMD2<Double>,
-        isConstruction: Bool = false
+        isConstruction: Bool = false,
+        reference: Reference? = nil
     ) -> SketchEntity {
         SketchEntity(
             id: id,
@@ -137,7 +149,8 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
                 "endX": end.x,
                 "endY": end.y
             ],
-            isConstruction: isConstruction
+            isConstruction: isConstruction,
+            reference: reference
         )
     }
 
@@ -147,7 +160,8 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         end: SIMD2<Double>,
         center: SIMD2<Double>,
         clockwise: Bool = false,
-        isConstruction: Bool = false
+        isConstruction: Bool = false,
+        reference: Reference? = nil
     ) -> SketchEntity {
         SketchEntity(
             id: id,
@@ -161,7 +175,8 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
                 "centerY": center.y,
                 "clockwise": clockwise ? 1.0 : 0.0
             ],
-            isConstruction: isConstruction
+            isConstruction: isConstruction,
+            reference: reference
         )
     }
 
@@ -169,7 +184,8 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         id: UUID = UUID(),
         center: SIMD2<Double>,
         radius: Double,
-        isConstruction: Bool = false
+        isConstruction: Bool = false,
+        reference: Reference? = nil
     ) -> SketchEntity {
         SketchEntity(
             id: id,
@@ -179,7 +195,8 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
                 "centerY": center.y,
                 "radius": radius
             ],
-            isConstruction: isConstruction
+            isConstruction: isConstruction,
+            reference: reference
         )
     }
 
