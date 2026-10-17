@@ -176,6 +176,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onSelectSketchRegion: ((UUID) -> Void)?
     var onTrimClick: ((SIMD2<Double>) -> Void)?
     var onTrimDrag: (([SIMD2<Double>]) -> Void)?
+    var activeSketchFeatureId: UUID?
+    var onSketchDragStart: ((UUID, UUID) -> Void)?
+    var onSketchDragUpdate: ((UUID, DragTarget) -> Void)?
+    var onSketchDragEnd: ((UUID) -> Void)?
     
     public init(
         document: DocumentModel,
@@ -208,7 +212,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onHoverSketchRegion: ((UUID?) -> Void)? = nil,
         onSelectSketchRegion: ((UUID) -> Void)? = nil,
         onTrimClick: ((SIMD2<Double>) -> Void)? = nil,
-        onTrimDrag: (([SIMD2<Double>]) -> Void)? = nil
+        onTrimDrag: (([SIMD2<Double>]) -> Void)? = nil,
+        activeSketchFeatureId: UUID? = nil,
+        onSketchDragStart: ((UUID, UUID) -> Void)? = nil,
+        onSketchDragUpdate: ((UUID, DragTarget) -> Void)? = nil,
+        onSketchDragEnd: ((UUID) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -241,6 +249,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onSelectSketchRegion = onSelectSketchRegion
         self.onTrimClick = onTrimClick
         self.onTrimDrag = onTrimDrag
+        self.activeSketchFeatureId = activeSketchFeatureId
+        self.onSketchDragStart = onSketchDragStart
+        self.onSketchDragUpdate = onSketchDragUpdate
+        self.onSketchDragEnd = onSketchDragEnd
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -386,6 +398,16 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private var trimStrokePoints: [SIMD2<Double>] = []
         private var trimMouseDownLocation: CGPoint = .zero
 
+        public struct SketchDragState {
+            public var featureId: UUID
+            public var entityId: UUID
+            public var endpoint: DragTarget.EndpointTarget?
+            public var initialEntity: SketchEntity
+            public var startUV: SIMD2<Double>
+            public var hasMoved: Bool = false
+        }
+        private var sketchDragState: SketchDragState?
+
         public func unprojectToSketchPlane(loc: CGPoint, in view: MTKView) -> SIMD2<Double>? {
             guard let plane = parent.activeSketchPlane,
                   let ray = unprojectCursorRay(at: loc, in: view) else { return nil }
@@ -523,6 +545,36 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     }
                 }
             }
+
+            // Sketch entity drag on primary/left button under select tool or pen
+            if (parent.tool == .select || pType == .pen) && button == .left,
+               !event.modifierFlags.contains(.option),
+               !event.modifierFlags.contains(.control),
+               let featureId = parent.activeSketchFeatureId,
+               parent.activeSketchPlane != nil,
+               let uv = unprojectToSketchPlane(loc: loc, in: view) {
+                if let hit = SketchOperations.hitTestSketchDragTarget(
+                    at: uv,
+                    in: parent.sketchEntities,
+                    vertexTolerance: 1.0,
+                    curveTolerance: 1.0
+                ) {
+                    sketchDragState = SketchDragState(
+                        featureId: featureId,
+                        entityId: hit.entity.id,
+                        endpoint: hit.endpoint,
+                        initialEntity: hit.entity,
+                        startUV: uv,
+                        hasMoved: false
+                    )
+                    pointerRouter.arbiter.lock(to: .manipulate)
+                    activeDragAction = .manipulate
+                    parent.onSketchDragStart?(featureId, hit.entity.id)
+                    _ = pointerRouter.handle(.down(pointerType: pType, pointer: pointer))
+                    invalidate(reason: .interaction)
+                    return
+                }
+            }
             
             let action = ViewportTool.dragAction(
                 tool: parent.tool,
@@ -579,6 +631,17 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             
             if let _ = dragState {
                 handleGizmoDrag(at: loc, in: view, isTouch: pType == .touch)
+                return
+            }
+
+            if var drag = sketchDragState {
+                if let uv = unprojectToSketchPlane(loc: loc, in: view) {
+                    let target = DragTarget(entityId: drag.entityId, endpoint: drag.endpoint, targetPosition: uv)
+                    drag.hasMoved = true
+                    sketchDragState = drag
+                    parent.onSketchDragUpdate?(drag.featureId, target)
+                }
+                invalidate(reason: .interaction)
                 return
             }
             
@@ -910,6 +973,16 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 pointerRouter.arbiter.reset()
                 invalidate(reason: .interaction)
                 return
+            }
+
+            if let drag = sketchDragState {
+                parent.onSketchDragEnd?(drag.featureId)
+                sketchDragState = nil
+                pointerRouter.arbiter.reset()
+                invalidate(reason: .interaction)
+                if drag.hasMoved {
+                    return
+                }
             }
             
             if activeSnapResult != nil {

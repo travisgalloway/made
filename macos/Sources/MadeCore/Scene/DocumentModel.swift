@@ -535,6 +535,7 @@ public final class DocumentModel {
     public private(set) var undoStateVersion: Int = 0
     public var onUndoRedoMutation: (@MainActor (DocumentMutation) -> Void)?
     private var activeInteractiveParamEdit: (id: ObjectId, key: String, initialValue: Float)?
+    public private(set) var activeInteractiveSketchDrag: (featureId: UUID, initialEntities: [SketchEntity])?
     @ObservationIgnored private var undoObservers: [NSObjectProtocol] = []
 
     public var isRolledBack: Bool { rollbackIndex != nil }
@@ -947,6 +948,7 @@ public final class DocumentModel {
         }
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
+        activeInteractiveSketchDrag = nil
         undoStateVersion += 1
     }
 
@@ -974,6 +976,7 @@ public final class DocumentModel {
         }
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
+        activeInteractiveSketchDrag = nil
         undoStateVersion += 1
     }
 
@@ -1960,6 +1963,43 @@ public final class DocumentModel {
         return .success(())
     }
 
+    // MARK: - Interactive Sketch Drag Sessions (BL-CON-07)
+
+    public func beginInteractiveSketchDrag(featureId: UUID) {
+        guard let index = features.firstIndex(where: { $0.id == featureId }),
+              case .sketch(let sketchData) = features[index].operation else {
+            return
+        }
+        guard !features[index].isLocked else { return }
+        activeInteractiveSketchDrag = (featureId: featureId, initialEntities: sketchData.entities)
+    }
+
+    public func endInteractiveSketchDrag(featureId: UUID) {
+        guard let active = activeInteractiveSketchDrag, active.featureId == featureId else {
+            activeInteractiveSketchDrag = nil
+            return
+        }
+        activeInteractiveSketchDrag = nil
+
+        guard let index = features.firstIndex(where: { $0.id == featureId }),
+              case .sketch(let sketchData) = features[index].operation else {
+            return
+        }
+
+        let initialEntities = active.initialEntities
+        let finalEntities = sketchData.entities
+        guard finalEntities != initialEntities else { return }
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchEntities(in: featureId, entities: initialEntities)
+                target.undoManager?.setActionName("Drag Sketch Entity")
+            }
+        }
+        undoManager?.setActionName("Drag Sketch Entity")
+        undoStateVersion += 1
+    }
+
     @discardableResult
     public func updateSketchEntities(in featureId: UUID, entities: [SketchEntity]) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.id == featureId }) else {
@@ -1976,12 +2016,14 @@ public final class DocumentModel {
         sketchData.entities = entities
         features[index].operation = .sketch(sketchData)
 
-        undoManager?.registerUndo(withTarget: self) { target in
-            MainActor.assumeIsolated {
-                _ = target.updateSketchEntities(in: featureId, entities: oldEntities)
+        if activeInteractiveSketchDrag == nil {
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSketchEntities(in: featureId, entities: oldEntities)
+                }
             }
+            undoManager?.setActionName("Update Sketch Entities")
         }
-        undoManager?.setActionName("Update Sketch Entities")
         undoStateVersion += 1
         return .success(())
     }

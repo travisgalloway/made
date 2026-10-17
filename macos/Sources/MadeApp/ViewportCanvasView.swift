@@ -117,6 +117,16 @@ struct ViewportCanvasView: View {
                                 if let feat = workspace.selectedSketchFeature {
                                     _ = workspace.trimSketchEntitiesAlongPath(in: feat.id, path: path)
                                 }
+                            },
+                            activeSketchFeatureId: workspace.selectedSketchFeature?.id,
+                            onSketchDragStart: { featId, entityId in
+                                workspace.beginInteractiveSketchDrag(featureId: featId, entityId: entityId)
+                            },
+                            onSketchDragUpdate: { featId, dragTarget in
+                                workspace.solveSketchDrag(featureId: featId, dragTarget: dragTarget)
+                            },
+                            onSketchDragEnd: { featId in
+                                workspace.endInteractiveSketchDrag(featureId: featId)
                             }
                         )
 
