@@ -1003,6 +1003,96 @@ final class WorkspaceModel {
         recomputeDependents(of: pair.featureId)
     }
 
+    // MARK: - Sketch Operations Coordination (BL-SKT-08)
+
+    @discardableResult
+    func trimSketchEntity(in featureId: UUID, entityId: UUID, clickPoint: SIMD2<Double>) -> Result<TrimResult, DocumentMutationError> {
+        let res = document.trimSketchEntity(in: featureId, entityId: entityId, clickPoint: clickPoint)
+        if case .success(let trimResult) = res {
+            solveSketchConstraints(featureId: featureId)
+            refreshDetectedSketchRegions(for: featureId)
+            refreshSketchStatus(for: featureId)
+            recomputeDependents(of: featureId)
+            if case .deleted = trimResult {
+                if let sel = selectedSketchEntity, sel.entity.id == entityId {
+                    document.selection = [Reference.feature(featureId)]
+                }
+            }
+        }
+        return res
+    }
+
+    @discardableResult
+    func trimSketchEntitiesAlongPath(in featureId: UUID, path: [SIMD2<Double>]) -> Result<[TrimResult], DocumentMutationError> {
+        let res = document.trimSketchEntitiesAlongPath(in: featureId, path: path)
+        if case .success(let results) = res, !results.isEmpty {
+            solveSketchConstraints(featureId: featureId)
+            refreshDetectedSketchRegions(for: featureId)
+            refreshSketchStatus(for: featureId)
+            recomputeDependents(of: featureId)
+        }
+        return res
+    }
+
+    @discardableResult
+    func extendSketchEntity(in featureId: UUID, entityId: UUID, targetEnd: SketchEntityEnd) -> Result<SketchEntity, DocumentMutationError> {
+        let res = document.extendSketchEntity(in: featureId, entityId: entityId, targetEnd: targetEnd)
+        if case .success = res {
+            solveSketchConstraints(featureId: featureId)
+            refreshDetectedSketchRegions(for: featureId)
+            refreshSketchStatus(for: featureId)
+            recomputeDependents(of: featureId)
+        }
+        return res
+    }
+
+    @discardableResult
+    func splitSketchEntity(in featureId: UUID, entityId: UUID, at point: SIMD2<Double>) -> Result<(SketchEntity, SketchEntity), DocumentMutationError> {
+        let res = document.splitSketchEntity(in: featureId, entityId: entityId, at: point)
+        if case .success = res {
+            solveSketchConstraints(featureId: featureId)
+            refreshDetectedSketchRegions(for: featureId)
+            refreshSketchStatus(for: featureId)
+            recomputeDependents(of: featureId)
+        }
+        return res
+    }
+
+    func extendSelectedSketchEntity(targetEnd: SketchEntityEnd) {
+        guard let pair = selectedSketchEntity else { return }
+        _ = extendSketchEntity(in: pair.featureId, entityId: pair.entity.id, targetEnd: targetEnd)
+    }
+
+    func splitSelectedSketchEntityAtMidpoint() {
+        guard let pair = selectedSketchEntity else { return }
+        let entity = pair.entity
+        let midpoint: SIMD2<Double>?
+        switch entity.kind {
+        case "line":
+            if let sp = entity.startPoint, let ep = entity.endPoint {
+                midpoint = (sp + ep) * 0.5
+            } else { midpoint = nil }
+        case "arc":
+            if let sp = entity.startPoint, let ep = entity.endPoint, let cp = entity.centerPoint {
+                let r = entity.radius ?? hypot(sp.x - cp.x, sp.y - cp.y)
+                let cw = entity.isClockwise
+                let sweep = SketchOperations.arcSweepAngle(start: sp, end: ep, center: cp, clockwise: cw)
+                let sAngle = atan2(sp.y - cp.y, sp.x - cp.x)
+                let midAngle = cw ? (sAngle - sweep * 0.5) : (sAngle + sweep * 0.5)
+                midpoint = cp + r * SIMD2<Double>(cos(midAngle), sin(midAngle))
+            } else { midpoint = nil }
+        case "circle":
+            if let cp = entity.centerPoint, let r = entity.radius {
+                midpoint = cp + SIMD2<Double>(r, 0.0)
+            } else { midpoint = nil }
+        default:
+            midpoint = nil
+        }
+        if let pt = midpoint {
+            _ = splitSketchEntity(in: pair.featureId, entityId: entity.id, at: pt)
+        }
+    }
+
     func addSketchConstraint(to featureId: UUID, constraint: SketchConstraint) {
         _ = document.addSketchConstraint(to: featureId, constraint: constraint)
         solveSketchConstraints(featureId: featureId)
@@ -2479,6 +2569,7 @@ final class WorkspaceModel {
     static let toolOrbitShortcutKey: KeyEquivalent = "2"
     static let toolPanShortcutKey: KeyEquivalent = "3"
     static let toolZoomShortcutKey: KeyEquivalent = "4"
+    static let toolTrimShortcutKey: KeyEquivalent = "5"
     static let toolShortcutModifiers: EventModifiers = [.command, .option]
 
     // MARK: - Selection Filter Shortcuts (BL-SEL-06)

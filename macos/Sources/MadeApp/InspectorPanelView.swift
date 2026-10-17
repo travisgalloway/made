@@ -774,6 +774,42 @@ struct InspectorPanelView: View {
             default:
                 EmptyView()
             }
+
+            if isSelected {
+                HStack(spacing: 4) {
+                    Button("Trim") {
+                        workspace.tool = .trim
+                    }
+                    .controlSize(.mini)
+                    .buttonStyle(.bordered)
+                    .help("Switch to Trim tool")
+
+                    if entity.kind == "line" || entity.kind == "arc" {
+                        Button("Extend Start") {
+                            workspace.extendSelectedSketchEntity(targetEnd: .start)
+                        }
+                        .controlSize(.mini)
+                        .buttonStyle(.bordered)
+                        .help("Extend start endpoint to nearest intersection")
+
+                        Button("Extend End") {
+                            workspace.extendSelectedSketchEntity(targetEnd: .end)
+                        }
+                        .controlSize(.mini)
+                        .buttonStyle(.bordered)
+                        .help("Extend end endpoint to nearest intersection")
+                    }
+
+                    Button("Split") {
+                        workspace.splitSelectedSketchEntityAtMidpoint()
+                    }
+                    .controlSize(.mini)
+                    .buttonStyle(.bordered)
+                    .help("Split entity into two segments")
+                }
+                .padding(.top, 2)
+            }
+
             if entity.isConstruction {
                 Rectangle()
                     .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))

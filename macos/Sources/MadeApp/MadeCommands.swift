@@ -406,9 +406,36 @@ struct ToolsMenuCommands: Commands {
                     .keyboardShortcut(WorkspaceModel.toolPanShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
                 Button("Zoom") { workspace.tool = .zoom }
                     .keyboardShortcut(WorkspaceModel.toolZoomShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
+                Button("Trim") { workspace.tool = .trim }
+                    .keyboardShortcut(WorkspaceModel.toolTrimShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
             }
 
             Divider()
+
+            Menu("Sketch Operations") {
+                Button("Trim Entity") {
+                    workspace.tool = .trim
+                }
+                .keyboardShortcut(WorkspaceModel.toolTrimShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
+
+                Divider()
+
+                Button("Extend Selected Start") {
+                    workspace.extendSelectedSketchEntity(targetEnd: .start)
+                }
+                .disabled(workspace.selectedSketchEntity == nil || (workspace.selectedSketchEntity?.entity.kind != "line" && workspace.selectedSketchEntity?.entity.kind != "arc"))
+
+                Button("Extend Selected End") {
+                    workspace.extendSelectedSketchEntity(targetEnd: .end)
+                }
+                .disabled(workspace.selectedSketchEntity == nil || (workspace.selectedSketchEntity?.entity.kind != "line" && workspace.selectedSketchEntity?.entity.kind != "arc"))
+
+                Button("Split Selected Entity") {
+                    workspace.splitSelectedSketchEntityAtMidpoint()
+                }
+                .disabled(workspace.selectedSketchEntity == nil)
+            }
+            .disabled(workspace.selectedSketchFeature == nil)
 
             Menu("Sketch Constraints") {
                 Button("Dimension Line…") {

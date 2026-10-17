@@ -463,6 +463,8 @@ public final class CADToolRegistry {
             return .error("Solid '\(lockedId.rawValue)' is locked and cannot be edited")
         case .failure(.objectNotFound):
             return .error("Solid '\(idStr)' not found in scene")
+        case .failure(.sketchError(let err)):
+            return .error("Sketch error: \(err.localizedDescription)")
         case .success:
             break
         }
@@ -571,6 +573,8 @@ public final class CADToolRegistry {
             return .error("Solid '\(lockedId.rawValue)' is locked and cannot be moved")
         case .failure(.objectNotFound):
             return .error("Solid '\(idStr)' not found in scene")
+        case .failure(.sketchError(let err)):
+            return .error("Sketch error: \(err.localizedDescription)")
         case .success:
             break
         }

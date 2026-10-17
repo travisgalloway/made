@@ -451,6 +451,7 @@ public enum DocumentLimits {
 public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConvertible {
     case objectLocked(ObjectId)
     case objectNotFound(ObjectId)
+    case sketchError(SketchError)
 
     public var description: String {
         switch self {
@@ -458,6 +459,8 @@ public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConve
             return "Solid '\(id.rawValue)' is locked and cannot be modified"
         case .objectNotFound(let id):
             return "Solid '\(id.rawValue)' not found"
+        case .sketchError(let err):
+            return "Sketch error: \(err.localizedDescription)"
         }
     }
 }
@@ -1978,6 +1981,207 @@ public final class DocumentModel {
         undoManager?.setActionName("Update Sketch Entities")
         undoStateVersion += 1
         return .success(())
+    }
+
+    // MARK: - Sketch Trim, Extend & Split Mutators (BL-SKT-08)
+
+    @discardableResult
+    public func trimSketchEntity(
+        in featureId: UUID,
+        entityId: UUID,
+        clickPoint: SIMD2<Double>
+    ) -> Result<TrimResult, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entityId }) else {
+            return .failure(.objectNotFound(ObjectId(entityId.uuidString)))
+        }
+
+        let entity = sketchData.entities[entityIndex]
+        let trimResult: TrimResult
+        do {
+            trimResult = try SketchOperations.trim(entity: entity, at: clickPoint, in: sketchData.entities)
+        } catch let err as SketchError {
+            return .failure(.sketchError(err))
+        } catch {
+            return .failure(.sketchError(.invalidEntity(error.localizedDescription)))
+        }
+
+        let oldEntity = entity
+
+        switch trimResult {
+        case .updated(let updated):
+            sketchData.entities[entityIndex] = updated
+            features[index].operation = .sketch(sketchData)
+
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSketchEntity(in: featureId, entity: oldEntity)
+                }
+            }
+
+        case .divided(let updated, let added):
+            sketchData.entities[entityIndex] = updated
+            sketchData.entities.insert(added, at: entityIndex + 1)
+            features[index].operation = .sketch(sketchData)
+
+            let addedId = added.id
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSketchEntity(from: featureId, entityId: addedId)
+                    _ = target.updateSketchEntity(in: featureId, entity: oldEntity)
+                }
+            }
+
+        case .deleted:
+            sketchData.entities.remove(at: entityIndex)
+            features[index].operation = .sketch(sketchData)
+
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.insertSketchEntity(to: featureId, entity: oldEntity, at: entityIndex)
+                }
+            }
+        }
+
+        undoManager?.setActionName("Trim Sketch Entity")
+        undoStateVersion += 1
+        return .success(trimResult)
+    }
+
+    @discardableResult
+    public func trimSketchEntitiesAlongPath(
+        in featureId: UUID,
+        path: [SIMD2<Double>]
+    ) -> Result<[TrimResult], DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard path.count >= 2 else {
+            return .success([])
+        }
+
+        let oldEntities = sketchData.entities
+        var currentEntities = sketchData.entities
+        let trimResults = SketchOperations.trimAlongPath(path: path, in: &currentEntities)
+
+        guard !trimResults.isEmpty else {
+            return .success([])
+        }
+
+        sketchData.entities = currentEntities
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchEntities(in: featureId, entities: oldEntities)
+            }
+        }
+        undoManager?.setActionName("Trim Sketch Entity")
+        undoStateVersion += 1
+        return .success(trimResults)
+    }
+
+    @discardableResult
+    public func extendSketchEntity(
+        in featureId: UUID,
+        entityId: UUID,
+        targetEnd: SketchEntityEnd
+    ) -> Result<SketchEntity, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entityId }) else {
+            return .failure(.objectNotFound(ObjectId(entityId.uuidString)))
+        }
+
+        let entity = sketchData.entities[entityIndex]
+        let extended: SketchEntity
+        do {
+            extended = try SketchOperations.extend(entity: entity, targetEnd: targetEnd, in: sketchData.entities)
+        } catch let err as SketchError {
+            return .failure(.sketchError(err))
+        } catch {
+            return .failure(.sketchError(.invalidEntity(error.localizedDescription)))
+        }
+
+        let oldEntity = entity
+        sketchData.entities[entityIndex] = extended
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchEntity(in: featureId, entity: oldEntity)
+            }
+        }
+        undoManager?.setActionName("Extend Sketch Entity")
+        undoStateVersion += 1
+        return .success(extended)
+    }
+
+    @discardableResult
+    public func splitSketchEntity(
+        in featureId: UUID,
+        entityId: UUID,
+        at point: SIMD2<Double>
+    ) -> Result<(SketchEntity, SketchEntity), DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let entityIndex = sketchData.entities.firstIndex(where: { $0.id == entityId }) else {
+            return .failure(.objectNotFound(ObjectId(entityId.uuidString)))
+        }
+
+        let entity = sketchData.entities[entityIndex]
+        let parts: (SketchEntity, SketchEntity)
+        do {
+            parts = try SketchOperations.split(entity: entity, at: point)
+        } catch let err as SketchError {
+            return .failure(.sketchError(err))
+        } catch {
+            return .failure(.sketchError(.invalidEntity(error.localizedDescription)))
+        }
+
+        let oldEntity = entity
+        let secondId = parts.1.id
+        sketchData.entities[entityIndex] = parts.0
+        sketchData.entities.insert(parts.1, at: entityIndex + 1)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeSketchEntity(from: featureId, entityId: secondId)
+                _ = target.updateSketchEntity(in: featureId, entity: oldEntity)
+            }
+        }
+        undoManager?.setActionName("Split Sketch Entity")
+        undoStateVersion += 1
+        return .success(parts)
     }
 
     @discardableResult
