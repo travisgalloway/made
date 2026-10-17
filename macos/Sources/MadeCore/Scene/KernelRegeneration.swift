@@ -31,8 +31,15 @@ public enum KernelRegeneration {
                 return .importStep(jobId: jobId, solidId: solidId, data: fileData)
             }
             return nil
-        case .sketch, .extrude:
+        case .sketch:
             return nil
+        case .extrude(let data):
+            guard let profile = data.profile, let solidId = feature.outputSolidId else { return nil }
+            return .evaluateShape(
+                jobId: jobId,
+                solidId: solidId,
+                shape: .extrude(profile: profile, distance: Float(data.distance), centered: data.isSymmetric)
+            )
         }
     }
 
@@ -48,6 +55,12 @@ public enum KernelRegeneration {
         case .part(_, let shape):
             guard let shape else { return nil }
             return .evaluateShape(jobId: jobId, solidId: object.id, shape: shape)
+        case .extrude(let params):
+            return .evaluateShape(
+                jobId: jobId,
+                solidId: object.id,
+                shape: .extrude(profile: params.profile, distance: Float(params.distance), centered: params.isSymmetric)
+            )
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)
         case .imported(_, let sourceURL, let data):
@@ -69,10 +82,40 @@ public enum KernelRegeneration {
         excluding excluded: SolidId? = nil
     ) async {
         for feat in features {
-            let feature = document.feature(for: feat.id) ?? feat
+            var feature = document.feature(for: feat.id) ?? feat
             guard !feature.isSuppressed else { continue }
             guard document.isFeatureActive(id: feature.id) else { continue }
             guard feature.outputSolidId != excluded else { continue }
+
+            // Rebuild profile from upstream sketch entities for extrude features
+            if case .extrude(var extrudeData) = feature.operation {
+                if let sketchId = extrudeData.sketchFeatureId, let sketchFeature = document.feature(for: sketchId),
+                   case .sketch(let sketchData) = sketchFeature.operation {
+                    do {
+                        let newProfile = try SketchProfileBuilder.build(from: sketchData.entities)
+                        extrudeData.profile = newProfile
+                        feature.operation = .extrude(extrudeData)
+                        _ = document.updateFeature(feature)
+                        if feature.errorState?.code == "sketch-error" {
+                            document.setFeatureError(id: feature.id, error: nil)
+                        }
+                    } catch {
+                        let errorState = FeatureErrorState(
+                            code: "sketch-error",
+                            message: error.localizedDescription,
+                            severity: .error
+                        )
+                        document.setFeatureError(id: feature.id, error: errorState)
+                        for dep in document.dependentFeatures(referencing: feature.id) {
+                            document.setFeatureError(
+                                id: dep.id,
+                                error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                            )
+                        }
+                        continue
+                    }
+                }
+            }
 
             // Check upstream parent failures
             let upstreamIds = document.directDependencies(of: feature)

@@ -811,4 +811,191 @@ extension CommandSession {
 
         return session
     }
+
+    static func makeExtrude(workspace: WorkspaceModel, sketchFeatureId: UUID? = nil) -> CommandSession {
+        let sketches = workspace.document.activeFeatures.filter {
+            if case .sketch = $0.operation { return true }
+            return false
+        }
+        let initialSketchId = sketchFeatureId ?? sketches.first?.id
+        let sketchOptions = sketches.map { $0.name }
+        let initialChoice = sketches.first(where: { $0.id == initialSketchId })?.name ?? (sketchOptions.first ?? "None")
+
+        var inputs: [CommandInput] = [
+            CommandInput(
+                id: "distance",
+                label: "Distance (Z)",
+                value: .number(20.0, range: DocumentLimits.extrudeDistance.min...DocumentLimits.extrudeDistance.max, step: 1.0, unit: "mm")
+            ),
+            CommandInput(
+                id: "symmetric",
+                label: "Symmetric",
+                value: .toggle(false)
+            )
+        ]
+        if !sketchOptions.isEmpty {
+            inputs.insert(CommandInput(id: "sketch", label: "Sketch", value: .choice(initialChoice, options: sketchOptions)), at: 0)
+        }
+
+        let session = CommandSession(
+            title: "Extrude",
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        session.customValidation = { [weak workspace, weak session] in
+            guard let workspace, let session else { return false }
+            let sketchName = session.choiceValue(for: "sketch")
+            let targetSketch = workspace.document.activeFeatures.first {
+                if case .sketch = $0.operation {
+                    if let sketchName { return $0.name == sketchName }
+                    return true
+                }
+                return false
+            }
+            guard let targetSketch, case .sketch(let sketchData) = targetSketch.operation else { return false }
+            guard !sketchData.entities.isEmpty else { return false }
+            do {
+                _ = try SketchProfileBuilder.build(from: sketchData.entities)
+                return true
+            } catch {
+                return false
+            }
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let sketchName = session.choiceValue(for: "sketch")
+            let targetSketch = workspace.document.activeFeatures.first {
+                if case .sketch = $0.operation {
+                    if let sketchName { return $0.name == sketchName }
+                    return true
+                }
+                return false
+            }
+            guard let targetSketch, case .sketch(let sketchData) = targetSketch.operation else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let dist = session.numberValue(for: "distance") ?? 20.0
+            let isSym = session.toggleValue(for: "symmetric") ?? false
+            guard dist >= DocumentLimits.extrudeDistance.min && dist <= DocumentLimits.extrudeDistance.max else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            do {
+                let profile = try SketchProfileBuilder.build(from: sketchData.entities)
+                Task { @MainActor in
+                    let req = KernelRequest.evaluateShape(
+                        jobId: JobId("preview-\(UUID().uuidString)"),
+                        solidId: Self.previewSolidId,
+                        shape: .extrude(profile: profile, distance: dist, centered: isSym)
+                    )
+                    let result = await workspace.kernelClient.request(req)
+                    if case .success(_, let payload) = result, !payload.isEmpty {
+                        let previewColor = SIMD4<Float>(0.6, 0.3, 0.9, 0.75)
+                        _ = workspace.viewportManager.renderer?.installMesh(
+                            payload,
+                            for: Self.previewSolidId,
+                            transform: .identity,
+                            color: previewColor,
+                            isHidden: false
+                        )
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            } catch {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            let sketchName = session.choiceValue(for: "sketch")
+            let targetSketch = workspace.document.activeFeatures.first {
+                if case .sketch = $0.operation {
+                    if let sketchName { return $0.name == sketchName }
+                    return true
+                }
+                return false
+            }
+            guard let targetSketch else { return }
+            let dist = session.numberValue(for: "distance") ?? 20.0
+            let isSym = session.toggleValue(for: "symmetric") ?? false
+            Task { @MainActor in
+                _ = await workspace.extrudeSketch(
+                    sketchFeatureId: targetSketch.id,
+                    distance: Double(dist),
+                    isSymmetric: isSym
+                )
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+        }
+
+        return session
+    }
+
+    static func makeNewSketch(workspace: WorkspaceModel) -> CommandSession {
+        let defaultName = "Sketch \(workspace.document.activeFeatures.filter { if case .sketch = $0.operation { return true }; return false }.count + 1)"
+        let session = CommandSession(
+            title: "New Ground Sketch",
+            inputs: [
+                CommandInput(id: "name", label: "Name", value: .text(defaultName)),
+                CommandInput(id: "preset", label: "Initial Shape", value: .choice("Rectangle", options: ["Rectangle", "Circle", "Empty"]))
+            ],
+            isPreviewEnabled: false
+        )
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            let name = session.textValue(for: "name") ?? defaultName
+            let preset = session.choiceValue(for: "preset") ?? "Rectangle"
+            var entities: [SketchEntity] = []
+            switch preset {
+            case "Rectangle":
+                entities = [
+                    SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(30, 0)),
+                    SketchEntity.line(start: SIMD2(30, 0), end: SIMD2(30, 20)),
+                    SketchEntity.line(start: SIMD2(30, 20), end: SIMD2(0, 20)),
+                    SketchEntity.line(start: SIMD2(0, 20), end: SIMD2(0, 0))
+                ]
+            case "Circle":
+                entities = [
+                    SketchEntity.circle(center: SIMD2(0, 0), radius: 15.0)
+                ]
+            default:
+                break
+            }
+
+            let feature = Feature(
+                name: name.isEmpty ? defaultName : name,
+                operation: .sketch(SketchFeatureData(planeName: "XY", entities: entities))
+            )
+            _ = workspace.document.addFeature(feature)
+            workspace.selectFeature(feature.id)
+        }
+
+        return session
+    }
 }

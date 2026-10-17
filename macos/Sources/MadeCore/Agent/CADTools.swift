@@ -277,6 +277,8 @@ public final class CADToolRegistry {
                 item["operands"] = [solidA.rawValue, solidB.rawValue]
             case .part(let url, _):
                 item["file"] = url.path
+            case .extrude(let p):
+                item["params"] = ["distance": p.distance, "isSymmetric": p.isSymmetric]
             }
             summary.append(item)
         }
@@ -365,6 +367,8 @@ public final class CADToolRegistry {
             dimStr = "with dimensions (majorRadius: \(p.majorRadius), minorRadius: \(p.minorRadius))"
         case .wedge(let p):
             dimStr = "with dimensions (width: \(p.width), depth: \(p.depth), height: \(p.height), topWidth: \(p.topWidth))"
+        case .extrude(let p):
+            dimStr = "with distance \(p.distance)"
         default:
             dimStr = ""
         }
@@ -521,6 +525,7 @@ public final class CADToolRegistry {
         case .cone(let p): return [("bottomRadius", p.bottomRadius), ("topRadius", p.topRadius), ("height", p.height)]
         case .torus(let p): return [("majorRadius", p.majorRadius), ("minorRadius", p.minorRadius)]
         case .wedge(let p): return [("width", p.width), ("depth", p.depth), ("height", p.height), ("topWidth", p.topWidth)]
+        case .extrude(let p): return [("distance", Float(p.distance))]
         case .imported, .boolean, .part: return nil
         }
     }
@@ -681,6 +686,18 @@ public final class CADToolRegistry {
             resultDict["bounds"] = ["width": w, "depth": d, "height": h, "topWidth": tw]
             resultDict["volumeMm3"] = volume
             resultDict["surfaceAreaMm2"] = surfaceArea
+
+        case .extrude(let p):
+            resultDict["type"] = "extrude"
+            resultDict["distance"] = p.distance
+            resultDict["isSymmetric"] = p.isSymmetric
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
             
         case .imported(let name, _, _):
             resultDict["type"] = "imported"
@@ -1068,7 +1085,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,

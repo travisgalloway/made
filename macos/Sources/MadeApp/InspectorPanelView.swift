@@ -46,7 +46,17 @@ struct InspectorPanelView: View {
                 .controlSize(.small)
                 .padding()
             }
-        } else if workspace.document.objects.isEmpty {
+        } else if let sketch = workspace.selectedSketchFeature {
+            ScrollView {
+                Form {
+                    sketchIdentitySection(sketch)
+                    sketchEntitiesSection(sketch)
+                }
+                .formStyle(.columns)
+                .controlSize(.small)
+                .padding()
+            }
+        } else if workspace.document.objects.isEmpty && !hasAnySketches {
             ContentUnavailableView {
                 Label("No Objects in Scene", systemImage: "cube.transparent")
             } description: {
@@ -69,6 +79,13 @@ struct InspectorPanelView: View {
                 systemImage: "cursorarrow.slash",
                 description: Text("Select a solid in the viewport or Navigator to inspect its properties.")
             )
+        }
+    }
+
+    private var hasAnySketches: Bool {
+        workspace.document.features.contains {
+            if case .sketch = $0.operation { return true }
+            return false
         }
     }
 
@@ -140,6 +157,18 @@ struct InspectorPanelView: View {
                 paramField("Depth (Y)", params.depth, DocumentLimits.wedgeDepth, id: obj.id, key: "depth") { workspace.setParam(obj.id, "depth", $0) }
                 paramField("Height (Z)", params.height, DocumentLimits.wedgeHeight, id: obj.id, key: "height") { workspace.setParam(obj.id, "height", $0) }
                 paramField("Top Width (X)", params.topWidth, DocumentLimits.wedgeTopWidth, id: obj.id, key: "topWidth") { workspace.setParam(obj.id, "topWidth", $0) }
+            case .extrude(let params):
+                paramField("Distance (Z)", Float(params.distance), DocumentLimits.extrudeDistance, id: obj.id, key: "distance") { workspace.setParam(obj.id, "distance", $0) }
+                LabeledContent("Symmetric", value: params.isSymmetric ? "Yes" : "No")
+                LabeledContent("Profile Points", value: "\(params.profile.points.count)")
+                if let sketchId = params.sketchFeatureId, let sketch = workspace.document.feature(for: sketchId) {
+                    LabeledContent("Source Sketch") {
+                        Button(sketch.name) {
+                            workspace.selectFeature(sketchId)
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):
@@ -188,6 +217,234 @@ struct InspectorPanelView: View {
             ), supportsOpacity: false)
         } header: {
             sectionHeader("Material")
+        }
+    }
+
+    private func sketchIdentitySection(_ sketch: Feature) -> some View {
+        Section {
+            TextField("Name", text: Binding(
+                get: { sketch.name },
+                set: { newName in
+                    var updated = sketch
+                    updated.name = newName
+                    workspace.document.updateFeature(updated)
+                }
+            ))
+            if case .sketch(let data) = sketch.operation {
+                LabeledContent("Plane", value: data.planeName ?? "XY Ground Plane")
+                LabeledContent("Entities", value: "\(data.entities.count)")
+            }
+            Button {
+                workspace.startExtrudeCommand(sketchFeatureId: sketch.id)
+            } label: {
+                Label("Extrude Sketch…", systemImage: "arrow.up.forward.app")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        } header: {
+            sectionHeader("Sketch Identity", isFirst: true)
+        }
+    }
+
+    private func sketchEntitiesSection(_ sketch: Feature) -> some View {
+        guard case .sketch(let data) = sketch.operation else { return AnyView(EmptyView()) }
+        let closureResult: Result<SketchProfile, Error> = Result {
+            try SketchProfileBuilder.build(from: data.entities)
+        }
+
+        return AnyView(Section {
+            switch closureResult {
+            case .success(let profile):
+                Label("Profile Closed (\(profile.points.count) vertices)", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+            case .failure(let error):
+                Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+                    .textSelection(.enabled)
+            }
+
+            HStack(spacing: 8) {
+                Button("+ Line") {
+                    let nextIdx = data.entities.count
+                    let start = SIMD2<Double>(Double(nextIdx * 10), 0)
+                    let end = SIMD2<Double>(Double((nextIdx + 1) * 10), 0)
+                    let entity = SketchEntity.line(start: start, end: end)
+                    workspace.addSketchEntity(to: sketch.id, entity: entity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+ Arc") {
+                    let entity = SketchEntity.arc(
+                        start: SIMD2<Double>(0, 0),
+                        end: SIMD2<Double>(10, 10),
+                        center: SIMD2<Double>(0, 10),
+                        clockwise: false
+                    )
+                    workspace.addSketchEntity(to: sketch.id, entity: entity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+ Circle") {
+                    let entity = SketchEntity.circle(center: .zero, radius: 25.0)
+                    workspace.addSketchEntity(to: sketch.id, entity: entity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+ Rect") {
+                    let offset = Double(data.entities.count * 5)
+                    let p0 = SIMD2<Double>(offset, offset)
+                    let p1 = SIMD2<Double>(offset + 40, offset)
+                    let p2 = SIMD2<Double>(offset + 40, offset + 30)
+                    let p3 = SIMD2<Double>(offset, offset + 30)
+                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p0, end: p1))
+                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p1, end: p2))
+                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p2, end: p3))
+                    workspace.addSketchEntity(to: sketch.id, entity: .line(start: p3, end: p0))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+
+            if data.entities.isEmpty {
+                Text("No entities in sketch. Use the buttons above to add geometry.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(data.entities) { entity in
+                    sketchEntityRow(sketchId: sketch.id, entity: entity)
+                }
+            }
+        } header: {
+            sectionHeader("Entities & Profile")
+        })
+    }
+
+    private func sketchEntityRow(sketchId: UUID, entity: SketchEntity) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(entity.kind.capitalized)
+                    .font(.caption.bold())
+                Spacer()
+                Button(role: .destructive) {
+                    workspace.removeSketchEntity(from: sketchId, entityId: entity.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+            }
+
+            switch entity.kind {
+            case "line":
+                if let start = entity.startPoint, let end = entity.endPoint {
+                    HStack(spacing: 6) {
+                        Text("Start:").font(.caption2).foregroundStyle(.secondary)
+                        CommitNumberField(label: "SX", value: start.x, width: 44) {
+                            var e = entity
+                            e.startPoint = SIMD2<Double>($0, start.y)
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                        CommitNumberField(label: "SY", value: start.y, width: 44) {
+                            var e = entity
+                            e.startPoint = SIMD2<Double>(start.x, $0)
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                        Text("End:").font(.caption2).foregroundStyle(.secondary)
+                        CommitNumberField(label: "EX", value: end.x, width: 44) {
+                            var e = entity
+                            e.endPoint = SIMD2<Double>($0, end.y)
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                        CommitNumberField(label: "EY", value: end.y, width: 44) {
+                            var e = entity
+                            e.endPoint = SIMD2<Double>(end.x, $0)
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                    }
+                }
+            case "circle":
+                if let center = entity.centerPoint, let radius = entity.radius {
+                    HStack(spacing: 6) {
+                        Text("Center:").font(.caption2).foregroundStyle(.secondary)
+                        CommitNumberField(label: "CX", value: center.x, width: 44) {
+                            var e = entity
+                            e.centerPoint = SIMD2<Double>($0, center.y)
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                        CommitNumberField(label: "CY", value: center.y, width: 44) {
+                            var e = entity
+                            e.centerPoint = SIMD2<Double>(center.x, $0)
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                        Text("Radius:").font(.caption2).foregroundStyle(.secondary)
+                        CommitNumberField(label: "R", value: radius, width: 44) {
+                            var e = entity
+                            e.radius = $0
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                    }
+                }
+            case "arc":
+                if let start = entity.startPoint, let end = entity.endPoint, let center = entity.centerPoint {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text("Start:").font(.caption2).foregroundStyle(.secondary)
+                            CommitNumberField(label: "SX", value: start.x, width: 44) {
+                                var e = entity
+                                e.startPoint = SIMD2<Double>($0, start.y)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                            CommitNumberField(label: "SY", value: start.y, width: 44) {
+                                var e = entity
+                                e.startPoint = SIMD2<Double>(start.x, $0)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                            Text("End:").font(.caption2).foregroundStyle(.secondary)
+                            CommitNumberField(label: "EX", value: end.x, width: 44) {
+                                var e = entity
+                                e.endPoint = SIMD2<Double>($0, end.y)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                            CommitNumberField(label: "EY", value: end.y, width: 44) {
+                                var e = entity
+                                e.endPoint = SIMD2<Double>(end.x, $0)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                        }
+                        HStack(spacing: 6) {
+                            Text("Center:").font(.caption2).foregroundStyle(.secondary)
+                            CommitNumberField(label: "CX", value: center.x, width: 44) {
+                                var e = entity
+                                e.centerPoint = SIMD2<Double>($0, center.y)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                            CommitNumberField(label: "CY", value: center.y, width: 44) {
+                                var e = entity
+                                e.centerPoint = SIMD2<Double>(center.x, $0)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                            Toggle("CW", isOn: Binding(
+                                get: { entity.isClockwise },
+                                set: {
+                                    var e = entity
+                                    e.isClockwise = $0
+                                    workspace.updateSketchEntity(in: sketchId, entity: e)
+                                }
+                            ))
+                            .toggleStyle(.checkbox)
+                        }
+                    }
+                }
+            default:
+                EmptyView()
+            }
+            Divider().padding(.vertical, 2)
         }
     }
 

@@ -412,8 +412,35 @@ final class WorkspaceModel {
     }
 
     var selectedFeature: Feature? {
-        guard let selectedId else { return nil }
-        return document.feature(for: selectedId)
+        if let selectedId {
+            return document.feature(for: selectedId)
+        }
+        if let sel = document.selection.first, case .feature(let featId) = sel.target {
+            return document.feature(for: featId)
+        }
+        return document.selectedFeatures.first
+    }
+
+    var selectedSketchFeature: Feature? {
+        if let sel = document.selection.first, case .feature(let featId) = sel.target {
+            if let feat = document.feature(for: featId), case .sketch = feat.operation {
+                return feat
+            }
+        }
+        if let feat = selectedFeature, case .sketch = feat.operation {
+            return feat
+        }
+        return nil
+    }
+
+    func selectFeature(_ featureId: UUID) {
+        selectedId = nil
+        document.selection = [Reference.feature(featureId)]
+        if let feat = document.feature(for: featureId), case .sketch(let sketchData) = feat.operation {
+            setSketchDOFStatus(.underConstrained(dof: max(1, sketchData.entities.count * 2)))
+        } else {
+            setSketchDOFStatus(.inactive)
+        }
     }
 
     var objectPendingDeletion: SceneObject? {
@@ -651,6 +678,56 @@ final class WorkspaceModel {
 
     func startBooleanCommand() {
         startCommand(CommandSession.makeBoolean(workspace: self, selectedId: selectedId))
+    }
+
+    func startExtrudeCommand(sketchFeatureId: UUID? = nil) {
+        startCommand(CommandSession.makeExtrude(workspace: self, sketchFeatureId: sketchFeatureId))
+    }
+
+    func startNewSketchCommand() {
+        startCommand(CommandSession.makeNewSketch(workspace: self))
+    }
+
+    @discardableResult
+    func extrudeSketch(sketchFeatureId: UUID, distance: Double, isSymmetric: Bool = false) async -> ObjectId? {
+        do {
+            let extrudeFeature = try document.extrudeSketch(
+                sketchFeatureId: sketchFeatureId,
+                distance: distance,
+                isSymmetric: isSymmetric
+            )
+            guard let solidId = extrudeFeature.outputSolidId else { return nil }
+            selectedId = solidId
+            recomputeSolid(id: solidId)
+            return solidId
+        } catch {
+            return nil
+        }
+    }
+
+    func addSketchEntity(to featureId: UUID, entity: SketchEntity) {
+        _ = document.addSketchEntity(to: featureId, entity: entity)
+        recomputeDependents(of: featureId)
+    }
+
+    func updateSketchEntity(in featureId: UUID, entity: SketchEntity) {
+        _ = document.updateSketchEntity(in: featureId, entity: entity)
+        recomputeDependents(of: featureId)
+    }
+
+    func removeSketchEntity(from featureId: UUID, entityId: UUID) {
+        _ = document.removeSketchEntity(from: featureId, entityId: entityId)
+        recomputeDependents(of: featureId)
+    }
+
+    private func recomputeDependents(of featureId: UUID) {
+        let dependents = document.dependentFeatures(referencing: featureId)
+        for dep in dependents {
+            if let solidId = dep.outputSolidId {
+                recomputeSolid(id: solidId)
+            }
+        }
+        invalidateViewport(.interaction)
     }
 
     // MARK: - Scene editing

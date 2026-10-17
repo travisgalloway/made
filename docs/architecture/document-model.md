@@ -76,6 +76,39 @@ Each feature holds:
 
 ---
 
+## 2D Sketch & Extrude Modeling (Phase 4.3, DOC-17)
+
+Phase 4.3 introduces ground-plane 2D sketches on the XY datum plane (`Z = 0`, `Orientation.worldUp = SIMD3(0, 0, 1)`), curve discretization, profile closure validation, and extrusion into 3D solid geometry:
+
+### Sketch Data Model & Entities
+
+Sketch features are recorded in the history timeline as `FeatureOperation.sketch(SketchFeatureData)`:
+- `SketchFeatureData` defines the datum plane (`planeName`, default `"XY"`) and an array of `SketchEntity` primitives.
+- `SketchEntity` represents an individual curve or primitive:
+  - **Line**: `SketchEntity.line(start:end:)` with `startPoint` and `endPoint` (`SIMD2<Double>`).
+  - **Arc**: `SketchEntity.arc(start:end:center:clockwise:)` with start, end, center, and chordal radius.
+  - **Circle**: `SketchEntity.circle(center:radius:)` with center and positive radius.
+  - Entities provide typed accessors and endpoint mutation helpers (`updatingEndpoints`, with setters) for live coordinate editing in the Inspector.
+
+### Profile Builder & Closure Validation (`SketchProfileBuilder`)
+
+The profile builder converts an unordered list of sketch entities into an oriented, closed `SketchProfile`:
+1. **Geometric Validation**: Rejects zero-length lines (`length <= 1e-5`), degenerate arcs (`radius <= 1e-5` or coincident start/end), and empty sketches with typed `SketchError` exceptions (`zeroLengthLine`, `degenerateArc`, `emptySketch`).
+2. **Loop Chaining & Discretization**:
+   - Single circles discretize into 32 regular polygon vertices on the XY plane.
+   - Lines and circular arcs are chained head-to-tail within snapping tolerance (`1e-3`). Arcs are discretized into 12 chordal segments preserving angular direction.
+   - If endpoints do not close back to the starting vertex within tolerance, `SketchError.openProfile` is thrown.
+3. **Orientation**: Verified non-zero signed area is counter-clockwise oriented before emitting the profile on `SketchPlane.xy`.
+
+### Extrusion Pipeline & Synchronization
+
+- **Feature & ObjectDef**: An extrude feature (`FeatureOperation.extrude(ExtrudeFeatureData)`) references its upstream sketch, carrying distance, symmetry toggle, and cached `SketchProfile`. It projects a synchronized `SceneObject(def: .extrude(ExtrudeParams))` into `DocumentModel.objects`.
+- **Off-Thread Kernel Evaluation**: Geometry generation runs off the main thread inside `KernelClient` / `ShapeEvaluator` using `ShapeNode.extrude(profile:distance:centered:)` (Invariants 1 & 4), evaluated via Euclid.
+- **Incremental Regeneration**: When upstream sketch entities are edited, `KernelRegeneration.regenerate` rebuilds the sketch profile and selectively recomputes downstream extrusions. If a sketch becomes open or invalid, a non-crashing `FeatureErrorState(code: "sketch-error", ...)` is recorded on the affected extrude feature.
+- **Persistence**: Sketches and extrusions round-trip cleanly through native `.made` package JSON (`DocumentModelCoder`).
+
+---
+
 ## Multi-Body Model within a Part (BL-FND-12)
 
 In parametric CAD systems adhering to ADR-D2 ([ADR-D2](./adr/ADR-D2-modeling-paradigm-and-document-model.md), #143, #150), part geometry is constructed from an ordered linear history timeline of features (`DocumentModel.features: [Feature]`), supporting multi-body parts by default. A complex mechanical part frequently contains multiple disjoint or interacting solid and surface bodies within a single local coordinate space before combining them with downstream operations.
