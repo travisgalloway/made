@@ -417,6 +417,12 @@ struct ToolsMenuCommands: Commands {
                 .keyboardShortcut(WorkspaceModel.dimensionLineShortcutKey, modifiers: WorkspaceModel.dimensionLineShortcutModifiers)
                 .disabled(!workspace.hasAvailableSketchLine)
 
+                Button(workspace.selectedSketchEntity?.entity.isConstruction == true ? "Unmark Construction Geometry" : "Toggle Construction Geometry") {
+                    workspace.toggleSelectedSketchEntityConstruction()
+                }
+                .keyboardShortcut(WorkspaceModel.toggleConstructionShortcutKey, modifiers: WorkspaceModel.toggleConstructionShortcutModifiers)
+                .disabled(workspace.selectedSketchEntity == nil)
+
                 Divider()
 
                 Button("Apply Parallel Constraint") {

@@ -459,4 +459,82 @@ import simd
             try doc.setSketchLineLength(in: feature.id, entityId: lineA.id, length: 25.0)
         }
     }
+
+    @Test func testSketchEntityConstructionTogglingAndSerialization() throws {
+        // Factory with default isConstruction = false
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        #expect(!line.isConstruction)
+
+        let arc = SketchEntity.arc(start: SIMD2(10, 0), end: SIMD2(0, 10), center: SIMD2(0, 0), isConstruction: true)
+        #expect(arc.isConstruction)
+
+        let circle = SketchEntity.circle(center: SIMD2(0, 0), radius: 5, isConstruction: true)
+        #expect(circle.isConstruction)
+
+        // updatingConstruction
+        let toggled = line.updatingConstruction(true)
+        #expect(toggled.isConstruction)
+        #expect(toggled.id == line.id)
+        #expect(toggled.startPoint == line.startPoint)
+        #expect(toggled.endPoint == line.endPoint)
+
+        let reverted = toggled.updatingConstruction(false)
+        #expect(!reverted.isConstruction)
+
+        // JSON roundtrip with isConstruction = true
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let dataWithTrue = try encoder.encode(toggled)
+        let decodedTrue = try decoder.decode(SketchEntity.self, from: dataWithTrue)
+        #expect(decodedTrue.isConstruction)
+        #expect(decodedTrue.id == line.id)
+
+        // Legacy JSON omitting isConstruction decodes with isConstruction = false
+        let legacyJSON = """
+        {
+            "id": "\(UUID().uuidString)",
+            "kind": "line",
+            "data": {
+                "startX": 0.0,
+                "startY": 0.0,
+                "endX": 10.0,
+                "endY": 0.0
+            }
+        }
+        """.data(using: .utf8)!
+        let legacyDecoded = try decoder.decode(SketchEntity.self, from: legacyJSON)
+        #expect(!legacyDecoded.isConstruction)
+        #expect(legacyDecoded.startPoint == SIMD2(0, 0))
+        #expect(legacyDecoded.endPoint == SIMD2(10, 0))
+    }
+
+    @Test func testConstructionEntitiesExcludedFromProfile() throws {
+        // Closed square 10x10 with an open construction line
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let l2 = SketchEntity.line(start: SIMD2(10, 0), end: SIMD2(10, 10))
+        let l3 = SketchEntity.line(start: SIMD2(10, 10), end: SIMD2(0, 10))
+        let l4 = SketchEntity.line(start: SIMD2(0, 10), end: SIMD2(0, 0))
+        // Open construction centerline (would cause openProfile if active)
+        let openCenterline = SketchEntity.line(start: SIMD2(5, -5), end: SIMD2(5, 15), isConstruction: true)
+
+        let profile = try SketchProfileBuilder.build(from: [l1, l2, l3, l4, openCenterline])
+        #expect(profile.plane == .xy)
+        #expect(profile.points.count >= 4)
+
+        // If the centerline is NOT construction, it throws openProfile
+        let nonConstructionCenterline = openCenterline.updatingConstruction(false)
+        #expect(throws: SketchError.self) {
+            try SketchProfileBuilder.build(from: [l1, l2, l3, l4, nonConstructionCenterline])
+        }
+    }
+
+    @Test func testAllConstructionEntitiesRejectsEmptyProfile() {
+        let cLine1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0), isConstruction: true)
+        let cLine2 = SketchEntity.line(start: SIMD2(10, 0), end: SIMD2(10, 10), isConstruction: true)
+        let cCircle = SketchEntity.circle(center: SIMD2(5, 5), radius: 5, isConstruction: true)
+
+        #expect(throws: SketchError.self) {
+            try SketchProfileBuilder.build(from: [cLine1, cLine2, cCircle])
+        }
+    }
 }

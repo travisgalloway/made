@@ -86,20 +86,59 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
     public var id: UUID
     public var kind: String
     public var data: [String: Double]
+    public var isConstruction: Bool
 
-    public init(id: UUID = UUID(), kind: String, data: [String: Double] = [:]) {
+    public init(
+        id: UUID = UUID(),
+        kind: String,
+        data: [String: Double] = [:],
+        isConstruction: Bool = false
+    ) {
         self.id = id
         self.kind = kind
         self.data = data
+        self.isConstruction = isConstruction
     }
 
-    public static func line(id: UUID = UUID(), start: SIMD2<Double>, end: SIMD2<Double>) -> SketchEntity {
-        SketchEntity(id: id, kind: "line", data: [
-            "startX": start.x,
-            "startY": start.y,
-            "endX": end.x,
-            "endY": end.y
-        ])
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, data, isConstruction
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.kind = try container.decode(String.self, forKey: .kind)
+        self.data = try container.decode([String: Double].self, forKey: .data)
+        self.isConstruction = try container.decodeIfPresent(Bool.self, forKey: .isConstruction) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(data, forKey: .data)
+        if isConstruction {
+            try container.encode(isConstruction, forKey: .isConstruction)
+        }
+    }
+
+    public static func line(
+        id: UUID = UUID(),
+        start: SIMD2<Double>,
+        end: SIMD2<Double>,
+        isConstruction: Bool = false
+    ) -> SketchEntity {
+        SketchEntity(
+            id: id,
+            kind: "line",
+            data: [
+                "startX": start.x,
+                "startY": start.y,
+                "endX": end.x,
+                "endY": end.y
+            ],
+            isConstruction: isConstruction
+        )
     }
 
     public static func arc(
@@ -107,25 +146,41 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         start: SIMD2<Double>,
         end: SIMD2<Double>,
         center: SIMD2<Double>,
-        clockwise: Bool = false
+        clockwise: Bool = false,
+        isConstruction: Bool = false
     ) -> SketchEntity {
-        SketchEntity(id: id, kind: "arc", data: [
-            "startX": start.x,
-            "startY": start.y,
-            "endX": end.x,
-            "endY": end.y,
-            "centerX": center.x,
-            "centerY": center.y,
-            "clockwise": clockwise ? 1.0 : 0.0
-        ])
+        SketchEntity(
+            id: id,
+            kind: "arc",
+            data: [
+                "startX": start.x,
+                "startY": start.y,
+                "endX": end.x,
+                "endY": end.y,
+                "centerX": center.x,
+                "centerY": center.y,
+                "clockwise": clockwise ? 1.0 : 0.0
+            ],
+            isConstruction: isConstruction
+        )
     }
 
-    public static func circle(id: UUID = UUID(), center: SIMD2<Double>, radius: Double) -> SketchEntity {
-        SketchEntity(id: id, kind: "circle", data: [
-            "centerX": center.x,
-            "centerY": center.y,
-            "radius": radius
-        ])
+    public static func circle(
+        id: UUID = UUID(),
+        center: SIMD2<Double>,
+        radius: Double,
+        isConstruction: Bool = false
+    ) -> SketchEntity {
+        SketchEntity(
+            id: id,
+            kind: "circle",
+            data: [
+                "centerX": center.x,
+                "centerY": center.y,
+                "radius": radius
+            ],
+            isConstruction: isConstruction
+        )
     }
 
     public var startPoint: SIMD2<Double>? {
@@ -232,6 +287,12 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
 
     public func withEndpoints(start: SIMD2<Double>? = nil, end: SIMD2<Double>? = nil) -> SketchEntity {
         updatingEndpoints(start: start, end: end)
+    }
+
+    public func updatingConstruction(_ isConstruction: Bool) -> SketchEntity {
+        var copy = self
+        copy.isConstruction = isConstruction
+        return copy
     }
 }
 

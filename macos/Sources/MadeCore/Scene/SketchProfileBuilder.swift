@@ -55,17 +55,18 @@ public enum SketchProfileBuilder {
         from entities: [SketchEntity],
         plane: SketchPlane = .xy
     ) throws -> SketchProfile {
-        guard !entities.isEmpty else {
+        let activeEntities = entities.filter { !$0.isConstruction }
+        guard !activeEntities.isEmpty else {
             throw SketchError.emptySketch
         }
 
-        for entity in entities {
+        for entity in activeEntities {
             try validateEntity(entity)
         }
 
         // Single circle loop fast path
-        if entities.count == 1, entities[0].kind == "circle" {
-            let circle = entities[0]
+        if activeEntities.count == 1, activeEntities[0].kind == "circle" {
+            let circle = activeEntities[0]
             guard let r = circle.radius, r > minEntityTolerance else {
                 throw SketchError.invalidEntity("Circle radius must be positive")
             }
@@ -82,12 +83,12 @@ public enum SketchProfileBuilder {
         }
 
         // Validate that sketch does not contain dangling or open endpoints
-        if hasOpenEndpoints(in: entities) {
+        if hasOpenEndpoints(in: activeEntities) {
             throw SketchError.openProfile(message: "Sketch contains disconnected or dangling entities")
         }
 
         // If sketch forms closed regions (e.g. nested loops with holes or complex planar arrangements), extract primary region
-        if let regions = try? detectRegions(from: entities, plane: plane), let primary = regions.first {
+        if let regions = try? detectRegions(from: activeEntities, plane: plane), let primary = regions.first {
             return primary.toProfile(plane: plane)
         }
 
@@ -99,7 +100,7 @@ public enum SketchProfileBuilder {
             let isReversed: Bool
         }
 
-        var pool = entities
+        var pool = activeEntities
         let first = pool.removeFirst()
         guard let firstStart = first.startPoint, let firstEnd = first.endPoint else {
             throw SketchError.invalidEntity("First entity has no start or end point")
