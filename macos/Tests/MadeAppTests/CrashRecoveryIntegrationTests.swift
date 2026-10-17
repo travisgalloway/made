@@ -28,7 +28,7 @@ import SwiftUI
 
         // Wait for debounce interval + buffer with polling to accommodate CI scheduling latency
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        let deadline = clock.now.advanced(by: .seconds(10))
         while workspace.recoveryStore.loadPendingRecovery() == nil && clock.now < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
@@ -39,10 +39,11 @@ import SwiftUI
         // Recovery snapshot was written to disk
         let pending = workspace.recoveryStore.loadPendingRecovery()
         #expect(pending != nil)
-        #expect(pending?.metadata.originalDocumentURL == nil)
-        #expect(pending?.metadata.documentTitle.contains("Untitled Project") == true)
+        guard let pending else { return }
+        #expect(pending.metadata.originalDocumentURL == nil)
+        #expect(pending.metadata.documentTitle.contains("Untitled Project") == true)
 
-        let package = try MadePackage(directoryURL: pending!.packageURL)
+        let package = try MadePackage(directoryURL: pending.packageURL)
         #expect(package.documentData.objects.contains(where: { $0.id.rawValue.starts(with: "cylinder-") }))
     }
 
@@ -73,7 +74,7 @@ import SwiftUI
 
         // Wait for debounce interval + buffer with polling to accommodate CI scheduling latency
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        let deadline = clock.now.advanced(by: .seconds(10))
         while workspace.isDocumentModified && clock.now < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
