@@ -1,17 +1,27 @@
 import Foundation
 import simd
 
-public enum SnapKind: String, Sendable, Equatable, Comparable {
+public enum SnapKind: String, Sendable, Equatable, Comparable, CaseIterable {
+    case endpoint
     case vertex
+    case center
+    case intersection
+    case midpoint
+    case quadrant
     case edge
     case grid
     
-    // Priority order: vertex > edge > grid
-    private var priority: Int {
+    // Priority order: endpoint (0) > vertex (1) > center (2) > intersection (3) > midpoint (4) > quadrant (5) > edge (6) > grid (7)
+    public var priority: Int {
         switch self {
-        case .vertex: return 0
-        case .edge: return 1
-        case .grid: return 2
+        case .endpoint: return 0
+        case .vertex: return 1
+        case .center: return 2
+        case .intersection: return 3
+        case .midpoint: return 4
+        case .quadrant: return 5
+        case .edge: return 6
+        case .grid: return 7
         }
     }
     
@@ -23,10 +33,19 @@ public enum SnapKind: String, Sendable, Equatable, Comparable {
 public struct SnapResult: Sendable, Equatable {
     public let kind: SnapKind
     public let point: SIMD3<Float>
+    public let screenPoint: SIMD2<Float>?
+    public let planePoint: SIMD2<Double>?
     
-    public init(kind: SnapKind, point: SIMD3<Float>) {
+    public init(
+        kind: SnapKind,
+        point: SIMD3<Float>,
+        screenPoint: SIMD2<Float>? = nil,
+        planePoint: SIMD2<Double>? = nil
+    ) {
         self.kind = kind
         self.point = point
+        self.screenPoint = screenPoint
+        self.planePoint = planePoint
     }
 }
 
@@ -34,11 +53,21 @@ public struct SnapCandidate: Sendable, Equatable {
     public let kind: SnapKind
     public let point: SIMD3<Float>
     public let screenDistancePx: Float
+    public let screenPoint: SIMD2<Float>?
+    public let planePoint: SIMD2<Double>?
     
-    public init(kind: SnapKind, point: SIMD3<Float>, screenDistancePx: Float) {
+    public init(
+        kind: SnapKind,
+        point: SIMD3<Float>,
+        screenDistancePx: Float,
+        screenPoint: SIMD2<Float>? = nil,
+        planePoint: SIMD2<Double>? = nil
+    ) {
         self.kind = kind
         self.point = point
         self.screenDistancePx = screenDistancePx
+        self.screenPoint = screenPoint
+        self.planePoint = planePoint
     }
 }
 
@@ -62,10 +91,10 @@ public func screenPixelDistance(_ a: SIMD2<Float>, _ b: SIMD2<Float>) -> Float {
 }
 
 /// Evaluates candidates according to Invariant 9:
-/// Priority is strictly vertex > edge > grid. Within the highest-priority kind present,
-/// the candidate with the minimum screenDistancePx inside tolerancePx is chosen.
+/// Priority is strictly endpoint > vertex > center > intersection > midpoint > quadrant > edge > grid.
+/// Within the highest-priority kind present, the candidate with the minimum screenDistancePx inside tolerancePx is chosen.
 public func resolveSnap(candidates: [SnapCandidate], tolerancePx: Float = defaultSnapTolerancePx) -> SnapResult? {
-    let kinds: [SnapKind] = [.vertex, .edge, .grid]
+    let kinds = SnapKind.allCases.sorted()
     
     for kind in kinds {
         var best: SnapCandidate? = nil
@@ -83,7 +112,12 @@ public func resolveSnap(candidates: [SnapCandidate], tolerancePx: Float = defaul
         }
         
         if let winner = best {
-            return SnapResult(kind: winner.kind, point: winner.point)
+            return SnapResult(
+                kind: winner.kind,
+                point: winner.point,
+                screenPoint: winner.screenPoint,
+                planePoint: winner.planePoint
+            )
         }
     }
     
@@ -328,6 +362,22 @@ public struct Ray3D: Sendable, Equatable {
         guard t > 0 else { return nil }
         return origin + direction * t
     }
+
+    /// Intersects ray with an arbitrary plane defined by origin and normal.
+    /// Returns nil if ray is parallel to the plane or intersection is behind the ray origin.
+    public func intersectPlane(origin: SIMD3<Float>, normal: SIMD3<Float>) -> SIMD3<Float>? {
+        let denom = simd_dot(direction, normal)
+        guard abs(denom) > 1e-6 else { return nil }
+        let t = simd_dot(origin - self.origin, normal) / denom
+        guard t > 0 else { return nil }
+        return self.origin + direction * t
+    }
+
+    /// Intersects ray with a `SketchPlane`.
+    /// Returns nil if ray is parallel to the plane or intersection is behind the ray origin.
+    public func intersectPlane(_ plane: SketchPlane) -> SIMD3<Float>? {
+        intersectPlane(origin: plane.origin, normal: plane.normal)
+    }
 }
 
 /// Unprojects a 2D screen coordinate to a 3D world-space ray.
@@ -437,7 +487,14 @@ public struct SnapCandidateGenerator: Sendable {
                     }
                     let dist = simd_distance(pointer, screenPos)
                     if dist <= tolerancePx {
-                        candidates.append(SnapCandidate(kind: .vertex, point: worldPos, screenDistancePx: dist))
+                        candidates.append(
+                            SnapCandidate(
+                                kind: .vertex,
+                                point: worldPos,
+                                screenDistancePx: dist,
+                                screenPoint: screenPos
+                            )
+                        )
                     }
                 }
             }
@@ -471,7 +528,15 @@ public struct SnapCandidateGenerator: Sendable {
                         w1: proj1.w, w2: proj2.w
                     )
                     if dist <= tolerancePx {
-                        candidates.append(SnapCandidate(kind: .edge, point: closestWorld, screenDistancePx: dist))
+                        let screenEdge = projectToScreen(point: closestWorld, viewProjectionMatrix: vp, viewportSize: viewportSize)
+                        candidates.append(
+                            SnapCandidate(
+                                kind: .edge,
+                                point: closestWorld,
+                                screenDistancePx: dist,
+                                screenPoint: screenEdge
+                            )
+                        )
                     }
                 }
             }
@@ -484,7 +549,15 @@ public struct SnapCandidateGenerator: Sendable {
                 if let screenGrid = projectToScreen(point: snappedGrid, viewProjectionMatrix: vp, viewportSize: viewportSize) {
                     let dist = simd_distance(pointer, screenGrid)
                     if dist <= tolerancePx {
-                        candidates.append(SnapCandidate(kind: .grid, point: snappedGrid, screenDistancePx: dist))
+                        candidates.append(
+                            SnapCandidate(
+                                kind: .grid,
+                                point: snappedGrid,
+                                screenDistancePx: dist,
+                                screenPoint: screenGrid,
+                                planePoint: SIMD2<Double>(Double(snappedGrid.x), Double(snappedGrid.y))
+                            )
+                        )
                     }
                 }
             }
@@ -492,11 +565,150 @@ public struct SnapCandidateGenerator: Sendable {
         
         return candidates
     }
+
+    /// Generates snap candidates from 2D sketch entities (lines, arcs, circles) on an arbitrary `SketchPlane`.
+    /// Covers endpoints, midpoints, centers, intersections, quadrants, and sketch plane UV grid snapping.
+    public static func generateSketchCandidates(
+        entities: [SketchEntity],
+        plane: SketchPlane,
+        pointer: SIMD2<Float>,
+        viewportSize: CGSize,
+        viewMatrix: simd_float4x4,
+        projectionMatrix: simd_float4x4,
+        gridSpacing: Float = defaultGridSpacing,
+        tolerancePx: Float = defaultSnapTolerancePx
+    ) -> [SnapCandidate] {
+        var candidates: [SnapCandidate] = []
+        let vp = projectionMatrix * viewMatrix
+
+        func evaluateCandidate(uv: SIMD2<Double>, kind: SnapKind) {
+            guard uv.x.isFinite, uv.y.isFinite else { return }
+            let worldPos = plane.unprojectPoint(uv)
+            guard let screenPos = projectToScreen(point: worldPos, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
+                return
+            }
+            let dist = simd_distance(pointer, screenPos)
+            if dist <= tolerancePx {
+                candidates.append(
+                    SnapCandidate(
+                        kind: kind,
+                        point: worldPos,
+                        screenDistancePx: dist,
+                        screenPoint: screenPos,
+                        planePoint: uv
+                    )
+                )
+            }
+        }
+
+        for entity in entities {
+            switch entity.kind {
+            case "line":
+                guard let start = entity.startPoint, let end = entity.endPoint else { break }
+                let len = hypot(end.x - start.x, end.y - start.y)
+                guard len > 1e-6 else { break }
+
+                // Endpoints
+                evaluateCandidate(uv: start, kind: .endpoint)
+                evaluateCandidate(uv: end, kind: .endpoint)
+
+                // Midpoint
+                let mid = (start + end) * 0.5
+                evaluateCandidate(uv: mid, kind: .midpoint)
+
+            case "arc":
+                guard let center = entity.centerPoint,
+                      let start = entity.startPoint,
+                      let end = entity.endPoint,
+                      let r = entity.radius,
+                      r > 1e-6 else { break }
+
+                // Endpoints
+                evaluateCandidate(uv: start, kind: .endpoint)
+                evaluateCandidate(uv: end, kind: .endpoint)
+
+                // Center
+                evaluateCandidate(uv: center, kind: .center)
+
+                // Arc midpoint along circular trajectory
+                let a0 = atan2(start.y - center.y, start.x - center.x)
+                let sweep = SketchOperations.arcSweepAngle(start: start, end: end, center: center, clockwise: entity.isClockwise)
+                let midAngle = entity.isClockwise ? (a0 - sweep * 0.5) : (a0 + sweep * 0.5)
+                let midPoint = center + SIMD2<Double>(cos(midAngle), sin(midAngle)) * r
+                evaluateCandidate(uv: midPoint, kind: .midpoint)
+
+                // Quadrants bounded by arc sweep
+                let cardinals = [
+                    SIMD2<Double>(center.x + r, center.y),
+                    SIMD2<Double>(center.x, center.y + r),
+                    SIMD2<Double>(center.x - r, center.y),
+                    SIMD2<Double>(center.x, center.y - r)
+                ]
+                for quad in cardinals {
+                    if SketchOperations.isPointOnArc(point: quad, start: start, end: end, center: center, clockwise: entity.isClockwise) {
+                        evaluateCandidate(uv: quad, kind: .quadrant)
+                    }
+                }
+
+            case "circle":
+                guard let center = entity.centerPoint,
+                      let r = entity.radius,
+                      r > 1e-6 else { break }
+
+                // Center
+                evaluateCandidate(uv: center, kind: .center)
+
+                // Quadrants
+                let cardinals = [
+                    SIMD2<Double>(center.x + r, center.y),
+                    SIMD2<Double>(center.x, center.y + r),
+                    SIMD2<Double>(center.x - r, center.y),
+                    SIMD2<Double>(center.x, center.y - r)
+                ]
+                for quad in cardinals {
+                    evaluateCandidate(uv: quad, kind: .quadrant)
+                }
+
+            default:
+                break
+            }
+        }
+
+        // Intersections between entities
+        if entities.count >= 2 {
+            for i in 0..<(entities.count - 1) {
+                for j in (i + 1)..<entities.count {
+                    let pts = SketchOperations.findIntersectionsBetween(entities[i], entities[j])
+                    for pt in pts {
+                        evaluateCandidate(uv: pt, kind: .intersection)
+                    }
+                }
+            }
+        }
+
+        // Sketch plane grid snapping
+        if gridSpacing > 0,
+           let ray = screenPointToRay(screenPoint: pointer, viewportSize: viewportSize, viewMatrix: viewMatrix, projectionMatrix: projectionMatrix),
+           let hitPoint = ray.intersectPlane(plane) {
+            let uv = plane.projectPoint(hitPoint)
+            let spacing = Double(gridSpacing)
+            let snappedU = (uv.x / spacing).rounded() * spacing
+            let snappedV = (uv.y / spacing).rounded() * spacing
+            let cleanU = (snappedU == 0) ? 0 : snappedU
+            let cleanV = (snappedV == 0) ? 0 : snappedV
+            let snappedUV = SIMD2<Double>(cleanU, cleanV)
+            evaluateCandidate(uv: snappedUV, kind: .grid)
+        }
+
+        return candidates
+    }
 }
 
 /// Resolves the winning snap candidate at pointer coordinates.
 public func resolveSnapAtPointer(
     meshes: [CandidateMesh],
+    sketchEntities: [SketchEntity] = [],
+    sketchPlane: SketchPlane? = nil,
     pointer: SIMD2<Float>,
     viewportSize: CGSize,
     viewMatrix: simd_float4x4,
@@ -504,7 +716,7 @@ public func resolveSnapAtPointer(
     gridSpacing: Float = defaultGridSpacing,
     tolerancePx: Float = defaultSnapTolerancePx
 ) -> SnapResult? {
-    let candidates = SnapCandidateGenerator.generateCandidates(
+    var candidates = SnapCandidateGenerator.generateCandidates(
         meshes: meshes,
         pointer: pointer,
         viewportSize: viewportSize,
@@ -513,5 +725,18 @@ public func resolveSnapAtPointer(
         gridSpacing: gridSpacing,
         tolerancePx: tolerancePx
     )
+    if let plane = sketchPlane {
+        let sketchCandidates = SnapCandidateGenerator.generateSketchCandidates(
+            entities: sketchEntities,
+            plane: plane,
+            pointer: pointer,
+            viewportSize: viewportSize,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projectionMatrix,
+            gridSpacing: gridSpacing,
+            tolerancePx: tolerancePx
+        )
+        candidates.append(contentsOf: sketchCandidates)
+    }
     return resolveSnap(candidates: candidates, tolerancePx: tolerancePx)
 }

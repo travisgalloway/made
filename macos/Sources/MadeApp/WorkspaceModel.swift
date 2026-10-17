@@ -50,6 +50,7 @@ final class WorkspaceModel {
     var coordinator: CADMetalViewRepresentable.Coordinator?
     private(set) var renderStats = RenderStats()
     private(set) var kernelStats = KernelStats()
+    var activeSnapResult: SnapResult?
     var activeSnapKind: SnapKind?
     /// Current sketch degrees-of-freedom constraint status (ADR-D4, BL-WSP-10).
     var sketchDOFStatus: SketchDOFStatus = .inactive
@@ -2516,6 +2517,7 @@ final class WorkspaceModel {
     func fitToScene() { coordinator?.fitToScene() }
 
     func handleSnapChanged(_ result: SnapResult?) {
+        activeSnapResult = result
         activeSnapKind = result?.kind
         if let result { log(.snap, "Snapping", "Snapped to \(result.kind.rawValue)") }
     }
