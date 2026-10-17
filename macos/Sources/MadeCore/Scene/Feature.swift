@@ -224,11 +224,18 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
 public struct SketchFeatureData: Sendable, Codable, Equatable {
     public var planeName: String?
     public var planeReference: TopologicalReference?
+    public var datumPlaneFeatureId: UUID?
     public var entities: [SketchEntity]
 
-    public init(planeName: String? = nil, planeReference: TopologicalReference? = nil, entities: [SketchEntity] = []) {
+    public init(
+        planeName: String? = nil,
+        planeReference: TopologicalReference? = nil,
+        datumPlaneFeatureId: UUID? = nil,
+        entities: [SketchEntity] = []
+    ) {
         self.planeName = planeName
         self.planeReference = planeReference
+        self.datumPlaneFeatureId = datumPlaneFeatureId
         self.entities = entities
     }
 }
@@ -349,6 +356,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case boolean(BooleanFeatureData)
     case part(PartFeatureData)
     case imported(ImportedFeatureData)
+    case datumPlane(DatumPlaneFeatureData)
 }
 
 /// Canonical parametric modeling feature in an ordered linear history (ADR-D2).
@@ -498,7 +506,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             def = .part(url: p.url, shape: p.shape)
         case .imported(let imp):
             def = .imported(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
-        case .sketch:
+        case .sketch, .datumPlane:
             return nil
         case .extrude(let data):
             guard let profile = data.profile else { return nil }

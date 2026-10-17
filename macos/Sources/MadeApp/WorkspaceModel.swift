@@ -433,6 +433,18 @@ final class WorkspaceModel {
         return nil
     }
 
+    var selectedDatumPlaneFeature: Feature? {
+        if let sel = document.selection.first, case .feature(let featId) = sel.target {
+            if let feat = document.feature(for: featId), case .datumPlane = feat.operation {
+                return feat
+            }
+        }
+        if let feat = selectedFeature, case .datumPlane = feat.operation {
+            return feat
+        }
+        return nil
+    }
+
     func selectFeature(_ featureId: UUID) {
         selectedId = nil
         document.selection = [Reference.feature(featureId)]
@@ -686,6 +698,10 @@ final class WorkspaceModel {
 
     func startNewSketchCommand() {
         startCommand(CommandSession.makeNewSketch(workspace: self))
+    }
+
+    func startDatumPlaneCommand() {
+        startCommand(CommandSession.makeDatumPlane(workspace: self))
     }
 
     @discardableResult
