@@ -100,6 +100,18 @@ struct ViewportCanvasView: View {
                                 if let sketchId = workspace.selectedSketchFeature?.id {
                                     workspace.selectSketchRegion(featureId: sketchId, regionId: regionId)
                                 }
+                            },
+                            onTrimClick: { uv in
+                                if let feat = workspace.selectedSketchFeature, case .sketch(let sketchData) = feat.operation {
+                                    if let hitEntity = SketchOperations.hitTestEntity(at: uv, in: sketchData.entities) {
+                                        _ = workspace.trimSketchEntity(in: feat.id, entityId: hitEntity.id, clickPoint: uv)
+                                    }
+                                }
+                            },
+                            onTrimDrag: { path in
+                                if let feat = workspace.selectedSketchFeature {
+                                    _ = workspace.trimSketchEntitiesAlongPath(in: feat.id, path: path)
+                                }
                             }
                         )
 

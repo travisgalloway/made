@@ -11,6 +11,8 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
     case overConstrained(message: String, conflictingConstraints: [UUID])
     case redundantConstraints(message: String, redundantConstraints: [UUID])
     case solverNonConvergence(message: String)
+    case noIntersection(String)
+    case pointNotOnEntity(entityId: UUID)
 
     public var errorDescription: String? {
         switch self {
@@ -32,6 +34,10 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
             return "Redundant constraints: \(msg)"
         case .solverNonConvergence(let msg):
             return "Solver failed to converge: \(msg)"
+        case .noIntersection(let msg):
+            return "No intersection found: \(msg)"
+        case .pointNotOnEntity(let id):
+            return "Point does not lie on sketch entity \(id.uuidString)"
         }
     }
 }

@@ -6,6 +6,7 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
     case orbit
     case pan
     case zoom
+    case trim
 
     public var id: String { rawValue }
 
@@ -15,6 +16,7 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
         case .orbit: return "Orbit"
         case .pan: return "Pan"
         case .zoom: return "Zoom"
+        case .trim: return "Trim"
         }
     }
 
@@ -24,6 +26,7 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
         case .orbit: return "rotate.3d"
         case .pan: return "hand.raised"
         case .zoom: return "magnifyingglass"
+        case .trim: return "scissors"
         }
     }
 
@@ -34,6 +37,7 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
         case .orbit: return "o"
         case .pan: return "p"
         case .zoom: return "z"
+        case .trim: return "t"
         }
     }
 
@@ -134,6 +138,7 @@ extension ViewportTool {
         case .orbit: return .orbit
         case .pan: return .pan
         case .zoom: return .zoom
+        case .trim: return .manipulate
         }
     }
 

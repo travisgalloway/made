@@ -67,6 +67,7 @@ final class CADMTKView: MTKView {
         case .orbit: return .crosshair
         case .pan: return .openHand
         case .zoom: return .resizeUpDown
+        case .trim: return .crosshair
         }
     }
     
@@ -172,6 +173,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var sketchRegions: [SketchRegion]
     var onHoverSketchRegion: ((UUID?) -> Void)?
     var onSelectSketchRegion: ((UUID) -> Void)?
+    var onTrimClick: ((SIMD2<Double>) -> Void)?
+    var onTrimDrag: (([SIMD2<Double>]) -> Void)?
     
     public init(
         document: DocumentModel,
@@ -201,7 +204,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         activeSketchPlane: SketchPlane? = nil,
         sketchRegions: [SketchRegion] = [],
         onHoverSketchRegion: ((UUID?) -> Void)? = nil,
-        onSelectSketchRegion: ((UUID) -> Void)? = nil
+        onSelectSketchRegion: ((UUID) -> Void)? = nil,
+        onTrimClick: ((SIMD2<Double>) -> Void)? = nil,
+        onTrimDrag: (([SIMD2<Double>]) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -231,6 +236,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.sketchRegions = sketchRegions
         self.onHoverSketchRegion = onHoverSketchRegion
         self.onSelectSketchRegion = onSelectSketchRegion
+        self.onTrimClick = onTrimClick
+        self.onTrimDrag = onTrimDrag
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -366,6 +373,28 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private var activeDragAction: ViewportDragAction? = nil
         private var isShiftDown: Bool = false
         private var activeSnapResult: SnapResult? = nil
+        private var trimStrokePoints: [SIMD2<Double>] = []
+        private var trimMouseDownLocation: CGPoint = .zero
+
+        public func unprojectToSketchPlane(loc: CGPoint, in view: MTKView) -> SIMD2<Double>? {
+            guard let plane = parent.activeSketchPlane,
+                  let ray = unprojectCursorRay(at: loc, in: view) else { return nil }
+            let normal = SIMD3<Double>(Double(plane.normal.x), Double(plane.normal.y), Double(plane.normal.z))
+            let rayDir = SIMD3<Double>(Double(ray.direction.x), Double(ray.direction.y), Double(ray.direction.z))
+            let rayOrig = SIMD3<Double>(Double(ray.origin.x), Double(ray.origin.y), Double(ray.origin.z))
+            let planeOrig = SIMD3<Double>(Double(plane.origin.x), Double(plane.origin.y), Double(plane.origin.z))
+            let denom = simd_dot(rayDir, normal)
+            guard abs(denom) > 1e-6 else { return nil }
+            let t = simd_dot(planeOrig - rayOrig, normal) / denom
+            guard t > 0 else { return nil }
+            let p3D = rayOrig + t * rayDir
+            let delta = p3D - planeOrig
+            let xAxis = SIMD3<Double>(Double(plane.xAxis.x), Double(plane.xAxis.y), Double(plane.xAxis.z))
+            let u = simd_dot(delta, xAxis)
+            let yAxis = simd_normalize(simd_cross(normal, xAxis))
+            let v = simd_dot(delta, yAxis)
+            return SIMD2<Double>(u, v)
+        }
         
         init(_ parent: CADMetalViewRepresentable) {
             self.parent = parent
@@ -391,6 +420,14 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             lastMousePoint = loc
             activeMouseButton = button
             isShiftDown = event.modifierFlags.contains(.shift)
+            
+            if button == .left && parent.tool == .trim {
+                trimMouseDownLocation = loc
+                trimStrokePoints.removeAll()
+                if let uv = unprojectToSketchPlane(loc: loc, in: view) {
+                    trimStrokePoints.append(uv)
+                }
+            }
             
             let pointer = ArbiterPointer(pointerId: button.pointerId, x: Float(loc.x), y: Float(loc.y))
             let pType = pointerType(for: event)
@@ -512,6 +549,23 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             let deltaX = Float(loc.x - lastMousePoint.x)
             let deltaY = Float(loc.y - lastMousePoint.y)
             lastMousePoint = loc
+            
+            if button == .left && parent.tool == .trim {
+                if let uv = unprojectToSketchPlane(loc: loc, in: view) {
+                    if let last = trimStrokePoints.last {
+                        if hypot(uv.x - last.x, uv.y - last.y) > 0.001 {
+                            trimStrokePoints.append(uv)
+                            if trimStrokePoints.count >= 2 {
+                                parent.onTrimDrag?(trimStrokePoints)
+                            }
+                        }
+                    } else {
+                        trimStrokePoints.append(uv)
+                    }
+                }
+                invalidate(reason: .interaction)
+                return
+            }
             
             if let _ = dragState {
                 handleGizmoDrag(at: loc, in: view, isTouch: pType == .touch)
@@ -848,6 +902,21 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 invalidate(reason: .interaction)
             }
             
+            if button == .left && parent.tool == .trim {
+                guard let view = mtkView else { return }
+                let loc = view.convert(event.locationInWindow, from: nil)
+                let movement = hypot(loc.x - trimMouseDownLocation.x, loc.y - trimMouseDownLocation.y)
+                if movement < 6.0 {
+                    if let uv = unprojectToSketchPlane(loc: loc, in: view) {
+                        parent.onTrimClick?(uv)
+                    }
+                }
+                trimStrokePoints.removeAll()
+                pointerRouter.arbiter.reset()
+                invalidate(reason: .interaction)
+                return
+            }
+
             if button == .left && decision.mode == .manipulate {
                 if parent.tool == .select || pType == .pen {
                     guard let view = mtkView else { return }
