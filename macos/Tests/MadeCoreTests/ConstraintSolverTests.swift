@@ -450,4 +450,117 @@ import simd
         #expect(result.entityDOF[lineA.id] == .fullyConstrained)
         #expect(result.entityDOF[lineB.id] == .underConstrained(dof: 3))
     }
+
+    @Test func testInteractiveDragHorizontalLineOffAxisKeepsHorizontal() {
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let horiz = SketchConstraint(kind: .horizontal, entityIds: [line.id])
+        let system = ConstraintSystem(entities: [line], constraints: [horiz])
+        let drag = DragTarget(entityId: line.id, endpoint: .end, targetPosition: SIMD2<Double>(25, 30))
+        let result = ConstraintSolver.solve(system: system, dragTarget: drag)
+
+        #expect(result.status.isConverged)
+        guard let solved = result.solvedEntities.first(where: { $0.id == line.id }),
+              let s = solved.startPoint, let e = solved.endPoint else {
+            Issue.record("Expected solved line")
+            return
+        }
+        #expect(abs(e.y - s.y) < 1e-3, "Line must remain horizontal")
+        #expect(abs(e.x - 25.0) < 1e-2, "Line endpoint should slide to X=25")
+    }
+
+    @Test func testInteractiveDragWholeLinePreservesConstraints() {
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(5, 0), end: SIMD2<Double>(5, 10))
+        let perp = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+
+        let system = ConstraintSystem(entities: [lineA, lineB], constraints: [perp], fixedEntityIds: [lineB.id])
+        let drag = DragTarget(entityId: lineA.id, endpoint: nil, targetPosition: SIMD2<Double>(5, 8))
+        let result = ConstraintSolver.solve(system: system, dragTarget: drag)
+
+        #expect(result.status.isConverged)
+        guard let solvedA = result.solvedEntities.first(where: { $0.id == lineA.id }),
+              let sA = solvedA.startPoint, let eA = solvedA.endPoint else {
+            Issue.record("Expected solved line A")
+            return
+        }
+        let vA = eA - sA
+        let vB = SIMD2<Double>(0, 10)
+        let dot = vA.x * vB.x + vA.y * vB.y
+        #expect(abs(dot) < 1e-2, "Line A must remain perpendicular to Line B")
+        #expect(abs(sA.y - 8.0) < 1e-2, "Line A should translate to Y=8")
+        #expect(abs(eA.y - 8.0) < 1e-2, "Line A should translate to Y=8")
+    }
+
+    @Test func testInteractiveDragArcEndpointsAndCenter() {
+        let arc = SketchEntity.arc(
+            start: SIMD2<Double>(10, 0),
+            end: SIMD2<Double>(0, 10),
+            center: SIMD2<Double>(0, 0),
+            clockwise: false
+        )
+        let system = ConstraintSystem(entities: [arc], constraints: [])
+
+        // Drag start to (15, 0)
+        let dragStart = DragTarget(entityId: arc.id, endpoint: .start, targetPosition: SIMD2<Double>(15, 0))
+        let resStart = ConstraintSolver.solve(system: system, dragTarget: dragStart)
+        #expect(resStart.status.isConverged)
+        #expect(abs((resStart.solvedEntities.first?.startPoint?.x ?? 0) - 15.0) < 1e-3)
+
+        // Drag end to (0, 20)
+        let dragEnd = DragTarget(entityId: arc.id, endpoint: .end, targetPosition: SIMD2<Double>(0, 20))
+        let resEnd = ConstraintSolver.solve(system: system, dragTarget: dragEnd)
+        #expect(resEnd.status.isConverged)
+        #expect(abs((resEnd.solvedEntities.first?.endPoint?.y ?? 0) - 20.0) < 1e-3)
+
+        // Drag center to (5, 5)
+        let dragCenter = DragTarget(entityId: arc.id, endpoint: .center, targetPosition: SIMD2<Double>(5, 5))
+        let resCenter = ConstraintSolver.solve(system: system, dragTarget: dragCenter)
+        #expect(resCenter.status.isConverged)
+        #expect(abs((resCenter.solvedEntities.first?.centerPoint?.x ?? 0) - 5.0) < 1e-3)
+        #expect(abs((resCenter.solvedEntities.first?.centerPoint?.y ?? 0) - 5.0) < 1e-3)
+
+        // Drag whole arc (endpoint == nil) by moving center to (10, 10)
+        let dragWhole = DragTarget(entityId: arc.id, endpoint: nil, targetPosition: SIMD2<Double>(10, 10))
+        let resWhole = ConstraintSolver.solve(system: system, dragTarget: dragWhole)
+        #expect(resWhole.status.isConverged)
+        #expect(abs((resWhole.solvedEntities.first?.centerPoint?.x ?? 0) - 10.0) < 1e-3)
+        #expect(abs((resWhole.solvedEntities.first?.centerPoint?.y ?? 0) - 10.0) < 1e-3)
+        #expect(abs((resWhole.solvedEntities.first?.startPoint?.x ?? 0) - 20.0) < 1e-3)
+        #expect(abs((resWhole.solvedEntities.first?.startPoint?.y ?? 0) - 10.0) < 1e-3)
+    }
+
+    @Test func testInteractiveDragUnconstrainedEntity() {
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let system = ConstraintSystem(entities: [line], constraints: [])
+
+        let drag = DragTarget(entityId: line.id, endpoint: .end, targetPosition: SIMD2<Double>(42, 99))
+        let result = ConstraintSolver.solve(system: system, dragTarget: drag)
+
+        #expect(result.status.isConverged)
+        guard let solved = result.solvedEntities.first,
+              let end = solved.endPoint else {
+            Issue.record("Expected solved line")
+            return
+        }
+        #expect(abs(end.x - 42.0) < 1e-3)
+        #expect(abs(end.y - 99.0) < 1e-3)
+    }
+
+    @Test func testInteractiveDragFixedEntityRemainsStationary() {
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let system = ConstraintSystem(entities: [line], constraints: [], fixedEntityIds: [line.id])
+
+        let drag = DragTarget(entityId: line.id, endpoint: .end, targetPosition: SIMD2<Double>(42, 99))
+        let result = ConstraintSolver.solve(system: system, dragTarget: drag)
+
+        #expect(result.status.isConverged)
+        guard let solved = result.solvedEntities.first,
+              let end = solved.endPoint else {
+            Issue.record("Expected solved line")
+            return
+        }
+        #expect(abs(end.x - 10.0) < 1e-3)
+        #expect(abs(end.y - 0.0) < 1e-3)
+        #expect(result.entityDOF[line.id] == .fullyConstrained)
+    }
 }

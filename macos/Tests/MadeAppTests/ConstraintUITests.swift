@@ -257,4 +257,102 @@ import MadeCore
         #expect(ViewportStatusBar.dofColor(for: .fullyConstrained) == .green)
         #expect(ViewportStatusBar.dofColor(for: .overConstrained(dof: 0)) == .red)
     }
+
+    @Test @MainActor func testWorkspaceInteractiveSketchDragCoalescedUndo() {
+        let workspace = WorkspaceModel()
+        let undo = UndoManager()
+        workspace.document.undoManager = undo
+
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [line])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+        undo.removeAllActions()
+
+        workspace.selectFeature(feature.id)
+
+        // Begin interactive drag
+        workspace.beginInteractiveSketchDrag(featureId: feature.id, entityId: line.id)
+
+        // Intermediate high-frequency drag events (e.g. 10 updates)
+        for i in 1...10 {
+            let targetPos = SIMD2<Double>(Double(10 + i), Double(i))
+            let drag = DragTarget(entityId: line.id, endpoint: .end, targetPosition: targetPos)
+            workspace.solveSketchDrag(featureId: feature.id, dragTarget: drag)
+        }
+
+        // End interactive drag
+        workspace.endInteractiveSketchDrag(featureId: feature.id)
+
+        // Verify entity moved to final position
+        if case .sketch(let finalSketch) = workspace.document.feature(for: feature.id)?.operation {
+            let solvedLine = finalSketch.entities.first(where: { $0.id == line.id })
+            #expect(abs((solvedLine?.endPoint?.x ?? 0) - 20.0) < 1e-3)
+            #expect(abs((solvedLine?.endPoint?.y ?? 0) - 10.0) < 1e-3)
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+
+        // Verify undo: only a SINGLE undo step exists
+        #expect(undo.canUndo)
+        #expect(undo.undoActionName == "Drag Sketch Entity")
+
+        undo.undo()
+
+        // Verify undo restores initial geometry
+        if case .sketch(let restoredSketch) = workspace.document.feature(for: feature.id)?.operation {
+            let restoredLine = restoredSketch.entities.first(where: { $0.id == line.id })
+            #expect(abs((restoredLine?.endPoint?.x ?? 0) - 10.0) < 1e-3)
+            #expect(abs((restoredLine?.endPoint?.y ?? 0) - 0.0) < 1e-3)
+        } else {
+            Issue.record("Expected sketch feature")
+        }
+
+        // Verify cannot undo again (it was coalesced into exactly 1 step)
+        #expect(!undo.canUndo)
+
+        // Redo restores final geometry
+        #expect(undo.canRedo)
+        undo.redo()
+        if case .sketch(let redoneSketch) = workspace.document.feature(for: feature.id)?.operation {
+            let redoneLine = redoneSketch.entities.first(where: { $0.id == line.id })
+            #expect(abs((redoneLine?.endPoint?.x ?? 0) - 20.0) < 1e-3)
+            #expect(abs((redoneLine?.endPoint?.y ?? 0) - 10.0) < 1e-3)
+        }
+    }
+
+    @Test @MainActor func testWorkspaceSketchDragSolving() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(0, 10))
+        let perp = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB], constraints: [perp])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        workspace.selectFeature(feature.id)
+
+        // Drag lineA endpoint
+        let drag = DragTarget(entityId: lineA.id, endpoint: .end, targetPosition: SIMD2<Double>(10, 10))
+        workspace.solveSketchDrag(featureId: feature.id, dragTarget: drag)
+
+        if case .sketch(let updated) = workspace.document.feature(for: feature.id)?.operation {
+            let sA = updated.entities.first(where: { $0.id == lineA.id })
+            let sB = updated.entities.first(where: { $0.id == lineB.id })
+            guard let sAp = sA?.startPoint, let eAp = sA?.endPoint,
+                  let sBp = sB?.startPoint, let eBp = sB?.endPoint else {
+                Issue.record("Expected line entities")
+                return
+            }
+            #expect(abs(eAp.x - 10.0) < 1e-2)
+            #expect(abs(eAp.y - 10.0) < 1e-2)
+            let vA = eAp - sAp
+            let vB = eBp - sBp
+            let dot = vA.x * vB.x + vA.y * vB.y
+            #expect(abs(dot) < 1e-2, "Perpendicularity must hold after drag solve")
+        }
+
+        #expect(workspace.dofStatus(for: lineA.id) != .inactive)
+        #expect(workspace.overConstrainedMessage == nil)
+    }
 }

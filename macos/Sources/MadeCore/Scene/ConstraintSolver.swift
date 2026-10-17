@@ -61,7 +61,8 @@ public struct ConstraintSolver: Sendable {
             let entityDOF = baselineEntityDOF(entities: system.entities, fixedIds: system.fixedEntityIds)
             if let drag = dragTarget {
                 var updated = system.entities
-                if let idx = updated.firstIndex(where: { $0.id == drag.entityId }) {
+                if let idx = updated.firstIndex(where: { $0.id == drag.entityId }),
+                   !system.fixedEntityIds.contains(drag.entityId) {
                     applyDragToEntity(&updated[idx], drag: drag)
                 }
                 return SolverResult(status: .converged, solvedEntities: updated, dof: dofBaseline, entityDOF: entityDOF)
@@ -245,58 +246,112 @@ public struct ConstraintSolver: Sendable {
             }
         }
 
+        var dragTargets: [Int: Double] = [:]
         if let drag = dragTarget, let range = paramRanges.first(where: { $0.entityId == drag.entityId }) {
             switch range.kind {
             case "line":
                 if drag.endpoint == .start {
-                    X[range.startIndex] = drag.targetPosition.x
-                    X[range.startIndex + 1] = drag.targetPosition.y
-                    fixedIndices.insert(range.startIndex)
-                    fixedIndices.insert(range.startIndex + 1)
+                    dragTargets[range.startIndex] = drag.targetPosition.x
+                    dragTargets[range.startIndex + 1] = drag.targetPosition.y
+                } else if drag.endpoint == .end {
+                    dragTargets[range.startIndex + 2] = drag.targetPosition.x
+                    dragTargets[range.startIndex + 3] = drag.targetPosition.y
                 } else {
-                    X[range.startIndex + 2] = drag.targetPosition.x
-                    X[range.startIndex + 3] = drag.targetPosition.y
-                    fixedIndices.insert(range.startIndex + 2)
-                    fixedIndices.insert(range.startIndex + 3)
+                    let s0 = SIMD2<Double>(initialX[range.startIndex], initialX[range.startIndex + 1])
+                    let e0 = SIMD2<Double>(initialX[range.startIndex + 2], initialX[range.startIndex + 3])
+                    let mid0 = (s0 + e0) * 0.5
+                    let delta = drag.targetPosition - mid0
+                    dragTargets[range.startIndex] = s0.x + delta.x
+                    dragTargets[range.startIndex + 1] = s0.y + delta.y
+                    dragTargets[range.startIndex + 2] = e0.x + delta.x
+                    dragTargets[range.startIndex + 3] = e0.y + delta.y
                 }
-            case "circle", "arc":
-                X[range.startIndex] = drag.targetPosition.x
-                X[range.startIndex + 1] = drag.targetPosition.y
-                fixedIndices.insert(range.startIndex)
-                fixedIndices.insert(range.startIndex + 1)
+            case "circle":
+                dragTargets[range.startIndex] = drag.targetPosition.x
+                dragTargets[range.startIndex + 1] = drag.targetPosition.y
+            case "arc":
+                if drag.endpoint == .start {
+                    dragTargets[range.startIndex] = drag.targetPosition.x
+                    dragTargets[range.startIndex + 1] = drag.targetPosition.y
+                } else if drag.endpoint == .end {
+                    dragTargets[range.startIndex + 2] = drag.targetPosition.x
+                    dragTargets[range.startIndex + 3] = drag.targetPosition.y
+                } else if drag.endpoint == .center {
+                    dragTargets[range.startIndex + 4] = drag.targetPosition.x
+                    dragTargets[range.startIndex + 5] = drag.targetPosition.y
+                } else {
+                    let c0 = SIMD2<Double>(initialX[range.startIndex + 4], initialX[range.startIndex + 5])
+                    let delta = drag.targetPosition - c0
+                    dragTargets[range.startIndex] = initialX[range.startIndex] + delta.x
+                    dragTargets[range.startIndex + 1] = initialX[range.startIndex + 1] + delta.y
+                    dragTargets[range.startIndex + 2] = initialX[range.startIndex + 2] + delta.x
+                    dragTargets[range.startIndex + 3] = initialX[range.startIndex + 3] + delta.y
+                    dragTargets[range.startIndex + 4] = drag.targetPosition.x
+                    dragTargets[range.startIndex + 5] = drag.targetPosition.y
+                }
             default:
                 break
             }
         }
 
+        // Fixed entities cannot be dragged
+        for idx in fixedIndices {
+            dragTargets.removeValue(forKey: idx)
+        }
+
+        let isDragging = !dragTargets.isEmpty
+        let wHard: Double = isDragging ? 1e4 : 1.0
+        let wHardSq: Double = wHard * wHard
+        let wDragSq: Double = isDragging ? 1.0 : 0.0
+        let wMinSq: Double = isDragging ? 1e-8 : 0.0
+
         var lambda = 1e-3
         var bestX = X
         var bestResidual = Double.greatestFiniteMagnitude
+
+        func computeCost(residuals: [Double], currentX: [Double]) -> Double {
+            var cost = 0.0
+            for r in residuals {
+                cost += wHardSq * r * r
+            }
+            for (d, targetVal) in dragTargets {
+                let diff = currentX[d] - targetVal
+                cost += wDragSq * diff * diff
+            }
+            for i in 0..<n {
+                if !fixedIndices.contains(i) {
+                    let diff = currentX[i] - initialX[i]
+                    cost += wMinSq * diff * diff
+                }
+            }
+            return cost
+        }
 
         for _ in 0..<maxIterations {
             let entities = system.unpackParameters(X)
             let residuals = evaluateResiduals(entities: entities, constraints: constraints)
             let maxRes = residuals.map { abs($0) }.max() ?? 0.0
-            let currentNorm = residuals.reduce(0.0) { $0 + $1 * $1 }
+            let currentCost = computeCost(residuals: residuals, currentX: X)
 
             if maxRes < bestResidual {
                 bestResidual = maxRes
                 bestX = X
             }
 
-            if maxRes < convergenceTolerance {
-                return InternalSolveOutcome(converged: true, finalX: X, maxResidual: maxRes)
+            if !isDragging {
+                if maxRes < convergenceTolerance {
+                    return InternalSolveOutcome(converged: true, finalX: X, maxResidual: maxRes)
+                }
             }
 
             // Numerical Jacobian
             let J = evaluateJacobian(system: system, constraints: constraints, X: X, currentF: residuals)
             let m = J.count
 
-            // Normal equations: (J^T J + lambda * I) * deltaX = -J^T F
+            // Normal equations: (wHardSq * J^T J + (lambda + wMinSq) * I + Wdrag) * deltaX = -wHardSq * J^T F - Wdrag * (X - Xtarget) - wMinSq * (X - X0)
             var A = Array(repeating: Array(repeating: 0.0, count: n), count: n)
             var b = Array(repeating: 0.0, count: n)
 
-            // J^T J
             for i in 0..<n {
                 guard !fixedIndices.contains(i) else {
                     A[i][i] = 1.0
@@ -309,15 +364,23 @@ public struct ConstraintSolver: Sendable {
                     for k in 0..<m {
                         sum += J[k][i] * J[k][j]
                     }
-                    A[i][j] = sum
+                    A[i][j] = sum * wHardSq
                 }
-                A[i][i] += lambda
+                A[i][i] += lambda + wMinSq
+                if dragTargets[i] != nil {
+                    A[i][i] += wDragSq
+                }
 
                 var jtf = 0.0
                 for k in 0..<m {
                     jtf += J[k][i] * residuals[k]
                 }
-                b[i] = -jtf
+                var rhs = -wHardSq * jtf
+                rhs -= wMinSq * (X[i] - initialX[i])
+                if let targetVal = dragTargets[i] {
+                    rhs -= wDragSq * (X[i] - targetVal)
+                }
+                b[i] = rhs
             }
 
             // Solve A * deltaX = b
@@ -325,6 +388,8 @@ public struct ConstraintSolver: Sendable {
                 lambda *= 10.0
                 continue
             }
+
+            let maxStep = deltaX.map { abs($0) }.max() ?? 0.0
 
             // Candidate step
             var testX = X
@@ -336,11 +401,25 @@ public struct ConstraintSolver: Sendable {
 
             let testEntities = system.unpackParameters(testX)
             let testResiduals = evaluateResiduals(entities: testEntities, constraints: constraints)
-            let testNorm = testResiduals.reduce(0.0) { $0 + $1 * $1 }
+            let testCost = computeCost(residuals: testResiduals, currentX: testX)
+            let testMaxRes = testResiduals.map { abs($0) }.max() ?? 0.0
 
-            if testNorm < currentNorm {
+            if testCost < currentCost {
                 X = testX
                 lambda = max(1e-7, lambda / 10.0)
+
+                if isDragging {
+                    if testMaxRes < bestResidual {
+                        bestResidual = testMaxRes
+                        bestX = testX
+                    } else if testMaxRes < convergenceTolerance {
+                        bestX = testX
+                    }
+
+                    if testMaxRes < convergenceTolerance && maxStep < 1e-4 {
+                        return InternalSolveOutcome(converged: true, finalX: X, maxResidual: testMaxRes)
+                    }
+                }
             } else {
                 lambda = min(1e8, lambda * 10.0)
             }
@@ -869,16 +948,38 @@ public struct ConstraintSolver: Sendable {
         return conflicting
     }
 
-    private static func applyDragToEntity(_ entity: inout SketchEntity, drag: DragTarget) {
+    public static func applyDragToEntity(_ entity: inout SketchEntity, drag: DragTarget) {
         switch entity.kind {
         case "line":
             if drag.endpoint == .start {
                 entity.startPoint = drag.targetPosition
-            } else {
+            } else if drag.endpoint == .end {
                 entity.endPoint = drag.targetPosition
+            } else {
+                if let s = entity.startPoint, let e = entity.endPoint {
+                    let mid = (s + e) * 0.5
+                    let delta = drag.targetPosition - mid
+                    entity.startPoint = s + delta
+                    entity.endPoint = e + delta
+                }
             }
-        case "circle", "arc":
+        case "circle":
             entity.centerPoint = drag.targetPosition
+        case "arc":
+            if drag.endpoint == .start {
+                entity.startPoint = drag.targetPosition
+            } else if drag.endpoint == .end {
+                entity.endPoint = drag.targetPosition
+            } else if drag.endpoint == .center {
+                entity.centerPoint = drag.targetPosition
+            } else {
+                if let c = entity.centerPoint {
+                    let delta = drag.targetPosition - c
+                    if let s = entity.startPoint { entity.startPoint = s + delta }
+                    if let e = entity.endPoint { entity.endPoint = e + delta }
+                    entity.centerPoint = drag.targetPosition
+                }
+            }
         default:
             break
         }

@@ -878,6 +878,115 @@ public enum SketchOperations {
         return closest?.entity
     }
 
+    /// Hit-tests sketch entities for interactive drag operations (BL-CON-07, #198).
+    /// Resolves whether a pointer down event hit a vertex/endpoint (.start, .end, .center)
+    /// or the curve body (endpoint == nil) on lines, circles, and arcs.
+    public static func hitTestSketchDragTarget(
+        at point: SIMD2<Double>,
+        in entities: [SketchEntity],
+        vertexTolerance: Double = 0.5,
+        curveTolerance: Double = 0.5
+    ) -> (entity: SketchEntity, endpoint: DragTarget.EndpointTarget?)? {
+        var closestVertex: (entity: SketchEntity, endpoint: DragTarget.EndpointTarget, dist: Double)?
+
+        for entity in entities {
+            switch entity.kind {
+            case "line":
+                if let sp = entity.startPoint {
+                    let d = hypot(point.x - sp.x, point.y - sp.y)
+                    if d <= vertexTolerance && (closestVertex == nil || d < closestVertex!.dist) {
+                        closestVertex = (entity, .start, d)
+                    }
+                }
+                if let ep = entity.endPoint {
+                    let d = hypot(point.x - ep.x, point.y - ep.y)
+                    if d <= vertexTolerance && (closestVertex == nil || d < closestVertex!.dist) {
+                        closestVertex = (entity, .end, d)
+                    }
+                }
+            case "circle":
+                if let cp = entity.centerPoint {
+                    let d = hypot(point.x - cp.x, point.y - cp.y)
+                    if d <= vertexTolerance && (closestVertex == nil || d < closestVertex!.dist) {
+                        closestVertex = (entity, .center, d)
+                    }
+                }
+            case "arc":
+                if let sp = entity.startPoint {
+                    let d = hypot(point.x - sp.x, point.y - sp.y)
+                    if d <= vertexTolerance && (closestVertex == nil || d < closestVertex!.dist) {
+                        closestVertex = (entity, .start, d)
+                    }
+                }
+                if let ep = entity.endPoint {
+                    let d = hypot(point.x - ep.x, point.y - ep.y)
+                    if d <= vertexTolerance && (closestVertex == nil || d < closestVertex!.dist) {
+                        closestVertex = (entity, .end, d)
+                    }
+                }
+                if let cp = entity.centerPoint {
+                    let d = hypot(point.x - cp.x, point.y - cp.y)
+                    if d <= vertexTolerance && (closestVertex == nil || d < closestVertex!.dist) {
+                        closestVertex = (entity, .center, d)
+                    }
+                }
+            default:
+                break
+            }
+        }
+
+        if let vHit = closestVertex {
+            return (entity: vHit.entity, endpoint: vHit.endpoint)
+        }
+
+        var closestCurve: (entity: SketchEntity, dist: Double)?
+
+        for entity in entities {
+            let dist: Double
+            switch entity.kind {
+            case "line":
+                guard let sp = entity.startPoint, let ep = entity.endPoint else { continue }
+                let v = ep - sp
+                let lenSq = simd_dot(v, v)
+                if lenSq < 1e-8 {
+                    dist = hypot(point.x - sp.x, point.y - sp.y)
+                } else {
+                    let t = max(0.0, min(1.0, simd_dot(point - sp, v) / lenSq))
+                    let proj = sp + t * v
+                    dist = hypot(point.x - proj.x, point.y - proj.y)
+                }
+            case "circle":
+                guard let cp = entity.centerPoint, let r = entity.radius else { continue }
+                dist = abs(hypot(point.x - cp.x, point.y - cp.y) - r)
+            case "arc":
+                guard let sp = entity.startPoint, let ep = entity.endPoint, let cp = entity.centerPoint else { continue }
+                let r = entity.radius ?? hypot(sp.x - cp.x, sp.y - cp.y)
+                let radialDist = abs(hypot(point.x - cp.x, point.y - cp.y) - r)
+                if isPointOnArc(point: point, start: sp, end: ep, center: cp, clockwise: entity.isClockwise) {
+                    dist = radialDist
+                } else {
+                    let dStart = hypot(point.x - sp.x, point.y - sp.y)
+                    let dEnd = hypot(point.x - ep.x, point.y - ep.y)
+                    dist = min(dStart, dEnd)
+                }
+            default:
+                continue
+            }
+
+            if dist <= curveTolerance {
+                if closestCurve == nil || dist < closestCurve!.dist {
+                    closestCurve = (entity, dist)
+                }
+            }
+        }
+
+        if let cHit = closestCurve {
+            return (entity: cHit.entity, endpoint: nil)
+        }
+
+        return nil
+    }
+
     // MARK: - 3D-to-2D Projection
 
     /// Projects an evaluated 3D curve onto a target sketch plane, associating the result with an optional parametric reference.
