@@ -6,7 +6,7 @@ The geometry kernel in `made` handles 3D solid construction, boolean operations,
 
 ## Multi-Tier Geometry Engine
 
-The design uses a multi-tier geometry strategy. Tier 1 and Tier 3 exist in the code. Tier 2 is planned (#82) and marked PLANNED in the diagram below:
+The design uses a multi-tier geometry strategy. All three tiers exist in the code (Tier 2 through `OCCTEngine`, #82):
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -50,7 +50,7 @@ OpenCASCADE Technology via `SecondMouseAU/OCCTSwift` is integrated as the canoni
 ### Tier 3: Declarative CAD DSL (Cadova-Style Scripting)
 - **Implementation**: [`CADDSL.swift`](../../macos/Sources/MadeCore/Scripting/CADDSL.swift).
 - **Capabilities**: Declarative Swift result builders and operator overloads (`-`, `+`, `&`) allowing AI agents and engineers to express geometric models programmatically.
-- **Evaluation**: The DSL performs no geometry work. Each shape builds a `ShapeNode` operation tree ([`ShapeNode.swift`](../../macos/Sources/MadeCore/Kernel/ShapeNode.swift)), and `evaluate(on:solidId:jobId:)` sends the whole tree through `KernelClient` as one `evaluateShape` request. `LocalKernelEngine` validates the tree against `ShapeLimits` (depth 64, 4,096 nodes, 3 to 512 cylinder slices, positive finite dimensions, finite offsets) and evaluates it on the engine actor. A failure returns `invalidParams` and stores nothing. `LayeringTests.scriptingReferencesNoEuclid` fails the build when `Scripting/` names Euclid.
+- **Evaluation**: The DSL performs no geometry work. Each shape builds a `ShapeNode` operation tree ([`ShapeNode.swift`](../../macos/Sources/MadeCore/Kernel/ShapeNode.swift)), and `evaluate(on:solidId:jobId:)` sends the whole tree through `KernelClient` as one `evaluateShape` request. `LocalKernelEngine` validates the tree against `ShapeLimits` (depth 64, 4,096 nodes, 3 to 512 cylinder slices, positive finite dimensions, finite offsets) and evaluates it on the engine actor. A failure returns `invalidParams` and stores nothing. `LayeringTests.scriptingReferencesNoKernelInternals` fails the build when `Scripting/` names Euclid.
 
 ---
 

@@ -12,10 +12,11 @@ All kernel-level failures are represented by `KernelError` in [`MadeCore/Kernel/
 public enum KernelErrorCode: String, Sendable {
     case kernelInitFailed = "kernel-init-failed"
     case invalidParams = "invalid-params"      // Dimensions <= 0
-    case geometryFailed = "geometry-failed"    // Also returned by the importStep stub
+    case geometryFailed = "geometry-failed"
     case unknownSolid = "unknown-solid"        // Solid ID missing from the kernel cache
     case cancelled = "cancelled"               // Superseded, disposed, or cancelled before execution
     case workerCrashed = "worker-crashed"
+    case topologicalReferenceBroken = "topological-reference-broken"
 }
 
 public struct KernelError: Error, Equatable, Sendable {
@@ -24,7 +25,7 @@ public struct KernelError: Error, Equatable, Sendable {
 }
 ```
 
-`KernelErrorCode` is a top-level enum with six cases. No `internalError` case exists. The JSON-RPC `internalError` (-32603) is a separate payload in `MCPProtocol.swift`. `XPCKernelEngine` produces `kernelInitFailed` when the kernel service session cannot be created or the restart breaker is open, and `workerCrashed` when the service stops twice while computing the same job (#245).
+`KernelErrorCode` is a top-level enum with seven cases. `TopologicalResolver` produces `topologicalReferenceBroken`. No `internalError` case exists. The JSON-RPC `internalError` (-32603) is a separate payload in `MCPProtocol.swift`. `XPCKernelEngine` produces `kernelInitFailed` when the kernel service session cannot be created or the restart breaker is open, and `workerCrashed` when the service stops twice while computing the same job (#245).
 
 ---
 

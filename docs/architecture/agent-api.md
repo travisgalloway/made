@@ -25,7 +25,7 @@
 │   • cad_set_param            • cad_get_diagnostics    │
 │   • cad_set_transform        • cad_verify             │
 │   • cad_remove_solid         • cad_capture_snapshot    │
-│   • cad_measure                                        │
+│   • cad_measure              • cad_rollback           │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Live Mutation            │ Snapshot Request
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
@@ -90,7 +90,7 @@ Add `made` to your `claude_desktop_config.json`:
 
 ## 2. Core CAD Tools
 
-The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) provides 11 tools. Argument names below match the input schemas in `CADTools.swift`:
+The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) provides 12 tools. Argument names below match the input schemas in `CADTools.swift`:
 
 | Tool Name | Parameters | Description |
 | --------- | ---------- | ----------- |
@@ -105,6 +105,7 @@ The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) p
 | `cad_get_diagnostics` | `id` (optional), `file` (optional) | Returns the last evaluation `errors` and `warnings` for open part files (or filtered by `id` or `file`), each with `file`, `line`, `column`, and `message` (#428). |
 | `cad_verify` | `id` (optional) | Checks that each solid in the scene (or the solid matching `id`) is a valid `closed`, `manifold`, `positiveVolume` mesh, and compares measured `volume`, `area`, and `bounds` against any `export const expected` block in a part file within tolerance. Returns a structured verification report with `isError: true` when topological verification or any `expected` check fails (#428). |
 | `cad_capture_snapshot` | `view` (optional: "front" \| "top" \| "right" \| "isometric" \| "perspective") | Renders an offscreen 800x600 Metal frame and returns it as MCP `image` content (raw base64 PNG with MIME type `image/png`). When `view` is specified, renders from that camera preset without modifying the interactive viewport camera (#89, #428). |
+| `cad_rollback` | `index` (optional), `solidId` (optional) | Moves the history rollback marker backward or forward. Features after the marker are excluded from evaluation and viewport rendering, and new solids are inserted at the marker position. With neither argument, or with `solidId` set to `end`, the marker moves to the end of the history. |
 
 ### Error Behavior
 A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` (never a JSON-RPC error payload). JSON-RPC error payloads are limited to the following protocol cases:
@@ -177,7 +178,7 @@ Repository-level Claude Code plugin manifests ([`.claude-plugin/marketplace.json
 The skill provides external agents with:
 - Documentation of the `.part.ts` and `.part.js` part format, coordinate system, centering rules, 2D sketches, sweeps, CSG booleans, transforms, `param` / `defineParams`, and the `export const expected` verification contract.
 - A synchronized copy of the TypeScript declaration file at [`plugins/made-cad/skills/made-cad/references/made.d.ts`](../../plugins/made-cad/skills/made-cad/references/made.d.ts) for `tsc --noEmit` pre-flight validation.
-- Connection instructions for `127.0.0.1:9820` (TCP) and `--mcp-stdio`, reference tables for all 11 MCP tools, and the step-by-step edit -> `cad_reload` -> `cad_get_diagnostics` -> `cad_verify` -> `cad_capture_snapshot` -> repair loop.
+- Connection instructions for `127.0.0.1:9820` (TCP) and `--mcp-stdio`, reference tables for all 12 MCP tools, and the step-by-step edit -> `cad_reload` -> `cad_get_diagnostics` -> `cad_verify` -> `cad_capture_snapshot` -> repair loop.
 - A gallery of six verified `.part.ts` example parts under [`plugins/made-cad/skills/made-cad/examples/`](../../plugins/made-cad/skills/made-cad/examples/) and a five-case evaluation benchmark set under [`plugins/made-cad/skills/made-cad/eval/`](../../plugins/made-cad/skills/made-cad/eval/), validated in CI by [`PluginSkillTests.swift`](../../macos/Tests/MadeCoreTests/PluginSkillTests.swift).
 
 ---

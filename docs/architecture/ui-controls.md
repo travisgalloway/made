@@ -41,7 +41,7 @@ The window uses system primitives for its chrome, and one button style per conte
 
 ### 1. 3D Metal Viewport
 - **Container**: [`CADMetalViewRepresentable`](../../macos/Sources/MadeApp/CADMetalViewRepresentable.swift) hosting an `MTKView`.
-- **Event Handling**: The coordinator feeds mouse and trackpad events to a `PointerRouter`. Orbit, pan, and zoom move the camera, tool shortcuts are handled in `handleKeyDown`, and a snapping marker follows the pointer. Object picking is not built.
+- **Event Handling**: The coordinator feeds mouse and trackpad events to a `PointerRouter`. Orbit, pan, and zoom move the camera, tool shortcuts are handled in `handleKeyDown`, and a snapping marker follows the pointer. Object picking runs through `Picking` and `pickSolidAtPointer` (#69).
 - **Status bar**: [`ViewportStatusBar`](../../macos/Sources/MadeApp/ViewportStatusBar.swift) sits under the viewport. It shows Metal 4 status, render count, draw calls, the last invalidation cause, the active tool, the snap kind, active document length units, sketch degrees-of-freedom (DOF) status with constraint color coding, live selection count, and the last kernel regeneration duration. Its trailing button shows or hides the console.
 
 ### 2. Navigator
@@ -67,7 +67,7 @@ The window uses system primitives for its chrome, and one button style per conte
 - The sparkles toolbar button opens [`MCPServerPopover`](../../macos/Sources/MadeApp/MCPServerPopoverView.swift). Its switch starts and stops the in-app TCP listener on port 9820, and the icon turns green while the server runs. The popover also shows the address, copies the Claude Desktop config, and lists the registered tools. See [`agent-api.md`](./agent-api.md).
 
 ### 7. Menus and Keybindings
-`MadeApp.swift` declares the standard `SidebarCommands` and `InspectorCommands`, plus a View menu item that shows or hides the console with ⇧⌘Y. Document creation is planned with the `.made` format (#83), and STEP import is planned (#38). Add Box and Add Cylinder live in the Navigator Add menu.
+`MadeApp.swift` declares the standard `SidebarCommands` and `InspectorCommands`, plus a View menu item that shows or hides the console with ⇧⌘Y. File > New Document, File > Open Document, and File > Import STEP are in `MadeCommands.swift` (#83, #38). Add Box and Add Cylinder live in the Navigator Add menu.
 
 ---
 

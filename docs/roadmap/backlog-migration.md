@@ -19,13 +19,13 @@ The following 10 issues were created for the web-based PWA architecture (service
 | **#46** | Deferred: Threaded OCCT (SharedArrayBuffer + cross-origin isolation) | Retired. Replaced by Swift 6 concurrency and Grand Central Dispatch; no browser COOP/COEP restrictions. |
 | **#49** | Phase 3.7: Code-split renderer and kernel out of initial bundle | Retired. Replaced by modular Swift packages (`MadeCore` and `MadeApp`). |
 | **#50** | Deferred: Render-in-worker (OffscreenCanvas) | Retired. Replaced by native Metal 4 on-demand rendering and an offscreen snapshot pass. |
-| **#76** | Phase 3.8: IndexedDB persistence | Retired. Replaced by the planned native `.made` file format (#83). No persistence exists today. |
+| **#76** | Phase 3.8: IndexedDB persistence | Retired. Replaced by the native `.made` file format (#83, closed). |
 
 ---
 
 ## 2. Phase 4 CAD Depth Issues (Modernized for Native)
 
-The following issues represent core CAD features that remain open and have been reframed for Swift 6, Metal 4, and SwiftUI. All are open on GitHub. None is delivered. The last column states what the code does today:
+The following issues represent core CAD features that were reframed for Swift 6, Metal 4, and SwiftUI. All were open on 2026-10-10. As of 2026-10-17, GitHub shows #34 to #40, #44, #45, and #66 to #73 closed. Issues #41, #42, and #43 remain open. Rows prefixed "Open." or "Delivered." record the code on 2026-10-10, and GitHub holds the current state.
 
 | Issue # | Modernized Title | Native Implementation Target |
 | ------- | ---------------- | ---------------------------- |
@@ -53,7 +53,7 @@ The following issues represent core CAD features that remain open and have been 
 
 ## 3. New Native Epics
 
-The following new engineering epics were created on GitHub. All are open:
+The following new engineering epics were created on GitHub. All were open on 2026-10-10. As of 2026-10-17, #82, #83, and #85 are closed and #84 is open:
 
 1. **#82: Epic: OCCTSwift C++ Framework Integration for STEP/IGES & Exact B-Rep**
    - Integrate pre-compiled `OCCT.xcframework` via Swift Package Manager.
@@ -84,7 +84,7 @@ The 2026-10-10 audit opened issues #87 to #109 for gaps between the documents an
 
 ## 5. Active Milestone Structure on GitHub
 
-The active backlog is organized into seven sequential milestones. The first three close the audit gaps in the built phases. Phase 4A to 4D add CAD depth.
+The active backlog was organized into seven sequential milestones on 2026-10-10. As of 2026-10-17, the milestones through Phase 4C hold no open issues, Phase 4D holds 10, and Phase 4E holds 20. The table lists the original assignments. The first three close the audit gaps in the built phases. Phase 4A to 4D add CAD depth.
 
 | Milestone | Scope | Issues |
 | --------- | ----- | ------ |

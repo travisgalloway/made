@@ -113,7 +113,7 @@ public protocol SnapshotProvider: AnyObject, Sendable {
 }
 ```
 
-The GUI wires the renderer into the tool registry (`WorkspaceModel.swift`). The `--mcp-stdio` mode builds its registry without a provider, so `cad_capture_snapshot` returns an error there (#89).
+The GUI wires the renderer into the tool registry (`WorkspaceModel.swift`). The `--mcp-stdio` mode builds its registry with a `HeadlessSnapshotProvider`, which renders from an offscreen renderer (#89).
 
 ### Execution Flow
 1. An agent calls the `cad_capture_snapshot` MCP tool.
