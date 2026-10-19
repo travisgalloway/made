@@ -75,6 +75,7 @@ final class WorkspaceModel {
         return isDocumentModified ? "\(base) — Edited" : base
     }
     var coordinator: CADMetalViewRepresentable.Coordinator?
+    var renderInstrumentation: RenderInstrumentation = .shared
     private(set) var renderStats = RenderStats()
     private(set) var kernelStats = KernelStats()
     var activeSnapResult: SnapResult?
@@ -3016,17 +3017,17 @@ final class WorkspaceModel {
         if let coordinator {
             coordinator.invalidate(reason: reason)
         } else {
-            RenderInstrumentation.shared.recordInvalidation(reason: reason)
+            renderInstrumentation.recordInvalidation(reason: reason)
             updateStats()
         }
     }
 
     func updateStats() {
-        let shared = RenderInstrumentation.shared
+        let inst = renderInstrumentation
         let nextRenderStats = RenderStats(
-            renderCount: shared.renderCount,
-            drawCalls: shared.drawCalls,
-            lastReason: shared.lastReason?.rawValue ?? "idle"
+            renderCount: inst.renderCount,
+            drawCalls: inst.drawCalls,
+            lastReason: inst.lastReason?.rawValue ?? "idle"
         )
         if renderStats != nextRenderStats {
             renderStats = nextRenderStats

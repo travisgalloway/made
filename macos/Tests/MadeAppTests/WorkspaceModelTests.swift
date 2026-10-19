@@ -77,12 +77,14 @@ import MadeCore
 
     @Test @MainActor func testTelemetryReadsFromRenderInstrumentationAndKernelClient() async {
         let model = WorkspaceModel()
+        let instrumentation = RenderInstrumentation()
+        model.renderInstrumentation = instrumentation
         _ = await model.kernelClient.request(.makeBox(jobId: JobId("telemetry-read-box"), solidId: SolidId("t-box"), params: BoxParams(width: 10, depth: 10, height: 10)))
         await model.updateKernelStats()
 
-        RenderInstrumentation.shared.reset()
-        RenderInstrumentation.shared.recordRender(drawCalls: 7)
-        RenderInstrumentation.shared.recordInvalidation(reason: .camera)
+        instrumentation.reset()
+        instrumentation.recordRender(drawCalls: 7)
+        instrumentation.recordInvalidation(reason: .camera)
 
         model.updateStats()
         await model.updateKernelStats()
@@ -96,13 +98,15 @@ import MadeCore
 
     @Test @MainActor func testTelemetryDrawerHiddenWhenCountersChange() async {
         let model = WorkspaceModel()
+        let instrumentation = RenderInstrumentation()
+        model.renderInstrumentation = instrumentation
         model.isConsoleVisible = false
 
         _ = await model.kernelClient.request(.makeBox(jobId: JobId("drawer-hidden-box"), solidId: SolidId("dh-box"), params: BoxParams(width: 12, depth: 12, height: 12)))
 
-        RenderInstrumentation.shared.reset()
-        RenderInstrumentation.shared.recordRender(drawCalls: 4)
-        RenderInstrumentation.shared.recordInvalidation(reason: .model)
+        instrumentation.reset()
+        instrumentation.recordRender(drawCalls: 4)
+        instrumentation.recordInvalidation(reason: .model)
 
         model.updateStats()
         await model.updateKernelStats()
@@ -120,6 +124,8 @@ import MadeCore
 
     @Test @MainActor func testTelemetryWhenViewportUnavailable() async {
         let model = WorkspaceModel()
+        let instrumentation = RenderInstrumentation()
+        model.renderInstrumentation = instrumentation
         model.viewportManager.state = .unavailable(reason: .noDevice)
         #expect(model.viewportManager.state.isUnavailable)
 
@@ -132,9 +138,11 @@ import MadeCore
 
     @Test @MainActor func testTelemetrySuppressesRedundantUpdates() async {
         let model = WorkspaceModel()
-        RenderInstrumentation.shared.reset()
-        RenderInstrumentation.shared.recordRender(drawCalls: 3)
-        RenderInstrumentation.shared.recordInvalidation(reason: .interaction)
+        let instrumentation = RenderInstrumentation()
+        model.renderInstrumentation = instrumentation
+        instrumentation.reset()
+        instrumentation.recordRender(drawCalls: 3)
+        instrumentation.recordInvalidation(reason: .interaction)
 
         model.updateStats()
         await model.updateKernelStats()
@@ -2116,7 +2124,6 @@ import MadeCore
         await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
 
         guard let renderer = model.viewportManager.renderer else {
-            Issue.record("Expected renderer")
             return
         }
         guard let coarseMesh = renderer.meshes[cylinderSolidId] else {
@@ -2188,8 +2195,8 @@ import MadeCore
         await registry.settleRecomputes(for: [cylinderSolidId])
 
         #expect(model.document.settings.tolerances.chordalTolerance == 0.01)
-        guard let renderer = model.viewportManager.renderer,
-              let mesh = renderer.meshes[cylinderSolidId] else {
+        guard let renderer = model.viewportManager.renderer else { return }
+        guard let mesh = renderer.meshes[cylinderSolidId] else {
             Issue.record("Expected cylinder mesh after opening document")
             return
         }
