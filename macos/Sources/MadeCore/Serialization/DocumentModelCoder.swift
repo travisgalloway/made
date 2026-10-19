@@ -168,21 +168,32 @@ public struct DocumentData: Codable, Sendable, Equatable {
     }
 }
 
+extension CodingUserInfoKey {
+    public static let packageURL = CodingUserInfoKey(rawValue: "packageURL")!
+}
+
 /// Canonical JSON encoder and decoder for `DocumentData` and `.made` packages.
 public enum DocumentModelCoder {
-    public static func makeJSONEncoder() -> JSONEncoder {
+    public static func makeJSONEncoder(packageURL: URL? = nil) -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        if let packageURL {
+            encoder.userInfo[.packageURL] = packageURL
+        }
         return encoder
     }
 
-    public static func makeJSONDecoder() -> JSONDecoder {
-        JSONDecoder()
+    public static func makeJSONDecoder(packageURL: URL? = nil) -> JSONDecoder {
+        let decoder = JSONDecoder()
+        if let packageURL {
+            decoder.userInfo[.packageURL] = packageURL
+        }
+        return decoder
     }
 
     /// Encodes `DocumentData` to canonical UTF-8 JSON with sorted keys, 2-space indentation, and a trailing newline.
-    public static func encode(_ documentData: DocumentData) throws -> Data {
-        let encoder = makeJSONEncoder()
+    public static func encode(_ documentData: DocumentData, packageURL: URL? = nil) throws -> Data {
+        let encoder = makeJSONEncoder(packageURL: packageURL)
         var data = try encoder.encode(documentData)
         if !data.isEmpty && data.last != UInt8(ascii: "\n") {
             data.append(UInt8(ascii: "\n"))
@@ -203,14 +214,14 @@ public enum DocumentModelCoder {
     }
 
     /// Decodes `DocumentData` from JSON data, applying DocumentLimits clamping to all solids.
-    public static func decode(from data: Data) throws -> DocumentData {
-        let decoder = makeJSONDecoder()
+    public static func decode(from data: Data, packageURL: URL? = nil) throws -> DocumentData {
+        let decoder = makeJSONDecoder(packageURL: packageURL)
         return try decoder.decode(DocumentData.self, from: data)
     }
 
     /// Convenience encoder for `DocumentModel`.
     @MainActor
-    public static func encode(document: DocumentModel, schemaVersion: Int = DocumentData.currentSchemaVersion) throws -> Data {
+    public static func encode(document: DocumentModel, schemaVersion: Int = DocumentData.currentSchemaVersion, packageURL: URL? = nil) throws -> Data {
         let docData = DocumentData(
             schemaVersion: schemaVersion,
             features: document.features,
@@ -220,13 +231,13 @@ public enum DocumentModelCoder {
             bodies: document.bodies,
             selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString }
         )
-        return try encode(docData)
+        return try encode(docData, packageURL: packageURL)
     }
 
     /// Convenience decoder restoring into `DocumentModel`.
     @MainActor
-    public static func decode(into document: DocumentModel, from data: Data) throws {
-        let docData = try decode(from: data)
+    public static func decode(into document: DocumentModel, from data: Data, packageURL: URL? = nil) throws {
+        let docData = try decode(from: data, packageURL: packageURL)
         let restoredSelection: Set<Reference>? = {
             if let sel = docData.selection {
                 return Set(sel)

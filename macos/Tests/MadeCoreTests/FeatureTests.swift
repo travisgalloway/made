@@ -1123,4 +1123,95 @@ import simd
         }
         #expect(extrude.distance == 75.0 && !extrude.isSymmetric)
     }
+
+    @Test func testPartAndImportedFeatureDataPackageRelativeCoding() throws {
+        let packageDir = URL(fileURLWithPath: "/tmp/SampleProject.made")
+        let partFeature = Feature(
+            name: "Bracket Part",
+            operation: .part(PartFeatureData(url: URL(fileURLWithPath: "/Users/alice/Code/bracket.part.ts")))
+        )
+        let importedFeature = Feature(
+            name: "Housing STEP",
+            operation: .imported(ImportedFeatureData(name: "Housing", sourceURL: URL(fileURLWithPath: "/Users/alice/Downloads/housing.step"), data: nil))
+        )
+
+        let doc = DocumentData(features: [partFeature, importedFeature])
+        let encodedData = try DocumentModelCoder.encode(doc, packageURL: packageDir)
+        let encodedString = String(decoding: encodedData, as: UTF8.self)
+
+        // Must encode relative paths, never leaking absolute local paths
+        #expect(encodedString.contains("\"url\" : \"parts/bracket.part.ts\""))
+        #expect(encodedString.contains("\"sourceURL\" : \"assets/housing.step\""))
+        #expect(!encodedString.contains("/Users/alice"))
+
+        // Decode with packageURL resolves to package directory
+        let decodedWithPackage = try DocumentModelCoder.decode(from: encodedData, packageURL: packageDir)
+        let featsWithPackage = try #require(decodedWithPackage.features)
+        guard case .part(let partResolved) = featsWithPackage[0].operation else {
+            Issue.record("Expected .part")
+            return
+        }
+        #expect(partResolved.url == packageDir.appendingPathComponent("parts/bracket.part.ts"))
+
+        guard case .imported(let impResolved) = featsWithPackage[1].operation else {
+            Issue.record("Expected .imported")
+            return
+        }
+        #expect(impResolved.sourceURL == packageDir.appendingPathComponent("assets/housing.step"))
+
+        // Decode without packageURL keeps relative path
+        let decodedWithoutPackage = try DocumentModelCoder.decode(from: encodedData)
+        let featsWithoutPackage = try #require(decodedWithoutPackage.features)
+        guard case .part(let partRelative) = featsWithoutPackage[0].operation else {
+            Issue.record("Expected .part")
+            return
+        }
+        #expect(partRelative.url.lastPathComponent == "bracket.part.ts")
+
+        // Legacy file:// URL decoding backward compatibility
+        let legacyJSON = """
+        {
+          "schemaVersion": 1,
+          "features": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "name": "Legacy Part",
+              "operation": {
+                "part": {
+                  "_0": {
+                    "url": "file:///old/path/parts/bracket.part.ts"
+                  }
+                }
+              }
+            },
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "name": "Legacy Imported",
+              "operation": {
+                "imported": {
+                  "_0": {
+                    "name": "model.step",
+                    "sourceURL": "file:///old/path/assets/model.step"
+                  }
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let legacyDecoded = try DocumentModelCoder.decode(from: legacyJSON, packageURL: packageDir)
+        let legacyFeatures = try #require(legacyDecoded.features)
+        guard case .part(let legacyPart) = legacyFeatures[0].operation else {
+            Issue.record("Expected legacy .part")
+            return
+        }
+        #expect(legacyPart.url == packageDir.appendingPathComponent("parts/bracket.part.ts"))
+
+        guard case .imported(let legacyImported) = legacyFeatures[1].operation else {
+            Issue.record("Expected legacy .imported")
+            return
+        }
+        #expect(legacyImported.sourceURL == packageDir.appendingPathComponent("assets/model.step"))
+    }
 }

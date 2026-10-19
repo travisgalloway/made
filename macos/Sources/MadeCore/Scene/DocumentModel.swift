@@ -170,7 +170,25 @@ extension ObjectDef: Codable {
         case "imported":
             let name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
             let assetPath = try container.decodeIfPresent(String.self, forKey: .assetPath)
-            let sourceURL = assetPath.map { URL(fileURLWithPath: $0) }
+            let packageURL = decoder.userInfo[.packageURL] as? URL
+            let sourceURL: URL? = assetPath.map { path in
+                if let packageURL {
+                    if path.contains("/assets/") {
+                        let filename = URL(fileURLWithPath: path).lastPathComponent
+                        return packageURL.appendingPathComponent("assets/\(filename)")
+                    } else if !path.hasPrefix("/") && !path.hasPrefix("file://") {
+                        if path.hasPrefix("assets/") {
+                            return packageURL.appendingPathComponent(path)
+                        } else {
+                            return packageURL.appendingPathComponent("assets/\(path)")
+                        }
+                    } else {
+                        return URL(fileURLWithPath: path)
+                    }
+                } else {
+                    return URL(fileURLWithPath: path)
+                }
+            }
             self = .imported(name: name, sourceURL: sourceURL, data: nil)
         case "boolean":
             let op = try container.decode(BooleanOp.self, forKey: .op)
@@ -179,11 +197,29 @@ extension ObjectDef: Codable {
             self = .boolean(op: op, solidA: solidA, solidB: solidB)
         case "part":
             let urlString = try container.decode(String.self, forKey: .url)
+            let parsedURL: URL = {
+                if urlString.hasPrefix("file://"), let parsed = URL(string: urlString) {
+                    return parsed
+                } else {
+                    return URL(fileURLWithPath: urlString)
+                }
+            }()
+            let packageURL = decoder.userInfo[.packageURL] as? URL
             let url: URL
-            if urlString.hasPrefix("file://"), let parsed = URL(string: urlString) {
-                url = parsed
+            if let packageURL {
+                if urlString.contains("/parts/") {
+                    url = packageURL.appendingPathComponent("parts/\(parsedURL.lastPathComponent)")
+                } else if !urlString.hasPrefix("/") && !urlString.hasPrefix("file://") {
+                    if urlString.hasPrefix("parts/") {
+                        url = packageURL.appendingPathComponent(urlString)
+                    } else {
+                        url = packageURL.appendingPathComponent("parts/\(urlString)")
+                    }
+                } else {
+                    url = parsedURL
+                }
             } else {
-                url = URL(fileURLWithPath: urlString)
+                url = parsedURL
             }
             self = DocumentLimits.clamp(.part(url: url, shape: nil))
         case "extrude":
@@ -235,10 +271,10 @@ extension ObjectDef: Codable {
         case .part(let url, _):
             try container.encode("part", forKey: .kind)
             let filename = url.lastPathComponent
-            if url.path.contains("/parts/") || url.path.hasPrefix("parts/") {
+            if !filename.isEmpty && filename != "/" {
                 try container.encode("parts/\(filename)", forKey: .url)
             } else {
-                try container.encode(url.isFileURL ? url.path : url.absoluteString, forKey: .url)
+                try container.encode("parts/part", forKey: .url)
             }
         case .extrude(let params):
             try container.encode("extrude", forKey: .kind)
@@ -1011,6 +1047,64 @@ public final class DocumentModel {
         activeInteractiveParamEdit = nil
         activeInteractiveSketchDrag = nil
         undoStateVersion += 1
+    }
+
+    /// Rebases in-memory feature and object part and asset file paths to point inside the specified package directory.
+    public func rebasePaths(to packageURL: URL) {
+        var updatedFeatures = features
+        var changed = false
+        for i in 0..<updatedFeatures.count {
+            switch updatedFeatures[i].operation {
+            case .part(var partData):
+                let filename = partData.url.lastPathComponent
+                guard !filename.isEmpty && filename != "/" else { break }
+                let newURL = packageURL.appendingPathComponent("parts/\(filename)")
+                if partData.url != newURL {
+                    partData.url = newURL
+                    updatedFeatures[i].operation = .part(partData)
+                    changed = true
+                }
+            case .imported(var impData):
+                if let sourceURL = impData.sourceURL {
+                    let filename = sourceURL.lastPathComponent
+                    guard !filename.isEmpty && filename != "/" else { break }
+                    let newURL = packageURL.appendingPathComponent("assets/\(filename)")
+                    if impData.sourceURL != newURL {
+                        impData.sourceURL = newURL
+                        updatedFeatures[i].operation = .imported(impData)
+                        changed = true
+                    }
+                }
+            default:
+                break
+            }
+        }
+        if changed {
+            features = updatedFeatures
+        }
+
+        for i in 0..<objects.count {
+            switch objects[i].def {
+            case .part(let url, let shape):
+                let filename = url.lastPathComponent
+                guard !filename.isEmpty && filename != "/" else { break }
+                let newURL = packageURL.appendingPathComponent("parts/\(filename)")
+                if url != newURL {
+                    objects[i].def = .part(url: newURL, shape: shape)
+                }
+            case .imported(let name, let sourceURL, let data):
+                if let sourceURL {
+                    let filename = sourceURL.lastPathComponent
+                    guard !filename.isEmpty && filename != "/" else { break }
+                    let newURL = packageURL.appendingPathComponent("assets/\(filename)")
+                    if sourceURL != newURL {
+                        objects[i].def = .imported(name: name, sourceURL: newURL, data: data)
+                    }
+                }
+            default:
+                break
+            }
+        }
     }
 
     private func syncObjectsFromFeatures() {

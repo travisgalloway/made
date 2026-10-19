@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-14
 - **Issue:** #149
-- **Implemented by:** #83 (native `.made` document via `FileDocument`), #427 (part file reload), #376 (BL-VER-01, git-friendly package layout), #237 (BL-FND-10, schema versioning and migration), #238 (BL-FND-11, document settings), #172 (BL-FND-14, custom properties and metadata), #174 (BL-PAR-01, document parameters table), #160 (BL-FND-15, embedded and linked external references), #161 (BL-ASM-01, assembly document type), #241 (BL-FND-16, crash recovery), #248 (BL-MAC-02, Quick Look preview and thumbnail extensions), #249 (BL-MAC-03, Spotlight indexing), #252 (BL-MAC-08, iCloud documents and Handoff), #377 (BL-VER-02, named versions)
+- **Implemented by:** #83 (native `.made` document via `FileDocument`), #427 (part file reload), #376 (BL-VER-01, git-friendly package layout), #237 (BL-FND-10, schema versioning and migration), #238 (BL-FND-11, document settings), #172 (BL-FND-14, custom properties and metadata), #174 (BL-PAR-01, document parameters table), #160 (BL-FND-15, embedded and linked external references), #161 (BL-ASM-01, assembly document type), #241 (BL-FND-16, crash recovery), #248 (BL-MAC-02, Quick Look preview and thumbnail extensions), #249 (BL-MAC-03, Spotlight indexing), #252 (BL-MAC-08, iCloud documents and Handoff), #377 (BL-VER-02, named versions), #563 (package-relative part and asset paths)
 
 ## Context
 

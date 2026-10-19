@@ -553,6 +553,56 @@ public struct PartFeatureData: Sendable, Codable, Equatable {
         self.url = url
         self.shape = shape
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case url
+        case shape
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let urlString = try container.decode(String.self, forKey: .url)
+        let shape = try container.decodeIfPresent(ShapeNode.self, forKey: .shape)
+
+        let parsedURL: URL = {
+            if urlString.hasPrefix("file://"), let parsed = URL(string: urlString) {
+                return parsed
+            } else {
+                return URL(fileURLWithPath: urlString)
+            }
+        }()
+
+        let packageURL = decoder.userInfo[.packageURL] as? URL
+        let finalURL: URL
+        if let packageURL {
+            if urlString.contains("/parts/") {
+                finalURL = packageURL.appendingPathComponent("parts/\(parsedURL.lastPathComponent)")
+            } else if !urlString.hasPrefix("/") && !urlString.hasPrefix("file://") {
+                if urlString.hasPrefix("parts/") {
+                    finalURL = packageURL.appendingPathComponent(urlString)
+                } else {
+                    finalURL = packageURL.appendingPathComponent("parts/\(urlString)")
+                }
+            } else {
+                finalURL = parsedURL
+            }
+        } else {
+            finalURL = parsedURL
+        }
+
+        self.init(url: finalURL, shape: shape)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        let filename = url.lastPathComponent
+        if !filename.isEmpty && filename != "/" {
+            try container.encode("parts/\(filename)", forKey: .url)
+        } else {
+            try container.encode("parts/part", forKey: .url)
+        }
+        try container.encodeIfPresent(shape, forKey: .shape)
+    }
 }
 
 /// Imported B-Rep or mesh file definition.
@@ -565,6 +615,66 @@ public struct ImportedFeatureData: Sendable, Codable, Equatable {
         self.name = name
         self.sourceURL = sourceURL
         self.data = data
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case sourceURL
+        case assetPath
+        case data
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        let data = try container.decodeIfPresent(Data.self, forKey: .data)
+        let rawURLString = try container.decodeIfPresent(String.self, forKey: .sourceURL)
+            ?? container.decodeIfPresent(String.self, forKey: .assetPath)
+
+        let resolvedURL: URL?
+        if let rawURLString {
+            let parsedURL: URL = {
+                if rawURLString.hasPrefix("file://"), let parsed = URL(string: rawURLString) {
+                    return parsed
+                } else {
+                    return URL(fileURLWithPath: rawURLString)
+                }
+            }()
+            let packageURL = decoder.userInfo[.packageURL] as? URL
+            if let packageURL {
+                if rawURLString.contains("/assets/") {
+                    resolvedURL = packageURL.appendingPathComponent("assets/\(parsedURL.lastPathComponent)")
+                } else if !rawURLString.hasPrefix("/") && !rawURLString.hasPrefix("file://") {
+                    if rawURLString.hasPrefix("assets/") {
+                        resolvedURL = packageURL.appendingPathComponent(rawURLString)
+                    } else {
+                        resolvedURL = packageURL.appendingPathComponent("assets/\(rawURLString)")
+                    }
+                } else {
+                    resolvedURL = parsedURL
+                }
+            } else {
+                resolvedURL = parsedURL
+            }
+        } else {
+            resolvedURL = nil
+        }
+
+        self.init(name: name, sourceURL: resolvedURL, data: data)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        if let sourceURL {
+            let filename = sourceURL.lastPathComponent
+            if !filename.isEmpty && filename != "/" {
+                try container.encode("assets/\(filename)", forKey: .sourceURL)
+            } else {
+                try container.encode("assets/asset", forKey: .sourceURL)
+            }
+        }
+        try container.encodeIfPresent(data, forKey: .data)
     }
 }
 

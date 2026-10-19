@@ -647,5 +647,133 @@ import UniformTypeIdentifiers
         #expect(workspace.logs.contains { $0.level == .error && $0.subsystem == "Document" && $0.message.contains("nonexistent.step") })
         #expect(!FileManager.default.fileExists(atPath: destinationURL.path))
     }
+
+    @Test func testMovePackageDirectoryAndReloadPreservesPartsAndAssets() throws {
+        let rootDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: rootDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootDir) }
+
+        let externalDir = rootDir.appendingPathComponent("ExternalSource")
+        try FileManager.default.createDirectory(at: externalDir, withIntermediateDirectories: true)
+
+        let stepFile = externalDir.appendingPathComponent("bracket.step")
+        let stepContent = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+        try stepContent.data(using: .utf8)!.write(to: stepFile)
+
+        let partFile = externalDir.appendingPathComponent("bracket.part.ts")
+        let partContent = "export default { kind: 'box', width: 20, height: 10, depth: 30 };\n"
+        try partContent.data(using: .utf8)!.write(to: partFile)
+
+        let originalPackageURL = rootDir.appendingPathComponent("LocationA/MyModel.made")
+        let movedPackageURL = rootDir.appendingPathComponent("LocationB/MyModelMoved.made")
+
+        let workspace = WorkspaceModel()
+        workspace.newDocument()
+
+        let baseBox = Feature(
+            name: "BaseBox",
+            operation: .primitive(PrimitiveFeatureData.box(BoxParams(width: 20, depth: 20, height: 20))),
+            outputSolidId: SolidId("box-1")
+        )
+        let importedFeature = Feature(
+            name: "BracketSTEP",
+            operation: .imported(ImportedFeatureData(name: "bracket.step", sourceURL: stepFile, data: nil)),
+            outputSolidId: SolidId("imported-1")
+        )
+        let partFeature = Feature(
+            name: "BracketPart",
+            operation: .part(PartFeatureData(url: partFile, shape: nil)),
+            outputSolidId: SolidId("part-1")
+        )
+
+        workspace.document.reset(with: [baseBox, importedFeature, partFeature])
+        #expect(workspace.document.features.count == 3)
+        #expect(workspace.document.objects.count == 3)
+
+        // Save document to originalPackageURL
+        try FileManager.default.createDirectory(at: originalPackageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let saveResult = workspace.saveDocument(to: originalPackageURL)
+        #expect(saveResult)
+
+        // Verify active in-memory document paths were rebased to package directory
+        guard let inMemoryPartObj = workspace.document.objects.first(where: { $0.id == SolidId("part-1") }) else {
+            Issue.record("Missing in-memory part object")
+            return
+        }
+        if case .part(let url, _) = inMemoryPartObj.def {
+            #expect(url == originalPackageURL.appendingPathComponent("parts/bracket.part.ts"))
+        } else {
+            Issue.record("Expected .part def")
+        }
+
+        // Verify saved document.json on disk contains relative paths, not absolute paths
+        let docJSONURL = originalPackageURL.appendingPathComponent("document.json")
+        let docJSONData = try Data(contentsOf: docJSONURL)
+        let docJSONText = String(decoding: docJSONData, as: UTF8.self)
+        #expect(docJSONText.contains("\"parts/bracket.part.ts\""))
+        #expect(docJSONText.contains("\"assets/bracket.step\""))
+        #expect(!docJSONText.contains(externalDir.path))
+
+        // Delete external source directory so files only exist inside the package
+        try FileManager.default.removeItem(at: externalDir)
+        #expect(!FileManager.default.fileExists(atPath: stepFile.path))
+        #expect(!FileManager.default.fileExists(atPath: partFile.path))
+
+        // Move the package directory on disk to a new location
+        try FileManager.default.createDirectory(at: movedPackageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: originalPackageURL, to: movedPackageURL)
+        #expect(!FileManager.default.fileExists(atPath: originalPackageURL.path))
+        #expect(FileManager.default.fileExists(atPath: movedPackageURL.path))
+
+        // Open the moved package in a fresh workspace
+        let reloadWorkspace = WorkspaceModel()
+        let openResult = reloadWorkspace.openDocument(at: movedPackageURL)
+        #expect(openResult)
+        #expect(reloadWorkspace.currentDocumentURL == movedPackageURL)
+
+        // Verify features and objects resolve paths against the new package directory
+        let reloadedDoc = reloadWorkspace.document
+        #expect(reloadedDoc.features.count == 3)
+        #expect(reloadedDoc.objects.count == 3)
+
+        guard let reloadedPartFeature = reloadedDoc.features.first(where: { $0.name == "BracketPart" }),
+              case .part(let reloadedPartData) = reloadedPartFeature.operation else {
+            Issue.record("Missing reloaded part feature")
+            return
+        }
+        let expectedPartURL = movedPackageURL.appendingPathComponent("parts/bracket.part.ts")
+        #expect(reloadedPartData.url == expectedPartURL)
+        #expect(FileManager.default.fileExists(atPath: expectedPartURL.path))
+
+        guard let reloadedImportedFeature = reloadedDoc.features.first(where: { $0.name == "BracketSTEP" }),
+              case .imported(let reloadedImportedData) = reloadedImportedFeature.operation else {
+            Issue.record("Missing reloaded imported feature")
+            return
+        }
+        let expectedAssetURL = movedPackageURL.appendingPathComponent("assets/bracket.step")
+        #expect(reloadedImportedData.sourceURL == expectedAssetURL)
+        #expect(FileManager.default.fileExists(atPath: expectedAssetURL.path))
+
+        // Verify objects projection matches
+        guard let reloadedPartObj = reloadedDoc.objects.first(where: { $0.id == SolidId("part-1") }),
+              case .part(let objPartURL, _) = reloadedPartObj.def else {
+            Issue.record("Missing reloaded part object")
+            return
+        }
+        #expect(objPartURL == expectedPartURL)
+
+        guard let reloadedImpObj = reloadedDoc.objects.first(where: { $0.id == SolidId("imported-1") }),
+              case .imported(_, let objImpURL, let objImpData) = reloadedImpObj.def else {
+            Issue.record("Missing reloaded imported object")
+            return
+        }
+        #expect(objImpURL == expectedAssetURL)
+        #expect(objImpData == stepContent.data(using: .utf8)!)
+
+        // Verify MadePackage(directoryURL:) direct reload also resolves without path leaks
+        let directPackage = try MadePackage(directoryURL: movedPackageURL)
+        #expect(directPackage.parts["bracket.part.ts"] == partContent.data(using: .utf8)!)
+        #expect(directPackage.assets["bracket.step"] == stepContent.data(using: .utf8)!)
+    }
 }
 

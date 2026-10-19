@@ -1764,6 +1764,10 @@ final class WorkspaceModel {
         return MadePackage(manifest: manifest, documentData: docData, assets: assets, parts: parts)
     }
 
+    func rebaseDocumentPathsToPackage(_ packageURL: URL) {
+        document.rebasePaths(to: packageURL)
+    }
+
     @discardableResult
     func saveDocument(to targetURL: URL? = nil) -> Bool {
         guard let destinationURL = targetURL ?? currentDocumentURL else {
@@ -1777,6 +1781,9 @@ final class WorkspaceModel {
         do {
             let package = try makePackage()
             try package.write(to: destinationURL)
+
+            rebaseDocumentPathsToPackage(destinationURL)
+            partReloadController?.syncWithDocument()
 
             currentDocumentURL = destinationURL
             isDocumentModified = false
