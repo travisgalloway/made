@@ -31,7 +31,9 @@ struct InspectorPanelView: View {
 
     @ViewBuilder
     private var properties: some View {
-        if let selected = workspace.selectedObject {
+        if workspace.document.selection.count > 1 {
+            multiSelectionView
+        } else if let selected = workspace.selectedObject {
             ScrollView {
                 Form {
                     identitySection(selected)
@@ -139,6 +141,23 @@ struct InspectorPanelView: View {
             default:
                 return false
             }
+        }
+    }
+
+    private var multiSelectionView: some View {
+        ScrollView {
+            Form {
+                Section("Multiple Selection") {
+                    LabeledContent("Selected", value: "\(workspace.document.selection.count) objects")
+                    ForEach(workspace.document.selectedBodies) { body in
+                        LabeledContent("Solid", value: body.name)
+                    }
+                }
+            }
+            .formStyle(.columns)
+            .controlSize(.small)
+            .padding()
+            .accessibilityIdentifier("inspector-multi-selection")
         }
     }
 

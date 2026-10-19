@@ -1947,6 +1947,91 @@ import MadeCore
         #expect(duration >= Duration.zero)
         #expect(model.formattedRegenerationDuration != "--")
     }
+
+    // MARK: - Multi-Selection Tests (#552 / DOC-10)
+
+    @Test @MainActor func testWorkspaceSelectedIdsUpdatesRendererAndSuppressesGizmo() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        #expect(renderer.selectedIds == [boxId])
+        #expect(renderer.showsGizmo == true)
+
+        RenderInstrumentation.shared.reset()
+        model.selectedIds = [boxId, cylId]
+
+        #expect(model.selectedIds == [boxId, cylId])
+        #expect(model.document.selection.count == 2)
+        #expect(renderer.selectedIds == [boxId, cylId])
+        #expect(renderer.showsGizmo == false, "Gizmo must be suppressed when selectedIds.count > 1")
+        #expect(RenderInstrumentation.shared.lastReason == .interaction)
+
+        // Drop back to single selection -> gizmo is restored
+        RenderInstrumentation.shared.reset()
+        model.selectedIds = [boxId]
+
+        #expect(model.selectedIds == [boxId])
+        #expect(renderer.selectedIds == [boxId])
+        #expect(renderer.showsGizmo == true)
+        #expect(RenderInstrumentation.shared.lastReason == .interaction)
+    }
+
+    @Test @MainActor func testWorkspaceClearSelectionClearsRendererAndDocument() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+        model.selectedIds = [boxId, cylId]
+
+        #expect(!model.document.selection.isEmpty)
+        #expect(!renderer.selectedIds.isEmpty)
+
+        RenderInstrumentation.shared.reset()
+        model.clearSelection()
+
+        #expect(model.document.selection.isEmpty)
+        #expect(model.selectedIds.isEmpty)
+        #expect(model.selectedId == nil)
+        #expect(renderer.selectedIds.isEmpty)
+        #expect(renderer.selectedId == nil)
+        #expect(renderer.showsGizmo == true)
+        #expect(RenderInstrumentation.shared.lastReason == .interaction)
+    }
+
+    @Test @MainActor func testWorkspaceSelectAndToggleSelection() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        let cylId = ObjectId("cylinder-1")
+
+        #expect(model.selectedIds == [boxId])
+
+        // select cylId
+        model.select(solidId: cylId)
+        #expect(model.selectedIds == [boxId, cylId])
+        #expect(renderer.selectedIds == [boxId, cylId])
+        #expect(renderer.showsGizmo == false)
+
+        // toggleSelection boxId off
+        model.toggleSelection(solidId: boxId)
+        #expect(model.selectedIds == [cylId])
+        #expect(renderer.selectedIds == [cylId])
+        #expect(renderer.showsGizmo == true)
+
+        // toggleSelection boxId on
+        model.toggleSelection(solidId: boxId)
+        #expect(model.selectedIds == [boxId, cylId])
+        #expect(renderer.selectedIds == [boxId, cylId])
+        #expect(renderer.showsGizmo == false)
+    }
 }
 
 

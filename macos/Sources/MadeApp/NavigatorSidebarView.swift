@@ -16,7 +16,7 @@ struct NavigatorSidebarView: View {
             }
 
             ScrollViewReader { proxy in
-                List(selection: $workspace.selectedId) {
+                List(selection: $workspace.selectedIds) {
                     Section("Scene") {
                         ForEach(filteredObjects) { obj in
                             NavigatorRow(object: obj)
