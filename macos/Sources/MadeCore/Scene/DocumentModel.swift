@@ -920,7 +920,7 @@ public final class DocumentModel {
     }
     
     public init(settings: DocumentSettings = DocumentSettings()) {
-        // Initialize with default box and cylinder matching document.svelte.ts
+        // Initialize with default box and cylinder scene.
         let boxFeature = Feature.makeBox(
             solidId: boxSolidId,
             params: BoxParams(width: 40, depth: 30, height: 20),
