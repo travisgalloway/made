@@ -1500,6 +1500,50 @@ import simd
         let badResp = await server.processMessage(badMsg)
         #expect(badResp?.contains("not found in timeline") == true)
     }
+
+    @Test func testChangingChordalToleranceRetessellatesCylinderInMeshSink() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let sink = RecordingMeshSink()
+        let registry = CADToolRegistry(
+            document: doc,
+            kernelClient: kernel,
+            meshSink: sink,
+            onViewportInvalidated: { sink.invalidations += 1 },
+            onRecomputeResult: { result, id in
+                _ = sink.failures.record(result, for: id)
+            }
+        )
+        registry.scheduleRecompute(id: boxSolidId)
+        registry.scheduleRecompute(id: cylinderSolidId)
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        // 1. Set coarse chordal tolerance (0.1)
+        registry.scheduleRetessellateAll(tolerances: KernelTolerances(chordalTolerance: 0.1))
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        let coarsePayload = try #require(sink.meshes[cylinderSolidId]?.payload)
+        let coarseTriangleCount = coarsePayload.triangleCount
+        #expect(sink.meshes[boxSolidId] != nil, "Box mesh must still exist")
+
+        // 2. Set fine chordal tolerance (0.01)
+        registry.scheduleRetessellateAll(tolerances: KernelTolerances(chordalTolerance: 0.01))
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        let finePayload = try #require(sink.meshes[cylinderSolidId]?.payload)
+        let fineTriangleCount = finePayload.triangleCount
+        #expect(fineTriangleCount > coarseTriangleCount, "Fine tolerance must increase cylinder triangle count")
+        #expect(sink.meshes[boxSolidId] != nil, "Box mesh must still exist")
+
+        // 3. Set even finer chordal tolerance (0.005)
+        registry.scheduleRetessellateAll(tolerances: KernelTolerances(chordalTolerance: 0.005))
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        let finerPayload = try #require(sink.meshes[cylinderSolidId]?.payload)
+        let finerTriangleCount = finerPayload.triangleCount
+        #expect(finerTriangleCount > fineTriangleCount, "Finer tolerance must further increase cylinder triangle count")
+        #expect(sink.meshes[boxSolidId] != nil, "Multiple solids remain installed without dropping meshes")
+    }
 }
 
 @MainActor

@@ -75,6 +75,7 @@ final class WorkspaceModel {
         return isDocumentModified ? "\(base) — Edited" : base
     }
     var coordinator: CADMetalViewRepresentable.Coordinator?
+    var renderInstrumentation: RenderInstrumentation = .shared
     private(set) var renderStats = RenderStats()
     private(set) var kernelStats = KernelStats()
     var activeSnapResult: SnapResult?
@@ -417,9 +418,10 @@ final class WorkspaceModel {
         didSet {
             let clamped = kernelTolerances.clamped()
             if kernelTolerances != clamped { kernelTolerances = clamped }
-            defaults.set(kernelTolerances.linearTolerance, forKey: Self.linearToleranceDefaultsKey)
-            defaults.set(kernelTolerances.angularTolerance, forKey: Self.angularToleranceDefaultsKey)
-            defaults.set(kernelTolerances.chordalTolerance, forKey: Self.chordalToleranceDefaultsKey)
+            defaults.set(clamped.linearTolerance, forKey: Self.linearToleranceDefaultsKey)
+            defaults.set(clamped.angularTolerance, forKey: Self.angularToleranceDefaultsKey)
+            defaults.set(clamped.chordalTolerance, forKey: Self.chordalToleranceDefaultsKey)
+            setDocumentTolerances(clamped)
         }
     }
     var activeCommand: CommandSession?
@@ -1656,6 +1658,7 @@ final class WorkspaceModel {
             for obj in document.objects {
                 recomputeSolid(id: obj.id)
             }
+            retessellateAll(tolerances: docSettings.tolerances)
             return true
         } catch {
             log(.error, "Document", "Failed to open document: \(error.localizedDescription)")
@@ -2467,8 +2470,10 @@ final class WorkspaceModel {
     }
 
     func setDocumentTolerances(_ tolerances: KernelTolerances) {
-        document.setTolerances(tolerances)
+        let clamped = tolerances.clamped()
+        document.setTolerances(clamped)
         markDocumentModified()
+        retessellateAll(tolerances: clamped)
     }
 
     func setDocumentDefaultMaterial(_ material: MaterialAttributes) {
@@ -2582,6 +2587,68 @@ final class WorkspaceModel {
                     self.recomputeSolid(id: depId)
                 }
             }
+        }
+    }
+
+    func retessellateSolid(id: ObjectId, tolerances: KernelTolerances? = nil) {
+        guard document.objects.contains(where: { $0.id == id }) else { return }
+        let tol = (tolerances ?? document.settings.tolerances).clamped()
+        if let registry = toolRegistry {
+            let task = registry.scheduleRetessellate(id: id, tolerances: tol)
+            let clock = ContinuousClock()
+            let start = clock.now
+            Task { [weak self] in
+                await Task.yield()
+                await self?.updateKernelStats()
+                _ = await task?.value
+                let elapsed = clock.now - start
+                self?.lastRegenerationDuration = elapsed
+                await self?.updateKernelStats()
+            }
+            return
+        }
+        let jobId = JobId("tess-\(UUID().uuidString)")
+        let request = KernelRequest.tessellate(jobId: jobId, solidId: id, tolerances: tol)
+        let clock = ContinuousClock()
+        let start = clock.now
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await self.kernelClient.request(request)
+            let elapsed = clock.now - start
+            self.lastRegenerationDuration = elapsed
+            await self.updateKernelStats()
+            guard self.document.objects.contains(where: { $0.id == id }) else {
+                if case .success = result {
+                    await self.kernelClient.dispose(solidId: id)
+                }
+                return
+            }
+            if let message = self.recomputeFailures.record(result, for: id) {
+                self.log(.error, "Kernel", message)
+            }
+            switch result {
+            case .failure(_, let err):
+                if let feat = self.document.feature(for: id) {
+                    self.document.setFeatureError(
+                        id: feat.id,
+                        error: FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
+                    )
+                }
+            case .success:
+                if let feat = self.document.feature(for: id) {
+                    self.document.setFeatureError(id: feat.id, error: nil)
+                }
+            }
+            guard let renderer = self.viewportManager.renderer,
+                  SolidMeshApplier.apply(result, to: id, document: self.document, sink: renderer) else { return }
+            self.invalidateViewport(.model)
+        }
+    }
+
+    func retessellateAll(tolerances: KernelTolerances? = nil) {
+        let tol = (tolerances ?? document.settings.tolerances).clamped()
+        for obj in document.objects {
+            retessellateSolid(id: obj.id, tolerances: tol)
         }
     }
 
@@ -2950,17 +3017,17 @@ final class WorkspaceModel {
         if let coordinator {
             coordinator.invalidate(reason: reason)
         } else {
-            RenderInstrumentation.shared.recordInvalidation(reason: reason)
+            renderInstrumentation.recordInvalidation(reason: reason)
             updateStats()
         }
     }
 
     func updateStats() {
-        let shared = RenderInstrumentation.shared
+        let inst = renderInstrumentation
         let nextRenderStats = RenderStats(
-            renderCount: shared.renderCount,
-            drawCalls: shared.drawCalls,
-            lastReason: shared.lastReason?.rawValue ?? "idle"
+            renderCount: inst.renderCount,
+            drawCalls: inst.drawCalls,
+            lastReason: inst.lastReason?.rawValue ?? "idle"
         )
         if renderStats != nextRenderStats {
             renderStats = nextRenderStats

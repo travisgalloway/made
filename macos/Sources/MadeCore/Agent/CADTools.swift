@@ -1259,6 +1259,45 @@ public final class CADToolRegistry {
         inFlightRecomputes[id] = (jobId, task)
         return task
     }
+
+    /// Re-tessellates `id` with the specified or document tolerances in the background.
+    /// When `meshSink` is bound, installs the resulting mesh using the live document state and invalidates the viewport.
+    @discardableResult
+    public func scheduleRetessellate(id: SolidId, tolerances: KernelTolerances? = nil) -> Task<KernelResult<MeshPayload>, Never>? {
+        guard document.objects.contains(where: { $0.id == id }) else { return nil }
+        let jobId = JobId("tess-\(UUID().uuidString)")
+        let tol = (tolerances ?? document.settings.tolerances).clamped()
+        let request = KernelRequest.tessellate(jobId: jobId, solidId: id, tolerances: tol)
+        let client = kernelClient
+        let priorTask = inFlightRecomputes[id]?.task
+        let task = Task { @MainActor [weak self] () -> KernelResult<MeshPayload> in
+            _ = await priorTask?.value
+            guard let self, self.document.objects.contains(where: { $0.id == id }) else {
+                return .failure(jobId: jobId, error: KernelError(code: .cancelled, message: "Solid removed before tessellation started"))
+            }
+            let result = await client.request(request)
+            if self.inFlightRecomputes[id]?.jobId == jobId {
+                self.inFlightRecomputes.removeValue(forKey: id)
+            }
+            await self.finishRecompute(result, for: id)
+            return result
+        }
+        inFlightRecomputes[id] = (jobId, task)
+        return task
+    }
+
+    /// Re-tessellates all solids in the document with the specified or document tolerances.
+    @discardableResult
+    public func scheduleRetessellateAll(tolerances: KernelTolerances? = nil) -> [Task<KernelResult<MeshPayload>, Never>] {
+        let tol = (tolerances ?? document.settings.tolerances).clamped()
+        var tasks: [Task<KernelResult<MeshPayload>, Never>] = []
+        for obj in document.objects {
+            if let task = scheduleRetessellate(id: obj.id, tolerances: tol) {
+                tasks.append(task)
+            }
+        }
+        return tasks
+    }
     
     /// Awaits any in-flight recomputes for `ids`, continuing if a newer edit replaced a conflated request.
     public func settleRecomputes(for ids: [SolidId]) async {
