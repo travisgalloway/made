@@ -1,7 +1,4 @@
 {
-  "bodies" : [
-
-  ],
   "features" : [
     {
       "bodyOperation" : "create",
@@ -837,9 +834,6 @@
         ]
       }
     }
-  ],
-  "objects" : [
-
   ],
   "schemaVersion" : 1
 }

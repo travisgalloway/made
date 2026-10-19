@@ -126,4 +126,184 @@ import Foundation
         #expect(restoredDoc.selection.isEmpty)
         #expect(restoredDoc.selectedId == nil)
     }
+
+    // MARK: - Single-Owner document.json (Issue #562 / API-006dc4bd)
+
+    @Test func testDocumentDataOmitsObjectsAndBodiesWhenFeaturesPresent() throws {
+        let doc = DocumentModel()
+        #expect(!doc.features.isEmpty)
+        #expect(!doc.objects.isEmpty)
+        #expect(!doc.bodies.isEmpty)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let jsonObject = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        #expect(jsonObject["features"] != nil)
+        #expect(jsonObject["objects"] == nil)
+        #expect(jsonObject["bodies"] == nil)
+    }
+
+    @Test func testDocumentDataDecodesDerivedObjectsAndBodiesWhenOmitted() throws {
+        let jsonWithFeaturesOnly = """
+        {
+          "schemaVersion": 1,
+          "features": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "name": "Custom Box",
+              "outputSolidId": "box-1",
+              "operation": {
+                "primitive": {
+                  "box": {
+                    "width": 50.0,
+                    "depth": 40.0,
+                    "height": 30.0
+                  }
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: jsonWithFeaturesOnly)
+        #expect(decoded.features?.count == 1)
+        #expect(decoded.objects.count == 1)
+        #expect(decoded.objects.first?.id == SolidId("box-1"))
+        #expect(decoded.objects.first?.name == "Custom Box")
+        #expect(decoded.bodies?.count == 1)
+        #expect(decoded.bodies?.first?.id == SolidId("box-1"))
+        #expect(decoded.bodies?.first?.name == "Custom Box")
+    }
+
+    @Test func testDocumentDataRejectsObjectsDisagreeingWithFeatures() throws {
+        let conflictingJSON = """
+        {
+          "schemaVersion": 1,
+          "features": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "name": "Custom Box",
+              "outputSolidId": "box-1",
+              "operation": {
+                "primitive": {
+                  "box": {
+                    "width": 50.0,
+                    "depth": 40.0,
+                    "height": 30.0
+                  }
+                }
+              }
+            }
+          ],
+          "objects": [
+            {
+              "id": "box-1",
+              "name": "Conflicting Name",
+              "def": {
+                "kind": "box",
+                "params": {
+                  "width": 99.0,
+                  "depth": 40.0,
+                  "height": 30.0
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        #expect(throws: DecodingError.self) {
+            try DocumentModelCoder.decode(from: conflictingJSON)
+        }
+
+        do {
+            _ = try DocumentModelCoder.decode(from: conflictingJSON)
+            Issue.record("Expected decoding to throw DecodingError.dataCorrupted")
+        } catch DecodingError.dataCorrupted(let context) {
+            #expect(context.debugDescription.contains("Declared objects disagree with active features projection"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func testDocumentDataRejectsBodiesDisagreeingWithFeatures() throws {
+        let conflictingJSON = """
+        {
+          "schemaVersion": 1,
+          "features": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "name": "Custom Box",
+              "outputSolidId": "box-1",
+              "operation": {
+                "primitive": {
+                  "box": {
+                    "width": 50.0,
+                    "depth": 40.0,
+                    "height": 30.0
+                  }
+                }
+              }
+            }
+          ],
+          "bodies": [
+            {
+              "id": "box-99",
+              "name": "Mismatched Body",
+              "type": "solid",
+              "isVisible": true,
+              "isLocked": false,
+              "material": {
+                "color": [0.35, 0.65, 0.95, 1.0]
+              },
+              "transform": {
+                "position": [0, 0, 0],
+                "rotation": {"w": 1, "x": 0, "y": 0, "z": 0},
+                "scale": [1, 1, 1]
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        #expect(throws: DecodingError.self) {
+            try DocumentModelCoder.decode(from: conflictingJSON)
+        }
+
+        do {
+            _ = try DocumentModelCoder.decode(from: conflictingJSON)
+            Issue.record("Expected decoding to throw DecodingError.dataCorrupted")
+        } catch DecodingError.dataCorrupted(let context) {
+            #expect(context.debugDescription.contains("Declared bodies disagree with active features projection"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func testDocumentDataAcceptsMatchingObjectsAndBodies() throws {
+        let doc = DocumentModel()
+        let activeObjects = doc.activeFeatures.compactMap { $0.toSceneObject() }
+        let activeBodies = activeObjects.map { Body(from: $0) }
+
+        let legacyData = DocumentData(
+            schemaVersion: 1,
+            features: doc.features,
+            objects: activeObjects,
+            selectedId: doc.selectedId,
+            rollbackIndex: doc.rollbackIndex,
+            bodies: activeBodies,
+            selection: Array(doc.selection)
+        )
+
+        var dict = try #require(try JSONSerialization.jsonObject(with: try DocumentModelCoder.encode(legacyData)) as? [String: Any])
+        dict["objects"] = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(activeObjects))
+        dict["bodies"] = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(activeBodies))
+        let payloadWithExplicitMatching = try JSONSerialization.data(withJSONObject: dict)
+
+        let decoded = try DocumentModelCoder.decode(from: payloadWithExplicitMatching)
+        #expect(decoded.features?.count == doc.features.count)
+        #expect(decoded.objects == activeObjects)
+        #expect(decoded.bodies == activeBodies)
+    }
 }

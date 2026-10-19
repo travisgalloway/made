@@ -28,7 +28,7 @@ A `.made` document is a directory package with Uniform Type Identifier `com.made
 ```
 MyBracket.made/
   manifest.json        # schema version (#237), document settings (#238), custom metadata (#172)
-  document.json        # scene graph, feature list, parameter table (#174), assembly instances (#161)
+  document.json        # canonical feature list (#562), parameter table (#174), assembly instances (#161)
   parts/
     bracket.part.ts    # plain-text TypeScript or JavaScript part sources (ADR-D6, #435, #427)
   assets/
@@ -41,7 +41,7 @@ MyBracket.made/
 ```
 
 - **Manifest (`manifest.json`).** Records `schemaVersion` (an integer starting at `1`), the writing application version, per-document units and tolerances (#238), and custom properties (#172). Opening an older schema version runs forward migrations in memory before constructing the document model (#237). Opening a newer schema version fails with a clear error message and leaves the open document and the file on disk unchanged (#83, #237).
-- **Document definition (`document.json`).** Records the ordered object and feature list, transforms, materials, parameter table (#174), and assembly component instances (#161), referencing scripted parts in `parts/` and imported geometry in `assets/` by relative path and stable ID.
+- **Document definition (`document.json`).** Records the ordered feature list as the sole canonical owner of scene geometry (#562), parameter table (#174), and assembly component instances (#161), referencing scripted parts in `parts/` and imported geometry in `assets/` by relative path and stable ID. When `features` is present, derived scene `objects` and `bodies` are omitted from disk serialization. Decoding a document with explicit `objects` or `bodies` validates that they match the active features projection, throwing `DecodingError.dataCorrupted` on mismatch.
 - **Canonical JSON formatting.** `manifest.json` and `document.json` are encoded as UTF-8 with 2-space indentation, lexicographically sorted keys (`JSONEncoder.OutputFormatting` with `.prettyPrinted`, `.sortedKeys`, and `.withoutEscapingSlashes`), and a trailing newline (#376). Collections serialize in deterministic order (tree order for objects and features, and stable ID order for maps and parameter tables) so saving an unchanged document produces an identical byte sequence.
 - **Plain-text part source files (`parts/*.part.ts`, `parts/*.part.js`).** Each scripted part lives as an uncompressed UTF-8 file under `parts/`, or as a standalone `.part.ts` / `.part.js` file when working outside a package ([ADR-D6](./ADR-D6-scripting-runtime.md), #435, #427). External agents edit these files directly, and `PartRuntime` resolves relative ES module imports only within the part's directory (ADR-D6).
 - **Assets (`assets/`).** Imported STEP and IGES files (#38) and external reference descriptors (#160) live under `assets/` with deterministic filenames.

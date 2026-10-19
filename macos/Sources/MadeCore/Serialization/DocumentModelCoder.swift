@@ -23,21 +23,22 @@ public struct DocumentData: Codable, Sendable, Equatable {
     ) {
         self.schemaVersion = schemaVersion
         self.rollbackIndex = rollbackIndex
-        if let objects {
+        if let features {
+            self.features = features
+            let effectiveIndex = rollbackIndex ?? features.count
+            let clampedIndex = max(0, min(effectiveIndex, features.count))
+            let active = Array(features.prefix(clampedIndex)).compactMap { $0.toSceneObject() }
+            self.objects = active
+            self.bodies = bodies ?? active.map { Body(from: $0) }
+        } else if let objects {
             let clamped = objects.map { obj in
                 var copy = obj
                 copy.def = DocumentLimits.clamp(obj.def)
                 return copy
             }
             self.objects = clamped
-            self.features = features ?? clamped.map { Feature(from: $0) }
+            self.features = clamped.map { Feature(from: $0) }
             self.bodies = bodies ?? clamped.map { Body(from: $0) }
-        } else if let features {
-            self.features = features
-            let effectiveIndex = rollbackIndex ?? features.count
-            let active = Array(features.prefix(effectiveIndex)).compactMap { $0.toSceneObject() }
-            self.objects = active
-            self.bodies = bodies ?? active.map { Body(from: $0) }
         } else {
             self.features = []
             self.objects = []
@@ -66,20 +67,57 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         self.rollbackIndex = try container.decodeIfPresent(Int.self, forKey: .rollbackIndex)
         let decodedFeatures = try container.decodeIfPresent([Feature].self, forKey: .features)
-        let rawObjects = try container.decodeIfPresent([SceneObject].self, forKey: .objects) ?? []
-        let clampedObjects = rawObjects.map { obj in
-            var copy = obj
-            copy.def = DocumentLimits.clamp(obj.def)
-            return copy
-        }
-        self.objects = clampedObjects
+        let rawObjects = try container.decodeIfPresent([SceneObject].self, forKey: .objects)
+        let rawBodies = try container.decodeIfPresent([Body].self, forKey: .bodies)
+
         if let decodedFeatures {
             self.features = decodedFeatures
+            let effectiveIndex = rollbackIndex ?? decodedFeatures.count
+            let clampedIndex = max(0, min(effectiveIndex, decodedFeatures.count))
+            let activeFeatures = Array(decodedFeatures.prefix(clampedIndex))
+            let derivedObjects = activeFeatures.compactMap { $0.toSceneObject() }
+            let derivedBodies = derivedObjects.map { Body(from: $0) }
+
+            if let rawObjects {
+                let clampedRawObjects = rawObjects.map { obj in
+                    var copy = obj
+                    copy.def = DocumentLimits.clamp(obj.def)
+                    return copy
+                }
+                guard Self.sceneObjectsMatch(clampedRawObjects, derivedObjects) else {
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: [CodingKeys.objects],
+                            debugDescription: "Declared objects disagree with active features projection. Features is the single owner of document.json."
+                        )
+                    )
+                }
+            }
+            self.objects = derivedObjects
+
+            if let rawBodies {
+                guard rawBodies == derivedBodies else {
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: [CodingKeys.bodies],
+                            debugDescription: "Declared bodies disagree with active features projection. Features is the single owner of document.json."
+                        )
+                    )
+                }
+            }
+            self.bodies = derivedBodies
         } else {
-            self.features = clampedObjects.map { Feature(from: $0) }
+            let clampedRawObjects = (rawObjects ?? []).map { obj in
+                var copy = obj
+                copy.def = DocumentLimits.clamp(obj.def)
+                return copy
+            }
+            self.objects = clampedRawObjects
+            self.features = clampedRawObjects.map { Feature(from: $0) }
+            self.bodies = rawBodies ?? clampedRawObjects.map { Body(from: $0) }
         }
+
         self.selectedId = try container.decodeIfPresent(ObjectId.self, forKey: .selectedId)
-        self.bodies = try container.decodeIfPresent([Body].self, forKey: .bodies) ?? self.objects.map { Body(from: $0) }
         self.selection = try container.decodeIfPresent([Reference].self, forKey: .selection)
     }
 
@@ -87,11 +125,46 @@ public struct DocumentData: Codable, Sendable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(schemaVersion, forKey: .schemaVersion)
         try container.encodeIfPresent(features, forKey: .features)
-        try container.encode(objects, forKey: .objects)
+        if features == nil {
+            try container.encode(objects, forKey: .objects)
+            try container.encodeIfPresent(bodies, forKey: .bodies)
+        }
         try container.encodeIfPresent(selectedId, forKey: .selectedId)
         try container.encodeIfPresent(rollbackIndex, forKey: .rollbackIndex)
-        try container.encodeIfPresent(bodies, forKey: .bodies)
         try container.encodeIfPresent(selection, forKey: .selection)
+    }
+
+    private static func sceneObjectsMatch(_ a: [SceneObject], _ b: [SceneObject]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (objA, objB) in zip(a, b) {
+            guard objA.id == objB.id,
+                  objA.name == objB.name,
+                  objA.transform == objB.transform,
+                  objA.isVisible == objB.isVisible,
+                  objA.isLocked == objB.isLocked,
+                  objA.material == objB.material else {
+                return false
+            }
+            switch (objA.def, objB.def) {
+            case (.imported(let nA, let uA, let dA), .imported(let nB, let uB, let dB)):
+                guard nA == nB, dA == dB else { return false }
+                if let uA, let uB {
+                    if uA != uB && uA.path != uB.path && uA.lastPathComponent != uB.lastPathComponent {
+                        return false
+                    }
+                } else if (uA == nil) != (uB == nil) {
+                    return false
+                }
+            case (.part(let uA, let sA), .part(let uB, let sB)):
+                guard sA == sB else { return false }
+                if uA != uB && uA.path != uB.path && uA.lastPathComponent != uB.lastPathComponent {
+                    return false
+                }
+            default:
+                guard objA.def == objB.def else { return false }
+            }
+        }
+        return true
     }
 }
 
