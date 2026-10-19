@@ -1657,6 +1657,7 @@ final class WorkspaceModel {
             for obj in document.objects {
                 recomputeSolid(id: obj.id)
             }
+            retessellateAll(tolerances: docSettings.tolerances)
             return true
         } catch {
             log(.error, "Document", "Failed to open document: \(error.localizedDescription)")
@@ -2534,19 +2535,7 @@ final class WorkspaceModel {
         let start = clock.now
         Task { [weak self] in
             guard let self else { return }
-            var result = await self.kernelClient.request(request)
-            if case .success = result {
-                guard self.document.objects.contains(where: { $0.id == id }) else {
-                    await self.kernelClient.dispose(solidId: id)
-                    return
-                }
-                let tessJobId = JobId("tess-\(UUID().uuidString)")
-                let tol = self.document.settings.tolerances.clamped()
-                let tessResult = await self.kernelClient.request(.tessellate(jobId: tessJobId, solidId: id, tolerances: tol))
-                if case .success = tessResult {
-                    result = tessResult
-                }
-            }
+            let result = await self.kernelClient.request(request)
             let elapsed = clock.now - start
             self.lastRegenerationDuration = elapsed
             await self.updateKernelStats()

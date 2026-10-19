@@ -167,7 +167,12 @@ enum OCCTEngine {
     static func toMeshPayload(_ shape: Shape, tolerances: KernelTolerances) -> MeshPayload? {
         let clamped = tolerances.clamped()
         let deflection = clamped.chordalTolerance
-        let angle = clamped.angularTolerance * .pi / 180.0
+        let angle: Double
+        if abs(clamped.angularTolerance - KernelTolerances.defaultAngularTolerance) < 1e-6 {
+            angle = 0.5
+        } else {
+            angle = max(clamped.angularTolerance * .pi / 180.0, 0.01)
+        }
         return toMeshPayload(shape, deflection: deflection, angle: angle)
     }
 

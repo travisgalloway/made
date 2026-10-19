@@ -1249,18 +1249,7 @@ public final class CADToolRegistry {
             guard let self, self.document.objects.contains(where: { $0.id == id }) else {
                 return .failure(jobId: jobId, error: KernelError(code: .cancelled, message: "Solid removed before recompute started"))
             }
-            var result = await client.request(request)
-            if case .success = result {
-                guard self.document.objects.contains(where: { $0.id == id }) else {
-                    return .failure(jobId: jobId, error: KernelError(code: .cancelled, message: "Solid removed before tessellation started"))
-                }
-                let tessJobId = JobId("tess-\(UUID().uuidString)")
-                let tol = self.document.settings.tolerances.clamped()
-                let tessResult = await client.request(.tessellate(jobId: tessJobId, solidId: id, tolerances: tol))
-                if case .success = tessResult {
-                    result = tessResult
-                }
-            }
+            let result = await client.request(request)
             if self.inFlightRecomputes[id]?.jobId == jobId {
                 self.inFlightRecomputes.removeValue(forKey: id)
             }
@@ -1280,7 +1269,9 @@ public final class CADToolRegistry {
         let tol = (tolerances ?? document.settings.tolerances).clamped()
         let request = KernelRequest.tessellate(jobId: jobId, solidId: id, tolerances: tol)
         let client = kernelClient
+        let priorTask = inFlightRecomputes[id]?.task
         let task = Task { @MainActor [weak self] () -> KernelResult<MeshPayload> in
+            _ = await priorTask?.value
             guard let self, self.document.objects.contains(where: { $0.id == id }) else {
                 return .failure(jobId: jobId, error: KernelError(code: .cancelled, message: "Solid removed before tessellation started"))
             }

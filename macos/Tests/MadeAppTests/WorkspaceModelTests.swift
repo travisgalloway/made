@@ -2102,7 +2102,8 @@ import MadeCore
     }
 
     @Test @MainActor func testChangingChordalToleranceRetessellatesCylinder() async throws {
-        let model = WorkspaceModel()
+        let customDefaults = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
+        let model = WorkspaceModel(defaults: customDefaults)
         model.setUp()
         guard let registry = model.toolRegistry else {
             Issue.record("Expected toolRegistry")
@@ -2173,7 +2174,8 @@ import MadeCore
         let package = MadePackage(manifest: manifest, documentData: docData)
         try package.write(to: packageURL)
 
-        let model = WorkspaceModel()
+        let customDefaults = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
+        let model = WorkspaceModel(defaults: customDefaults)
         model.setUp()
         guard let registry = model.toolRegistry else {
             Issue.record("Expected toolRegistry")
