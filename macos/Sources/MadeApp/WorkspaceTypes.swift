@@ -43,3 +43,20 @@ public struct ConsoleLogEntry: Identifiable, Sendable {
         self.message = message
     }
 }
+
+public struct SaveErrorInfo: Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public let destinationURL: URL
+    public let reason: String
+
+    public var fileName: String {
+        destinationURL.lastPathComponent
+    }
+
+    public init(id: UUID = UUID(), destinationURL: URL, reason: String) {
+        self.id = id
+        self.destinationURL = destinationURL
+        self.reason = reason
+    }
+}
+
