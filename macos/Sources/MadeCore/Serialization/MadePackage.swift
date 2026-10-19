@@ -45,7 +45,7 @@ public struct MadePackage: Sendable, Equatable {
     }
 
     /// Initializes a MadePackage from an existing FileWrapper package.
-    public init(fileWrapper: FileWrapper) throws {
+    public init(fileWrapper: FileWrapper, packageURL: URL? = nil) throws {
         guard fileWrapper.isDirectory else {
             throw MadeDocumentError.corruptDocument("Expected package directory, but found a regular file.")
         }
@@ -144,7 +144,7 @@ public struct MadePackage: Sendable, Equatable {
 
         var decodedDoc: DocumentData
         do {
-            decodedDoc = try DocumentModelCoder.decode(from: docData)
+            decodedDoc = try DocumentModelCoder.decode(from: docData, packageURL: packageURL)
         } catch {
             throw MadeDocumentError.corruptDocument("document.json is invalid: \(error.localizedDescription)")
         }
@@ -173,7 +173,13 @@ public struct MadePackage: Sendable, Equatable {
                 }
 
                 if let matchedData {
-                    let url = matchedName.map { URL(fileURLWithPath: "assets/\($0)") }
+                    let url = matchedName.map { name in
+                        if let packageURL {
+                            return packageURL.appendingPathComponent("assets/\(name)")
+                        } else {
+                            return URL(fileURLWithPath: "assets/\(name)")
+                        }
+                    }
                     decodedDoc.objects[i].def = .imported(name: name, sourceURL: url, data: matchedData)
                 }
             }
@@ -199,10 +205,46 @@ public struct MadePackage: Sendable, Equatable {
                     }
 
                     if let matchedData {
-                        let url = matchedName.map { URL(fileURLWithPath: "assets/\($0)") }
+                        let url = matchedName.map { name in
+                            if let packageURL {
+                                return packageURL.appendingPathComponent("assets/\(name)")
+                            } else {
+                                return URL(fileURLWithPath: "assets/\(name)")
+                            }
+                        }
                         imp.sourceURL = url
                         imp.data = matchedData
                         features[i].operation = .imported(imp)
+                    }
+                }
+            }
+            decodedDoc.features = features
+        }
+
+        // Link parts into .part solids and features where present
+        for i in 0..<decodedDoc.objects.count {
+            if case .part(let url, let shape) = decodedDoc.objects[i].def {
+                let filename = url.lastPathComponent
+                if !filename.isEmpty && filename != "/" {
+                    if let packageURL {
+                        decodedDoc.objects[i].def = .part(
+                            url: packageURL.appendingPathComponent("parts/\(filename)"),
+                            shape: shape
+                        )
+                    }
+                }
+            }
+        }
+
+        if var features = decodedDoc.features {
+            for i in 0..<features.count {
+                if case .part(var partData) = features[i].operation {
+                    let filename = partData.url.lastPathComponent
+                    if !filename.isEmpty && filename != "/" {
+                        if let packageURL {
+                            partData.url = packageURL.appendingPathComponent("parts/\(filename)")
+                            features[i].operation = .part(partData)
+                        }
                     }
                 }
             }
@@ -222,18 +264,18 @@ public struct MadePackage: Sendable, Equatable {
         } catch {
             throw MadeDocumentError.corruptDocument("Could not read directory package at \(directoryURL.path): \(error.localizedDescription)")
         }
-        try self.init(fileWrapper: wrapper)
+        try self.init(fileWrapper: wrapper, packageURL: directoryURL)
     }
 
     /// Creates a FileWrapper directory package containing manifest.json, document.json, assets/, parts/, and cache/.gitignore.
-    public func makeFileWrapper() throws -> FileWrapper {
-        let manifestData = try DocumentModelCoder.makeJSONEncoder().encode(manifest)
+    public func makeFileWrapper(packageURL: URL? = nil) throws -> FileWrapper {
+        let manifestData = try DocumentModelCoder.makeJSONEncoder(packageURL: packageURL).encode(manifest)
         var manifestWithNewline = manifestData
         if !manifestWithNewline.isEmpty && manifestWithNewline.last != UInt8(ascii: "\n") {
             manifestWithNewline.append(UInt8(ascii: "\n"))
         }
 
-        let docData = try DocumentModelCoder.encode(documentData)
+        let docData = try DocumentModelCoder.encode(documentData, packageURL: packageURL)
 
         var rootWrappers: [String: FileWrapper] = [:]
         rootWrappers["manifest.json"] = FileWrapper(regularFileWithContents: manifestWithNewline)
@@ -267,7 +309,7 @@ public struct MadePackage: Sendable, Equatable {
 
     /// Writes package atomically to a destination URL.
     public func write(to directoryURL: URL) throws {
-        let wrapper = try makeFileWrapper()
+        let wrapper = try makeFileWrapper(packageURL: directoryURL)
         try wrapper.write(to: directoryURL, options: .atomic, originalContentsURL: nil)
     }
 }

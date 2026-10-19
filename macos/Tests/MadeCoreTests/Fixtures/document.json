@@ -524,7 +524,7 @@
       "operation" : {
         "part" : {
           "_0" : {
-            "url" : "file:///parts/bracket.part.ts"
+            "url" : "parts/bracket.part.ts"
           }
         }
       },
