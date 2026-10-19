@@ -1,6 +1,6 @@
 One outline row in the Navigator's Scene list, showing an object's icon, name, kind badge, ID and live parameter summary.
 
-Source [`macos/Sources/MadeApp/NavigatorSidebarView.swift`](../../../macos/Sources/MadeApp/NavigatorSidebarView.swift) (`NavigatorRow`, `NavigatorSketchRow`). Guidelines only, no preview (SwiftUI).
+Source [`macos/Sources/MadeApp/NavigatorSidebarView.swift`](../../../macos/Sources/MadeApp/NavigatorSidebarView.swift) (`NavigatorRow`, `NavigatorSketchRow`, `NavigatorDatumPlaneRow`, `NavigatorDatumAxisRow`, `NavigatorDatumPointRow`, `NavigatorDatumCoordinateSystemRow`). Guidelines only, no preview (SwiftUI).
 
 ## What the consumer supplies
 - A `SceneObject` (or a sketch feature) and the `WorkspaceModel` environment for selection, visibility and lock.

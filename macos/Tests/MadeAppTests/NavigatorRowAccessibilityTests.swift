@@ -15,6 +15,29 @@ import MadeCore
         #expect(NavigatorDatumCoordinateSystemRow.defaultAccessibilityTraits.contains(.isButton))
     }
 
+    @Test func testAccessibilityTraitsSelectedAndUnselected() {
+        let types: [(unselected: AccessibilityTraits, selected: AccessibilityTraits)] = [
+            (NavigatorSketchRow.accessibilityTraits(isSelected: false), NavigatorSketchRow.accessibilityTraits(isSelected: true)),
+            (NavigatorDatumPlaneRow.accessibilityTraits(isSelected: false), NavigatorDatumPlaneRow.accessibilityTraits(isSelected: true)),
+            (NavigatorDatumAxisRow.accessibilityTraits(isSelected: false), NavigatorDatumAxisRow.accessibilityTraits(isSelected: true)),
+            (NavigatorDatumPointRow.accessibilityTraits(isSelected: false), NavigatorDatumPointRow.accessibilityTraits(isSelected: true)),
+            (NavigatorDatumCoordinateSystemRow.accessibilityTraits(isSelected: false), NavigatorDatumCoordinateSystemRow.accessibilityTraits(isSelected: true)),
+        ]
+
+        for (unselected, selected) in types {
+            #expect(unselected.contains(.isButton))
+            #expect(!unselected.contains(.isSelected))
+            #expect(selected.contains(.isButton))
+            #expect(selected.contains(.isSelected))
+        }
+
+        #expect(NavigatorSketchRow.accessibilityTraits() == NavigatorSketchRow.defaultAccessibilityTraits)
+        #expect(NavigatorDatumPlaneRow.accessibilityTraits() == NavigatorDatumPlaneRow.defaultAccessibilityTraits)
+        #expect(NavigatorDatumAxisRow.accessibilityTraits() == NavigatorDatumAxisRow.defaultAccessibilityTraits)
+        #expect(NavigatorDatumPointRow.accessibilityTraits() == NavigatorDatumPointRow.defaultAccessibilityTraits)
+        #expect(NavigatorDatumCoordinateSystemRow.accessibilityTraits() == NavigatorDatumCoordinateSystemRow.defaultAccessibilityTraits)
+    }
+
     @Test func testAccessibilityLabelFormattingAcrossAllRowTypes() {
         // Sketch row
         #expect(NavigatorSketchRow.accessibilityLabel(
@@ -128,6 +151,14 @@ import MadeCore
         lockedPlane.isLocked = true
         workspace.document.addFeature(lockedPlane)
 
+        var lockedAxis = Feature(name: "Locked Axis", operation: .datumAxis(DatumAxisFeatureData(mode: .preset, presetName: "X")))
+        lockedAxis.isLocked = true
+        workspace.document.addFeature(lockedAxis)
+
+        var lockedPoint = Feature(name: "Locked Point", operation: .datumPoint(DatumPointFeatureData(mode: .coordinates, coordinates: .zero)))
+        lockedPoint.isLocked = true
+        workspace.document.addFeature(lockedPoint)
+
         var lockedUCS = Feature(name: "Locked UCS", operation: .datumCoordinateSystem(DatumCoordinateSystemFeatureData(mode: .originAndAxes, origin: .zero)))
         lockedUCS.isLocked = true
         workspace.document.addFeature(lockedUCS)
@@ -138,8 +169,30 @@ import MadeCore
         #expect(workspace.selectedFeature?.id == lockedPlane.id)
         #expect(workspace.canDeleteSelectedFeature == false)
 
-        // Unlock feature
+        // Unlock plane
         workspace.toggleFeatureLocked(lockedPlane.id)
+        #expect(workspace.selectedFeature?.isLocked == false)
+        #expect(workspace.canDeleteSelectedFeature == true)
+
+        // Selecting locked axis
+        workspace.selectFeature(lockedAxis.id)
+        #expect(workspace.isFeatureSelected(lockedAxis))
+        #expect(workspace.selectedFeature?.id == lockedAxis.id)
+        #expect(workspace.canDeleteSelectedFeature == false)
+
+        // Unlock axis
+        workspace.toggleFeatureLocked(lockedAxis.id)
+        #expect(workspace.selectedFeature?.isLocked == false)
+        #expect(workspace.canDeleteSelectedFeature == true)
+
+        // Selecting locked point
+        workspace.selectFeature(lockedPoint.id)
+        #expect(workspace.isFeatureSelected(lockedPoint))
+        #expect(workspace.selectedFeature?.id == lockedPoint.id)
+        #expect(workspace.canDeleteSelectedFeature == false)
+
+        // Unlock point
+        workspace.toggleFeatureLocked(lockedPoint.id)
         #expect(workspace.selectedFeature?.isLocked == false)
         #expect(workspace.canDeleteSelectedFeature == true)
 
@@ -148,6 +201,11 @@ import MadeCore
         #expect(workspace.isFeatureSelected(lockedUCS))
         #expect(workspace.selectedFeature?.id == lockedUCS.id)
         #expect(workspace.canDeleteSelectedFeature == false)
+
+        // Unlock UCS
+        workspace.toggleFeatureLocked(lockedUCS.id)
+        #expect(workspace.selectedFeature?.isLocked == false)
+        #expect(workspace.canDeleteSelectedFeature == true)
     }
 
     @Test @MainActor func testNSHostingViewLayoutWithAllRowTypes() {
