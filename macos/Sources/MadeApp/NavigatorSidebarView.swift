@@ -459,6 +459,12 @@ struct NavigatorSketchRow: View {
     let feature: Feature
     @State private var isHovered = false
 
+    init(feature: Feature) {
+        self.feature = feature
+    }
+
+    nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
     var body: some View {
         let isSelected = workspace.isFeatureSelected(feature)
         let status = workspace.sketchDOFStatus(for: feature)
@@ -526,7 +532,11 @@ struct NavigatorSketchRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
         .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, entityCount: count, status: status, isLocked: feature.isLocked))
+        .accessibilityAction {
+            workspace.selectFeature(feature.id)
+        }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
         }
@@ -604,10 +614,20 @@ struct NavigatorSketchRow: View {
 }
 
 /// Outline row for a datum plane feature in the Navigator sidebar.
-private struct NavigatorDatumPlaneRow: View {
+struct NavigatorDatumPlaneRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
     @State private var isHovered = false
+
+    init(feature: Feature) {
+        self.feature = feature
+    }
+
+    nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
+        "\(featureName), Datum Plane\(isLocked ? ", Locked" : "")"
+    }
 
     var body: some View {
         let isSelected = workspace.isFeatureSelected(feature)
@@ -670,7 +690,11 @@ private struct NavigatorDatumPlaneRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(feature.name), Datum Plane\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityAction {
+            workspace.selectFeature(feature.id)
+        }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
         }
@@ -681,10 +705,20 @@ private struct NavigatorDatumPlaneRow: View {
 }
 
 /// Outline row for a datum axis feature in the Navigator sidebar.
-private struct NavigatorDatumAxisRow: View {
+struct NavigatorDatumAxisRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
     @State private var isHovered = false
+
+    init(feature: Feature) {
+        self.feature = feature
+    }
+
+    nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
+        "\(featureName), Datum Axis\(isLocked ? ", Locked" : "")"
+    }
 
     var body: some View {
         let isSelected = workspace.isFeatureSelected(feature)
@@ -747,7 +781,11 @@ private struct NavigatorDatumAxisRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(feature.name), Datum Axis\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityAction {
+            workspace.selectFeature(feature.id)
+        }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
         }
@@ -758,10 +796,20 @@ private struct NavigatorDatumAxisRow: View {
 }
 
 /// Outline row for a datum point feature in the Navigator sidebar.
-private struct NavigatorDatumPointRow: View {
+struct NavigatorDatumPointRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
     @State private var isHovered = false
+
+    init(feature: Feature) {
+        self.feature = feature
+    }
+
+    nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
+        "\(featureName), Datum Point\(isLocked ? ", Locked" : "")"
+    }
 
     var body: some View {
         let isSelected = workspace.isFeatureSelected(feature)
@@ -824,7 +872,11 @@ private struct NavigatorDatumPointRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(feature.name), Datum Point\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityAction {
+            workspace.selectFeature(feature.id)
+        }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
         }
@@ -835,10 +887,20 @@ private struct NavigatorDatumPointRow: View {
 }
 
 /// Outline row for a User Coordinate System (UCS) feature in the Navigator sidebar.
-private struct NavigatorDatumCoordinateSystemRow: View {
+struct NavigatorDatumCoordinateSystemRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
     @State private var isHovered = false
+
+    init(feature: Feature) {
+        self.feature = feature
+    }
+
+    nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
+        "\(featureName), Datum UCS\(isLocked ? ", Locked" : "")"
+    }
 
     var body: some View {
         let isSelected = workspace.isFeatureSelected(feature)
@@ -901,7 +963,11 @@ private struct NavigatorDatumCoordinateSystemRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(feature.name), Datum UCS\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityAction {
+            workspace.selectFeature(feature.id)
+        }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
         }
