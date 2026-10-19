@@ -167,12 +167,12 @@ struct InspectorPanelView: View {
         Section {
             TextField("Name", text: Binding(
                 get: { obj.name },
-                set: { workspace.setName(id: obj.id, name: $0) }
+                set: { workspace.setBodyName(id: obj.id, name: $0) }
             ))
             .disabled(obj.isLocked)
             Toggle("Visible in Viewport", isOn: Binding(
                 get: { obj.isVisible },
-                set: { workspace.setVisibility(obj.id, isVisible: $0) }
+                set: { workspace.setBodyVisibility(id: obj.id, isVisible: $0) }
             ))
             LabeledContent("ID") {
                 Text(obj.id.rawValue).monospaced().textSelection(.enabled)
@@ -276,7 +276,7 @@ struct InspectorPanelView: View {
 
     private func materialSection(_ obj: SceneObject) -> some View {
         Section {
-            ColorPicker("Color", selection: Binding(
+            ColorPicker("Body Color", selection: Binding(
                 get: {
                     let c = obj.material.color
                     return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z), opacity: Double(c.w))
@@ -284,9 +284,10 @@ struct InspectorPanelView: View {
                 set: { newColor in
                     let resolved = newColor.resolve(in: EnvironmentValues())
                     let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
-                    workspace.setMaterial(obj.id, MaterialAttributes(color: simdColor))
+                    workspace.setBodyColor(id: obj.id, color: simdColor)
                 }
             ), supportsOpacity: false)
+            .accessibilityIdentifier("inspector-body-color-picker")
         } header: {
             sectionHeader("Material")
         }

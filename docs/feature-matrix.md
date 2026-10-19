@@ -55,7 +55,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - KERN-23 is Shipped. Persistent topological naming resolves references through `TopologicalResolver` (#152, ADR-D3).
 - DOC-28 is Shipped. The rollback marker has menu, Navigator, and keyboard entry points, and `cad_rollback` exposes it to agents (AGENT-33, #235).
 - DOC-29 to DOC-32 are Shipped. They cover applied sketch constraints, live inference, minimal-movement drag solving, and over-constraint diagnosis (#37, #198, #197). Driven dimensions are open (#199).
-- DOC-33 and DOC-34 are In progress. Body suppression and body-level operations exist in `DocumentModel` and `WorkspaceModel` and have no Navigator, Inspector, or MCP entry point (#239, #240, #176).
+- DOC-33 is Shipped (#553). DOC-34 is In progress. Feature suppression exists in `DocumentModel` and has no UI entry point (#176).
 - DSL-15 is Shipped. The `MADE_PART_FILE` environment variable and positional `.part.ts`, `.part.js`, and `.made` arguments open files at launch (#427).
 - VIEW-17 is Planned with tracking issue #389. KERN-11 stays In progress because in-process cancellation of an executing job is a no-op (`LocalKernelEngine.terminate` returns false).
 
@@ -251,7 +251,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | DOC-30 | (new) A person can see inferred constraint candidates while sketching and accept one, with live inference toggled from the Tools menu or the Inspector | done | done | done | Shipped | #37 | n/a |
 | DOC-31 | (new) A person can drag a sketch entity endpoint in the viewport and have the solver move the sketch with minimal displacement, committed as one undo step | done | done | done | Shipped | #198 | n/a |
 | DOC-32 | (new) A person can see which sketch constraints conflict or are redundant when a sketch is over-constrained, and convert a constraint between driving and driven | done | done | done | Shipped | #197, #199 | n/a |
-| DOC-33 | (new) A person can name, hide, lock, recolor and set the operation (create, add, cut, intersect) of a body inside a part | none | done | done | In progress | #239, #240 | n/a |
+| DOC-33 | (new) A person can name, hide, lock, recolor and set the operation (create, add, cut, intersect) of a body inside a part | done | done | done | Shipped | #239, #240, #553 | n/a |
 | DOC-34 | (new) A person can suppress or unsuppress a feature so it is skipped during regeneration | none | done | done | In progress | #176 | n/a |
 | AGENT-33 | (new) An agent can roll the document timeline back to an index or solid, or forward to the end, over MCP with cad_rollback | n/a | done | done | Shipped | #235 | n/a |
 | DSL-15 | (new) A person can open a part file at launch by passing a .part.ts, .part.js or .made path as a command-line argument or by setting MADE_PART_FILE | done | n/a | done | Shipped | #427 | n/a |
