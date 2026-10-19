@@ -45,6 +45,17 @@ public enum LengthUnit: String, CaseIterable, Identifiable, Sendable, Codable, E
         case .feet: return value / 304.8
         }
     }
+
+    /// Default increment for steppers and sliders in the UI.
+    public var defaultStep: Double {
+        switch self {
+        case .millimeters: return 1.0
+        case .centimeters: return 0.1
+        case .meters: return 0.001
+        case .inches: return 0.1
+        case .feet: return 0.01
+        }
+    }
 }
 
 /// Supported angular units in the CAD scene.
@@ -78,6 +89,14 @@ public enum AngleUnit: String, CaseIterable, Identifiable, Sendable, Codable, Eq
         switch self {
         case .degrees: return value
         case .radians: return value * (.pi / 180.0)
+        }
+    }
+
+    /// Default increment for steppers and sliders in the UI.
+    public var defaultStep: Double {
+        switch self {
+        case .degrees: return 1.0
+        case .radians: return 0.1
         }
     }
 }
