@@ -437,20 +437,23 @@ import MadeCore
         }
     }
 
-    @Test @MainActor func testImportStepFileAddsObjectAndRecomputes() throws {
+    @Test @MainActor func testImportStepFileAddsObjectAndRecomputes() async throws {
         let model = WorkspaceModel()
         let initialCount = model.document.objects.count
         
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-part-\(UUID().uuidString).step")
         defer { try? FileManager.default.removeItem(at: tempURL) }
         
-        let dummyStepData = Data("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('STEP AP214'),'1');\nFILE_NAME('test.step','2026-10-15',(''),(''),'','','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n".utf8)
-        try dummyStepData.write(to: tempURL)
+        let exported = await model.exportStepFile(to: tempURL, selectedOnly: true)
+        #expect(exported)
+        let stepData = try Data(contentsOf: tempURL)
         
-        let importedId = model.importStepFile(at: tempURL)
+        let importedId = await model.importStepFile(at: tempURL)
         #expect(importedId != nil)
         #expect(model.document.objects.count == initialCount + 1)
         #expect(model.selectedId == importedId)
+        #expect(!model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError == nil)
         
         guard let obj = model.selectedObject else {
             Issue.record("Expected imported object to be selected")
@@ -461,20 +464,26 @@ import MadeCore
         if case .imported(let name, let sourceURL, let data) = obj.def {
             #expect(name == tempURL.lastPathComponent)
             #expect(sourceURL == tempURL)
-            #expect(data == dummyStepData)
+            #expect(data == stepData)
         } else {
             Issue.record("Expected object def to be .imported")
         }
     }
 
-    @Test @MainActor func testImportStepFileNonExistentURLReturnsNil() {
+    @Test @MainActor func testImportStepFileNonExistentURLReturnsNil() async {
         let model = WorkspaceModel()
         let initialCount = model.document.objects.count
         let nonExistentURL = URL(fileURLWithPath: "/tmp/non-existent-step-\(UUID().uuidString).step")
         
-        let importedId = model.importStepFile(at: nonExistentURL)
+        let importedId = await model.importStepFile(at: nonExistentURL)
         #expect(importedId == nil)
         #expect(model.document.objects.count == initialCount)
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+        #expect(model.pendingImportError?.fileURL == nonExistentURL)
+        #expect(model.pendingImportError?.fileName == nonExistentURL.lastPathComponent)
+        #expect(model.pendingImportError?.errorCode == "read-failed")
+        #expect(!(model.pendingImportError?.reason.isEmpty ?? true))
     }
 
     @Test @MainActor func testExportStepFileWritesFile() async throws {
@@ -629,7 +638,7 @@ import MadeCore
         #expect(model.pendingExportError == nil)
     }
 
-    @Test @MainActor func testImportStepEmptyFileLeavesSceneUnchanged() throws {
+    @Test @MainActor func testImportStepEmptyFileLeavesSceneUnchanged() async throws {
         let model = WorkspaceModel()
         let initialCount = model.document.objects.count
 
@@ -637,9 +646,13 @@ import MadeCore
         defer { try? FileManager.default.removeItem(at: tempURL) }
         try Data().write(to: tempURL)
 
-        let resultId = model.importStepFile(at: tempURL)
+        let resultId = await model.importStepFile(at: tempURL)
         #expect(resultId == nil)
         #expect(model.document.objects.count == initialCount)
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+        #expect(model.pendingImportError?.errorCode == "empty-file")
+        #expect(model.pendingImportError?.fileName == tempURL.lastPathComponent)
     }
 
     @Test @MainActor func testImportStepCorruptFileLeavesSceneUnchanged() async throws {
@@ -651,22 +664,119 @@ import MadeCore
         let corruptData = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22, 0x33])
         try corruptData.write(to: tempURL)
 
-        let resultId = model.importStepFile(at: tempURL)
-        #expect(resultId != nil)
+        let resultId = await model.importStepFile(at: tempURL)
+        #expect(resultId == nil)
+        #expect(model.document.objects.count == initialCount)
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+        #expect(model.pendingImportError?.errorCode == KernelErrorCode.geometryFailed.rawValue)
+        #expect(model.pendingImportError?.fileName == tempURL.lastPathComponent)
+    }
 
-        // Wait for recompute to fail with geometryFailed and roll back
-        if let id = resultId, let registry = model.toolRegistry {
-            await registry.settleRecomputes(for: [id])
-        }
+    @Test @MainActor func testImportStepAlertDismissal() async throws {
+        let model = WorkspaceModel()
+        let nonExistentURL = URL(fileURLWithPath: "/tmp/non-existent-\(UUID().uuidString).step")
+
+        let importedId = await model.importStepFile(at: nonExistentURL)
+        #expect(importedId == nil)
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+
+        model.dismissImportErrorAlert()
+        #expect(!model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError == nil)
+    }
+
+    @Test @MainActor func testImportStepRecomputeFailureShowsAlert() async throws {
+        let model = WorkspaceModel()
+        let initialCount = model.document.objects.count
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-recompute-fail-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let exported = await model.exportStepFile(to: tempURL, selectedOnly: true)
+        #expect(exported)
+
+        let importedId = await model.importStepFile(at: tempURL)
+        #expect(importedId != nil)
+        guard let id = importedId else { return }
+        #expect(model.document.objects.count == initialCount + 1)
+        #expect(!model.isShowingImportErrorAlert)
+
+        await model.injectRecomputeFailure(code: .geometryFailed)
+        model.recomputeSolid(id: id)
+
         for _ in 0..<20 {
-            if model.document.objects.count == initialCount { break }
+            if !model.document.objects.contains(where: { $0.id == id }) { break }
             try await Task.sleep(for: .milliseconds(50))
         }
 
+        #expect(!model.document.objects.contains(where: { $0.id == id }))
         #expect(model.document.objects.count == initialCount)
-        if let id = resultId {
-            #expect(!model.document.objects.contains(where: { $0.id == id }))
-        }
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+        #expect(model.pendingImportError?.errorCode == KernelErrorCode.geometryFailed.rawValue)
+        #expect(model.pendingImportError?.fileName == tempURL.lastPathComponent)
+
+        model.dismissImportErrorAlert()
+        #expect(!model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError == nil)
+    }
+
+    @Test @MainActor func testImportStepAlertStateClearedOnLifecycle() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = WorkspaceModel()
+        let nonExistentURL = tempDir.appendingPathComponent("non-existent-\(UUID().uuidString).step")
+        let emptyURL = tempDir.appendingPathComponent("empty-\(UUID().uuidString).step")
+        try Data().write(to: emptyURL)
+
+        // 1. Trigger failure via non-existent file
+        let fail1 = await model.importStepFile(at: nonExistentURL)
+        #expect(fail1 == nil)
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+
+        // Clear via newDocument()
+        model.newDocument()
+        #expect(!model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError == nil)
+
+        // 2. Trigger failure again via empty file
+        let fail2 = await model.importStepFile(at: emptyURL)
+        #expect(fail2 == nil)
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+
+        // Clear via successful importStepFile
+        let validURL = tempDir.appendingPathComponent("valid-\(UUID().uuidString).step")
+        let exported = await model.exportStepFile(to: validURL, selectedOnly: true)
+        #expect(exported)
+
+        let successId = await model.importStepFile(at: validURL)
+        #expect(successId != nil)
+        #expect(!model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError == nil)
+
+        // 3. Trigger failure again via empty file
+        let fail3 = await model.importStepFile(at: emptyURL)
+        #expect(fail3 == nil)
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+
+        let packageDir = tempDir.appendingPathComponent("test-package-\(UUID().uuidString).made")
+        let saved = model.saveDocument(to: packageDir)
+        #expect(saved)
+
+        // Ensure import alert is still set before openDocument
+        #expect(model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError != nil)
+
+        // Clear via openDocument(at:)
+        let opened = model.openDocument(at: packageDir)
+        #expect(opened)
+        #expect(!model.isShowingImportErrorAlert)
+        #expect(model.pendingImportError == nil)
     }
 
     @Test @MainActor func testDeleteSelectedObjectAndEnablement() {
