@@ -60,3 +60,19 @@ public struct SaveErrorInfo: Identifiable, Sendable, Equatable {
     }
 }
 
+public struct OpenErrorInfo: Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public let documentURL: URL
+    public let reason: String
+
+    public var fileName: String {
+        documentURL.lastPathComponent
+    }
+
+    public init(id: UUID = UUID(), documentURL: URL, reason: String) {
+        self.id = id
+        self.documentURL = documentURL
+        self.reason = reason
+    }
+}
+
