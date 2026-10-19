@@ -145,6 +145,23 @@ struct NavigatorSidebarView: View {
                 } message: {
                     Text("Are you sure you want to delete “\(workspace.objectPendingDeletion?.name ?? "this solid")”? This action cannot be undone.")
                 }
+                .confirmationDialog(
+                    "Delete “\(workspace.featurePendingDeletion?.name ?? "Feature")”?",
+                    isPresented: Binding(
+                        get: { workspace.pendingDeleteFeatureId != nil },
+                        set: { if !$0 { workspace.cancelDeleteFeature() } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) {
+                        workspace.confirmDeleteFeature()
+                    }
+                    Button("Cancel", role: .cancel) {
+                        workspace.cancelDeleteFeature()
+                    }
+                } message: {
+                    Text("Are you sure you want to delete “\(workspace.featurePendingDeletion?.name ?? "this feature")”? Any downstream features depending on it will show reference errors.")
+                }
                 .onChange(of: workspace.selectedId) { _, newId in
                     if let newId {
                         withAnimation(.easeInOut(duration: 0.15)) {
@@ -440,6 +457,7 @@ private struct NavigatorRow: View {
 struct NavigatorSketchRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
+    @State private var isHovered = false
 
     var body: some View {
         let isSelected = workspace.isFeatureSelected(feature)
@@ -479,14 +497,42 @@ struct NavigatorSketchRow: View {
             }
 
             Spacer(minLength: 4)
+
+            if isHovered || feature.isLocked {
+                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                    workspace.toggleFeatureLocked(feature.id)
+                }
+                .foregroundStyle(.secondary)
+                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                .barControl()
+            }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .onTapGesture {
             workspace.selectFeature(feature.id)
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
-        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, entityCount: count, status: status))
+        .contextMenu {
+            Button(feature.isLocked ? "Unlock" : "Lock") {
+                workspace.toggleFeatureLocked(feature.id)
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                workspace.requestDeleteFeature(feature.id)
+            }
+            .disabled(feature.isLocked)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, entityCount: count, status: status, isLocked: feature.isLocked))
+        .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
+            workspace.toggleFeatureLocked(feature.id)
+        }
+        .accessibilityAction(named: "Delete") {
+            workspace.requestDeleteFeature(feature.id)
+        }
     }
 
     private var entityCount: Int {
@@ -552,8 +598,8 @@ struct NavigatorSketchRow: View {
         }
     }
 
-    nonisolated static func accessibilityLabel(featureName: String, entityCount: Int, status: SketchDOFStatus) -> String {
-        "\(featureName), Sketch, \(entityCount) entities, \(status.statusText)"
+    nonisolated static func accessibilityLabel(featureName: String, entityCount: Int, status: SketchDOFStatus, isLocked: Bool = false) -> String {
+        "\(featureName), Sketch, \(entityCount) entities, \(status.statusText)\(isLocked ? ", Locked" : "")"
     }
 }
 
@@ -561,9 +607,10 @@ struct NavigatorSketchRow: View {
 private struct NavigatorDatumPlaneRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
+    @State private var isHovered = false
 
     var body: some View {
-        let isSelected = workspace.selectedDatumPlaneFeature?.id == feature.id
+        let isSelected = workspace.isFeatureSelected(feature)
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "square.dashed")
                 .foregroundStyle(Color.blue)
@@ -594,13 +641,42 @@ private struct NavigatorDatumPlaneRow: View {
             }
 
             Spacer(minLength: 4)
+
+            if isHovered || feature.isLocked {
+                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                    workspace.toggleFeatureLocked(feature.id)
+                }
+                .foregroundStyle(.secondary)
+                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                .barControl()
+            }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .onTapGesture {
             workspace.selectFeature(feature.id)
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .contextMenu {
+            Button(feature.isLocked ? "Unlock" : "Lock") {
+                workspace.toggleFeatureLocked(feature.id)
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                workspace.requestDeleteFeature(feature.id)
+            }
+            .disabled(feature.isLocked)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(feature.name), Datum Plane\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
+            workspace.toggleFeatureLocked(feature.id)
+        }
+        .accessibilityAction(named: "Delete") {
+            workspace.requestDeleteFeature(feature.id)
+        }
     }
 }
 
@@ -608,9 +684,10 @@ private struct NavigatorDatumPlaneRow: View {
 private struct NavigatorDatumAxisRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
+    @State private var isHovered = false
 
     var body: some View {
-        let isSelected = workspace.selectedDatumAxisFeature?.id == feature.id
+        let isSelected = workspace.isFeatureSelected(feature)
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "line.diagonal")
                 .foregroundStyle(Color.orange)
@@ -641,13 +718,42 @@ private struct NavigatorDatumAxisRow: View {
             }
 
             Spacer(minLength: 4)
+
+            if isHovered || feature.isLocked {
+                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                    workspace.toggleFeatureLocked(feature.id)
+                }
+                .foregroundStyle(.secondary)
+                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                .barControl()
+            }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .onTapGesture {
             workspace.selectFeature(feature.id)
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .contextMenu {
+            Button(feature.isLocked ? "Unlock" : "Lock") {
+                workspace.toggleFeatureLocked(feature.id)
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                workspace.requestDeleteFeature(feature.id)
+            }
+            .disabled(feature.isLocked)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(feature.name), Datum Axis\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
+            workspace.toggleFeatureLocked(feature.id)
+        }
+        .accessibilityAction(named: "Delete") {
+            workspace.requestDeleteFeature(feature.id)
+        }
     }
 }
 
@@ -655,9 +761,10 @@ private struct NavigatorDatumAxisRow: View {
 private struct NavigatorDatumPointRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
+    @State private var isHovered = false
 
     var body: some View {
-        let isSelected = workspace.selectedDatumPointFeature?.id == feature.id
+        let isSelected = workspace.isFeatureSelected(feature)
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "smallcircle.filled.circle")
                 .foregroundStyle(Color.green)
@@ -688,13 +795,42 @@ private struct NavigatorDatumPointRow: View {
             }
 
             Spacer(minLength: 4)
+
+            if isHovered || feature.isLocked {
+                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                    workspace.toggleFeatureLocked(feature.id)
+                }
+                .foregroundStyle(.secondary)
+                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                .barControl()
+            }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .onTapGesture {
             workspace.selectFeature(feature.id)
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .contextMenu {
+            Button(feature.isLocked ? "Unlock" : "Lock") {
+                workspace.toggleFeatureLocked(feature.id)
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                workspace.requestDeleteFeature(feature.id)
+            }
+            .disabled(feature.isLocked)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(feature.name), Datum Point\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
+            workspace.toggleFeatureLocked(feature.id)
+        }
+        .accessibilityAction(named: "Delete") {
+            workspace.requestDeleteFeature(feature.id)
+        }
     }
 }
 
@@ -702,9 +838,10 @@ private struct NavigatorDatumPointRow: View {
 private struct NavigatorDatumCoordinateSystemRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let feature: Feature
+    @State private var isHovered = false
 
     var body: some View {
-        let isSelected = workspace.selectedDatumCoordinateSystemFeature?.id == feature.id
+        let isSelected = workspace.isFeatureSelected(feature)
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "dot.scope")
                 .foregroundStyle(Color.purple)
@@ -735,12 +872,41 @@ private struct NavigatorDatumCoordinateSystemRow: View {
             }
 
             Spacer(minLength: 4)
+
+            if isHovered || feature.isLocked {
+                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                    workspace.toggleFeatureLocked(feature.id)
+                }
+                .foregroundStyle(.secondary)
+                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                .barControl()
+            }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .onTapGesture {
             workspace.selectFeature(feature.id)
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .contextMenu {
+            Button(feature.isLocked ? "Unlock" : "Lock") {
+                workspace.toggleFeatureLocked(feature.id)
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                workspace.requestDeleteFeature(feature.id)
+            }
+            .disabled(feature.isLocked)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(feature.name), Datum UCS\(feature.isLocked ? ", Locked" : "")")
+        .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
+            workspace.toggleFeatureLocked(feature.id)
+        }
+        .accessibilityAction(named: "Delete") {
+            workspace.requestDeleteFeature(feature.id)
+        }
     }
 }

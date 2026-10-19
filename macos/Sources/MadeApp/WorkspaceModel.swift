@@ -59,6 +59,7 @@ final class WorkspaceModel {
     }
 
     var pendingDeleteId: ObjectId?
+    var pendingDeleteFeatureId: UUID?
     // Document Persistence & State
     var currentDocumentURL: URL?
     var isDocumentModified: Bool = false
@@ -718,6 +719,11 @@ final class WorkspaceModel {
     var objectPendingDeletion: SceneObject? {
         guard let pendingDeleteId else { return nil }
         return document.objects.first { $0.id == pendingDeleteId }
+    }
+
+    var featurePendingDeletion: Feature? {
+        guard let pendingDeleteFeatureId else { return nil }
+        return document.feature(for: pendingDeleteFeatureId)
     }
 
     // MARK: - Setup
@@ -2108,14 +2114,32 @@ final class WorkspaceModel {
         }
     }
 
+    var canDeleteSelectedFeature: Bool {
+        guard let feat = selectedFeature else { return false }
+        return !feat.isLocked
+    }
+
     var canDeleteSelectedObject: Bool {
-        guard let obj = selectedObject else { return false }
-        return !obj.isLocked
+        if let obj = selectedObject {
+            return !obj.isLocked
+        }
+        if let feat = selectedFeature {
+            return !feat.isLocked
+        }
+        return false
     }
 
     func deleteSelectedObject() {
-        guard let id = selectedId else { return }
-        requestDeleteObject(id)
+        if let id = selectedId {
+            requestDeleteObject(id)
+        } else if let feat = selectedFeature {
+            requestDeleteFeature(feat.id)
+        }
+    }
+
+    func deleteSelectedFeature() {
+        guard let feat = selectedFeature else { return }
+        requestDeleteFeature(feat.id)
     }
 
     func requestDeleteObject(_ id: ObjectId) {
@@ -2131,6 +2155,60 @@ final class WorkspaceModel {
 
     func cancelDeleteObject() {
         pendingDeleteId = nil
+    }
+
+    func requestDeleteFeature(_ id: UUID) {
+        guard let feat = document.feature(for: id), !feat.isLocked else { return }
+        pendingDeleteFeatureId = id
+    }
+
+    func confirmDeleteFeature() {
+        guard let id = pendingDeleteFeatureId else { return }
+        pendingDeleteFeatureId = nil
+        removeFeature(id)
+    }
+
+    func cancelDeleteFeature() {
+        pendingDeleteFeatureId = nil
+    }
+
+    @discardableResult
+    func removeFeature(_ id: UUID) -> Task<Void, Never> {
+        guard let feature = document.feature(for: id), !feature.isLocked else {
+            return Task {}
+        }
+        let dependents = document.dependentFeatures(referencing: id)
+        let outputSolidId = feature.outputSolidId
+        if let solidId = outputSolidId {
+            partReloadController?.stopWatching(id: solidId)
+        }
+        let result = document.removeFeature(id: id)
+        guard case .success = result else { return Task {} }
+
+        syncViewportSelection()
+        markDocumentModified()
+
+        let task = Task {
+            if let solidId = outputSolidId {
+                await kernelClient.dispose(solidId: solidId)
+            }
+            await KernelRegeneration.regenerate(features: dependents, in: self.document, client: self.kernelClient)
+            for dep in dependents {
+                if let depSolidId = dep.outputSolidId {
+                    self.recomputeSolid(id: depSolidId)
+                }
+            }
+            self.invalidateViewport(.model)
+        }
+        if let solidId = outputSolidId {
+            recomputeFailures.clear(solidId)
+            if let renderer = viewportManager.renderer {
+                _ = SolidMeshApplier.remove(id: solidId, from: renderer)
+            }
+        }
+        log(.info, "Scene", "Removed feature \(feature.name) (\(id.uuidString))")
+        invalidateViewport(.model)
+        return task
     }
 
     @discardableResult
@@ -2243,6 +2321,22 @@ final class WorkspaceModel {
     func toggleFeatureVisibility(_ id: UUID) {
         guard let feature = document.feature(for: id) else { return }
         setFeatureVisibility(id: id, isVisible: !feature.isVisible)
+    }
+
+    func setFeatureLocked(id: UUID, isLocked: Bool) {
+        guard let feat = document.feature(for: id), feat.isLocked != isLocked else { return }
+        let result = document.setFeatureLocked(id: id, isLocked: isLocked)
+        guard case .success = result else { return }
+        if isFeatureSelected(feat) {
+            syncViewportSelection()
+        }
+        markDocumentModified()
+        log(.info, "Scene", "\(isLocked ? "Locked" : "Unlocked") feature \(feat.name) (\(id.uuidString))")
+    }
+
+    func toggleFeatureLocked(_ id: UUID) {
+        guard let feat = document.feature(for: id) else { return }
+        setFeatureLocked(id: id, isLocked: !feat.isLocked)
     }
 
     // MARK: - Body Mutators (BL-FND-13)
@@ -2513,8 +2607,10 @@ final class WorkspaceModel {
         document.redoActionTitle
     }
 
-    func undo() {
+    @discardableResult
+    func undo() -> Task<Void, Never> {
         let oldObjects = document.objects
+        let oldFeatureIds = Set(document.features.map(\.id))
         document.undo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
         syncHiddenSolidIds()
@@ -2526,10 +2622,19 @@ final class WorkspaceModel {
         if let sketch = selectedSketchFeature {
             refreshSketchStatus(for: sketch.id)
         }
+        if oldFeatureIds != Set(document.features.map(\.id)) {
+            return Task {
+                await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
+                self.invalidateViewport(.model)
+            }
+        }
+        return Task {}
     }
 
-    func redo() {
+    @discardableResult
+    func redo() -> Task<Void, Never> {
         let oldObjects = document.objects
+        let oldFeatureIds = Set(document.features.map(\.id))
         document.redo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
         syncHiddenSolidIds()
@@ -2541,6 +2646,13 @@ final class WorkspaceModel {
         if let sketch = selectedSketchFeature {
             refreshSketchStatus(for: sketch.id)
         }
+        if oldFeatureIds != Set(document.features.map(\.id)) {
+            return Task {
+                await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
+                self.invalidateViewport(.model)
+            }
+        }
+        return Task {}
     }
 
     func beginInteractiveParamEdit(_ id: ObjectId, _ key: String) {
