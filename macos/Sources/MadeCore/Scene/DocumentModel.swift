@@ -1154,7 +1154,7 @@ public final class DocumentModel {
 
     public func setTolerances(_ tolerances: KernelTolerances) {
         var newSettings = settings
-        newSettings.tolerances = tolerances
+        newSettings.tolerances = tolerances.clamped()
         setSettings(newSettings, actionName: "Change Document Settings")
     }
 

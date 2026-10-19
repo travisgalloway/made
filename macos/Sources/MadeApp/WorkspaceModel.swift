@@ -417,9 +417,10 @@ final class WorkspaceModel {
         didSet {
             let clamped = kernelTolerances.clamped()
             if kernelTolerances != clamped { kernelTolerances = clamped }
-            defaults.set(kernelTolerances.linearTolerance, forKey: Self.linearToleranceDefaultsKey)
-            defaults.set(kernelTolerances.angularTolerance, forKey: Self.angularToleranceDefaultsKey)
-            defaults.set(kernelTolerances.chordalTolerance, forKey: Self.chordalToleranceDefaultsKey)
+            defaults.set(clamped.linearTolerance, forKey: Self.linearToleranceDefaultsKey)
+            defaults.set(clamped.angularTolerance, forKey: Self.angularToleranceDefaultsKey)
+            defaults.set(clamped.chordalTolerance, forKey: Self.chordalToleranceDefaultsKey)
+            setDocumentTolerances(clamped)
         }
     }
     var activeCommand: CommandSession?
@@ -2467,8 +2468,10 @@ final class WorkspaceModel {
     }
 
     func setDocumentTolerances(_ tolerances: KernelTolerances) {
-        document.setTolerances(tolerances)
+        let clamped = tolerances.clamped()
+        document.setTolerances(clamped)
         markDocumentModified()
+        retessellateAll(tolerances: clamped)
     }
 
     func setDocumentDefaultMaterial(_ material: MaterialAttributes) {
@@ -2531,7 +2534,19 @@ final class WorkspaceModel {
         let start = clock.now
         Task { [weak self] in
             guard let self else { return }
-            let result = await self.kernelClient.request(request)
+            var result = await self.kernelClient.request(request)
+            if case .success = result {
+                guard self.document.objects.contains(where: { $0.id == id }) else {
+                    await self.kernelClient.dispose(solidId: id)
+                    return
+                }
+                let tessJobId = JobId("tess-\(UUID().uuidString)")
+                let tol = self.document.settings.tolerances.clamped()
+                let tessResult = await self.kernelClient.request(.tessellate(jobId: tessJobId, solidId: id, tolerances: tol))
+                if case .success = tessResult {
+                    result = tessResult
+                }
+            }
             let elapsed = clock.now - start
             self.lastRegenerationDuration = elapsed
             await self.updateKernelStats()
@@ -2582,6 +2597,68 @@ final class WorkspaceModel {
                     self.recomputeSolid(id: depId)
                 }
             }
+        }
+    }
+
+    func retessellateSolid(id: ObjectId, tolerances: KernelTolerances? = nil) {
+        guard document.objects.contains(where: { $0.id == id }) else { return }
+        let tol = (tolerances ?? document.settings.tolerances).clamped()
+        if let registry = toolRegistry {
+            let task = registry.scheduleRetessellate(id: id, tolerances: tol)
+            let clock = ContinuousClock()
+            let start = clock.now
+            Task { [weak self] in
+                await Task.yield()
+                await self?.updateKernelStats()
+                _ = await task?.value
+                let elapsed = clock.now - start
+                self?.lastRegenerationDuration = elapsed
+                await self?.updateKernelStats()
+            }
+            return
+        }
+        let jobId = JobId("tess-\(UUID().uuidString)")
+        let request = KernelRequest.tessellate(jobId: jobId, solidId: id, tolerances: tol)
+        let clock = ContinuousClock()
+        let start = clock.now
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await self.kernelClient.request(request)
+            let elapsed = clock.now - start
+            self.lastRegenerationDuration = elapsed
+            await self.updateKernelStats()
+            guard self.document.objects.contains(where: { $0.id == id }) else {
+                if case .success = result {
+                    await self.kernelClient.dispose(solidId: id)
+                }
+                return
+            }
+            if let message = self.recomputeFailures.record(result, for: id) {
+                self.log(.error, "Kernel", message)
+            }
+            switch result {
+            case .failure(_, let err):
+                if let feat = self.document.feature(for: id) {
+                    self.document.setFeatureError(
+                        id: feat.id,
+                        error: FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
+                    )
+                }
+            case .success:
+                if let feat = self.document.feature(for: id) {
+                    self.document.setFeatureError(id: feat.id, error: nil)
+                }
+            }
+            guard let renderer = self.viewportManager.renderer,
+                  SolidMeshApplier.apply(result, to: id, document: self.document, sink: renderer) else { return }
+            self.invalidateViewport(.model)
+        }
+    }
+
+    func retessellateAll(tolerances: KernelTolerances? = nil) {
+        let tol = (tolerances ?? document.settings.tolerances).clamped()
+        for obj in document.objects {
+            retessellateSolid(id: obj.id, tolerances: tol)
         }
     }
 

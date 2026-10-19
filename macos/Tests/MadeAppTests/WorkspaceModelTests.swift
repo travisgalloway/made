@@ -2100,6 +2100,109 @@ import MadeCore
         #expect(model.document.body(for: boxId)?.color == newColor)
         #expect(renderer.meshes[boxId]?.color == newColor)
     }
+
+    @Test @MainActor func testChangingChordalToleranceRetessellatesCylinder() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let registry = model.toolRegistry else {
+            Issue.record("Expected toolRegistry")
+            return
+        }
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        // 1. Set coarse chordal tolerance (0.1) via setDocumentTolerances
+        model.setDocumentTolerances(KernelTolerances(chordalTolerance: 0.1))
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        guard let renderer = model.viewportManager.renderer else {
+            Issue.record("Expected renderer")
+            return
+        }
+        guard let coarseMesh = renderer.meshes[cylinderSolidId] else {
+            Issue.record("Expected cylinder mesh")
+            return
+        }
+        let coarseTriangleCount = coarseMesh.indexCount / 3
+        #expect(renderer.meshes[boxSolidId] != nil, "Box mesh must still exist")
+
+        // 2. Set fine chordal tolerance (0.01) via setDocumentTolerances
+        model.setDocumentTolerances(KernelTolerances(chordalTolerance: 0.01))
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        guard let fineMesh = renderer.meshes[cylinderSolidId] else {
+            Issue.record("Expected fine cylinder mesh")
+            return
+        }
+        let fineTriangleCount = fineMesh.indexCount / 3
+        #expect(fineTriangleCount > coarseTriangleCount, "Fine tolerance must increase cylinder triangle count")
+        #expect(renderer.meshes[boxSolidId] != nil, "Box mesh must still exist")
+
+        // 3. Set even finer chordal tolerance (0.005) via kernelTolerances (Settings preferences)
+        model.kernelTolerances.chordalTolerance = 0.005
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        guard let finerMesh = renderer.meshes[cylinderSolidId] else {
+            Issue.record("Expected finer cylinder mesh")
+            return
+        }
+        let finerTriangleCount = finerMesh.indexCount / 3
+        #expect(finerTriangleCount > fineTriangleCount, "Finer tolerance must further increase cylinder triangle count")
+        #expect(renderer.meshes[boxSolidId] != nil, "Multiple solids remain installed without dropping meshes")
+    }
+
+    @Test @MainActor func testOpenDocumentAppliesTolerancesRetessellatingCylinder() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("test-pkg-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let packageURL = tempDir.appendingPathComponent("cylinder-fine.made")
+
+        let customTolerances = KernelTolerances(chordalTolerance: 0.01)
+        let manifest = MadeManifest(
+            schemaVersion: MadeManifest.currentSchemaVersion,
+            appVersion: "0.1",
+            documentSettings: DocumentSettings(tolerances: customTolerances)
+        )
+        let cylinderFeature = Feature.makeCylinder(
+            solidId: cylinderSolidId,
+            params: CylinderParams(radius: 15, height: 40)
+        )
+        let docData = DocumentData(
+            schemaVersion: DocumentData.currentSchemaVersion,
+            features: [cylinderFeature]
+        )
+        let package = MadePackage(manifest: manifest, documentData: docData)
+        try package.write(to: packageURL)
+
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let registry = model.toolRegistry else {
+            Issue.record("Expected toolRegistry")
+            return
+        }
+        await registry.settleRecomputes(for: [boxSolidId, cylinderSolidId])
+
+        let opened = model.openDocument(at: packageURL)
+        #expect(opened)
+        await registry.settleRecomputes(for: [cylinderSolidId])
+
+        #expect(model.document.settings.tolerances.chordalTolerance == 0.01)
+        guard let renderer = model.viewportManager.renderer,
+              let mesh = renderer.meshes[cylinderSolidId] else {
+            Issue.record("Expected cylinder mesh after opening document")
+            return
+        }
+        let fineTriangleCount = mesh.indexCount / 3
+
+        // Compare against coarse tessellation with 0.1
+        model.setDocumentTolerances(KernelTolerances(chordalTolerance: 0.1))
+        await registry.settleRecomputes(for: [cylinderSolidId])
+        guard let coarseMesh = renderer.meshes[cylinderSolidId] else {
+            Issue.record("Expected coarse cylinder mesh")
+            return
+        }
+        let coarseTriangleCount = coarseMesh.indexCount / 3
+        #expect(fineTriangleCount > coarseTriangleCount, "Document opened with fine tolerance must produce denser cylinder mesh than coarse")
+    }
 }
 
 
