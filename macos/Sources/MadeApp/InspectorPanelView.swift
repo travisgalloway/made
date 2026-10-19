@@ -2,6 +2,32 @@ import SwiftUI
 import MadeCore
 import simd
 
+enum InspectorUnitConversion {
+    static func displayLength(_ valueInMillimeters: Double, unit: LengthUnit) -> Double {
+        unit.fromMillimeters(valueInMillimeters)
+    }
+
+    static func commitLength(_ displayValue: Double, unit: LengthUnit) -> Float {
+        Float(unit.toMillimeters(displayValue))
+    }
+
+    static func lengthAccessibilityValue(_ displayValue: Double, unit: LengthUnit) -> String {
+        "\(displayValue.formatted(.number.precision(.fractionLength(1)))) \(unit.symbol)"
+    }
+
+    static func displayAngle(_ valueInDegrees: Double, unit: AngleUnit) -> Double {
+        unit.fromDegrees(valueInDegrees)
+    }
+
+    static func commitAngle(_ displayValue: Double, unit: AngleUnit) -> Double {
+        unit.toDegrees(displayValue)
+    }
+
+    static func angleAccessibilityValue(_ displayValue: Double, unit: AngleUnit) -> String {
+        "\(displayValue.formatted(.number.precision(.fractionLength(1)))) \(unit.symbol)"
+    }
+}
+
 struct InspectorPanelView: View {
     @Environment(WorkspaceModel.self) private var workspace
 
@@ -185,8 +211,9 @@ struct InspectorPanelView: View {
 
     private func transformSection(_ obj: SceneObject) -> some View {
         Section {
-            LabeledContent("Position (\(workspace.document.settings.units.lengthUnit.symbol))") {
-                vectorFields(obj.transform.position) { position in
+            let lengthUnit = workspace.document.settings.units.lengthUnit
+            LabeledContent("Position (\(lengthUnit.symbol))") {
+                vectorFields(obj.transform.position, unit: lengthUnit) { position in
                     var t = obj.transform
                     t.position = position
                     workspace.setTransform(obj.id, t)
@@ -348,11 +375,30 @@ struct InspectorPanelView: View {
             switch data.mode {
             case .origin:
                 LabeledContent("Preset", value: data.originPreset ?? "XY")
-                LabeledContent("Offset", value: String(format: "%.1f mm", data.offsetDistance))
+                LabeledContent("Offset", value: workspace.document.settings.units.formatLength(data.offsetDistance))
             case .offset:
-                LabeledContent("Offset Distance", value: String(format: "%.1f mm", data.offsetDistance))
+                LabeledContent("Offset Distance", value: workspace.document.settings.units.formatLength(data.offsetDistance))
             case .atAngle:
-                LabeledContent("Angle", value: String(format: "%.1f°", data.angleDegrees))
+                let angleUnit = workspace.document.settings.units.angleUnit
+                let displayAngle = InspectorUnitConversion.displayAngle(data.angleDegrees, unit: angleUnit)
+                let spoken = InspectorUnitConversion.angleAccessibilityValue(displayAngle, unit: angleUnit)
+                LabeledContent("Angle") {
+                    HStack(spacing: 4) {
+                        CommitNumberField(label: "Angle", value: displayAngle, width: 52) { newAngle in
+                            var updatedData = data
+                            updatedData.angleDegrees = InspectorUnitConversion.commitAngle(newAngle, unit: angleUnit)
+                            var updatedFeature = datumPlane
+                            updatedFeature.operation = .datumPlane(updatedData)
+                            _ = workspace.document.updateFeature(updatedFeature)
+                            Task {
+                                await KernelRegeneration.regenerateIncremental(from: datumPlane.id, in: workspace.document, client: workspace.kernelClient)
+                            }
+                        }
+                        .accessibilityLabel("Angle")
+                        .accessibilityValue(spoken)
+                        Text(angleUnit.symbol).foregroundStyle(.secondary)
+                    }
+                }
             case .threePoints:
                 if let p1 = data.point1 {
                     LabeledContent("Point 1", value: String(format: "(%.1f, %.1f, %.1f)", p1.x, p1.y, p1.z))
@@ -542,10 +588,18 @@ struct InspectorPanelView: View {
                 LabeledContent("Alignment", value: "Aligned with Reference Plane")
             case .offsetFromParent:
                 if let off = data.offsetDistance {
-                    LabeledContent("Offset", value: String(format: "(%.1f, %.1f, %.1f) mm", off.x, off.y, off.z))
+                    let units = workspace.document.settings.units
+                    let x = units.formatLength(Double(off.x), includeSymbol: false)
+                    let y = units.formatLength(Double(off.y), includeSymbol: false)
+                    let z = units.formatLength(Double(off.z), includeSymbol: false)
+                    LabeledContent("Offset", value: "(\(x), \(y), \(z)) \(units.lengthUnit.symbol)")
                 }
                 if let rot = data.rotationAngles {
-                    LabeledContent("Euler Angles", value: String(format: "(%.1f°, %.1f°, %.1f°)", rot.x, rot.y, rot.z))
+                    let units = workspace.document.settings.units
+                    let x = units.formatAngle(Double(rot.x), includeSymbol: false)
+                    let y = units.formatAngle(Double(rot.y), includeSymbol: false)
+                    let z = units.formatAngle(Double(rot.z), includeSymbol: false)
+                    LabeledContent("Euler Angles", value: "(\(x), \(y), \(z)) \(units.angleUnit.symbol)")
                 }
             }
             if let cached = data.cachedCoordinateSystem {
@@ -1247,17 +1301,26 @@ struct InspectorPanelView: View {
     // MARK: - Controls
 
     /// Three axis fields with X/Y/Z captions beneath, so Position and Scale lay out identically.
-    private func vectorFields(_ value: SIMD3<Float>, onChange: @escaping (SIMD3<Float>) -> Void) -> some View {
+    private func vectorFields(
+        _ value: SIMD3<Float>,
+        unit: LengthUnit? = nil,
+        onChange: @escaping (SIMD3<Float>) -> Void
+    ) -> some View {
         HStack(spacing: 6) {
             ForEach(0..<3, id: \.self) { axis in
                 let name = ["X", "Y", "Z"][axis]
+                let rawValue = Double(value[axis])
+                let displayValue = unit.map { InspectorUnitConversion.displayLength(rawValue, unit: $0) } ?? rawValue
+                let spoken = unit.map { InspectorUnitConversion.lengthAccessibilityValue(displayValue, unit: $0) }
+                    ?? "\(displayValue.formatted(.number.precision(.fractionLength(1))))"
                 VStack(spacing: 2) {
-                    CommitNumberField(label: name, value: Double(value[axis])) { newValue in
+                    CommitNumberField(label: name, value: displayValue) { newValue in
                         var v = value
-                        v[axis] = Float(newValue)
+                        v[axis] = unit.map { InspectorUnitConversion.commitLength(newValue, unit: $0) } ?? Float(newValue)
                         onChange(v)
                     }
                     .accessibilityLabel(name)
+                    .accessibilityValue(spoken)
                     Text(name)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -1267,7 +1330,7 @@ struct InspectorPanelView: View {
         .labelsHidden()
     }
 
-    /// A typed millimeter value with a slider and a 1-mm stepper; `setParam` clamps to the range (invariant 9).
+    /// A typed length value with a slider and a unit-stepped stepper; `setParam` clamps to the range (invariant 9).
     private func paramField(
         _ label: String,
         _ value: Float,
@@ -1276,12 +1339,19 @@ struct InspectorPanelView: View {
         key: String,
         onChange: @escaping (Float) -> Void
     ) -> some View {
-        let binding = Binding(get: { Double(value) }, set: { onChange(Float($0)) })
-        let symbol = workspace.document.settings.units.lengthUnit.symbol
-        let spoken = "\(value.formatted(.number.precision(.fractionLength(1)))) \(symbol)"
+        let lengthUnit = workspace.document.settings.units.lengthUnit
+        let displayValue = InspectorUnitConversion.displayLength(Double(value), unit: lengthUnit)
+        let displayMin = InspectorUnitConversion.displayLength(Double(range.min), unit: lengthUnit)
+        let displayMax = InspectorUnitConversion.displayLength(Double(range.max), unit: lengthUnit)
+        let symbol = lengthUnit.symbol
+        let spoken = InspectorUnitConversion.lengthAccessibilityValue(displayValue, unit: lengthUnit)
+        let binding = Binding(
+            get: { displayValue },
+            set: { onChange(InspectorUnitConversion.commitLength($0, unit: lengthUnit)) }
+        )
         return LabeledContent(label) {
             HStack(spacing: 4) {
-                Slider(value: binding, in: Double(range.min)...Double(range.max), step: 1) {
+                Slider(value: binding, in: displayMin...displayMax) {
                     Text(label)
                 } onEditingChanged: { editing in
                     if editing {
@@ -1293,11 +1363,13 @@ struct InspectorPanelView: View {
                 .accessibilityLabel(label)
                 .accessibilityValue(spoken)
 
-                CommitNumberField(label: label, value: Double(value), width: 52) { onChange(Float($0)) }
-                    .accessibilityLabel(label)
-                    .accessibilityValue(spoken)
+                CommitNumberField(label: label, value: displayValue, width: 52) { userVal in
+                    onChange(InspectorUnitConversion.commitLength(userVal, unit: lengthUnit))
+                }
+                .accessibilityLabel(label)
+                .accessibilityValue(spoken)
                 Text(symbol).foregroundStyle(.secondary)
-                Stepper(label, value: binding, in: Double(range.min)...Double(range.max), step: 1)
+                Stepper(label, value: binding, in: displayMin...displayMax, step: lengthUnit.defaultStep)
                     .accessibilityLabel(label)
                     .accessibilityValue(spoken)
             }

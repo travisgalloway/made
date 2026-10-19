@@ -48,11 +48,31 @@ struct CommitNumberField: View {
             }
     }
 
+    /// Strips trailing unit symbols, letters, and degree signs from draft input.
+    static func cleanDraft(_ draft: String) -> String {
+        draft.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(
+                of: "[a-zA-Z°]+$",
+                with: "",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Parses a draft string after sanitizing unit symbols and suffixes.
+    static func parseDraft(_ draft: String) -> Double? {
+        let cleaned = cleanDraft(draft)
+        guard let parsed = try? Double(cleaned, format: .number), parsed.isFinite else {
+            return nil
+        }
+        return parsed
+    }
+
     /// Commits the draft, then shows the model value; a clamp that leaves the value unchanged still redraws.
     private func apply() {
         let draft = text.trimmingCharacters(in: .whitespaces)
         text = Self.format.format(value)
-        if let parsed = try? Double(draft, format: .number), parsed.isFinite, parsed != value {
+        if let parsed = Self.parseDraft(draft), parsed != value {
             if let minimum, parsed < minimum {
                 return
             }
