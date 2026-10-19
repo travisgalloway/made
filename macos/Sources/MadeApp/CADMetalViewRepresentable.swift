@@ -303,8 +303,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         renderer.showsEdges = showsEdges
         renderer.displayMode = displayMode
         renderer.showsGizmo = showsGizmo && !isLocked && activeSelectedIds.count <= 1
-        if let plane = activeSketchPlane {
-            renderer.updateGrid(plane: plane)
+        if activeSketchPlane != nil || !sketchEntities.isEmpty {
+            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities)
         }
         return view
     }
@@ -356,8 +356,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             renderer.showsGrid = showsGrid
             needsInvalidate = true
         }
-        if renderer.activeSketchPlane != activeSketchPlane {
-            renderer.updateGrid(plane: activeSketchPlane)
+        if renderer.activeSketchPlane != activeSketchPlane || renderer.activeSketchEntities != sketchEntities {
+            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities)
             needsInvalidate = true
         }
         if renderer.showsAxes != showsAxes {

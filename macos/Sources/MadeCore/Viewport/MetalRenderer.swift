@@ -53,6 +53,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private let cadEdgeWireframeDepthState: MTLDepthStencilState
     private let gridDepthState: MTLDepthStencilState
     private let axesDepthState: MTLDepthStencilState
+    private let sketchDepthState: MTLDepthStencilState
     private let billboardDepthState: MTLDepthStencilState
     let snapDepthState: MTLDepthStencilState
     private let outlineDepthState: MTLDepthStencilState
@@ -91,6 +92,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private var gridPositionBuffer: MTLBuffer?
     private var gridColorBuffer: MTLBuffer?
     private var gridVertexCount = 0
+    private var currentGridSize: Float = GridGenerator.defaultSize
+    private var currentGridSpacing: Float = defaultGridSpacing
     private var axesPositionBuffer: MTLBuffer?
     private var axesColorBuffer: MTLBuffer?
     private var axesVertexCount = 0
@@ -104,6 +107,13 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private var snapNormalBuffer: MTLBuffer?
     private var snapIndexBuffer: MTLBuffer?
     private var snapIndexCount = 0
+
+    // Sketch geometry
+    public private(set) var activeSketchEntities: [SketchEntity] = []
+    public private(set) var sketchRenderItems: [SketchRenderItem] = []
+    public private(set) var sketchVertexCount: Int = 0
+    private var sketchPositionBuffer: MTLBuffer?
+    private var sketchColorBuffer: MTLBuffer?
 
     public var activeSnap: SnapResult? = nil
     public var selectedId: SolidId? = nil
@@ -225,6 +235,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
               let gridDepth = Self.makeDepthState(device, .less, write: true),
               // .lessEqual so the axes pass the depth test where they are coplanar with the Z = 0 grid
               let axesDepth = Self.makeDepthState(device, .lessEqual, write: true),
+              let sketchDepth = Self.makeDepthState(device, .lessEqual, write: true),
               let billboardDepth = Self.makeDepthState(device, .lessEqual, write: false),
               let snapDepth = Self.makeDepthState(device, .always, write: false),
               let outlineDepth = Self.makeDepthState(device, .lessEqual, write: false),
@@ -239,6 +250,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         self.cadEdgeWireframeDepthState = cadEdgeWireframeDepth
         self.gridDepthState = gridDepth
         self.axesDepthState = axesDepth
+        self.sketchDepthState = sketchDepth
         self.billboardDepthState = billboardDepth
         self.snapDepthState = snapDepth
         self.outlineDepthState = outlineDepth
@@ -359,8 +371,34 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     public private(set) var activeSketchPlane: SketchPlane? = nil
 
-    private func setupGrid(plane: SketchPlane = .xy, size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
-        let grid = GridGenerator.generateGrid(plane: plane, size: size, spacing: spacing)
+    private func setupSketch(plane: SketchPlane = .xy, entities: [SketchEntity]) {
+        self.activeSketchEntities = entities
+        let geometry = SketchGeometryGenerator.generateGeometry(entities: entities, plane: plane)
+        self.sketchRenderItems = geometry.items
+        self.sketchVertexCount = geometry.vertexCount
+        self.sketchPositionBuffer = makeBuffer(geometry.positions, label: "Sketch Positions")
+        self.sketchColorBuffer = makeBuffer(geometry.colors, label: "Sketch Colors")
+        updateResidency()
+    }
+
+    /// Sets or updates the active sketch plane and its entities, rebuilding grid and sketch geometry buffers.
+    public func updateSketch(plane: SketchPlane?, entities: [SketchEntity]) {
+        self.activeSketchPlane = plane
+        setupGrid(plane: plane ?? .xy)
+        setupSketch(plane: plane ?? .xy, entities: entities)
+    }
+
+    /// Rebuilds sketch geometry on the current sketch plane with new entities.
+    public func updateSketchEntities(_ entities: [SketchEntity]) {
+        setupSketch(plane: activeSketchPlane ?? .xy, entities: entities)
+    }
+
+    private func setupGrid(plane: SketchPlane = .xy, size: Float? = nil, spacing: Float? = nil) {
+        let effectiveSize = size ?? currentGridSize
+        let effectiveSpacing = spacing ?? currentGridSpacing
+        currentGridSize = effectiveSize
+        currentGridSpacing = effectiveSpacing
+        let grid = GridGenerator.generateGrid(plane: plane, size: effectiveSize, spacing: effectiveSpacing)
         gridVertexCount = grid.vertexCount
         gridPositionBuffer = makeBuffer(grid.positions, label: "Grid Positions")
         gridColorBuffer = makeBuffer(grid.colors, label: "Grid Colors")
@@ -368,14 +406,20 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     }
 
     /// Updates the active sketch plane grid and rebuilds the grid buffers.
-    public func updateGrid(plane: SketchPlane?, size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
+    public func updateGrid(plane: SketchPlane?, size: Float? = nil, spacing: Float? = nil) {
         self.activeSketchPlane = plane
         setupGrid(plane: plane ?? .xy, size: size, spacing: spacing)
+        if !activeSketchEntities.isEmpty {
+            setupSketch(plane: plane ?? .xy, entities: activeSketchEntities)
+        }
     }
 
     /// Updates the ground grid dimensions or spacing.
     public func updateGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
         setupGrid(plane: activeSketchPlane ?? .xy, size: size, spacing: spacing)
+        if !activeSketchEntities.isEmpty {
+            setupSketch(plane: activeSketchPlane ?? .xy, entities: activeSketchEntities)
+        }
     }
 
     private func setupAxes(length: Float = AxesGenerator.defaultLength, labelSize: Float = AxesGenerator.defaultLabelSize) {
@@ -574,7 +618,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         let statics: [MTLBuffer?] = [
             gridPositionBuffer, gridColorBuffer, axesPositionBuffer, axesColorBuffer,
             labelCenterBuffer, labelOffsetBuffer, labelTexCoordBuffer, labelColorBuffer,
-            snapPositionBuffer, snapNormalBuffer, snapIndexBuffer
+            snapPositionBuffer, snapNormalBuffer, snapIndexBuffer,
+            sketchPositionBuffer, sketchColorBuffer
         ]
         allocations += statics.compactMap { $0 }
         if let billboardTexture { allocations.append(billboardTexture) }
@@ -981,6 +1026,18 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             drawCalls += 1
         }
 
+        // Sketch entities on the active sketch plane
+        if let positions = sketchPositionBuffer, let colors = sketchColorBuffer, sketchVertexCount > 0,
+           ctx.bindUniforms(lineUniforms, at: 2) {
+            encoder.setRenderPipelineState(linePipeline)
+            encoder.setDepthStencilState(sketchDepthState)
+            encoder.setCullMode(.none)
+            ctx.bind(positions, at: 0)
+            ctx.bind(colors, at: 1)
+            encoder.drawPrimitives(primitiveType: .line, vertexStart: 0, vertexCount: sketchVertexCount)
+            drawCalls += 1
+        }
+
         // Snap marker
         if let snap = scene.activeSnap, let positions = snapPositionBuffer, let normals = snapNormalBuffer,
            let indices = snapIndexBuffer, snapIndexCount > 0 {
@@ -1170,7 +1227,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         let statics: [MTLBuffer?] = [
             gridPositionBuffer, gridColorBuffer, axesPositionBuffer, axesColorBuffer,
             labelCenterBuffer, labelOffsetBuffer, labelTexCoordBuffer, labelColorBuffer,
-            snapPositionBuffer, snapNormalBuffer, snapIndexBuffer
+            snapPositionBuffer, snapNormalBuffer, snapIndexBuffer,
+            sketchPositionBuffer, sketchColorBuffer
         ]
         snapshotResidency.addAllocations(statics.compactMap { $0 })
         if includeGizmo {
