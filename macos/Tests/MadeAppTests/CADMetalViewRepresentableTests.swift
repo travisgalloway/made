@@ -35,6 +35,8 @@ private enum MetalTestSupport {
         let boxId = SolidId("box-1")
         let mesh = try #require(renderer.createMesh(from: payload, solidId: boxId, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
         renderer.meshes[boxId] = mesh
+        renderer.selectedId = document.selectedId
+        renderer.selectedIds = document.selectedIds
 
         var invalidateCalls = 0
         let representable = CADMetalViewRepresentable(
@@ -63,12 +65,17 @@ private enum MetalTestSupport {
         return (window, view, coordinator, renderer, document, { invalidateCalls })
     }
 
-    private func makeMouseEvent(type: NSEvent.EventType, location: CGPoint, windowNumber: Int) -> NSEvent {
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: CGPoint,
+        windowNumber: Int,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
         if type == .mouseEntered || type == .mouseExited {
             return NSEvent.enterExitEvent(
                 with: type,
                 location: location,
-                modifierFlags: [],
+                modifierFlags: modifierFlags,
                 timestamp: 0,
                 windowNumber: windowNumber,
                 context: nil,
@@ -80,12 +87,12 @@ private enum MetalTestSupport {
         return NSEvent.mouseEvent(
             with: type,
             location: location,
-            modifierFlags: [],
+            modifierFlags: modifierFlags,
             timestamp: 0,
             windowNumber: windowNumber,
             context: nil,
             eventNumber: 0,
-            clickCount: 0,
+            clickCount: (type == .leftMouseDown || type == .leftMouseUp || type == .rightMouseDown || type == .rightMouseUp) ? 1 : 0,
             pressure: 0
         )!
     }
@@ -393,5 +400,138 @@ private enum MetalTestSupport {
 
         #expect(renderer.selectedId == SolidId("box-1"))
         #expect(getInvalidateCount() == initialInvalidateCount, "Re-evaluating with identical selection must not invalidate (Invariant 2)")
+    }
+
+    // MARK: - Multi-Selection Gesture Tests (#552 / DOC-10)
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testShiftClickExtendsSelectionAndSuppressesGizmo() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness()
+        let boxId = SolidId("box-1")
+        let cylId = SolidId("cylinder-1")
+
+        // Add cylinder mesh at (50, 0, 0)
+        let cylPayload = NativeGeometryGenerator.generateCylinder(radius: 15, height: 40)
+        let cylTransform = Transform(position: SIMD3<Float>(50, 0, 0))
+        let cylMesh = try #require(renderer.createMesh(from: cylPayload, solidId: cylId, transform: cylTransform, color: SIMD4<Float>(0.9, 0.4, 0.4, 1.0)))
+        renderer.meshes[cylId] = cylMesh
+
+        // Calculate screen coordinate for cylinder center
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = simd_mul(matrices.projection, matrices.view)
+        let clip = simd_mul(vp, SIMD4<Float>(50, 0, 0, 1.0))
+        let screenX = (clip.x / clip.w * 0.5 + 0.5) * Float(width)
+        let screenY = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * Float(height)
+        let cylCenter = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
+
+        // Initial state: single box selected
+        #expect(document.selectedIds == [boxId])
+        #expect(renderer.showsGizmo == true)
+
+        // Shift-click cylinder center
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: cylCenter, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: cylCenter, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+
+        // Verify extended multi-selection
+        #expect(document.selection.count == 2)
+        #expect(document.selectedIds.count == 2)
+        #expect(renderer.selectedIds.count == 2)
+        #expect(renderer.selectedIds.contains(boxId))
+        #expect(renderer.selectedIds.contains(cylId))
+        #expect(renderer.showsGizmo == false, "Gizmo must be suppressed when multiple solids are selected")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testShiftClickTogglesSelectionOff() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness()
+        let boxId = SolidId("box-1")
+        let cylId = SolidId("cylinder-1")
+
+        // Add cylinder mesh at (50, 0, 0)
+        let cylPayload = NativeGeometryGenerator.generateCylinder(radius: 15, height: 40)
+        let cylTransform = Transform(position: SIMD3<Float>(50, 0, 0))
+        let cylMesh = try #require(renderer.createMesh(from: cylPayload, solidId: cylId, transform: cylTransform, color: SIMD4<Float>(0.9, 0.4, 0.4, 1.0)))
+        renderer.meshes[cylId] = cylMesh
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = simd_mul(matrices.projection, matrices.view)
+        let clip = simd_mul(vp, SIMD4<Float>(50, 0, 0, 1.0))
+        let screenX = (clip.x / clip.w * 0.5 + 0.5) * Float(width)
+        let screenY = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * Float(height)
+        let cylCenter = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
+
+        // Pre-select both box and cylinder
+        document.selectedIds = [boxId, cylId]
+        renderer.selectedIds = [boxId, cylId]
+        renderer.showsGizmo = false
+
+        // Shift-click cylinder center to toggle it off
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: cylCenter, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: cylCenter, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+
+        #expect(document.selection.count == 1)
+        #expect(document.isSelected(solidId: boxId))
+        #expect(!document.isSelected(solidId: cylId))
+        #expect(renderer.selectedIds == [boxId])
+        #expect(renderer.showsGizmo == true, "Gizmo must re-enable when selection drops to single solid")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testCommandClickExtendsSelection() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness()
+        let boxId = SolidId("box-1")
+        let cylId = SolidId("cylinder-1")
+
+        let cylPayload = NativeGeometryGenerator.generateCylinder(radius: 15, height: 40)
+        let cylTransform = Transform(position: SIMD3<Float>(50, 0, 0))
+        let cylMesh = try #require(renderer.createMesh(from: cylPayload, solidId: cylId, transform: cylTransform, color: SIMD4<Float>(0.9, 0.4, 0.4, 1.0)))
+        renderer.meshes[cylId] = cylMesh
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = simd_mul(matrices.projection, matrices.view)
+        let clip = simd_mul(vp, SIMD4<Float>(50, 0, 0, 1.0))
+        let screenX = (clip.x / clip.w * 0.5 + 0.5) * Float(width)
+        let screenY = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * Float(height)
+        let cylCenter = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
+
+        // Command-click cylinder center
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: cylCenter, windowNumber: window.windowNumber, modifierFlags: .command)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: cylCenter, windowNumber: window.windowNumber, modifierFlags: .command)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+
+        #expect(document.selection.count == 2)
+        #expect(renderer.selectedIds.count == 2)
+        #expect(renderer.selectedIds.contains(boxId))
+        #expect(renderer.selectedIds.contains(cylId))
+        #expect(renderer.showsGizmo == false)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testClickOnEmptySpaceClearsSelection() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness()
+        let boxId = SolidId("box-1")
+        #expect(document.selectedIds == [boxId])
+        #expect(renderer.selectedIds == [boxId])
+
+        // Click on empty space corner (5, 5)
+        let corner = CGPoint(x: 5, y: 5)
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: corner, windowNumber: window.windowNumber)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: corner, windowNumber: window.windowNumber)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+
+        #expect(document.selection.isEmpty)
+        #expect(document.selectedIds.isEmpty)
+        #expect(document.selectedId == nil)
+        #expect(renderer.selectedIds.isEmpty)
+        #expect(renderer.selectedId == nil)
     }
 }

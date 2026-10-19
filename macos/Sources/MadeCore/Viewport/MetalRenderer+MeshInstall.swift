@@ -41,6 +41,7 @@ extension MetalRenderer {
         if selectedId == id {
             selectedId = nil
         }
+        selectedIds.remove(id)
         return meshes.removeValue(forKey: id) != nil
     }
 }

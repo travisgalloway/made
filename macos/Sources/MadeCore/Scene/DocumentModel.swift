@@ -603,6 +603,31 @@ public final class DocumentModel {
         }
     }
 
+    public var selectedIds: Set<ObjectId> {
+        get {
+            access(keyPath: \.selection)
+            var ids = Set<ObjectId>()
+            for ref in _selection {
+                switch ref.target {
+                case .body(let solidId):
+                    ids.insert(solidId)
+                case .feature(let featId):
+                    if let solidId = feature(for: featId)?.outputSolidId {
+                        ids.insert(solidId)
+                    }
+                default:
+                    break
+                }
+            }
+            return ids
+        }
+        set {
+            let currentIds = selectedIds
+            guard currentIds != newValue else { return }
+            selection = Set(newValue.map { Reference.body($0) })
+        }
+    }
+
     public var selectedSubElement: SelectedSubElement? {
         get {
             access(keyPath: \.selectedSubElement)
@@ -744,6 +769,14 @@ public final class DocumentModel {
             updated.remove(ref)
         }
         selection = updated
+    }
+
+    public func toggleSelection(solidId: ObjectId) {
+        if isSelected(solidId: solidId) {
+            deselect(solidId: solidId)
+        } else {
+            select(solidId: solidId)
+        }
     }
 
     public func isSelected(solidId: ObjectId) -> Bool {

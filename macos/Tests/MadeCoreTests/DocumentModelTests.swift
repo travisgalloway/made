@@ -1924,6 +1924,44 @@ import simd
         #expect(!changeFired.withLock { $0 })
     }
 
+    @Test func testSelectedIdsGetterSetterAndToggleSelection() {
+        let doc = DocumentModel()
+        #expect(doc.selectedIds == [boxSolidId])
+
+        // Setting selectedIds sets references
+        doc.selectedIds = [boxSolidId, cylinderSolidId]
+        #expect(doc.selectedIds == [boxSolidId, cylinderSolidId])
+        #expect(doc.selection.count == 2)
+        #expect(doc.isSelected(solidId: boxSolidId))
+        #expect(doc.isSelected(solidId: cylinderSolidId))
+
+        // Setting unchanged selectedIds is a no-op
+        let changeFired = OSAllocatedUnfairLock<Bool>(initialState: false)
+        withObservationTracking {
+            _ = doc.selection
+        } onChange: {
+            changeFired.withLock { $0 = true }
+        }
+        doc.selectedIds = [boxSolidId, cylinderSolidId]
+        #expect(!changeFired.withLock { $0 })
+
+        // toggleSelection on existing solid removes it
+        doc.toggleSelection(solidId: cylinderSolidId)
+        #expect(doc.selectedIds == [boxSolidId])
+        #expect(!doc.isSelected(solidId: cylinderSolidId))
+
+        // toggleSelection on unselected solid adds it
+        doc.toggleSelection(solidId: cylinderSolidId)
+        #expect(doc.selectedIds == [boxSolidId, cylinderSolidId])
+        #expect(doc.isSelected(solidId: cylinderSolidId))
+
+        // Clear selection via selectedIds = []
+        doc.selectedIds = []
+        #expect(doc.selectedIds.isEmpty)
+        #expect(doc.selection.isEmpty)
+        #expect(doc.selectedId == nil)
+    }
+
     @Test func testSelectedObjectBodyFeatureAccessors() {
         let doc = DocumentModel()
         #expect(doc.selectedObject?.id == boxSolidId)

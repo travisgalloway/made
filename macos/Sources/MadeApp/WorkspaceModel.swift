@@ -32,6 +32,32 @@ final class WorkspaceModel {
             }
         }
     }
+
+    var selectedIds: Set<ObjectId> {
+        get { document.selectedIds }
+        set {
+            if document.selectedIds != newValue {
+                document.selectedIds = newValue
+                syncViewportSelection()
+            }
+        }
+    }
+
+    func clearSelection() {
+        document.clearSelection()
+        syncViewportSelection()
+    }
+
+    func select(solidId: ObjectId) {
+        document.select(solidId: solidId)
+        syncViewportSelection()
+    }
+
+    func toggleSelection(solidId: ObjectId) {
+        document.toggleSelection(solidId: solidId)
+        syncViewportSelection()
+    }
+
     var pendingDeleteId: ObjectId?
     // Document Persistence & State
     var currentDocumentURL: URL?
@@ -699,15 +725,17 @@ final class WorkspaceModel {
     func syncViewportSelection() {
         guard let renderer = viewportManager.renderer else { return }
         var needsInvalidate = false
+        let targetSelectedIds = document.selectedIds
         let targetSelectedId = document.selectedId
         let targetSubElement = document.selectedSubElement
-        if renderer.selectedId != targetSelectedId || renderer.selectedSubElement != targetSubElement {
+        if renderer.selectedIds != targetSelectedIds || renderer.selectedId != targetSelectedId || renderer.selectedSubElement != targetSubElement {
+            renderer.selectedIds = targetSelectedIds
             renderer.selectedId = targetSelectedId
             renderer.selectedSubElement = targetSubElement
             needsInvalidate = true
         }
         let isLocked = selectedObject?.isLocked ?? false
-        let effectiveGizmo = showsGizmo && !isLocked
+        let effectiveGizmo = showsGizmo && !isLocked && targetSelectedIds.count <= 1
         if renderer.showsGizmo != effectiveGizmo {
             renderer.showsGizmo = effectiveGizmo
             needsInvalidate = true
@@ -724,9 +752,10 @@ final class WorkspaceModel {
         renderer.showsEdges = showsEdges
         renderer.displayMode = displayMode
         renderer.selectedId = selectedId
+        renderer.selectedIds = document.selectedIds
         renderer.selectedSubElement = document.selectedSubElement
         let isLocked = selectedObject?.isLocked ?? false
-        renderer.showsGizmo = showsGizmo && !isLocked
+        renderer.showsGizmo = showsGizmo && !isLocked && document.selectedIds.count <= 1
         self.camera = renderer.camera
     }
 

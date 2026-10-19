@@ -107,6 +107,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     public var activeSnap: SnapResult? = nil
     public var selectedId: SolidId? = nil
+    public var selectedIds: Set<SolidId> = []
     public var selectedSubElement: SelectedSubElement? = nil
     public var preselectedSubElement: SelectedSubElement? = nil
     public var activeGizmoHandle: GizmoHandle? = nil
@@ -144,6 +145,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             hiddenSolidIds: hiddenSolidIds,
             camera: camera,
             selectedId: selectedId,
+            selectedIds: !selectedIds.isEmpty ? selectedIds : (selectedId.map { [$0] } ?? []),
             selectedSubElement: selectedSubElement,
             preselectedSubElement: preselectedSubElement,
             activeSnap: activeSnap,
@@ -879,9 +881,10 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
 
         // Selection outline pass for the selected solid (cull .front, depth test .lessEqual, write: false)
-        if let selectedId = scene.selectedId,
-           let mesh = scene.meshes[selectedId],
-           !scene.hiddenSolidIds.contains(selectedId) {
+        let outlineIds = !scene.selectedIds.isEmpty ? scene.selectedIds : (scene.selectedId.map { [$0] } ?? [])
+        for solidId in outlineIds {
+            guard let mesh = scene.meshes[solidId],
+                  !scene.hiddenSolidIds.contains(solidId) else { continue }
             let outlineUniforms = OutlineUniforms(
                 modelMatrix: mesh.transform.matrix,
                 viewMatrix: viewMatrix,

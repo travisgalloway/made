@@ -291,8 +291,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
         }
         let activeSelectedId = selectedId ?? document.selectedId
+        let activeSelectedIds = selectedId.map { [$0] } ?? document.selectedIds
         let activeSubElement = selectedSubElement ?? document.selectedSubElement
         renderer.selectedId = activeSelectedId
+        renderer.selectedIds = activeSelectedIds
         renderer.selectedSubElement = activeSubElement
         renderer.preselectedSubElement = context.coordinator.preselectedSubElement
         let isLocked = document.objects.first(where: { $0.id == activeSelectedId })?.isLocked ?? false
@@ -300,7 +302,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         renderer.showsAxes = showsAxes
         renderer.showsEdges = showsEdges
         renderer.displayMode = displayMode
-        renderer.showsGizmo = showsGizmo && !isLocked
+        renderer.showsGizmo = showsGizmo && !isLocked && activeSelectedIds.count <= 1
         if let plane = activeSketchPlane {
             renderer.updateGrid(plane: plane)
         }
@@ -337,10 +339,12 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         let isLocked = document.objects.first(where: { $0.id == selectedId })?.isLocked ?? false
-        let effectiveGizmo = showsGizmo && !isLocked
+        let targetSelectedIds = selectedId.map { [$0] } ?? document.selectedIds
+        let effectiveGizmo = showsGizmo && !isLocked && targetSelectedIds.count <= 1
         var needsInvalidate = false
-        if renderer.selectedId != selectedId || renderer.selectedSubElement != selectedSubElement {
+        if renderer.selectedId != selectedId || renderer.selectedIds != targetSelectedIds || renderer.selectedSubElement != selectedSubElement {
             renderer.selectedId = selectedId
+            renderer.selectedIds = targetSelectedIds
             renderer.selectedSubElement = selectedSubElement
             needsInvalidate = true
         }
@@ -1097,17 +1101,39 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         }
                     }
 
-                    parent.document.selectedId = hitId
-                    parent.document.selectedSubElement = selectedSub
-                    if let hitId, parent.isCommandActive {
-                        parent.onSelectObjectForCommand?(hitId)
+                    let isExtend = event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.command)
+
+                    if let hitId {
+                        if isExtend {
+                            parent.document.toggleSelection(solidId: hitId)
+                            if parent.document.selection.count > 1 {
+                                parent.document.selectedSubElement = nil
+                            } else if parent.document.isSelected(solidId: hitId) {
+                                parent.document.selectedSubElement = selectedSub
+                            }
+                        } else {
+                            parent.document.selectedId = hitId
+                            parent.document.selectedSubElement = selectedSub
+                        }
+                        if parent.isCommandActive {
+                            parent.onSelectObjectForCommand?(hitId)
+                        }
+                    } else {
+                        // Empty space click clears selection
+                        parent.document.clearSelection()
                     }
-                    let isLocked = parent.document.objects.first(where: { $0.id == hitId })?.isLocked ?? false
-                    let effectiveGizmo = parent.showsGizmo && !isLocked
+
+                    let targetSelectedIds = parent.document.selectedIds
+                    let targetSelectedId = parent.document.selectedId
+                    let targetSubElement = parent.document.selectedSubElement
+                    let isLocked = parent.document.objects.first(where: { $0.id == targetSelectedId })?.isLocked ?? false
+                    let effectiveGizmo = parent.showsGizmo && !isLocked && targetSelectedIds.count <= 1
+
                     var needsInvalidate = false
-                    if parent.renderer.selectedId != hitId || parent.renderer.selectedSubElement != selectedSub {
-                        parent.renderer.selectedId = hitId
-                        parent.renderer.selectedSubElement = selectedSub
+                    if parent.renderer.selectedIds != targetSelectedIds || parent.renderer.selectedId != targetSelectedId || parent.renderer.selectedSubElement != targetSubElement {
+                        parent.renderer.selectedIds = targetSelectedIds
+                        parent.renderer.selectedId = targetSelectedId
+                        parent.renderer.selectedSubElement = targetSubElement
                         needsInvalidate = true
                     }
                     if parent.renderer.showsGizmo != effectiveGizmo {
@@ -1433,12 +1459,14 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
             }
         }
         renderer.selectedId = document.selectedId
+        renderer.selectedIds = document.selectedIds
         return view
     }
     
     public func updateUIView(_ uiView: MTKView, context: Context) {
-        if renderer.selectedId != document.selectedId {
+        if renderer.selectedId != document.selectedId || renderer.selectedIds != document.selectedIds {
             renderer.selectedId = document.selectedId
+            renderer.selectedIds = document.selectedIds
             context.coordinator.invalidate(reason: .interaction)
         }
         if coordinatorBinding?.wrappedValue !== context.coordinator {
