@@ -71,6 +71,21 @@ public struct FeatureErrorState: Sendable, Codable, Equatable {
     }
 }
 
+private struct AnyCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = "\(intValue)"
+        self.intValue = intValue
+    }
+}
+
 /// Parameter payloads for primitive solid features.
 public enum PrimitiveFeatureData: Sendable, Codable, Equatable {
     case box(BoxParams)
@@ -79,6 +94,92 @@ public enum PrimitiveFeatureData: Sendable, Codable, Equatable {
     case cone(ConeParams)
     case torus(TorusParams)
     case wedge(WedgeParams)
+
+    private enum CodingKeys: String, CodingKey {
+        case box = "box"
+        case cylinder = "cylinder"
+        case sphere = "sphere"
+        case cone = "cone"
+        case torus = "torus"
+        case wedge = "wedge"
+    }
+
+    private enum PayloadCodingKeys: String, CodingKey {
+        case payload = "_0"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.box) {
+            self = .box(try Self.decodePayload(BoxParams.self, forKey: .box, from: container))
+            return
+        }
+        if container.contains(.cylinder) {
+            self = .cylinder(try Self.decodePayload(CylinderParams.self, forKey: .cylinder, from: container))
+            return
+        }
+        if container.contains(.sphere) {
+            self = .sphere(try Self.decodePayload(SphereParams.self, forKey: .sphere, from: container))
+            return
+        }
+        if container.contains(.cone) {
+            self = .cone(try Self.decodePayload(ConeParams.self, forKey: .cone, from: container))
+            return
+        }
+        if container.contains(.torus) {
+            self = .torus(try Self.decodePayload(TorusParams.self, forKey: .torus, from: container))
+            return
+        }
+        if container.contains(.wedge) {
+            self = .wedge(try Self.decodePayload(WedgeParams.self, forKey: .wedge, from: container))
+            return
+        }
+
+        let rawContainer = try? decoder.container(keyedBy: AnyCodingKey.self)
+        let unknownKeys = rawContainer?.allKeys.map(\.stringValue).sorted().joined(separator: ", ") ?? ""
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unknown PrimitiveFeatureData key: \(unknownKeys.isEmpty ? "<none>" : unknownKeys)"
+            )
+        )
+    }
+
+    private static func decodePayload<T: Decodable>(
+        _ type: T.Type,
+        forKey key: CodingKeys,
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> T {
+        if let nested = try? container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: key),
+           nested.contains(.payload) {
+            return try nested.decode(T.self, forKey: .payload)
+        }
+        return try container.decode(T.self, forKey: key)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .box(let params):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .box)
+            try nested.encode(params, forKey: .payload)
+        case .cylinder(let params):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .cylinder)
+            try nested.encode(params, forKey: .payload)
+        case .sphere(let params):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .sphere)
+            try nested.encode(params, forKey: .payload)
+        case .cone(let params):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .cone)
+            try nested.encode(params, forKey: .payload)
+        case .torus(let params):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .torus)
+            try nested.encode(params, forKey: .payload)
+        case .wedge(let params):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .wedge)
+            try nested.encode(params, forKey: .payload)
+        }
+    }
 }
 
 /// Individual entity within a 2D sketch (line, arc, circle, constraint).
@@ -479,6 +580,124 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case datumAxis(DatumAxisFeatureData)
     case datumPoint(DatumPointFeatureData)
     case datumCoordinateSystem(DatumCoordinateSystemFeatureData)
+
+    private enum CodingKeys: String, CodingKey {
+        case primitive = "primitive"
+        case sketch = "sketch"
+        case extrude = "extrude"
+        case boolean = "boolean"
+        case part = "part"
+        case imported = "imported"
+        case datumPlane = "datumPlane"
+        case datumAxis = "datumAxis"
+        case datumPoint = "datumPoint"
+        case datumCoordinateSystem = "datumCoordinateSystem"
+    }
+
+    private enum PayloadCodingKeys: String, CodingKey {
+        case payload = "_0"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.primitive) {
+            self = .primitive(try Self.decodePayload(PrimitiveFeatureData.self, forKey: .primitive, from: container))
+            return
+        }
+        if container.contains(.sketch) {
+            self = .sketch(try Self.decodePayload(SketchFeatureData.self, forKey: .sketch, from: container))
+            return
+        }
+        if container.contains(.extrude) {
+            self = .extrude(try Self.decodePayload(ExtrudeFeatureData.self, forKey: .extrude, from: container))
+            return
+        }
+        if container.contains(.boolean) {
+            self = .boolean(try Self.decodePayload(BooleanFeatureData.self, forKey: .boolean, from: container))
+            return
+        }
+        if container.contains(.part) {
+            self = .part(try Self.decodePayload(PartFeatureData.self, forKey: .part, from: container))
+            return
+        }
+        if container.contains(.imported) {
+            self = .imported(try Self.decodePayload(ImportedFeatureData.self, forKey: .imported, from: container))
+            return
+        }
+        if container.contains(.datumPlane) {
+            self = .datumPlane(try Self.decodePayload(DatumPlaneFeatureData.self, forKey: .datumPlane, from: container))
+            return
+        }
+        if container.contains(.datumAxis) {
+            self = .datumAxis(try Self.decodePayload(DatumAxisFeatureData.self, forKey: .datumAxis, from: container))
+            return
+        }
+        if container.contains(.datumPoint) {
+            self = .datumPoint(try Self.decodePayload(DatumPointFeatureData.self, forKey: .datumPoint, from: container))
+            return
+        }
+        if container.contains(.datumCoordinateSystem) {
+            self = .datumCoordinateSystem(try Self.decodePayload(DatumCoordinateSystemFeatureData.self, forKey: .datumCoordinateSystem, from: container))
+            return
+        }
+
+        let rawContainer = try? decoder.container(keyedBy: AnyCodingKey.self)
+        let unknownKeys = rawContainer?.allKeys.map(\.stringValue).sorted().joined(separator: ", ") ?? ""
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unknown FeatureOperation key: \(unknownKeys.isEmpty ? "<none>" : unknownKeys)"
+            )
+        )
+    }
+
+    private static func decodePayload<T: Decodable>(
+        _ type: T.Type,
+        forKey key: CodingKeys,
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> T {
+        if let nested = try? container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: key),
+           nested.contains(.payload) {
+            return try nested.decode(T.self, forKey: .payload)
+        }
+        return try container.decode(T.self, forKey: key)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .primitive(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .primitive)
+            try nested.encode(data, forKey: .payload)
+        case .sketch(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .sketch)
+            try nested.encode(data, forKey: .payload)
+        case .extrude(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .extrude)
+            try nested.encode(data, forKey: .payload)
+        case .boolean(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .boolean)
+            try nested.encode(data, forKey: .payload)
+        case .part(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .part)
+            try nested.encode(data, forKey: .payload)
+        case .imported(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .imported)
+            try nested.encode(data, forKey: .payload)
+        case .datumPlane(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .datumPlane)
+            try nested.encode(data, forKey: .payload)
+        case .datumAxis(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .datumAxis)
+            try nested.encode(data, forKey: .payload)
+        case .datumPoint(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .datumPoint)
+            try nested.encode(data, forKey: .payload)
+        case .datumCoordinateSystem(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .datumCoordinateSystem)
+            try nested.encode(data, forKey: .payload)
+        }
+    }
 }
 
 /// Canonical parametric modeling feature in an ordered linear history (ADR-D2).

@@ -766,4 +766,361 @@ import simd
         #expect(decoded.outputSolidId == boxSolidId)
         #expect(decoded.name == boxFeature.name)
     }
+
+    // MARK: - Issue #561 Golden Fixture and Explicit CodingKeys Tests
+
+    static var fixtureURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/document.json")
+    }
+
+    static func makeCanonicalGoldenDocumentData() -> DocumentData {
+        let features: [Feature] = [
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                name: "Box Primitive",
+                operation: .primitive(.box(BoxParams(width: 40, depth: 30, height: 20)))
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+                name: "Cylinder Primitive",
+                operation: .primitive(.cylinder(CylinderParams(radius: 15, height: 40)))
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+                name: "Sphere Primitive",
+                operation: .primitive(.sphere(SphereParams(radius: 25)))
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+                name: "Cone Primitive",
+                operation: .primitive(.cone(ConeParams(bottomRadius: 20, topRadius: 5, height: 35)))
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
+                name: "Torus Primitive",
+                operation: .primitive(.torus(TorusParams(majorRadius: 30, minorRadius: 8)))
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
+                name: "Wedge Primitive",
+                operation: .primitive(.wedge(WedgeParams(width: 30, depth: 25, height: 20, topWidth: 10)))
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000007")!,
+                name: "Sketch Feature",
+                operation: .sketch(
+                    SketchFeatureData(
+                        planeName: "XY",
+                        entities: [
+                            SketchEntity(
+                                id: UUID(uuidString: "00000000-0000-0000-0001-000000000001")!,
+                                kind: "line",
+                                data: ["length": 25.0]
+                            )
+                        ]
+                    )
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000008")!,
+                name: "Extrude Feature",
+                operation: .extrude(
+                    ExtrudeFeatureData(
+                        distance: 50.0,
+                        isSymmetric: true,
+                        draftAngle: 1.5
+                    )
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000009")!,
+                name: "Boolean Feature",
+                operation: .boolean(
+                    BooleanFeatureData(
+                        op: .subtract,
+                        targetSolidId: SolidId("solid-a"),
+                        toolSolidId: SolidId("solid-b")
+                    )
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
+                name: "Part Feature",
+                operation: .part(
+                    PartFeatureData(url: URL(fileURLWithPath: "/parts/bracket.part.ts"))
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000011")!,
+                name: "Imported Feature",
+                operation: .imported(
+                    ImportedFeatureData(name: "model.step", data: Data([10, 20, 30]))
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000012")!,
+                name: "Datum Plane Feature",
+                operation: .datumPlane(
+                    DatumPlaneFeatureData(mode: .origin, originPreset: "XY", offsetDistance: 10.0)
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000013")!,
+                name: "Datum Axis Feature",
+                operation: .datumAxis(
+                    DatumAxisFeatureData(mode: .preset, presetName: "Z")
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000014")!,
+                name: "Datum Point Feature",
+                operation: .datumPoint(
+                    DatumPointFeatureData(mode: .coordinates)
+                )
+            ),
+            Feature(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000015")!,
+                name: "Datum Coordinate System Feature",
+                operation: .datumCoordinateSystem(
+                    DatumCoordinateSystemFeatureData(mode: .originAndAxes)
+                )
+            )
+        ]
+        return DocumentData(schemaVersion: 1, features: features, objects: [])
+    }
+
+    static func ensureFixtureExists() throws {
+        let fixtureURL = Self.fixtureURL
+        if !FileManager.default.fileExists(atPath: fixtureURL.path) {
+            try FileManager.default.createDirectory(at: fixtureURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let canonical = makeCanonicalGoldenDocumentData()
+            let canonicalData = try DocumentModelCoder.encode(canonical)
+            try canonicalData.write(to: fixtureURL)
+        }
+    }
+
+    @Test func testFeatureOperationAndPrimitiveCodingKeysGoldenFixture() throws {
+        try Self.ensureFixtureExists()
+        let fixtureURL = Self.fixtureURL
+        #expect(FileManager.default.fileExists(atPath: fixtureURL.path), "Fixture must exist at \(fixtureURL.path)")
+        let data = try Data(contentsOf: fixtureURL)
+        let decoded = try DocumentModelCoder.decode(from: data)
+        let features = try #require(decoded.features)
+        #expect(features.count == 15)
+
+        // 1. Primitive Box
+        guard case .primitive(.box(let box)) = features[0].operation else {
+            Issue.record("Expected .primitive(.box)")
+            return
+        }
+        #expect(box.width == 40 && box.depth == 30 && box.height == 20)
+
+        // 2. Primitive Cylinder
+        guard case .primitive(.cylinder(let cylinder)) = features[1].operation else {
+            Issue.record("Expected .primitive(.cylinder)")
+            return
+        }
+        #expect(cylinder.radius == 15 && cylinder.height == 40)
+
+        // 3. Primitive Sphere
+        guard case .primitive(.sphere(let sphere)) = features[2].operation else {
+            Issue.record("Expected .primitive(.sphere)")
+            return
+        }
+        #expect(sphere.radius == 25)
+
+        // 4. Primitive Cone
+        guard case .primitive(.cone(let cone)) = features[3].operation else {
+            Issue.record("Expected .primitive(.cone)")
+            return
+        }
+        #expect(cone.bottomRadius == 20 && cone.topRadius == 5 && cone.height == 35)
+
+        // 5. Primitive Torus
+        guard case .primitive(.torus(let torus)) = features[4].operation else {
+            Issue.record("Expected .primitive(.torus)")
+            return
+        }
+        #expect(torus.majorRadius == 30 && torus.minorRadius == 8)
+
+        // 6. Primitive Wedge
+        guard case .primitive(.wedge(let wedge)) = features[5].operation else {
+            Issue.record("Expected .primitive(.wedge)")
+            return
+        }
+        #expect(wedge.width == 30 && wedge.depth == 25 && wedge.height == 20 && wedge.topWidth == 10)
+
+        // 7. Sketch
+        guard case .sketch(let sketch) = features[6].operation else {
+            Issue.record("Expected .sketch")
+            return
+        }
+        #expect(sketch.planeName == "XY")
+        #expect(sketch.entities.count == 1)
+        #expect(sketch.entities.first?.kind == "line")
+
+        // 8. Extrude
+        guard case .extrude(let extrude) = features[7].operation else {
+            Issue.record("Expected .extrude")
+            return
+        }
+        #expect(extrude.distance == 50.0 && extrude.isSymmetric && extrude.draftAngle == 1.5)
+
+        // 9. Boolean
+        guard case .boolean(let boolean) = features[8].operation else {
+            Issue.record("Expected .boolean")
+            return
+        }
+        #expect(boolean.op == .subtract && boolean.targetSolidId == SolidId("solid-a") && boolean.toolSolidId == SolidId("solid-b"))
+
+        // 10. Part
+        guard case .part(let part) = features[9].operation else {
+            Issue.record("Expected .part")
+            return
+        }
+        #expect(part.url.lastPathComponent == "bracket.part.ts")
+
+        // 11. Imported
+        guard case .imported(let imported) = features[10].operation else {
+            Issue.record("Expected .imported")
+            return
+        }
+        #expect(imported.name == "model.step")
+        #expect(imported.data == Data([10, 20, 30]))
+
+        // 12. Datum Plane
+        guard case .datumPlane(let datumPlane) = features[11].operation else {
+            Issue.record("Expected .datumPlane")
+            return
+        }
+        #expect(datumPlane.mode == .origin && datumPlane.originPreset == "XY" && datumPlane.offsetDistance == 10.0)
+
+        // 13. Datum Axis
+        guard case .datumAxis(let datumAxis) = features[12].operation else {
+            Issue.record("Expected .datumAxis")
+            return
+        }
+        #expect(datumAxis.mode == .preset && datumAxis.presetName == "Z")
+
+        // 14. Datum Point
+        guard case .datumPoint(let datumPoint) = features[13].operation else {
+            Issue.record("Expected .datumPoint")
+            return
+        }
+        #expect(datumPoint.mode == .coordinates)
+
+        // 15. Datum Coordinate System
+        guard case .datumCoordinateSystem(let dcs) = features[14].operation else {
+            Issue.record("Expected .datumCoordinateSystem")
+            return
+        }
+        #expect(dcs.mode == .originAndAxes)
+    }
+
+    @Test func testFeatureOperationAndPrimitiveCodingKeysReencodeInvariance() throws {
+        try Self.ensureFixtureExists()
+        let fixtureURL = Self.fixtureURL
+        let originalData = try Data(contentsOf: fixtureURL)
+        let decoded = try DocumentModelCoder.decode(from: originalData)
+        let reencodedData = try DocumentModelCoder.encode(decoded)
+
+        let originalString = String(decoding: originalData, as: UTF8.self)
+        let reencodedString = String(decoding: reencodedData, as: UTF8.self)
+        #expect(reencodedString == originalString)
+    }
+
+    @Test func testFeatureOperationUnknownKeyThrowsDataCorrupted() throws {
+        try Self.ensureFixtureExists()
+        let fixtureURL = Self.fixtureURL
+        let originalData = try Data(contentsOf: fixtureURL)
+        var jsonString = String(decoding: originalData, as: UTF8.self)
+        #expect(jsonString.contains("\"primitive\" : {"))
+        jsonString = jsonString.replacingOccurrences(of: "\"primitive\" : {", with: "\"primitiveRenamed\" : {")
+        let mutatedData = Data(jsonString.utf8)
+
+        #expect(throws: DecodingError.self) {
+            try DocumentModelCoder.decode(from: mutatedData)
+        }
+        do {
+            _ = try DocumentModelCoder.decode(from: mutatedData)
+        } catch DecodingError.dataCorrupted(let context) {
+            #expect(context.debugDescription.contains("Unknown FeatureOperation key"))
+        } catch {
+            Issue.record("Expected DecodingError.dataCorrupted, got \(error)")
+        }
+    }
+
+    @Test func testPrimitiveFeatureDataUnknownKeyThrowsDataCorrupted() throws {
+        try Self.ensureFixtureExists()
+        let fixtureURL = Self.fixtureURL
+        let originalData = try Data(contentsOf: fixtureURL)
+        var jsonString = String(decoding: originalData, as: UTF8.self)
+        #expect(jsonString.contains("\"box\" : {"))
+        jsonString = jsonString.replacingOccurrences(of: "\"box\" : {", with: "\"boxRenamed\" : {")
+        let mutatedData = Data(jsonString.utf8)
+
+        #expect(throws: DecodingError.self) {
+            try DocumentModelCoder.decode(from: mutatedData)
+        }
+        do {
+            _ = try DocumentModelCoder.decode(from: mutatedData)
+        } catch DecodingError.dataCorrupted(let context) {
+            #expect(context.debugDescription.contains("Unknown PrimitiveFeatureData key"))
+        } catch {
+            Issue.record("Expected DecodingError.dataCorrupted, got \(error)")
+        }
+    }
+
+    @Test func testFeatureOperationDirectPayloadCompatibility() throws {
+        let directJSON = """
+        {
+          "schemaVersion": 1,
+          "objects": [],
+          "features": [
+            {
+              "id": "00000000-0000-0000-0000-000000000001",
+              "name": "Direct Box",
+              "operation": {
+                "primitive": {
+                  "box": {
+                    "width": 100.0,
+                    "depth": 50.0,
+                    "height": 25.0
+                  }
+                }
+              }
+            },
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "name": "Direct Extrude",
+              "operation": {
+                "extrude": {
+                  "distance": 75.0,
+                  "draftAngle": 0.0,
+                  "isSymmetric": false
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: directJSON)
+        let features = try #require(decoded.features)
+        #expect(features.count == 2)
+
+        guard case .primitive(.box(let box)) = features[0].operation else {
+            Issue.record("Expected direct box primitive")
+            return
+        }
+        #expect(box.width == 100.0 && box.depth == 50.0 && box.height == 25.0)
+
+        guard case .extrude(let extrude) = features[1].operation else {
+            Issue.record("Expected direct extrude operation")
+            return
+        }
+        #expect(extrude.distance == 75.0 && !extrude.isSymmetric)
+    }
 }

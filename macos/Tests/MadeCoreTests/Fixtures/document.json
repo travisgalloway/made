@@ -1,0 +1,845 @@
+{
+  "bodies" : [
+
+  ],
+  "features" : [
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000001",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Box Primitive",
+      "operation" : {
+        "primitive" : {
+          "_0" : {
+            "box" : {
+              "_0" : {
+                "depth" : 30,
+                "height" : 20,
+                "width" : 40
+              }
+            }
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000002",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Cylinder Primitive",
+      "operation" : {
+        "primitive" : {
+          "_0" : {
+            "cylinder" : {
+              "_0" : {
+                "height" : 40,
+                "radius" : 15
+              }
+            }
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000003",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Sphere Primitive",
+      "operation" : {
+        "primitive" : {
+          "_0" : {
+            "sphere" : {
+              "_0" : {
+                "radius" : 25
+              }
+            }
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000004",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Cone Primitive",
+      "operation" : {
+        "primitive" : {
+          "_0" : {
+            "cone" : {
+              "_0" : {
+                "bottomRadius" : 20,
+                "height" : 35,
+                "topRadius" : 5
+              }
+            }
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000005",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Torus Primitive",
+      "operation" : {
+        "primitive" : {
+          "_0" : {
+            "torus" : {
+              "_0" : {
+                "majorRadius" : 30,
+                "minorRadius" : 8
+              }
+            }
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000006",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Wedge Primitive",
+      "operation" : {
+        "primitive" : {
+          "_0" : {
+            "wedge" : {
+              "_0" : {
+                "depth" : 25,
+                "height" : 20,
+                "topWidth" : 10,
+                "width" : 30
+              }
+            }
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000007",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Sketch Feature",
+      "operation" : {
+        "sketch" : {
+          "_0" : {
+            "constraints" : [
+
+            ],
+            "entities" : [
+              {
+                "data" : {
+                  "length" : 25
+                },
+                "id" : "00000000-0000-0000-0001-000000000001",
+                "kind" : "line"
+              }
+            ],
+            "planeName" : "XY"
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000008",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Extrude Feature",
+      "operation" : {
+        "extrude" : {
+          "_0" : {
+            "distance" : 50,
+            "draftAngle" : 1.5,
+            "isSymmetric" : true
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000009",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Boolean Feature",
+      "operation" : {
+        "boolean" : {
+          "_0" : {
+            "keepTool" : false,
+            "op" : "subtract",
+            "targetSolidId" : "solid-a",
+            "toolSolidId" : "solid-b"
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000010",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Part Feature",
+      "operation" : {
+        "part" : {
+          "_0" : {
+            "url" : "file:///parts/bracket.part.ts"
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000011",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Imported Feature",
+      "operation" : {
+        "imported" : {
+          "_0" : {
+            "data" : "ChQe",
+            "name" : "model.step"
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000012",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Datum Plane Feature",
+      "operation" : {
+        "datumPlane" : {
+          "_0" : {
+            "angleDegrees" : 0,
+            "curveParameter" : 0,
+            "isFlipped" : false,
+            "mode" : "origin",
+            "offsetDistance" : 10,
+            "originPreset" : "XY"
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000013",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Datum Axis Feature",
+      "operation" : {
+        "datumAxis" : {
+          "_0" : {
+            "isFlipped" : false,
+            "mode" : "preset",
+            "presetName" : "Z"
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000014",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Datum Point Feature",
+      "operation" : {
+        "datumPoint" : {
+          "_0" : {
+            "coordinates" : [
+              0,
+              0,
+              0
+            ],
+            "curveParameter" : 0.5,
+            "mode" : "coordinates"
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "bodyOperation" : "create",
+      "generatedTopology" : {
+
+      },
+      "id" : "00000000-0000-0000-0000-000000000015",
+      "inputExpressions" : {
+
+      },
+      "isLocked" : false,
+      "isSuppressed" : false,
+      "isVisible" : true,
+      "material" : {
+        "color" : [
+          0.35,
+          0.65,
+          0.95,
+          1
+        ]
+      },
+      "name" : "Datum Coordinate System Feature",
+      "operation" : {
+        "datumCoordinateSystem" : {
+          "_0" : {
+            "mode" : "originAndAxes",
+            "origin" : [
+              0,
+              0,
+              0
+            ],
+            "xAxis" : [
+              1,
+              0,
+              0
+            ],
+            "yAxis" : [
+              0,
+              1,
+              0
+            ],
+            "zAxis" : [
+              0,
+              0,
+              1
+            ]
+          }
+        }
+      },
+      "references" : [
+
+      ],
+      "transform" : {
+        "position" : [
+          0,
+          0,
+          0
+        ],
+        "rotation" : {
+          "w" : 1,
+          "x" : 0,
+          "y" : 0,
+          "z" : 0
+        },
+        "scale" : [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "objects" : [
+
+  ],
+  "schemaVersion" : 1
+}
