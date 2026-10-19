@@ -2032,6 +2032,74 @@ import MadeCore
         #expect(renderer.selectedIds == [boxId, cylId])
         #expect(renderer.showsGizmo == false)
     }
+
+    @Test @MainActor func testWorkspaceBodyLockingAndColorMutators() {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        #expect(model.document.body(for: boxId)?.isLocked == false)
+
+        // Lock body via toggle
+        model.toggleBodyLocked(boxId)
+        #expect(model.document.body(for: boxId)?.isLocked == true)
+
+        // Attempting to rename locked body is rejected
+        let originalName = model.document.body(for: boxId)?.name ?? ""
+        model.setBodyName(id: boxId, name: "BlockedRename")
+        #expect(model.document.body(for: boxId)?.name == originalName)
+
+        // Attempting to recolor locked body is rejected
+        let originalColor = model.document.body(for: boxId)?.color ?? SIMD4<Float>(0, 0, 0, 0)
+        let blockedColor = SIMD4<Float>(0.9, 0.2, 0.1, 1.0)
+        model.setBodyColor(id: boxId, color: blockedColor)
+        #expect(model.document.body(for: boxId)?.color == originalColor)
+
+        // Unlock body via setBodyLocked
+        model.setBodyLocked(id: boxId, isLocked: false)
+        #expect(model.document.body(for: boxId)?.isLocked == false)
+
+        // Rename succeeds
+        model.setBodyName(id: boxId, name: "RenamedBox")
+        #expect(model.document.body(for: boxId)?.name == "RenamedBox")
+
+        // Whitespace-only name is rejected
+        model.setBodyName(id: boxId, name: "   \n")
+        #expect(model.document.body(for: boxId)?.name == "RenamedBox")
+
+        // Recolor succeeds
+        let newColor = SIMD4<Float>(0.1, 0.8, 0.3, 1.0)
+        model.setBodyColor(id: boxId, color: newColor)
+        #expect(model.document.body(for: boxId)?.color == newColor)
+    }
+
+    @Test @MainActor func testWorkspaceUndoRedoSyncsMaterials() {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let renderer = model.viewportManager.renderer else { return }
+
+        let boxId = ObjectId("box-1")
+        let payload = EuclidEngine.toMeshPayload(EuclidEngine.makeBox(width: 20, depth: 20, height: 20))
+        let initialColor = model.document.body(for: boxId)?.color ?? SIMD4<Float>(0.5, 0.5, 0.5, 1.0)
+        _ = renderer.installMesh(payload, for: boxId, transform: .identity, color: initialColor, isHidden: false)
+        #expect(renderer.meshes[boxId]?.color == initialColor)
+
+        // Recolor via setBodyColor
+        let newColor = SIMD4<Float>(1.0, 0.5, 0.2, 1.0)
+        model.setBodyColor(id: boxId, color: newColor)
+        #expect(model.document.body(for: boxId)?.color == newColor)
+        #expect(renderer.meshes[boxId]?.color == newColor)
+
+        // Undo recolor
+        model.undo()
+        #expect(model.document.body(for: boxId)?.color == initialColor)
+        #expect(renderer.meshes[boxId]?.color == initialColor)
+
+        // Redo recolor
+        model.redo()
+        #expect(model.document.body(for: boxId)?.color == newColor)
+        #expect(renderer.meshes[boxId]?.color == newColor)
+    }
 }
 
 

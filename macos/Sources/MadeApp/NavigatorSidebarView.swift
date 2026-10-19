@@ -17,11 +17,11 @@ struct NavigatorSidebarView: View {
 
             ScrollViewReader { proxy in
                 List(selection: $workspace.selectedIds) {
-                    Section("Scene") {
-                        ForEach(filteredObjects) { obj in
-                            NavigatorRow(object: obj)
-                                .tag(obj.id)
-                                .id(obj.id)
+                    Section("Bodies") {
+                        ForEach(filteredBodies) { body in
+                            NavigatorRow(body: body)
+                                .tag(body.id)
+                                .id(body.id)
                         }
                     }
 
@@ -67,7 +67,7 @@ struct NavigatorSidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.objects.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty {
+                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty {
                         ContentUnavailableView {
                             Label("No Objects", systemImage: "cube.transparent")
                         } description: {
@@ -84,13 +84,14 @@ struct NavigatorSidebarView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
-                    } else if filteredObjects.isEmpty {
+                    } else if filteredBodies.isEmpty {
                         ContentUnavailableView.search(text: filterText)
                     }
                 }
                 .contextMenu(forSelectionType: ObjectId.self) { ids in
-                    if let id = ids.first, let obj = workspace.document.objects.first(where: { $0.id == id }) {
-                        if case .part = obj.def {
+                    if let id = ids.first, let body = workspace.document.body(for: id) {
+                        let obj = workspace.document.objects.first(where: { $0.id == id })
+                        if let obj, case .part = obj.def {
                             Button("Reload Part") { workspace.reloadPart(id) }
                             Divider()
                         }
@@ -98,19 +99,19 @@ struct NavigatorSidebarView: View {
                         Button("Roll Back Before") { workspace.rollBack(before: id) }
                         Divider()
                         Button("Rename…") {
-                            renamingText = obj.name
-                            renamingTarget = (id: id, name: obj.name)
+                            renamingText = body.name
+                            renamingTarget = (id: id, name: body.name)
                         }
-                        .disabled(obj.isLocked)
-                        Button(obj.isVisible ? "Hide" : "Show") { workspace.toggleVisibility(id) }
-                        Button(obj.isLocked ? "Unlock" : "Lock") { workspace.toggleLock(id) }
+                        .disabled(body.isLocked)
+                        Button(body.isVisible ? "Hide" : "Show") { workspace.toggleBodyVisibility(id) }
+                        Button(body.isLocked ? "Unlock" : "Lock") { workspace.toggleBodyLocked(id) }
                         Divider()
                         Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
-                            .disabled(obj.isLocked)
+                            .disabled(body.isLocked)
                     }
                 }
                 .alert(
-                    "Rename “\(renamingTarget?.name ?? "Solid")”",
+                    "Rename “\(renamingTarget?.name ?? "Body")”",
                     isPresented: Binding(
                         get: { renamingTarget != nil },
                         set: { if !$0 { renamingTarget = nil } }
@@ -119,7 +120,7 @@ struct NavigatorSidebarView: View {
                     TextField("Name", text: $renamingText)
                     Button("Rename") {
                         if let target = renamingTarget {
-                            workspace.setName(id: target.id, name: renamingText)
+                            workspace.setBodyName(id: target.id, name: renamingText)
                             renamingTarget = nil
                         }
                     }
@@ -242,6 +243,20 @@ struct NavigatorSidebarView: View {
         Self.filter(objects: workspace.document.objects, query: filterText)
     }
 
+    private var filteredBodies: [MadeCore.Body] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return workspace.document.bodies }
+        return workspace.document.bodies.filter { body in
+            if body.name.localizedCaseInsensitiveContains(trimmed) || body.id.rawValue.localizedCaseInsensitiveContains(trimmed) {
+                return true
+            }
+            if let obj = workspace.document.objects.first(where: { $0.id == body.id }) {
+                return obj.def.kind.localizedCaseInsensitiveContains(trimmed) || obj.parameterSummary.localizedCaseInsensitiveContains(trimmed)
+            }
+            return false
+        }
+    }
+
     private var sketchFeatures: [Feature] {
         workspace.document.activeFeatures.filter {
             if case .sketch = $0.operation { return true }
@@ -278,35 +293,46 @@ struct NavigatorSidebarView: View {
     }
 }
 
-/// One outline row. Visibility and lock buttons show on hover, and stay visible while the object is hidden or locked.
+/// One outline row. Visibility and lock buttons show on hover, and stay visible while the body is hidden or locked.
 private struct NavigatorRow: View {
     @Environment(WorkspaceModel.self) private var workspace
-    let object: SceneObject
+    let bodyItem: MadeCore.Body
     @State private var isHovered = false
 
+    init(body: MadeCore.Body) {
+        self.bodyItem = body
+    }
+
+    init(object: SceneObject) {
+        self.bodyItem = MadeCore.Body(from: object)
+    }
+
     var body: some View {
-        let errorState = workspace.document.feature(for: object.id)?.errorState
+        let object = workspace.document.objects.first(where: { $0.id == bodyItem.id })
+        let errorState = workspace.document.feature(for: bodyItem.id)?.errorState
 
         HStack(alignment: .center, spacing: 8) {
-            Image(systemName: icon)
-                .foregroundStyle(tint)
+            Image(systemName: icon(for: object))
+                .foregroundStyle(tint(for: object))
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(object.name)
+                    Text(bodyItem.name)
                         .font(.body)
                         .lineLimit(1)
 
-                    Text(object.def.kind.capitalized)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(Color.secondary.opacity(0.12))
-                        )
+                    if let kind = object?.def.kind.capitalized {
+                        Text(kind)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.secondary.opacity(0.12))
+                            )
+                    }
 
                     if let errorState {
                         if errorState.severity == .warning {
@@ -324,40 +350,42 @@ private struct NavigatorRow: View {
                 }
 
                 HStack(spacing: 6) {
-                    Text(object.id.rawValue)
+                    Text(bodyItem.id.rawValue)
                         .font(.caption2)
                         .monospaced()
                         .foregroundStyle(.secondary)
 
-                    Text("•")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    if let summary = object?.parameterSummary, !summary.isEmpty {
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
 
-                    Text(object.parameterSummary)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        Text(summary)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
             }
 
             Spacer(minLength: 4)
 
             Group {
-                if isHovered || !object.isVisible {
-                    Button(object.isVisible ? "Hide Object" : "Show Object",
-                           systemImage: object.isVisible ? "eye" : "eye.slash") {
-                        workspace.toggleVisibility(object.id)
+                if isHovered || !bodyItem.isVisible {
+                    Button(bodyItem.isVisible ? "Hide Body" : "Show Body",
+                           systemImage: bodyItem.isVisible ? "eye" : "eye.slash") {
+                        workspace.toggleBodyVisibility(bodyItem.id)
                     }
                     .foregroundStyle(.secondary)
-                    .help(object.isVisible ? "Hide Object" : "Show Object")
+                    .help(bodyItem.isVisible ? "Hide Body" : "Show Body")
                 }
-                if isHovered || object.isLocked {
-                    Button(object.isLocked ? "Unlock Object" : "Lock Object",
-                           systemImage: object.isLocked ? "lock.fill" : "lock.open") {
-                        workspace.toggleLock(object.id)
+                if isHovered || bodyItem.isLocked {
+                    Button(bodyItem.isLocked ? "Unlock Body" : "Lock Body",
+                           systemImage: bodyItem.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleBodyLocked(bodyItem.id)
                     }
                     .foregroundStyle(.secondary)
-                    .help(object.isLocked ? "Unlock Object" : "Lock Object")
+                    .help(bodyItem.isLocked ? "Unlock Body" : "Lock Body")
                 }
             }
             .barControl()
@@ -366,16 +394,17 @@ private struct NavigatorRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(object.name), \(object.def.kind), ID \(object.id.rawValue), \(object.parameterSummary)\(errorState.map { ", \($0.severity == .warning ? "Warning" : "Error"): \($0.message)" } ?? "")")
-        .accessibilityAction(named: object.isVisible ? "Hide Object" : "Show Object") {
-            workspace.toggleVisibility(object.id)
+        .accessibilityLabel("\(bodyItem.name), \(object?.def.kind ?? "Solid"), ID \(bodyItem.id.rawValue)\(object.map { ", \($0.parameterSummary)" } ?? "")\(errorState.map { ", \($0.severity == .warning ? "Warning" : "Error"): \($0.message)" } ?? "")")
+        .accessibilityAction(named: bodyItem.isVisible ? "Hide Body" : "Show Body") {
+            workspace.toggleBodyVisibility(bodyItem.id)
         }
-        .accessibilityAction(named: object.isLocked ? "Unlock Object" : "Lock Object") {
-            workspace.toggleLock(object.id)
+        .accessibilityAction(named: bodyItem.isLocked ? "Unlock Body" : "Lock Body") {
+            workspace.toggleBodyLocked(bodyItem.id)
         }
     }
 
-    private var icon: String {
+    private func icon(for object: SceneObject?) -> String {
+        guard let object else { return "cube.fill" }
         switch object.def {
         case .box: return "shippingbox.fill"
         case .cylinder: return "cylinder.fill"
@@ -390,7 +419,8 @@ private struct NavigatorRow: View {
         }
     }
 
-    private var tint: Color {
+    private func tint(for object: SceneObject?) -> Color {
+        guard let object else { return .accentColor }
         switch object.def {
         case .box: return .blue
         case .cylinder: return .orange

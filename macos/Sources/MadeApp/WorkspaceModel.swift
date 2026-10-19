@@ -2273,6 +2273,41 @@ final class WorkspaceModel {
         setBodyVisibility(id: id, isVisible: !b.isVisible)
     }
 
+    func setBodyLocked(id: BodyId, isLocked: Bool) {
+        guard let b = document.body(for: id) else { return }
+        guard b.isLocked != isLocked else { return }
+        document.setBodyLocked(id: id, isLocked: isLocked)
+        if id == selectedId {
+            syncViewportSelection()
+        }
+        markDocumentModified()
+        log(.info, "Scene", "\(isLocked ? "Locked" : "Unlocked") body \(id.rawValue)")
+    }
+
+    func toggleBodyLocked(_ id: BodyId) {
+        guard let b = document.body(for: id) else { return }
+        setBodyLocked(id: id, isLocked: !b.isLocked)
+    }
+
+    func setBodyMaterial(id: BodyId, material: MaterialAttributes) {
+        guard let b = document.body(for: id), !b.isLocked else { return }
+        let result = document.setBodyMaterial(id: id, material: material)
+        guard case .success = result else { return }
+        markDocumentModified()
+        if let renderer = viewportManager.renderer {
+            _ = SolidMeshApplier.applyMaterial(to: id, document: document, sink: renderer)
+        }
+        log(.info, "Scene", "Updated material for body \(id.rawValue)")
+        invalidateViewport(.model)
+    }
+
+    func setBodyColor(id: BodyId, color: SIMD4<Float>) {
+        guard let b = document.body(for: id), !b.isLocked else { return }
+        var mat = b.material
+        mat.color = color
+        setBodyMaterial(id: id, material: mat)
+    }
+
     // MARK: - Viewport Hidden State Synchronization (BL-FND-13)
 
     func syncHiddenSolidIds() {
@@ -2280,6 +2315,19 @@ final class WorkspaceModel {
         let expectedHidden = Set(document.objects.filter { !$0.isVisible }.map(\.id))
         if renderer.hiddenSolidIds != expectedHidden {
             renderer.hiddenSolidIds = expectedHidden
+            invalidateViewport(.model)
+        }
+    }
+
+    func syncMaterials() {
+        guard let renderer = viewportManager.renderer else { return }
+        var needsRedraw = false
+        for body in document.bodies {
+            if SolidMeshApplier.applyMaterial(to: body.id, document: document, sink: renderer) {
+                needsRedraw = true
+            }
+        }
+        if needsRedraw {
             invalidateViewport(.model)
         }
     }
@@ -2470,6 +2518,7 @@ final class WorkspaceModel {
         document.undo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
         syncHiddenSolidIds()
+        syncMaterials()
         let oldSet = Set(oldObjects.map(\.id))
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)
@@ -2484,6 +2533,7 @@ final class WorkspaceModel {
         document.redo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
         syncHiddenSolidIds()
+        syncMaterials()
         let oldSet = Set(oldObjects.map(\.id))
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)
