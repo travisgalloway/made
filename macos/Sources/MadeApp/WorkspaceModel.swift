@@ -1669,7 +1669,7 @@ final class WorkspaceModel {
         }
     }
 
-    func makePackage() -> MadePackage {
+    func makePackage() throws -> MadePackage {
         let manifest = MadeManifest(
             schemaVersion: MadeManifest.currentSchemaVersion,
             appVersion: "0.1",
@@ -1686,24 +1686,78 @@ final class WorkspaceModel {
         )
 
         var assets: [String: Data] = [:]
+        func collectAsset(name: String, sourceURL: URL?, data: Data?) throws {
+            let filename = (sourceURL?.lastPathComponent.isEmpty == false ? sourceURL?.lastPathComponent : nil)
+                ?? (name.hasSuffix(".step") || name.hasSuffix(".stp") ? name : "\(name).step")
+            if assets[filename] != nil {
+                return
+            }
+            if let data {
+                assets[filename] = data
+            } else if let sourceURL {
+                var resolvedURL = sourceURL.path.hasPrefix("/")
+                    ? sourceURL
+                    : (currentDocumentURL?.appendingPathComponent(sourceURL.path) ?? sourceURL)
+                if sourceURL.path.hasPrefix("/"), !FileManager.default.fileExists(atPath: resolvedURL.path), let currentDoc = currentDocumentURL {
+                    let insideAssets = currentDoc.appendingPathComponent("assets").appendingPathComponent(filename)
+                    if FileManager.default.fileExists(atPath: insideAssets.path) {
+                        resolvedURL = insideAssets
+                    }
+                }
+                do {
+                    assets[filename] = try Data(contentsOf: resolvedURL)
+                } catch {
+                    throw MadeDocumentError.unreadableFile(filename)
+                }
+            } else {
+                throw MadeDocumentError.unreadableFile(filename)
+            }
+        }
+
         for obj in document.objects {
             if case .imported(let name, let sourceURL, let data) = obj.def {
-                let filename = sourceURL?.lastPathComponent ?? (name.hasSuffix(".step") || name.hasSuffix(".stp") ? name : "\(name).step")
-                if let data {
-                    assets[filename] = data
-                } else if let sourceURL, FileManager.default.fileExists(atPath: sourceURL.path), let fileData = try? Data(contentsOf: sourceURL) {
-                    assets[filename] = fileData
-                }
+                try collectAsset(name: name, sourceURL: sourceURL, data: data)
+            }
+        }
+
+        for feature in document.features {
+            if case .imported(let imp) = feature.operation {
+                try collectAsset(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
             }
         }
 
         var parts: [String: Data] = [:]
+        func collectPart(url: URL) throws {
+            let filename = url.lastPathComponent
+            guard !filename.isEmpty else { return }
+            if parts[filename] != nil {
+                return
+            }
+            var resolvedURL = url.path.hasPrefix("/")
+                ? url
+                : (currentDocumentURL?.appendingPathComponent(url.path) ?? url)
+            if url.path.hasPrefix("/"), !FileManager.default.fileExists(atPath: resolvedURL.path), let currentDoc = currentDocumentURL {
+                let insideParts = currentDoc.appendingPathComponent("parts").appendingPathComponent(filename)
+                if FileManager.default.fileExists(atPath: insideParts.path) {
+                    resolvedURL = insideParts
+                }
+            }
+            do {
+                parts[filename] = try Data(contentsOf: resolvedURL)
+            } catch {
+                throw MadeDocumentError.unreadableFile(filename)
+            }
+        }
+
         for obj in document.objects {
             if case .part(let url, _) = obj.def {
-                let filename = url.lastPathComponent
-                if FileManager.default.fileExists(atPath: url.path), let fileData = try? Data(contentsOf: url) {
-                    parts[filename] = fileData
-                }
+                try collectPart(url: url)
+            }
+        }
+
+        for feature in document.features {
+            if case .part(let partData) = feature.operation {
+                try collectPart(url: partData.url)
             }
         }
 
@@ -1721,7 +1775,7 @@ final class WorkspaceModel {
         autosaveTask = nil
 
         do {
-            let package = makePackage()
+            let package = try makePackage()
             try package.write(to: destinationURL)
 
             currentDocumentURL = destinationURL
@@ -1740,7 +1794,7 @@ final class WorkspaceModel {
 
     func saveRecoverySnapshot() {
         do {
-            let package = makePackage()
+            let package = try makePackage()
             let metadata = CrashRecoveryMetadata(
                 version: CrashRecoveryMetadata.currentVersion,
                 savedAt: Date(),
