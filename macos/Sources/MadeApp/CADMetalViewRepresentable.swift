@@ -329,6 +329,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
         }
         
+        if !selectionFilter.allowsSketchEntities && coordinator.activeSnapResult != nil {
+            coordinator.clearPreselection()
+        }
+        
         // Abort gizmo drag if the selected object was removed from the document or locked
         if let drag = coordinator.dragState {
             if let obj = document.objects.first(where: { $0.id == drag.selectedId }), obj.isLocked {
@@ -405,7 +409,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private var activeMouseButton: MouseButton? = nil
         private var activeDragAction: ViewportDragAction? = nil
         private var isShiftDown: Bool = false
-        private var activeSnapResult: SnapResult? = nil
+        public private(set) var activeSnapResult: SnapResult? = nil
         private var trimStrokePoints: [SIMD2<Double>] = []
         private var trimMouseDownLocation: CGPoint = .zero
         private var rectangleMouseDownLocation: CGPoint = .zero
@@ -419,7 +423,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             public var startUV: SIMD2<Double>
             public var hasMoved: Bool = false
         }
-        private var sketchDragState: SketchDragState?
+        public private(set) var sketchDragState: SketchDragState?
 
         public func unprojectToSketchPlane(loc: CGPoint, in view: MTKView) -> SIMD2<Double>? {
             guard let plane = parent.activeSketchPlane,
@@ -566,6 +570,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
 
             // Sketch entity drag on primary/left button under select tool or pen
             if (parent.tool == .select || pType == .pen) && button == .left,
+               parent.selectionFilter.allowsSketchEntities,
                !event.modifierFlags.contains(.option),
                !event.modifierFlags.contains(.control),
                let featureId = parent.activeSketchFeatureId,
@@ -751,7 +756,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             
             var result = resolveSnapAtPointer(
                 meshes: candidateMeshes,
-                sketchEntities: parent.sketchEntities,
+                sketchEntities: parent.selectionFilter.allowsSketchEntities ? parent.sketchEntities : [],
                 sketchPlane: parent.activeSketchPlane,
                 pointer: pointer,
                 viewportSize: view.bounds.size,
@@ -998,9 +1003,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 sketchDragState = nil
                 pointerRouter.arbiter.reset()
                 invalidate(reason: .interaction)
-                if drag.hasMoved {
-                    return
-                }
+                return
             }
             
             if activeSnapResult != nil {
@@ -1159,10 +1162,6 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 clearPreselection()
                 return
             }
-            guard parent.selectionFilter.allowsSubElements else {
-                clearPreselection()
-                return
-            }
             guard let view = mtkView else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
             if let lastHover = lastHoverLocation {
@@ -1206,6 +1205,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
 
             guard parent.selectionFilter.allowsSubElements else {
+                if preselectedSubElement != nil || parent.renderer.preselectedSubElement != nil {
+                    preselectedSubElement = nil
+                    parent.renderer.preselectedSubElement = nil
+                    invalidate(reason: .interaction)
+                }
                 return
             }
 

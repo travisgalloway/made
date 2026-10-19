@@ -107,10 +107,6 @@ struct ContentView: View {
                     get: { workspace.selectionFilter.contains(.sketchEntities) },
                     set: { workspace.toggleSelectionFilter(.sketchEntities, enabled: $0) }
                 ))
-                Toggle("Components", isOn: Binding(
-                    get: { workspace.selectionFilter.contains(.components) },
-                    set: { workspace.toggleSelectionFilter(.components, enabled: $0) }
-                ))
                 Divider()
                 Button("All Filters") {
                     workspace.resetSelectionFilters()

@@ -17,7 +17,13 @@ private enum MetalTestSupport {
 
     private func makeHarness(
         tool: ViewportTool = .select,
-        selectionFilter: SelectionFilter = .all
+        selectionFilter: SelectionFilter = .all,
+        document: DocumentModel = DocumentModel(),
+        activeSketchPlane: SketchPlane? = nil,
+        sketchEntities: [SketchEntity] = [],
+        activeSketchFeatureId: UUID? = nil,
+        onSketchDragStart: ((UUID, UUID) -> Void)? = nil,
+        onSketchDragEnd: ((UUID) -> Void)? = nil
     ) throws -> (
         window: NSWindow,
         view: CADMTKView,
@@ -28,7 +34,6 @@ private enum MetalTestSupport {
     ) {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let renderer = try #require(MetalRenderer(device: device))
-        let document = DocumentModel()
 
         // Generate and add box mesh
         let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
@@ -46,7 +51,12 @@ private enum MetalTestSupport {
             selectionFilter: selectionFilter,
             onInvalidate: {
                 invalidateCalls += 1
-            }
+            },
+            activeSketchPlane: activeSketchPlane,
+            sketchEntities: sketchEntities,
+            activeSketchFeatureId: activeSketchFeatureId,
+            onSketchDragStart: onSketchDragStart,
+            onSketchDragEnd: onSketchDragEnd
         )
 
         let window = NSWindow(
@@ -533,5 +543,126 @@ private enum MetalTestSupport {
         #expect(document.selectedId == nil)
         #expect(renderer.selectedIds.isEmpty)
         #expect(renderer.selectedId == nil)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSketchEntitiesFilterGatesDraggingAndSnapping() throws {
+        let sketchPlane = SketchPlane(
+            origin: SIMD3<Float>(0, 0, 0),
+            normal: SIMD3<Float>(0, 0, 1),
+            xAxis: SIMD3<Float>(1, 0, 0)
+        )
+        let featureId = UUID()
+        let lineId = UUID()
+        let line = SketchEntity(
+            id: lineId,
+            kind: "line",
+            data: ["startX": 0.0, "startY": 0.0, "endX": 25.0, "endY": 25.0]
+        )
+
+        var dragStartCalls: [(UUID, UUID)] = []
+        var dragEndCalls: [UUID] = []
+
+        let document = DocumentModel()
+        let (window, view, coordinator, renderer, _, _) = try makeHarness(
+            selectionFilter: [.faces, .edges, .vertices, .bodies],
+            document: document,
+            activeSketchPlane: sketchPlane,
+            sketchEntities: [line],
+            activeSketchFeatureId: featureId,
+            onSketchDragStart: { featId, entityId in
+                dragStartCalls.append((featId, entityId))
+                document.selection = [Reference.sketchEntity(featureId: featId, entityId: entityId)]
+            },
+            onSketchDragEnd: { featId in
+                dragEndCalls.append(featId)
+            }
+        )
+
+        // Clear meshes so only sketch entity candidates can be resolved for snapping
+        renderer.meshes.removeAll()
+        // Zoom in so grid points (10 mm spacing) exceed the 20 px snap tolerance
+        renderer.camera.position = renderer.camera.target + simd_normalize(renderer.camera.position - renderer.camera.target) * 30.0
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = simd_mul(matrices.projection, matrices.view)
+        let worldPos = sketchPlane.unprojectPoint(SIMD2<Double>(25.0, 25.0))
+        let screenPos = try #require(projectToScreen(point: worldPos, viewProjectionMatrix: vp, viewportSize: CGSize(width: width, height: height)))
+        let endpointLocation = CGPoint(x: CGFloat(screenPos.x), y: CGFloat(screenPos.y))
+
+        // 1. With selectionFilter excluding sketchEntities:
+        // Hover over the sketch line endpoint: snap must be suppressed
+        let moveEvent1 = makeMouseEvent(type: .mouseMoved, location: endpointLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseMoved(with: moveEvent1)
+        #expect(coordinator.activeSnapResult == nil)
+
+        // Mouse down on endpoint: sketch drag must NOT start
+        let downEvent1 = makeMouseEvent(type: .leftMouseDown, location: endpointLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseDown(with: downEvent1, button: .left)
+        #expect(coordinator.sketchDragState == nil)
+        #expect(dragStartCalls.isEmpty)
+
+        let upEvent1 = makeMouseEvent(type: .leftMouseUp, location: endpointLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseUp(with: upEvent1, button: .left)
+
+        // 2. Enable sketchEntities filter (using .all)
+        let enabledRepresentable = CADMetalViewRepresentable(
+            document: document,
+            renderer: renderer,
+            tool: .select,
+            selectionFilter: .all,
+            onInvalidate: coordinator.parent.onInvalidate,
+            activeSketchPlane: sketchPlane,
+            sketchEntities: [line],
+            activeSketchFeatureId: featureId,
+            onSketchDragStart: coordinator.parent.onSketchDragStart,
+            onSketchDragEnd: coordinator.parent.onSketchDragEnd
+        )
+        enabledRepresentable.update(view: view, coordinator: coordinator)
+
+        // Hover over the sketch line endpoint: snap must resolve
+        let moveEvent2 = makeMouseEvent(type: .mouseMoved, location: endpointLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseMoved(with: moveEvent2)
+        #expect(coordinator.activeSnapResult != nil)
+        #expect(coordinator.activeSnapResult?.kind == .endpoint)
+        #expect(coordinator.activeSnapResult?.planePoint == SIMD2<Double>(25.0, 25.0))
+
+        // Mouse down on endpoint: sketch drag must start and onSketchDragStart must be called
+        let downEvent2 = makeMouseEvent(type: .leftMouseDown, location: endpointLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseDown(with: downEvent2, button: .left)
+        #expect(coordinator.sketchDragState != nil)
+        #expect(coordinator.sketchDragState?.entityId == lineId)
+        #expect(dragStartCalls.count == 1)
+        #expect(dragStartCalls.first?.0 == featureId)
+        #expect(dragStartCalls.first?.1 == lineId)
+
+        // Mouse up: sketch entity selection must be preserved
+        let upEvent2 = makeMouseEvent(type: .leftMouseUp, location: endpointLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseUp(with: upEvent2, button: .left)
+        #expect(coordinator.sketchDragState == nil)
+        #expect(dragEndCalls.count == 1)
+        #expect(dragEndCalls.first == featureId)
+        #expect(document.selection == [Reference.sketchEntity(featureId: featureId, entityId: lineId)])
+
+        // Hover again to establish active snap
+        coordinator.handleMouseMoved(with: moveEvent2)
+        #expect(coordinator.activeSnapResult != nil)
+
+        // 3. Update filter to exclude sketchEntities: active snap must be cleared immediately
+        let disabledRepresentable = CADMetalViewRepresentable(
+            document: document,
+            renderer: renderer,
+            tool: .select,
+            selectionFilter: [.faces, .edges, .vertices, .bodies],
+            onInvalidate: coordinator.parent.onInvalidate,
+            activeSketchPlane: sketchPlane,
+            sketchEntities: [line],
+            activeSketchFeatureId: featureId,
+            onSketchDragStart: coordinator.parent.onSketchDragStart,
+            onSketchDragEnd: coordinator.parent.onSketchDragEnd
+        )
+        disabledRepresentable.update(view: view, coordinator: coordinator)
+        #expect(coordinator.activeSnapResult == nil)
     }
 }
