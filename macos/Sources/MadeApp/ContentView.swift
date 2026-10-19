@@ -86,6 +86,17 @@ struct ContentView: View {
         } message: { errorInfo in
             Text("Could not export \"\(errorInfo.fileName)\": \(errorInfo.reason)")
         }
+        .alert(
+            "Failed to Import STEP",
+            isPresented: $workspace.isShowingImportErrorAlert,
+            presenting: workspace.pendingImportError
+        ) { _ in
+            Button("OK") {
+                workspace.dismissImportErrorAlert()
+            }
+        } message: { errorInfo in
+            Text("Could not import \"\(errorInfo.fileName)\" (\(errorInfo.errorCode)): \(errorInfo.reason)")
+        }
         .onAppear {
             workspace.setUp()
             workspace.syncWindowState()

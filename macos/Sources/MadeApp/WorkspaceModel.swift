@@ -74,6 +74,8 @@ final class WorkspaceModel {
     var isShowingOpenErrorAlert: Bool = false
     var pendingExportError: ExportErrorInfo? = nil
     var isShowingExportErrorAlert: Bool = false
+    var pendingImportError: ImportErrorInfo? = nil
+    var isShowingImportErrorAlert: Bool = false
     @ObservationIgnored nonisolated(unsafe) private var terminateObserver: (any NSObjectProtocol)?
 
     var documentTitle: String {
@@ -1605,6 +1607,8 @@ final class WorkspaceModel {
         isShowingOpenErrorAlert = false
         pendingExportError = nil
         isShowingExportErrorAlert = false
+        pendingImportError = nil
+        isShowingImportErrorAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -1653,6 +1657,8 @@ final class WorkspaceModel {
             isShowingOpenErrorAlert = false
             pendingExportError = nil
             isShowingExportErrorAlert = false
+            pendingImportError = nil
+            isShowingImportErrorAlert = false
 
             let docSettings = package.manifest.documentSettings
             let restoredSelection: Set<Reference>? = {
@@ -1834,6 +1840,11 @@ final class WorkspaceModel {
     func dismissExportErrorAlert() {
         pendingExportError = nil
         isShowingExportErrorAlert = false
+    }
+
+    func dismissImportErrorAlert() {
+        pendingImportError = nil
+        isShowingImportErrorAlert = false
     }
 
     // MARK: - Crash Recovery Actions
@@ -2147,7 +2158,9 @@ final class WorkspaceModel {
         if let t2 = UTType(filenameExtension: "stp") { contentTypes.append(t2) }
         panel.allowedContentTypes = contentTypes.isEmpty ? [.data] : contentTypes
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        importStepFile(at: url)
+        Task {
+            await importStepFile(at: url)
+        }
     }
 
     func promptExportStepFile(selectedOnly: Bool = false) {
@@ -2208,23 +2221,42 @@ final class WorkspaceModel {
     }
 
     @discardableResult
-    func importStepFile(at url: URL) -> ObjectId? {
+    func importStepFile(at url: URL) async -> ObjectId? {
+        let data: Data
         do {
-            let data = try Data(contentsOf: url)
-            guard !data.isEmpty else {
-                log(.error, "Kernel", "STEP file is empty")
-                return nil
-            }
-            let id = document.reserveId(for: .imported(name: url.lastPathComponent))
+            data = try Data(contentsOf: url)
+        } catch {
+            log(.error, "Kernel", "Failed to import STEP file: \(error.localizedDescription)")
+            pendingImportError = ImportErrorInfo(fileURL: url, errorCode: "read-failed", reason: error.localizedDescription)
+            isShowingImportErrorAlert = true
+            return nil
+        }
+        guard !data.isEmpty else {
+            log(.error, "Kernel", "STEP file is empty")
+            pendingImportError = ImportErrorInfo(fileURL: url, errorCode: "empty-file", reason: "STEP file is empty")
+            isShowingImportErrorAlert = true
+            return nil
+        }
+        let id = document.reserveId(for: .imported(name: url.lastPathComponent))
+        let result = await kernelClient.request(.importStep(jobId: JobId("import-\(UUID().uuidString)"), solidId: id, data: data))
+        switch result {
+        case .failure(_, let error):
+            log(.error, "Kernel", "Failed to import STEP: \(error.message)")
+            pendingImportError = ImportErrorInfo(fileURL: url, errorCode: error.code.rawValue, reason: error.message)
+            isShowingImportErrorAlert = true
+            return nil
+        case .success:
+            pendingImportError = nil
+            isShowingImportErrorAlert = false
             document.addObject(id, def: .imported(name: url.lastPathComponent, sourceURL: url, data: data))
             selectedId = id
             markDocumentModified()
-            recomputeSolid(id: id)
-            log(.info, "Kernel", "Importing STEP file \(url.lastPathComponent) (\(id.rawValue))")
+            if let renderer = viewportManager.renderer,
+               SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) {
+                invalidateViewport(.model)
+            }
+            log(.info, "Kernel", "Imported STEP file \(url.lastPathComponent) (\(id.rawValue))")
             return id
-        } catch {
-            log(.error, "Kernel", "Failed to import STEP file: \(error.localizedDescription)")
-            return nil
         }
     }
 
@@ -2679,7 +2711,16 @@ final class WorkspaceModel {
                     self.document.setFeatureError(id: feat.id, error: nil)
                 }
             }
-            if case .failure = result, case .imported = self.document.objects.first(where: { $0.id == id })?.def {
+            if case .failure(_, let err) = result,
+               let obj = self.document.objects.first(where: { $0.id == id }),
+               case .imported(let name, let sourceURL, _) = obj.def {
+                let fileURL = sourceURL ?? URL(fileURLWithPath: name)
+                self.pendingImportError = ImportErrorInfo(
+                    fileURL: fileURL,
+                    errorCode: err.code.rawValue,
+                    reason: err.message
+                )
+                self.isShowingImportErrorAlert = true
                 self.document.removeObject(id: id)
                 await self.kernelClient.dispose(solidId: id)
                 if self.selectedId == id {

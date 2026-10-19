@@ -92,3 +92,21 @@ public struct ExportErrorInfo: Identifiable, Sendable, Equatable {
     }
 }
 
+public struct ImportErrorInfo: Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public let fileURL: URL
+    public let errorCode: String
+    public let reason: String
+
+    public var fileName: String {
+        fileURL.lastPathComponent
+    }
+
+    public init(id: UUID = UUID(), fileURL: URL, errorCode: String, reason: String) {
+        self.id = id
+        self.fileURL = fileURL
+        self.errorCode = errorCode
+        self.reason = reason
+    }
+}
+
