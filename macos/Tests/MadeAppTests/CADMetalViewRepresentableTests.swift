@@ -412,6 +412,77 @@ private enum MetalTestSupport {
         #expect(getInvalidateCount() == initialInvalidateCount, "Re-evaluating with identical selection must not invalidate (Invariant 2)")
     }
 
+    // MARK: - Representable Sketch Entity Sync (REQ-f0dd0a1a / #558)
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testRepresentableSketchEntityUpdatesForwardToRendererAndInvalidate() throws {
+        let (_, view, coordinator, renderer, document, getInvalidateCount) = try makeHarness(sketchEntities: [])
+        let initialInvalidateCount = getInvalidateCount()
+
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(30, 30), isConstruction: true)
+        let updatedRepresentable = CADMetalViewRepresentable(
+            document: document,
+            renderer: renderer,
+            onInvalidate: coordinator.parent.onInvalidate,
+            activeSketchPlane: .xy,
+            sketchEntities: [line]
+        )
+        updatedRepresentable.update(view: view, coordinator: coordinator)
+
+        #expect(renderer.activeSketchEntities == [line])
+        #expect(renderer.sketchRenderItems.count == 1)
+        #expect(renderer.sketchRenderItems[0].dashFlag == true)
+        #expect(getInvalidateCount() == initialInvalidateCount + 1)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testRepresentableIdenticalSketchEntitiesDoesNotInvalidate() throws {
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(20, 20), isConstruction: false)
+        let (_, view, coordinator, renderer, document, getInvalidateCount) = try makeHarness(
+            activeSketchPlane: .xy,
+            sketchEntities: [line]
+        )
+        renderer.updateSketch(plane: .xy, entities: [line])
+        let initialInvalidateCount = getInvalidateCount()
+
+        let sameRepresentable = CADMetalViewRepresentable(
+            document: document,
+            renderer: renderer,
+            selectedId: renderer.selectedId,
+            selectedSubElement: renderer.selectedSubElement,
+            onInvalidate: coordinator.parent.onInvalidate,
+            activeSketchPlane: .xy,
+            sketchEntities: [line]
+        )
+        sameRepresentable.update(view: view, coordinator: coordinator)
+
+        #expect(renderer.activeSketchEntities == [line])
+        #expect(getInvalidateCount() == initialInvalidateCount, "Re-evaluating with identical sketch entities must not invalidate (Invariant 2)")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testRepresentableSketchPlaneChangeUpdatesRendererAndInvalidates() throws {
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 10))
+        let (_, view, coordinator, renderer, document, getInvalidateCount) = try makeHarness(
+            activeSketchPlane: .xy,
+            sketchEntities: [line]
+        )
+        renderer.updateSketch(plane: .xy, entities: [line])
+        let initialInvalidateCount = getInvalidateCount()
+
+        let updatedRepresentable = CADMetalViewRepresentable(
+            document: document,
+            renderer: renderer,
+            onInvalidate: coordinator.parent.onInvalidate,
+            activeSketchPlane: .xz,
+            sketchEntities: [line]
+        )
+        updatedRepresentable.update(view: view, coordinator: coordinator)
+
+        #expect(renderer.activeSketchPlane == .xz)
+        #expect(getInvalidateCount() == initialInvalidateCount + 1)
+    }
+
     // MARK: - Multi-Selection Gesture Tests (#552 / DOC-10)
 
     @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))

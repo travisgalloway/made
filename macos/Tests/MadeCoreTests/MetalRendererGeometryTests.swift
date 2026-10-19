@@ -612,6 +612,99 @@ import ImageIO
         #expect(pixels2[pixelIndex + 2] < 50, "Blue channel should be dark after updateColor")
     }
 
+    // MARK: - Viewport Sketch Entity Rendering (REQ-f0dd0a1a / #558)
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSketchEntitiesRenderInViewportWithDashedConstructionGeometry() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(50, 50), isConstruction: true)
+        renderer.updateSketch(plane: .xy, entities: [line])
+
+        #expect(renderer.sketchRenderItems.count == 1)
+        #expect(renderer.sketchRenderItems[0].dashFlag == true)
+        #expect(renderer.sketchRenderItems[0].isConstruction == true)
+        #expect(renderer.sketchRenderItems[0].isDashed == true)
+        #expect(renderer.sketchVertexCount > 2)
+
+        let snapshot = await renderer.captureSnapshotPngBase64()
+        let base64 = try #require(snapshot)
+        #expect(renderer.lastDrawCalls == 1)
+
+        let pixels = try decodeRGBA(base64)
+        let background = mostCommonPixel(pixels)
+
+        var drawnPixels = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                let p = (pixels[i], pixels[i + 1], pixels[i + 2])
+                let covered = abs(Int(p.0) - Int(background.0)) > 4
+                    || abs(Int(p.1) - Int(background.1)) > 4
+                    || abs(Int(p.2) - Int(background.2)) > 4
+                if covered {
+                    drawnPixels += 1
+                }
+            }
+        }
+        #expect(drawnPixels > 0, "Construction line must render visible pixels in viewport snapshot")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testRegularAndConstructionSketchEntitiesBatchInSingleDrawCall() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+
+        let line = SketchEntity.line(start: SIMD2(-20, 0), end: SIMD2(20, 0), isConstruction: false)
+        let circle = SketchEntity.circle(center: SIMD2(0, 0), radius: 15, isConstruction: true)
+        renderer.updateSketch(plane: .xy, entities: [line, circle])
+
+        #expect(renderer.sketchRenderItems.count == 2)
+        #expect(renderer.sketchRenderItems[0].dashFlag == false)
+        #expect(renderer.sketchRenderItems[1].dashFlag == true)
+
+        let snapshot = await renderer.captureSnapshotPngBase64()
+        _ = try #require(snapshot)
+        #expect(renderer.lastDrawCalls == 1, "Regular and construction entities must batch into 1 sketch draw call")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testZeroEntitiesEmitsZeroSketchDrawCalls() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+        renderer.updateSketch(plane: .xy, entities: [])
+
+        #expect(renderer.sketchVertexCount == 0)
+        #expect(renderer.sketchRenderItems.isEmpty)
+
+        let snapshot = await renderer.captureSnapshotPngBase64()
+        _ = try #require(snapshot)
+        #expect(renderer.lastDrawCalls == 0, "Zero sketch entities must emit 0 draw calls")
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testNilSketchPlaneDefaultsToXYPlane() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        let line = SketchEntity.line(start: SIMD2(10, 20), end: SIMD2(30, 40), isConstruction: false)
+        renderer.updateSketch(plane: nil, entities: [line])
+
+        #expect(renderer.activeSketchPlane == nil)
+        #expect(renderer.sketchRenderItems.count == 1)
+        #expect(renderer.sketchVertexCount == 2)
+    }
+
     private func viewProjection(_ renderer: MetalRenderer) -> simd_float4x4 {
         let matrices = renderer.viewAndProjectionMatrices(aspect: Float(width) / Float(height))
         return matrices.projection * matrices.view

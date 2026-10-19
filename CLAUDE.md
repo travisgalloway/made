@@ -55,9 +55,9 @@ macos/
   scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle)
                            and compiles the app icon (img/made.icon, an Icon Composer file) with actool
   Sources/MadeCore/
-    Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry, ShapeEvaluator, ShapeNode, Transform, KernelClient+Default, FaultInjectingKernelClient
+    Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry, ShapeEvaluator, ShapeNode, Transform, KernelClient+Default, FaultInjectingKernelClient, SketchEntity
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
-    Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube, UniformArena, MetalRenderer+MeshInstall
+    Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, SketchGeometryGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube, UniformArena, MetalRenderer+MeshInstall
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo, SelectionFilter, SpatialIndex
     Scene/                 DocumentModel (@Observable), Body, Feature, DatumPlane, DatumEntities, Reference, ReferenceResolver, ModelEdgeEvaluator, SolidMeshApplier, KernelRegeneration, UnitSettings, KernelTolerances, DocumentSettings, SketchDOFStatus, SketchError, SketchProfileBuilder, SketchRegion, SketchOperations, SketchConstraint, ConstraintSystem, ConstraintSolver, ConstraintSolverActor, ConstraintInference, SketchRectangle, RecomputeFailures, PartReloadController, PartFileWatcher, MetalRenderer+SolidMeshSink
     Serialization/         DocumentModelCoder, MadeManifest, MadePackage, DocumentMigration, CrashRecovery, UTType+Made
