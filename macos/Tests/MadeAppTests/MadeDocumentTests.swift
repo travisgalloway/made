@@ -130,6 +130,11 @@ import UniformTypeIdentifiers
 
         // Error must be logged to console drawer
         #expect(workspace.logs.contains(where: { $0.subsystem == "Document" && $0.level == .error }))
+        #expect(workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError != nil)
+        #expect(workspace.pendingOpenError?.documentURL == corruptPackageURL)
+        #expect(workspace.pendingOpenError?.fileName == "Corrupt.made")
+        #expect(!(workspace.pendingOpenError?.reason.isEmpty ?? true))
     }
 
     @Test func testFutureSchemaVersionThrowsAndPreservesScene() throws {
@@ -164,6 +169,11 @@ import UniformTypeIdentifiers
             $0.level == .error &&
             $0.message.contains("This document was created by a newer version of Made (schema version 99)")
         }))
+        #expect(workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError != nil)
+        #expect(workspace.pendingOpenError?.documentURL == futurePackageURL)
+        #expect(workspace.pendingOpenError?.fileName == "FutureVersion.made")
+        #expect(workspace.pendingOpenError?.reason.contains("schema version 99") == true)
     }
 
     @Test func testOpenV1PackageMigratesToV2InMemory() throws {
@@ -859,6 +869,87 @@ import UniformTypeIdentifiers
         #expect(openSuccessResult)
         #expect(!workspace.isShowingSaveErrorAlert)
         #expect(workspace.pendingSaveError == nil)
+    }
+
+    @Test func testOpenDocumentFailsWhenPackageCorruptShowsAlert() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let corruptPackageURL = tempDir.appendingPathComponent("CorruptPackage.made")
+        try FileManager.default.createDirectory(at: corruptPackageURL, withIntermediateDirectories: true)
+        let manifestData = "{\"schemaVersion\": 1, \"appVersion\": \"0.1\"}\n".data(using: .utf8)!
+        try manifestData.write(to: corruptPackageURL.appendingPathComponent("manifest.json"))
+        let corruptDocData = "INVALID_JSON".data(using: .utf8)!
+        try corruptDocData.write(to: corruptPackageURL.appendingPathComponent("document.json"))
+
+        let workspace = WorkspaceModel()
+        let openResult = workspace.openDocument(at: corruptPackageURL)
+        #expect(!openResult)
+        #expect(workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError != nil)
+        #expect(workspace.pendingOpenError?.documentURL == corruptPackageURL)
+        #expect(workspace.pendingOpenError?.fileName == "CorruptPackage.made")
+        #expect(!(workspace.pendingOpenError?.reason.isEmpty ?? true))
+
+        workspace.dismissOpenErrorAlert()
+        #expect(!workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError == nil)
+    }
+
+    @Test func testOpenDocumentAlertStateClearedOnLifecycle() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let corruptPackageURL = tempDir.appendingPathComponent("CorruptPackage.made")
+        try FileManager.default.createDirectory(at: corruptPackageURL, withIntermediateDirectories: true)
+        let manifestData = "{\"schemaVersion\": 1, \"appVersion\": \"0.1\"}\n".data(using: .utf8)!
+        try manifestData.write(to: corruptPackageURL.appendingPathComponent("manifest.json"))
+        let corruptDocData = "INVALID_JSON".data(using: .utf8)!
+        try corruptDocData.write(to: corruptPackageURL.appendingPathComponent("document.json"))
+
+        let workspace = WorkspaceModel()
+        workspace.newDocument()
+
+        // Create a valid document package for open testing
+        let validPackageURL = tempDir.appendingPathComponent("ValidPackage.made")
+        let saveResult = workspace.saveDocument(to: validPackageURL)
+        #expect(saveResult)
+
+        // Trigger open failure
+        let openFailResult = workspace.openDocument(at: corruptPackageURL)
+        #expect(!openFailResult)
+        #expect(workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError != nil)
+
+        // Reset via newDocument()
+        workspace.newDocument()
+        #expect(!workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError == nil)
+
+        // Trigger open failure again
+        let openFailResult2 = workspace.openDocument(at: corruptPackageURL)
+        #expect(!openFailResult2)
+        #expect(workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError != nil)
+
+        // Reset via successful openDocument(at:)
+        let openSuccessResult = workspace.openDocument(at: validPackageURL)
+        #expect(openSuccessResult)
+        #expect(!workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError == nil)
+
+        // Trigger open failure again
+        let openFailResult3 = workspace.openDocument(at: corruptPackageURL)
+        #expect(!openFailResult3)
+        #expect(workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError != nil)
+
+        // Reset via dismissOpenErrorAlert()
+        workspace.dismissOpenErrorAlert()
+        #expect(!workspace.isShowingOpenErrorAlert)
+        #expect(workspace.pendingOpenError == nil)
     }
 }
 

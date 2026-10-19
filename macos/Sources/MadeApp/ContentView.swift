@@ -64,6 +64,17 @@ struct ContentView: View {
         } message: { errorInfo in
             Text("Could not save \"\(errorInfo.fileName)\": \(errorInfo.reason)")
         }
+        .alert(
+            "Failed to Open Document",
+            isPresented: $workspace.isShowingOpenErrorAlert,
+            presenting: workspace.pendingOpenError
+        ) { _ in
+            Button("OK") {
+                workspace.dismissOpenErrorAlert()
+            }
+        } message: { errorInfo in
+            Text("Could not open \"\(errorInfo.fileName)\": \(errorInfo.reason)")
+        }
         .onAppear {
             workspace.setUp()
             workspace.syncWindowState()

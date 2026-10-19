@@ -70,6 +70,8 @@ final class WorkspaceModel {
     var isShowingRecoveryAlert: Bool = false
     var pendingSaveError: SaveErrorInfo? = nil
     var isShowingSaveErrorAlert: Bool = false
+    var pendingOpenError: OpenErrorInfo? = nil
+    var isShowingOpenErrorAlert: Bool = false
     @ObservationIgnored nonisolated(unsafe) private var terminateObserver: (any NSObjectProtocol)?
 
     var documentTitle: String {
@@ -1597,6 +1599,8 @@ final class WorkspaceModel {
         isShowingRecoveryAlert = false
         pendingSaveError = nil
         isShowingSaveErrorAlert = false
+        pendingOpenError = nil
+        isShowingOpenErrorAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -1641,6 +1645,8 @@ final class WorkspaceModel {
             isShowingRecoveryAlert = false
             pendingSaveError = nil
             isShowingSaveErrorAlert = false
+            pendingOpenError = nil
+            isShowingOpenErrorAlert = false
 
             let docSettings = package.manifest.documentSettings
             let restoredSelection: Set<Reference>? = {
@@ -1671,6 +1677,8 @@ final class WorkspaceModel {
             return true
         } catch {
             log(.error, "Document", "Failed to open document: \(error.localizedDescription)")
+            pendingOpenError = OpenErrorInfo(documentURL: url, reason: error.localizedDescription)
+            isShowingOpenErrorAlert = true
             return false
         }
     }
@@ -1810,6 +1818,11 @@ final class WorkspaceModel {
     func dismissSaveErrorAlert() {
         pendingSaveError = nil
         isShowingSaveErrorAlert = false
+    }
+
+    func dismissOpenErrorAlert() {
+        pendingOpenError = nil
+        isShowingOpenErrorAlert = false
     }
 
     // MARK: - Crash Recovery Actions
