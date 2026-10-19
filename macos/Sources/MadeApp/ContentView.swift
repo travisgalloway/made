@@ -53,6 +53,17 @@ struct ContentView: View {
         } message: { record in
             Text("Unsaved changes from \"\(record.metadata.documentTitle)\" were found from a previous session (\(record.metadata.savedAt.formatted(date: .abbreviated, time: .standard))). Would you like to recover or discard them?")
         }
+        .alert(
+            "Failed to Save Document",
+            isPresented: $workspace.isShowingSaveErrorAlert,
+            presenting: workspace.pendingSaveError
+        ) { _ in
+            Button("OK") {
+                workspace.dismissSaveErrorAlert()
+            }
+        } message: { errorInfo in
+            Text("Could not save \"\(errorInfo.fileName)\": \(errorInfo.reason)")
+        }
         .onAppear {
             workspace.setUp()
             workspace.syncWindowState()

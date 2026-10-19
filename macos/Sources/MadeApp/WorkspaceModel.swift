@@ -68,6 +68,8 @@ final class WorkspaceModel {
     @ObservationIgnored var recoveryStore: CrashRecoveryStore
     var pendingRecoveryRecord: CrashRecoveryRecord? = nil
     var isShowingRecoveryAlert: Bool = false
+    var pendingSaveError: SaveErrorInfo? = nil
+    var isShowingSaveErrorAlert: Bool = false
     @ObservationIgnored nonisolated(unsafe) private var terminateObserver: (any NSObjectProtocol)?
 
     var documentTitle: String {
@@ -1593,6 +1595,8 @@ final class WorkspaceModel {
         clearRecoverySnapshot()
         pendingRecoveryRecord = nil
         isShowingRecoveryAlert = false
+        pendingSaveError = nil
+        isShowingSaveErrorAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -1635,6 +1639,8 @@ final class WorkspaceModel {
             clearRecoverySnapshot()
             pendingRecoveryRecord = nil
             isShowingRecoveryAlert = false
+            pendingSaveError = nil
+            isShowingSaveErrorAlert = false
 
             let docSettings = package.manifest.documentSettings
             let restoredSelection: Set<Reference>? = {
@@ -1789,12 +1795,21 @@ final class WorkspaceModel {
             isDocumentModified = false
             clearRecoverySnapshot()
             syncWindowState()
+            pendingSaveError = nil
+            isShowingSaveErrorAlert = false
             log(.info, "Document", "Saved document to \(destinationURL.lastPathComponent)")
             return true
         } catch {
             log(.error, "Document", "Failed to save document: \(error.localizedDescription)")
+            pendingSaveError = SaveErrorInfo(destinationURL: destinationURL, reason: error.localizedDescription)
+            isShowingSaveErrorAlert = true
             return false
         }
+    }
+
+    func dismissSaveErrorAlert() {
+        pendingSaveError = nil
+        isShowingSaveErrorAlert = false
     }
 
     // MARK: - Crash Recovery Actions

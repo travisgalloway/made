@@ -775,5 +775,90 @@ import UniformTypeIdentifiers
         #expect(directPackage.parts["bracket.part.ts"] == partContent.data(using: .utf8)!)
         #expect(directPackage.assets["bracket.step"] == stepContent.data(using: .utf8)!)
     }
+
+    @Test func testSaveDocumentFailsWhenDestinationUnwritableShowsAlert() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let readOnlyDir = tempDir.appendingPathComponent("ReadOnlyDir")
+        try FileManager.default.createDirectory(at: readOnlyDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let workspace = WorkspaceModel()
+        workspace.newDocument()
+        workspace.addDefaultBox()
+        #expect(workspace.isDocumentModified)
+
+        // Make directory unwritable (read and execute only)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyDir.path)
+
+        let destinationURL = readOnlyDir.appendingPathComponent("UnwritableDocument.made")
+        let saveResult = workspace.saveDocument(to: destinationURL)
+
+        #expect(!saveResult)
+        #expect(workspace.isDocumentModified)
+        #expect(workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError != nil)
+        #expect(workspace.pendingSaveError?.destinationURL == destinationURL)
+        #expect(workspace.pendingSaveError?.fileName == "UnwritableDocument.made")
+        #expect(!(workspace.pendingSaveError?.reason.isEmpty ?? true))
+
+        workspace.dismissSaveErrorAlert()
+        #expect(!workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError == nil)
+    }
+
+    @Test func testSaveDocumentAlertStateClearedOnLifecycle() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let readOnlyDir = tempDir.appendingPathComponent("ReadOnlyLifecycleDir")
+        try FileManager.default.createDirectory(at: readOnlyDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let workspace = WorkspaceModel()
+        workspace.newDocument()
+        workspace.addDefaultBox()
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyDir.path)
+
+        let unwritableURL = readOnlyDir.appendingPathComponent("Unwritable.made")
+        let saveFailResult = workspace.saveDocument(to: unwritableURL)
+        #expect(!saveFailResult)
+        #expect(workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError != nil)
+
+        // Reset via newDocument()
+        workspace.newDocument()
+        #expect(!workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError == nil)
+
+        // Trigger failure again
+        workspace.addDefaultBox()
+        _ = workspace.saveDocument(to: unwritableURL)
+        #expect(workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError != nil)
+
+        // Reset via successful saveDocument
+        let writableURL = tempDir.appendingPathComponent("ValidDocument.made")
+        let saveSuccessResult = workspace.saveDocument(to: writableURL)
+        #expect(saveSuccessResult)
+        #expect(!workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError == nil)
+
+        // Trigger failure again
+        workspace.addDefaultBox()
+        _ = workspace.saveDocument(to: unwritableURL)
+        #expect(workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError != nil)
+
+        // Reset via openDocument(at:)
+        let openSuccessResult = workspace.openDocument(at: writableURL)
+        #expect(openSuccessResult)
+        #expect(!workspace.isShowingSaveErrorAlert)
+        #expect(workspace.pendingSaveError == nil)
+    }
 }
 
