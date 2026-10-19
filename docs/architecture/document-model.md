@@ -278,8 +278,10 @@ Both `setParam` and `addObject` apply the size ranges via `DocumentLimits`. The 
    - Undoing or redoing modeling operations invokes feature/object mutators that run `syncObjectsFromFeatures()` and `pruneInvalidSelection()`, keeping selection valid without undo stack pollution.
 
 6. **Serialization & Legacy Compatibility**:
-   - `DocumentData` encodes `selection: [Reference]?` in `document.json`.
-   - On decode, `DocumentModelCoder` restores `selection: Set<Reference>`. Legacy documents containing only `selectedId` gracefully fall back to `[Reference.body(selectedId)]`.
+   - `DocumentData` delegates canonical scene persistence to `features` (#562). `objects` and `bodies` are runtime projections reconstructed during decoding.
+   - When `features` is present, `DocumentData.encode(to:)` omits `objects` and `bodies` keys.
+   - On decode, `DocumentModelCoder` derives `objects` and `bodies` from active features. If declared `objects` or `bodies` are present in JSON alongside `features`, the decoder validates them against the active feature projection and throws `DecodingError.dataCorrupted` on mismatch. Legacy documents lacking `features` synthesize features and bodies from `objects`.
+   - `DocumentData` encodes `selection: [Reference]?` in `document.json`. On decode, `DocumentModelCoder` restores `selection: Set<Reference>`. Legacy documents containing only `selectedId` gracefully fall back to `[Reference.body(selectedId)]`.
 
 ---
 
