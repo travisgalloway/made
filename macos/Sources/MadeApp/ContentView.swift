@@ -75,6 +75,17 @@ struct ContentView: View {
         } message: { errorInfo in
             Text("Could not open \"\(errorInfo.fileName)\": \(errorInfo.reason)")
         }
+        .alert(
+            "Failed to Export STEP",
+            isPresented: $workspace.isShowingExportErrorAlert,
+            presenting: workspace.pendingExportError
+        ) { _ in
+            Button("OK") {
+                workspace.dismissExportErrorAlert()
+            }
+        } message: { errorInfo in
+            Text("Could not export \"\(errorInfo.fileName)\": \(errorInfo.reason)")
+        }
         .onAppear {
             workspace.setUp()
             workspace.syncWindowState()

@@ -492,6 +492,143 @@ import MadeCore
         #expect(contents.contains("END-ISO-10303-21;"))
     }
 
+    @Test @MainActor func testExportStepFileKernelFailureShowsAlert() async throws {
+        let model = WorkspaceModel()
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-export-fail-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        await model.injectRecomputeFailure(code: .invalidParams)
+        let exported = await model.exportStepFile(to: tempURL, selectedOnly: false)
+
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.destinationURL == tempURL)
+        #expect(model.pendingExportError?.fileName == tempURL.lastPathComponent)
+        #expect(model.pendingExportError?.reason == "Forced failure")
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportStepFileWriteFailureShowsAlert() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let readOnlyDir = tempDir.appendingPathComponent("ReadOnlyDir")
+        try FileManager.default.createDirectory(at: readOnlyDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyDir.path)
+        let destinationURL = readOnlyDir.appendingPathComponent("UnwritableExport.step")
+
+        let model = WorkspaceModel()
+        let exported = await model.exportStepFile(to: destinationURL, selectedOnly: false)
+
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.destinationURL == destinationURL)
+        #expect(model.pendingExportError?.fileName == "UnwritableExport.step")
+        #expect(!(model.pendingExportError?.reason.isEmpty ?? true))
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportStepFileNoObjectsShowsAlert() async throws {
+        let model = WorkspaceModel()
+        model.document.reset(with: [SceneObject]())
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-no-objects-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportStepFile(to: tempURL, selectedOnly: false)
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.destinationURL == tempURL)
+        #expect(model.pendingExportError?.reason == "No objects to export")
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportStepFileSelectedOnlyNoSelectionShowsAlert() async throws {
+        let model = WorkspaceModel()
+        model.clearSelection()
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-selected-none-\(UUID().uuidString).step")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportStepFile(to: tempURL, selectedOnly: true)
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError?.reason == "No objects to export")
+    }
+
+    @Test @MainActor func testExportStepAlertStateClearedOnLifecycle() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let readOnlyDir = tempDir.appendingPathComponent("ReadOnlyLifecycleDir")
+        try FileManager.default.createDirectory(at: readOnlyDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let model = WorkspaceModel()
+        let tempURL = tempDir.appendingPathComponent("test-lifecycle-\(UUID().uuidString).step")
+        let unwritableURL = readOnlyDir.appendingPathComponent("Unwritable.step")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyDir.path)
+
+        // Trigger failure via empty objects
+        model.document.reset(with: [SceneObject]())
+        let fail1 = await model.exportStepFile(to: tempURL, selectedOnly: false)
+        #expect(!fail1)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+
+        // Clear via newDocument()
+        model.newDocument()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+
+        // Trigger failure again via unwritable destination
+        let fail2 = await model.exportStepFile(to: unwritableURL, selectedOnly: false)
+        #expect(!fail2)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+
+        // Clear via successful exportStepFile
+        let successExport = await model.exportStepFile(to: tempURL, selectedOnly: false)
+        #expect(successExport)
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+
+        // Trigger failure again via unwritable destination
+        let fail3 = await model.exportStepFile(to: unwritableURL, selectedOnly: false)
+        #expect(!fail3)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+
+        let packageDir = tempDir.appendingPathComponent("test-package-\(UUID().uuidString).made")
+        let saved = model.saveDocument(to: packageDir)
+        #expect(saved)
+
+        // Ensure export alert is still set before openDocument
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+
+        // Clear via openDocument(at:)
+        let opened = model.openDocument(at: packageDir)
+        #expect(opened)
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
     @Test @MainActor func testImportStepEmptyFileLeavesSceneUnchanged() throws {
         let model = WorkspaceModel()
         let initialCount = model.document.objects.count
