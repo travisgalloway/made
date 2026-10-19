@@ -114,12 +114,6 @@ struct EditMenuCommands: Commands {
                 ))
                 .keyboardShortcut(WorkspaceModel.filterSketchShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
 
-                Toggle("Components", isOn: Binding(
-                    get: { workspace.selectionFilter.contains(.components) },
-                    set: { workspace.toggleSelectionFilter(.components, enabled: $0) }
-                ))
-                .keyboardShortcut(WorkspaceModel.filterComponentShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
-
                 Divider()
 
                 Button("All Filters") {

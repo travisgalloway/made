@@ -1090,6 +1090,9 @@ final class WorkspaceModel {
     // MARK: - Interactive Sketch Drag Solving (BL-CON-07)
 
     public func beginInteractiveSketchDrag(featureId: UUID, entityId: UUID? = nil) {
+        if let entityId {
+            selectSketchEntity(featureId: featureId, entityId: entityId)
+        }
         document.beginInteractiveSketchDrag(featureId: featureId)
     }
 
@@ -3157,7 +3160,6 @@ final class WorkspaceModel {
     static let filterVertexShortcutKey: KeyEquivalent = "v"
     static let filterBodyShortcutKey: KeyEquivalent = "b"
     static let filterSketchShortcutKey: KeyEquivalent = "s"
-    static let filterComponentShortcutKey: KeyEquivalent = "c"
     static let filterAllShortcutKey: KeyEquivalent = "a"
     static let filterShortcutModifiers: EventModifiers = [.option]
 
@@ -3213,7 +3215,6 @@ final class WorkspaceModel {
         ShortcutCheatsheetEntry(title: "Filter Vertices", shortcut: "⌥V", category: .editing, description: "Filter selection to vertices"),
         ShortcutCheatsheetEntry(title: "Filter Bodies", shortcut: "⌥B", category: .editing, description: "Filter selection to solid bodies"),
         ShortcutCheatsheetEntry(title: "Filter Sketch Entities", shortcut: "⌥S", category: .editing, description: "Filter selection to sketch entities"),
-        ShortcutCheatsheetEntry(title: "Filter Components", shortcut: "⌥C", category: .editing, description: "Filter selection to components"),
         ShortcutCheatsheetEntry(title: "All Filters", shortcut: "⌥A", category: .editing, description: "Reset selection filters to allow all entities"),
 
         ShortcutCheatsheetEntry(title: "Reset View", shortcut: "⌘0", category: .navigation, description: "Reset camera to default perspective view"),

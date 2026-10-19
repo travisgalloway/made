@@ -1245,7 +1245,6 @@ import MadeCore
         #expect(shortcuts.contains(where: { $0.title == "Filter Vertices" && $0.shortcut == "⌥V" }))
         #expect(shortcuts.contains(where: { $0.title == "Filter Bodies" && $0.shortcut == "⌥B" }))
         #expect(shortcuts.contains(where: { $0.title == "Filter Sketch Entities" && $0.shortcut == "⌥S" }))
-        #expect(shortcuts.contains(where: { $0.title == "Filter Components" && $0.shortcut == "⌥C" }))
         #expect(shortcuts.contains(where: { $0.title == "All Filters" && $0.shortcut == "⌥A" }))
     }
 
@@ -1292,9 +1291,19 @@ import MadeCore
         #expect(WorkspaceModel.filterVertexShortcutKey == "v")
         #expect(WorkspaceModel.filterBodyShortcutKey == "b")
         #expect(WorkspaceModel.filterSketchShortcutKey == "s")
-        #expect(WorkspaceModel.filterComponentShortcutKey == "c")
         #expect(WorkspaceModel.filterAllShortcutKey == "a")
         #expect(WorkspaceModel.filterShortcutModifiers == [.option])
+    }
+
+    @Test @MainActor func testBeginInteractiveSketchDragSelectsEntity() throws {
+        let workspace = WorkspaceModel()
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [line])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        workspace.beginInteractiveSketchDrag(featureId: feature.id, entityId: line.id)
+        #expect(workspace.selectedSketchEntity?.entity.id == line.id)
     }
 
     @Test @MainActor func testWorkspaceUndoRedoMenuCommands() {
