@@ -484,4 +484,168 @@ import UniformTypeIdentifiers
         #expect(workspace.document.settings.units.lengthUnit == .centimeters)
         #expect(workspace.document.settings.defaultMaterial == MaterialAttributes())
     }
+
+    // MARK: - Unreadable Source Error Tests (Issue #559)
+
+    @Test func testSaveDocumentFailsWhenPartSourceUnreadable() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let packageURL = tempDir.appendingPathComponent("TestPart.made")
+        let partsDir = packageURL.appendingPathComponent("parts")
+        try FileManager.default.createDirectory(at: partsDir, withIntermediateDirectories: true)
+
+        let widgetFile = partsDir.appendingPathComponent("widget.part.ts")
+        let widgetContent = "export default { kind: 'box' };\n"
+        try widgetContent.data(using: .utf8)!.write(to: widgetFile)
+
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: widgetFile.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let manifest = MadeManifest(schemaVersion: MadeManifest.currentSchemaVersion, appVersion: "0.1")
+        let partURL = URL(fileURLWithPath: "parts/widget.part.ts")
+        let solidId = SolidId("part-1")
+        let partFeature = Feature(name: "WidgetPart", operation: .part(PartFeatureData(url: partURL, shape: nil)), outputSolidId: solidId)
+        let docData = DocumentData(
+            schemaVersion: DocumentData.currentSchemaVersion,
+            features: [partFeature],
+            objects: [SceneObject(id: solidId, def: .part(url: partURL))]
+        )
+        let initialPackage = MadePackage(
+            manifest: manifest,
+            documentData: docData,
+            assets: [:],
+            parts: ["widget.part.ts": widgetContent.data(using: .utf8)!]
+        )
+        try initialPackage.write(to: packageURL)
+
+        let originalDocData = try Data(contentsOf: packageURL.appendingPathComponent("document.json"))
+        let originalManifestData = try Data(contentsOf: packageURL.appendingPathComponent("manifest.json"))
+
+        let workspace = WorkspaceModel()
+        let openResult = workspace.openDocument(at: packageURL)
+        #expect(openResult)
+        #expect(workspace.currentDocumentURL == packageURL)
+
+        // Mark document as modified
+        workspace.addDefaultBox()
+        #expect(workspace.isDocumentModified)
+
+        // Set widget.part.ts permissions to 000 (unreadable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: widgetFile.path)
+
+        let saveResult = workspace.saveDocument()
+        #expect(!saveResult)
+        #expect(workspace.isDocumentModified)
+        #expect(workspace.logs.contains { $0.level == .error && $0.subsystem == "Document" && $0.message.contains("widget.part.ts") })
+
+        // Verify on-disk package remains completely intact and unchanged
+        let currentDocData = try Data(contentsOf: packageURL.appendingPathComponent("document.json"))
+        let currentManifestData = try Data(contentsOf: packageURL.appendingPathComponent("manifest.json"))
+        #expect(currentDocData == originalDocData)
+        #expect(currentManifestData == originalManifestData)
+    }
+
+    @Test func testSaveDocumentFailsWhenSTEPAssetUnreadable() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let stepFile = tempDir.appendingPathComponent("bracket.step")
+        try "ISO-10303-21;".data(using: .utf8)!.write(to: stepFile)
+
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: stepFile.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let workspace = WorkspaceModel()
+        workspace.newDocument()
+        let importedFeature = Feature(
+            name: "Bracket",
+            operation: .imported(ImportedFeatureData(name: "Bracket", sourceURL: stepFile, data: nil))
+        )
+        workspace.document.reset(with: [importedFeature])
+        workspace.addDefaultBox()
+
+        // Set stepFile permissions to 000 (unreadable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: stepFile.path)
+
+        let destinationURL = tempDir.appendingPathComponent("SavedSTEP.made")
+        let saveResult = workspace.saveDocument(to: destinationURL)
+
+        #expect(!saveResult)
+        #expect(workspace.isDocumentModified)
+        #expect(workspace.logs.contains { $0.level == .error && $0.subsystem == "Document" && $0.message.contains("bracket.step") })
+        #expect(!FileManager.default.fileExists(atPath: destinationURL.path))
+    }
+
+    @Test func testSaveDocumentPreservesRolledBackFeaturesAssetsAndParts() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let stepFile = tempDir.appendingPathComponent("engine.step")
+        let stepContent = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+        try stepContent.data(using: .utf8)!.write(to: stepFile)
+
+        let partFile = tempDir.appendingPathComponent("cog.part.ts")
+        let partContent = "export default { kind: 'cylinder' };\n"
+        try partContent.data(using: .utf8)!.write(to: partFile)
+
+        let workspace = WorkspaceModel()
+        workspace.newDocument()
+
+        let baseBox = Feature(
+            name: "BaseBox",
+            operation: .primitive(PrimitiveFeatureData.box(BoxParams(width: 20, depth: 20, height: 20))),
+            outputSolidId: SolidId("box-1")
+        )
+        let importedFeature = Feature(
+            name: "Engine",
+            operation: .imported(ImportedFeatureData(name: "Engine", sourceURL: stepFile, data: nil))
+        )
+        let partFeature = Feature(
+            name: "Cog",
+            operation: .part(PartFeatureData(url: partFile, shape: nil))
+        )
+
+        // Reset document with 3 features and rollback to index 1 (so Engine and Cog are rolled back)
+        workspace.document.reset(with: [baseBox, importedFeature, partFeature], rollbackIndex: 1)
+        #expect(workspace.document.isRolledBack)
+        #expect(workspace.document.objects.count == 1)
+        #expect(workspace.document.features.count == 3)
+
+        let destinationURL = tempDir.appendingPathComponent("RolledBackProject.made")
+        let saveResult = workspace.saveDocument(to: destinationURL)
+        #expect(saveResult)
+
+        // Read saved package from disk and verify assets/ and parts/ both contain rolled-back data
+        let readPackage = try MadePackage(directoryURL: destinationURL)
+        #expect(readPackage.assets["engine.step"] == stepContent.data(using: .utf8)!)
+        #expect(readPackage.parts["cog.part.ts"] == partContent.data(using: .utf8)!)
+    }
+
+    @Test func testSaveDocumentFailsWhenSTEPAssetMissingAndNoData() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let workspace = WorkspaceModel()
+        workspace.newDocument()
+        let missingURL = tempDir.appendingPathComponent("nonexistent.step")
+        let importedFeature = Feature(
+            name: "Nonexistent",
+            operation: .imported(ImportedFeatureData(name: "Nonexistent", sourceURL: missingURL, data: nil))
+        )
+        workspace.document.reset(with: [importedFeature])
+
+        let destinationURL = tempDir.appendingPathComponent("TestMissing.made")
+        let saveResult = workspace.saveDocument(to: destinationURL)
+        #expect(!saveResult)
+        #expect(workspace.logs.contains { $0.level == .error && $0.subsystem == "Document" && $0.message.contains("nonexistent.step") })
+        #expect(!FileManager.default.fileExists(atPath: destinationURL.path))
+    }
 }
+

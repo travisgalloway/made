@@ -192,3 +192,4 @@ Date: 2026-10-17. The run parked 84 findings, in source order and unranked. Form
 - QA-VPT-07 | .claude/audit/20261017-112015/xcuitest-proposal.md | Gizmo drag on a selected box moves it, and the Inspector position updates. Follow-on slice of ADR-D10. | audit 20261017-112015
 - QA-VPT-08 | .claude/audit/20261017-112015/xcuitest-proposal.md | Self-hosted Apple-silicon CI job for layers 2 to 4, restricted to non-fork events. Follow-on slice of ADR-D10. | audit 20261017-112015
 - (no id) | macos/Sources/MadeApp/InspectorPanelView.swift:1200 | Sketch region area is formatted as hardcoded mm² without checking document unit preferences. | execution #556
+- (no id) | macos/Sources/MadeCore/Serialization/MadePackage.swift:173 | URL(fileURLWithPath: "assets/\($0)") constructs a file URL relative to current working directory instead of package root. | execution #559

@@ -5,6 +5,7 @@ public enum MadeDocumentError: LocalizedError, Equatable, Sendable {
     case unsupportedSchemaVersion(Int)
     case corruptDocument(String)
     case missingFile(String)
+    case unreadableFile(String)
 
     public var errorDescription: String? {
         switch self {
@@ -18,6 +19,8 @@ public enum MadeDocumentError: LocalizedError, Equatable, Sendable {
             return "Corrupt document: \(details)"
         case .missingFile(let filename):
             return "Missing required file in package: \(filename)"
+        case .unreadableFile(let filename):
+            return "Cannot read source file: \(filename)"
         }
     }
 }
