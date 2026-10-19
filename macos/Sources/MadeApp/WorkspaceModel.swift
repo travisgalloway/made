@@ -72,6 +72,8 @@ final class WorkspaceModel {
     var isShowingSaveErrorAlert: Bool = false
     var pendingOpenError: OpenErrorInfo? = nil
     var isShowingOpenErrorAlert: Bool = false
+    var pendingExportError: ExportErrorInfo? = nil
+    var isShowingExportErrorAlert: Bool = false
     @ObservationIgnored nonisolated(unsafe) private var terminateObserver: (any NSObjectProtocol)?
 
     var documentTitle: String {
@@ -1601,6 +1603,8 @@ final class WorkspaceModel {
         isShowingSaveErrorAlert = false
         pendingOpenError = nil
         isShowingOpenErrorAlert = false
+        pendingExportError = nil
+        isShowingExportErrorAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -1647,6 +1651,8 @@ final class WorkspaceModel {
             isShowingSaveErrorAlert = false
             pendingOpenError = nil
             isShowingOpenErrorAlert = false
+            pendingExportError = nil
+            isShowingExportErrorAlert = false
 
             let docSettings = package.manifest.documentSettings
             let restoredSelection: Set<Reference>? = {
@@ -1823,6 +1829,11 @@ final class WorkspaceModel {
     func dismissOpenErrorAlert() {
         pendingOpenError = nil
         isShowingOpenErrorAlert = false
+    }
+
+    func dismissExportErrorAlert() {
+        pendingExportError = nil
+        isShowingExportErrorAlert = false
     }
 
     // MARK: - Crash Recovery Actions
@@ -2169,6 +2180,8 @@ final class WorkspaceModel {
         }
         guard !candidateObjects.isEmpty else {
             log(.error, "Kernel", "No objects to export")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: "No objects to export")
+            isShowingExportErrorAlert = true
             return false
         }
         let result = await kernelClient.exportStep(objects: candidateObjects)
@@ -2176,14 +2189,20 @@ final class WorkspaceModel {
         case .success(_, let data):
             do {
                 try data.write(to: url)
+                pendingExportError = nil
+                isShowingExportErrorAlert = false
                 log(.info, "Kernel", "Exported STEP to \(url.lastPathComponent)")
                 return true
             } catch {
                 log(.error, "Kernel", "Failed to write STEP file: \(error.localizedDescription)")
+                pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.localizedDescription)
+                isShowingExportErrorAlert = true
                 return false
             }
         case .failure(_, let error):
             log(.error, "Kernel", "Failed to export STEP: \(error.message)")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.message)
+            isShowingExportErrorAlert = true
             return false
         }
     }
