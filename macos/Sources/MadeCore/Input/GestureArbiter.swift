@@ -44,6 +44,14 @@ public final class GestureArbiter: @unchecked Sendable {
     private var mode: GestureMode? = nil
     private var locked: Bool = false
     
+    public var pointerCount: Int {
+        pointers.count
+    }
+    
+    public var peakConcurrentCount: Int {
+        peakConcurrent
+    }
+    
     public init() {}
     
     public func handle(_ event: GestureEvent) -> GestureDecision {
@@ -98,7 +106,17 @@ public final class GestureArbiter: @unchecked Sendable {
         return GestureDecision(mode: mode, locked: self.locked)
     }
     
+    @discardableResult
+    public func removePointer(_ pointerId: Int) -> Bool {
+        guard pointers.removeValue(forKey: pointerId) != nil else { return false }
+        if pointers.isEmpty {
+            reset()
+        }
+        return true
+    }
+    
     public func reset() {
+        pointers.removeAll()
         peakConcurrent = 0
         mode = nil
         locked = false

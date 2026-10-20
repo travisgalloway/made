@@ -1,6 +1,6 @@
 # Input Routing, Gestures & Precision Snapping
 
-The input subsystem in `made` enforces Invariant 8 (navigation and editing never share a gesture) and Invariant 9 (precision comes from snapping and typed values). The modules model mouse, touch, and pen input. **Status:** Mouse drag navigation (orbit, pan, and zoom) in the macOS viewport is implemented (#87). Viewport snapping to vertices, edges, and the Z = 0 ground grid during drag operations is implemented (#88). The iPadOS and Apple Pencil paths are planned (#84).
+The input subsystem in `made` enforces Invariant 8 (navigation and editing never share a gesture) and Invariant 9 (precision comes from snapping and typed values). The modules model mouse, touch, and pen input. **Status:** Mouse drag navigation (orbit, pan, and zoom) in the macOS viewport is implemented (#87). Viewport snapping to vertices, edges, and the Z = 0 ground grid during drag operations is implemented (#88). The iPadOS multi-touch navigation and Apple Pencil precision channel are implemented (#84).
 
 ---
 
@@ -58,11 +58,17 @@ Implemented in [`GestureArbiter.swift`](../../macos/Sources/MadeCore/Input/Gestu
 
 ### Pointer Router Channels
 [`PointerRouter.swift`](../../macos/Sources/MadeCore/Input/PointerRouter.swift) chooses the channel by `PointerType`:
-- **Pen**: Always returns `.manipulate`, locked. It never reaches the arbiter.
+- **Pen**: Always returns `.manipulate`, locked. It never reaches the arbiter. While pen is active (`isPenActive`), single-touch events are suppressed as palm contact, while two-finger touches route to `GestureArbiter` for camera navigation.
 - **Touch**: Forwarded to the `GestureArbiter` rules above.
 - **Mouse**: Movement past `mouseClickThresholdPx` (6.0 px) from the press point classifies the gesture as `.navigate`. Otherwise it is `.manipulate`.
 
-The iPadOS runtime for these paths, including Apple Pencil hover, is planned (#84).
+### iPadOS and Apple Pencil Architecture (#84)
+The iPadOS runtime in [`CADMetalViewRepresentable.swift`](../../macos/Sources/MadeApp/CADMetalViewRepresentable.swift) connects hardware touch and stylus events:
+1. **Multi-Touch Navigation**: Touch events (`touchesBegan`, `touchesMoved`, `touchesEnded`, `touchesCancelled`) route through `PointerRouter` and `GestureArbiter`. Moving two or more fingers locks the arbiter into `.navigate`, computing average centroid deltas to drive `Camera.orbit` around the resolved pivot.
+2. **Dedicated Pen Channel & Palm Rejection**: Apple Pencil (`touch.type == .pencil`) routes to `PointerType.pen`, locking `.manipulate`. Single-finger touches while the pencil is active are suppressed as palm contact, returning `.undecided` without latching manipulate or altering transforms.
+3. **Direct Manipulation**: Pencil drags over selected solids or gizmo handles update preview transforms locally on `MetalRenderer` with `InvalidateReason.interaction` without kernel dispatches, committing once to `DocumentModel` on lift.
+4. **Hover Preselection**: `UIHoverGestureRecognizer` updates `renderer.preselectedSubElement` during Apple Pencil hover and clears preselection when hover ends.
+5. **Scribble Numeric Entry**: `CommitNumberField` configures `.autocorrectionDisabled()` and `.keyboardType(.numbersAndPunctuation)` on iOS, sanitizing handwritten unit suffixes (`mm`, `in`, `deg`, `°`).
 
 ---
 
