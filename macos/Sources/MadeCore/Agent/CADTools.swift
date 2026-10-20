@@ -464,7 +464,7 @@ public final class CADToolRegistry {
         }
         
         let clampedDef = DocumentLimits.clamp(def)
-        let id = document.addObject(def: clampedDef, transform: transform)
+        let id = document.addObject(def: clampedDef, transform: transform, actionName: "Agent: cad_add_solid")
         scheduleRecompute(id: id)
         
         let dimStr: String
@@ -578,7 +578,7 @@ public final class CADToolRegistry {
             return .error("Unknown parameter '\(param)' for \(def.kind) solid '\(idStr)'. Supported: \(names)")
         }
         
-        let result = document.setParam(id: id, key: param, value: val)
+        let result = document.setParam(id: id, key: param, value: val, actionName: "Agent: cad_set_param")
         switch result {
         case .failure(.objectLocked(let lockedId)):
             return .error("Solid '\(lockedId.rawValue)' is locked and cannot be edited")
@@ -690,7 +690,7 @@ public final class CADToolRegistry {
             return .error(error.message)
         }
         
-        let result = document.setTransform(id: id, transform: transform)
+        let result = document.setTransform(id: id, transform: transform, actionName: "Agent: cad_set_transform")
         switch result {
         case .failure(.objectLocked(let lockedId)):
             return .error("Solid '\(lockedId.rawValue)' is locked and cannot be moved")
@@ -727,7 +727,7 @@ public final class CADToolRegistry {
         let inFlight = inFlightRecomputes.removeValue(forKey: id)
         partReloadController.stopWatching(id: id)
         let dependents = document.dependentObjects(of: id)
-        document.removeObject(id: id)
+        document.removeObject(id: id, actionName: "Agent: cad_remove_solid")
         if let sink = meshSink, SolidMeshApplier.remove(id: id, from: sink) {
             onViewportInvalidated?()
         }
@@ -1335,11 +1335,7 @@ public final class CADToolRegistry {
                 await kernelClient.dispose(solidId: outputId)
                 return .error("Solid '\(missing)' was removed while the boolean \(opStr) was running")
             }
-            document.addObject(outputId, def: def)
-            if let keepTool {
-                document.setVisibility(id: solidA, isVisible: false)
-                document.setVisibility(id: solidB, isVisible: keepTool)
-            }
+            document.addBooleanObject(outputId, def: def, keepTool: keepTool, actionName: "Agent: cad_boolean_operation")
             if let sink = meshSink, SolidMeshApplier.apply(result, to: outputId, document: document, sink: sink) {
                 onViewportInvalidated?()
             }

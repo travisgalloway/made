@@ -1379,7 +1379,7 @@ public final class DocumentModel {
     }
 
     @discardableResult
-    public func removeFeature(id: UUID) -> Result<Void, DocumentMutationError> {
+    public func removeFeature(id: UUID, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.id == id }) else {
             return .failure(.objectNotFound(ObjectId(id.uuidString)))
         }
@@ -1408,24 +1408,26 @@ public final class DocumentModel {
         }
         pruneInvalidSelection()
 
-        let redoName = undoManager?.isUndoing == true ? "Add \(removedFeature.name)" : "Delete \(removedFeature.name)"
-        undoManager?.registerUndo(withTarget: self) { target in
-            MainActor.assumeIsolated {
-                _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName)
-                target.rollbackIndex = previousRollback
-                target.undoManager?.setActionName(redoName)
-                if let solidId = removedFeature.outputSolidId {
-                    target.onUndoRedoMutation?(.added(solidId))
+        let redoName = actionName ?? (undoManager?.isUndoing == true ? "Add \(removedFeature.name)" : "Delete \(removedFeature.name)")
+        if registerUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName, registerUndo: true)
+                    target.rollbackIndex = previousRollback
+                    target.undoManager?.setActionName(redoName)
+                    if let solidId = removedFeature.outputSolidId {
+                        target.onUndoRedoMutation?(.added(solidId))
+                    }
                 }
             }
+            undoManager?.setActionName(redoName)
+            undoStateVersion += 1
         }
-        undoManager?.setActionName(redoName)
-        undoStateVersion += 1
         return .success(())
     }
 
     @discardableResult
-    public func insertFeature(_ feature: Feature, at index: Int, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
+    public func insertFeature(_ feature: Feature, at index: Int, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
         guard !features.contains(where: { $0.id == feature.id }) else {
             return .failure(.objectLocked(feature.outputSolidId ?? ObjectId(feature.id.uuidString)))
         }
@@ -1444,18 +1446,20 @@ public final class DocumentModel {
         }
 
         let undoName = actionName ?? "Delete \(feature.name)"
-        undoManager?.registerUndo(withTarget: self) { target in
-            MainActor.assumeIsolated {
-                _ = target.removeFeature(id: feature.id)
-                target.rollbackIndex = previousRollback
-                target.undoManager?.setActionName(undoName)
-                if let solidId = feature.outputSolidId {
-                    target.onUndoRedoMutation?(.removed(solidId))
+        if registerUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeFeature(id: feature.id, actionName: undoName, registerUndo: true)
+                    target.rollbackIndex = previousRollback
+                    target.undoManager?.setActionName(undoName)
+                    if let solidId = feature.outputSolidId {
+                        target.onUndoRedoMutation?(.removed(solidId))
+                    }
                 }
             }
+            undoManager?.setActionName(undoName)
+            undoStateVersion += 1
         }
-        undoManager?.setActionName(undoName)
-        undoStateVersion += 1
         return .success(())
     }
 
@@ -2805,8 +2809,8 @@ public final class DocumentModel {
     }
     
     @discardableResult
-    public func addObject(def: ObjectDef, transform: Transform = .identity, material: MaterialAttributes? = nil) -> ObjectId {
-        addObject(reserveId(for: def), def: def, transform: transform, material: material)
+    public func addObject(def: ObjectDef, transform: Transform = .identity, material: MaterialAttributes? = nil, actionName: String? = nil) -> ObjectId {
+        addObject(reserveId(for: def), def: def, transform: transform, material: material, actionName: actionName)
     }
     
     /// Advances the sequence and returns an ID no object has used; the caller may never add it.
@@ -2817,7 +2821,7 @@ public final class DocumentModel {
     
     /// Adds an object under an ID from `reserveId(for:)`, so a kernel call can use the ID before the object exists.
     @discardableResult
-    public func addObject(_ id: ObjectId, def: ObjectDef, transform: Transform = .identity, material: MaterialAttributes? = nil) -> ObjectId {
+    public func addObject(_ id: ObjectId, def: ObjectDef, transform: Transform = .identity, material: MaterialAttributes? = nil, actionName: String? = nil) -> ObjectId {
         let clamped = DocumentLimits.clamp(def)
         let defaultName: String?
         if case .part(let url, _) = clamped, !url.lastPathComponent.isEmpty {
@@ -2839,18 +2843,161 @@ public final class DocumentModel {
         }
         selectedId = id
 
+        let effectiveActionName = actionName ?? "Add \(clamped.kind.capitalized)"
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
-                let res = target.removeObject(id: id)
+                let res = target.removeObject(id: id, actionName: effectiveActionName)
                 target.rollbackIndex = previousRollback
                 guard case .success = res else { return }
-                target.undoManager?.setActionName("Add \(clamped.kind.capitalized)")
+                target.undoManager?.setActionName(effectiveActionName)
                 target.onUndoRedoMutation?(.removed(id))
             }
         }
-        undoManager?.setActionName("Add \(clamped.kind.capitalized)")
+        undoManager?.setActionName(effectiveActionName)
         undoStateVersion += 1
         return id
+    }
+
+    /// Adds a compound boolean object and updates operand visibilities in a single undo step.
+    @discardableResult
+    public func addBooleanObject(
+        _ id: ObjectId,
+        def: ObjectDef,
+        keepTool: Bool? = nil,
+        actionName: String? = nil
+    ) -> ObjectId {
+        let clamped = DocumentLimits.clamp(def)
+        guard case .boolean(_, let solidA, let solidB) = clamped else {
+            return addObject(id, def: clamped, actionName: actionName)
+        }
+        let feature = Feature(from: SceneObject(id: id, name: nil, def: clamped, transform: .identity, material: settings.defaultMaterial))
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        let origVisA = features.first(where: { $0.outputSolidId == solidA })?.isVisible
+        let origVisB = features.first(where: { $0.outputSolidId == solidB })?.isVisible
+
+        features.insert(feature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = id
+
+        if let keepTool {
+            setVisibility(id: solidA, isVisible: false)
+            setVisibility(id: solidB, isVisible: keepTool)
+        }
+
+        let effectiveActionName = actionName ?? "Add Boolean"
+        registerBooleanUndo(
+            id: id,
+            feature: feature,
+            solidA: solidA,
+            solidB: solidB,
+            origVisA: origVisA,
+            origVisB: origVisB,
+            keepTool: keepTool,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return id
+    }
+
+    @discardableResult
+    public func addBooleanObject(
+        def: ObjectDef,
+        keepTool: Bool? = nil,
+        actionName: String? = nil
+    ) -> ObjectId {
+        addBooleanObject(reserveId(for: def), def: def, keepTool: keepTool, actionName: actionName)
+    }
+
+    private func registerBooleanUndo(
+        id: ObjectId,
+        feature: Feature,
+        solidA: SolidId,
+        solidB: SolidId,
+        origVisA: Bool?,
+        origVisB: Bool?,
+        keepTool: Bool?,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                if keepTool != nil {
+                    if let origVisA {
+                        target.setVisibility(id: solidA, isVisible: origVisA)
+                    }
+                    if let origVisB {
+                        target.setVisibility(id: solidB, isVisible: origVisB)
+                    }
+                }
+                let res = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                guard case .success = res else { return }
+
+                target.registerBooleanRedo(
+                    id: id,
+                    feature: feature,
+                    solidA: solidA,
+                    solidB: solidB,
+                    origVisA: origVisA,
+                    origVisB: origVisB,
+                    keepTool: keepTool,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+    }
+
+    private func registerBooleanRedo(
+        id: ObjectId,
+        feature: Feature,
+        solidA: SolidId,
+        solidB: SolidId,
+        origVisA: Bool?,
+        origVisB: Bool?,
+        keepTool: Bool?,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                guard case .success = res else { return }
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                if let keepTool {
+                    target.setVisibility(id: solidA, isVisible: false)
+                    target.setVisibility(id: solidB, isVisible: keepTool)
+                }
+                target.registerBooleanUndo(
+                    id: id,
+                    feature: feature,
+                    solidA: solidA,
+                    solidB: solidB,
+                    origVisA: origVisA,
+                    origVisB: origVisB,
+                    keepTool: keepTool,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.added(id))
+            }
+        }
     }
 
     /// Restores a previously removed object at its original index, preserving its identity.
@@ -2933,7 +3080,7 @@ public final class DocumentModel {
     }
 
     @discardableResult
-    public func removeObject(id: ObjectId) -> Result<Void, DocumentMutationError> {
+    public func removeObject(id: ObjectId, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
@@ -2963,22 +3110,24 @@ public final class DocumentModel {
         pruneInvalidSelection()
 
         let kind = removedFeature.toSceneObject()?.def.kind.capitalized ?? "Solid"
-        let redoName = undoManager?.isUndoing == true ? "Add \(kind)" : "Delete \(removedFeature.name)"
-        undoManager?.registerUndo(withTarget: self) { target in
-            MainActor.assumeIsolated {
-                _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName)
-                target.rollbackIndex = previousRollback
-                target.undoManager?.setActionName(redoName)
-                target.onUndoRedoMutation?(.added(id))
+        let redoName = actionName ?? (undoManager?.isUndoing == true ? "Add \(kind)" : "Delete \(removedFeature.name)")
+        if registerUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.insertFeature(removedFeature, at: removedIndex, actionName: redoName, registerUndo: true)
+                    target.rollbackIndex = previousRollback
+                    target.undoManager?.setActionName(redoName)
+                    target.onUndoRedoMutation?(.added(id))
+                }
             }
+            undoManager?.setActionName(redoName)
+            undoStateVersion += 1
         }
-        undoManager?.setActionName(redoName)
-        undoStateVersion += 1
         return .success(())
     }
     
     @discardableResult
-    public func setParam(id: ObjectId, key: String, value: Float) -> Result<Void, DocumentMutationError> {
+    public func setParam(id: ObjectId, key: String, value: Float, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
@@ -3079,22 +3228,23 @@ public final class DocumentModel {
             return .success(())
         }
 
+        let effectiveActionName = actionName ?? "Change \(key.capitalized)"
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
-                let res = target.setParam(id: id, key: key, value: oldValue)
+                let res = target.setParam(id: id, key: key, value: oldValue, actionName: effectiveActionName)
                 guard case .success = res else { return }
-                target.undoManager?.setActionName("Change \(key.capitalized)")
+                target.undoManager?.setActionName(effectiveActionName)
                 target.onUndoRedoMutation?(.paramChanged(id, key: key, value: oldValue))
             }
         }
-        undoManager?.setActionName("Change \(key.capitalized)")
+        undoManager?.setActionName(effectiveActionName)
         undoStateVersion += 1
         features[index] = updatedFeature
         return .success(())
     }
     
     @discardableResult
-    public func setTransform(id: ObjectId, transform: Transform) -> Result<Void, DocumentMutationError> {
+    public func setTransform(id: ObjectId, transform: Transform, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
@@ -3107,15 +3257,16 @@ public final class DocumentModel {
         }
         features[index].transform = transform
 
+        let effectiveActionName = actionName ?? "Move Solid"
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
-                let res = target.setTransform(id: id, transform: oldTransform)
+                let res = target.setTransform(id: id, transform: oldTransform, actionName: effectiveActionName)
                 guard case .success = res else { return }
-                target.undoManager?.setActionName("Move Solid")
+                target.undoManager?.setActionName(effectiveActionName)
                 target.onUndoRedoMutation?(.transformChanged(id, transform: oldTransform))
             }
         }
-        undoManager?.setActionName("Move Solid")
+        undoManager?.setActionName(effectiveActionName)
         undoStateVersion += 1
         return .success(())
     }

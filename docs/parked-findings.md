@@ -195,3 +195,4 @@ Date: 2026-10-17. The run parked 84 findings, in source order and unranked. Form
 - (no id) | macos/Sources/MadeCore/Serialization/MadePackage.swift:173 | URL(fileURLWithPath: "assets/\($0)") constructs a file URL relative to current working directory instead of package root. | execution #559
 - (no id) | macos/Tests/MadeAppTests/SettingsViewTests.swift:21 | Comparing non-optional value of type 'some View' to nil always returns true. | execution #563
 - (no id) | macos/Tests/MadeAppTests/SketchConstructionAppTests.swift:71 | Under parallel test suite execution, explicit regenerateIncremental races with undo recompute causing sporadic conflation failure. | execution #571
+- (no id) | macos/Tests/MadeAppTests/SketchOperationsAppTests.swift:207 | Under parallel test execution, testTrimRegeneratesDownstreamExtrude sleep window can race with background recompute. | execution #154

@@ -2225,6 +2225,406 @@ import simd
         #expect(badTypeRes.isError == true)
         #expect(badTypeRes.content.first?.text?.contains("Invalid elementType") == true)
     }
+
+    // MARK: - BL-AGT-06: Agent Undo/Redo Attribution Tests (#154)
+
+    @Test func testAgentAddSolidUndoRedo() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "type": .string("box"),
+            "width": .double(50),
+            "depth": .double(30),
+            "height": .double(20)
+        ]
+        let result = await registry.callTool(name: "cad_add_solid", arguments: args)
+        #expect(result.isError == false)
+        #expect(doc.objects.count == 3)
+        guard let addedId = doc.objects.last?.id else {
+            Issue.record("Expected added object")
+            return
+        }
+
+        #expect(doc.undoManager?.undoActionName == "Agent: cad_add_solid")
+        #expect(doc.undoActionTitle == "Undo Agent: cad_add_solid")
+        #expect(doc.canUndo == true)
+
+        doc.undo()
+
+        #expect(doc.objects.count == 2)
+        #expect(doc.objects.contains(where: { $0.id == addedId }) == false)
+        #expect(doc.canRedo == true)
+        #expect(doc.redoActionTitle == "Redo Agent: cad_add_solid")
+
+        doc.redo()
+
+        #expect(doc.objects.count == 3)
+        #expect(doc.objects.contains(where: { $0.id == addedId }) == true)
+        #expect(doc.undoActionTitle == "Undo Agent: cad_add_solid")
+    }
+
+    @Test func testAgentSetParamUndoRedo() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let initialDef = doc.paramsFor(id: boxSolidId)
+        if case .box(let p) = initialDef {
+            #expect(p.width == 40)
+        }
+
+        let args: [String: AnyCodableValue] = [
+            "id": .string("box-1"),
+            "param": .string("width"),
+            "value": .double(65)
+        ]
+        let result = await registry.callTool(name: "cad_set_param", arguments: args)
+        #expect(result.isError == false)
+        if case .box(let p) = doc.paramsFor(id: boxSolidId) {
+            #expect(p.width == 65)
+        }
+
+        #expect(doc.undoManager?.undoActionName == "Agent: cad_set_param")
+        #expect(doc.undoActionTitle == "Undo Agent: cad_set_param")
+        #expect(doc.canUndo == true)
+
+        doc.undo()
+
+        if case .box(let p) = doc.paramsFor(id: boxSolidId) {
+            #expect(p.width == 40)
+        }
+        #expect(doc.canRedo == true)
+        #expect(doc.redoActionTitle == "Redo Agent: cad_set_param")
+
+        doc.redo()
+
+        if case .box(let p) = doc.paramsFor(id: boxSolidId) {
+            #expect(p.width == 65)
+        }
+        #expect(doc.undoActionTitle == "Undo Agent: cad_set_param")
+    }
+
+    @Test func testAgentSetTransformUndoRedo() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let initialPos = doc.objects.first(where: { $0.id == boxSolidId })?.transform.position
+        #expect(initialPos?.x == -25)
+
+        let args: [String: AnyCodableValue] = [
+            "id": .string("box-1"),
+            "posX": .double(100),
+            "posY": .double(50),
+            "posZ": .double(10)
+        ]
+        let result = await registry.callTool(name: "cad_set_transform", arguments: args)
+        #expect(result.isError == false)
+        let updatedPos = doc.objects.first(where: { $0.id == boxSolidId })?.transform.position
+        #expect(updatedPos?.x == 100)
+
+        #expect(doc.undoManager?.undoActionName == "Agent: cad_set_transform")
+        #expect(doc.undoActionTitle == "Undo Agent: cad_set_transform")
+        #expect(doc.canUndo == true)
+
+        doc.undo()
+
+        let revertedPos = doc.objects.first(where: { $0.id == boxSolidId })?.transform.position
+        #expect(revertedPos?.x == -25)
+        #expect(doc.canRedo == true)
+        #expect(doc.redoActionTitle == "Redo Agent: cad_set_transform")
+
+        doc.redo()
+
+        let redonePos = doc.objects.first(where: { $0.id == boxSolidId })?.transform.position
+        #expect(redonePos?.x == 100)
+        #expect(doc.undoActionTitle == "Undo Agent: cad_set_transform")
+    }
+
+    @Test func testAgentRemoveSolidUndoRedo() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "id": .string("cylinder-1")
+        ]
+        let result = await registry.callTool(name: "cad_remove_solid", arguments: args)
+        #expect(result.isError == false)
+        #expect(doc.objects.count == 1)
+        #expect(doc.objects.contains(where: { $0.id == cylinderSolidId }) == false)
+
+        #expect(doc.undoManager?.undoActionName == "Agent: cad_remove_solid")
+        #expect(doc.undoActionTitle == "Undo Agent: cad_remove_solid")
+        #expect(doc.canUndo == true)
+
+        doc.undo()
+
+        #expect(doc.objects.count == 2)
+        #expect(doc.objects.contains(where: { $0.id == cylinderSolidId }) == true)
+        #expect(doc.canRedo == true)
+        #expect(doc.redoActionTitle == "Redo Agent: cad_remove_solid")
+
+        doc.redo()
+
+        #expect(doc.objects.count == 1)
+        #expect(doc.objects.contains(where: { $0.id == cylinderSolidId }) == false)
+        #expect(doc.undoActionTitle == "Undo Agent: cad_remove_solid")
+    }
+
+    @Test func testAgentBooleanOperationUndoRedoWithKeepTool() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "solidA": .string("box-1"),
+            "solidB": .string("cylinder-1"),
+            "operation": .string("subtract"),
+            "keepTool": .bool(false)
+        ]
+        let result = await registry.callTool(name: "cad_boolean_operation", arguments: args)
+        #expect(result.isError == false)
+        #expect(doc.objects.count == 3)
+        let booleanObj = doc.objects.last
+        #expect(booleanObj?.id.rawValue.hasPrefix("boolean-") == true)
+        let boxObj = doc.objects.first(where: { $0.id == boxSolidId })
+        let cylObj = doc.objects.first(where: { $0.id == cylinderSolidId })
+        #expect(boxObj?.isVisible == false)
+        #expect(cylObj?.isVisible == false)
+
+        #expect(doc.undoManager?.undoActionName == "Agent: cad_boolean_operation")
+        #expect(doc.undoActionTitle == "Undo Agent: cad_boolean_operation")
+        #expect(doc.canUndo == true)
+
+        doc.undo()
+
+        #expect(doc.objects.count == 2)
+        #expect(doc.objects.contains(where: { $0.id == booleanObj?.id }) == false)
+        let boxAfterUndo = doc.objects.first(where: { $0.id == boxSolidId })
+        let cylAfterUndo = doc.objects.first(where: { $0.id == cylinderSolidId })
+        #expect(boxAfterUndo?.isVisible == true)
+        #expect(cylAfterUndo?.isVisible == true)
+
+        #expect(doc.canRedo == true)
+        #expect(doc.redoActionTitle == "Redo Agent: cad_boolean_operation")
+
+        doc.redo()
+
+        #expect(doc.objects.count == 3)
+        #expect(doc.objects.contains(where: { $0.id == booleanObj?.id }) == true)
+        let boxAfterRedo = doc.objects.first(where: { $0.id == boxSolidId })
+        let cylAfterRedo = doc.objects.first(where: { $0.id == cylinderSolidId })
+        #expect(boxAfterRedo?.isVisible == false)
+        #expect(cylAfterRedo?.isVisible == false)
+        #expect(doc.undoActionTitle == "Undo Agent: cad_boolean_operation")
+    }
+
+    @Test func testAgentFailedToolCallRegistersNoUndo() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        #expect(doc.canUndo == false)
+
+        // 1. Invalid solid type
+        let addBad = await registry.callTool(name: "cad_add_solid", arguments: ["type": .string("invalid_shape")])
+        #expect(addBad.isError == true)
+        #expect(doc.canUndo == false)
+
+        // 2. Set param on missing solid
+        let setMissing = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string("nonexistent"),
+            "param": .string("width"),
+            "value": .double(10)
+        ])
+        #expect(setMissing.isError == true)
+        #expect(doc.canUndo == false)
+
+        // 3. Set transform with missing id
+        let transMissing = await registry.callTool(name: "cad_set_transform", arguments: ["posX": .double(10)])
+        #expect(transMissing.isError == true)
+        #expect(doc.canUndo == false)
+
+        // 4. Remove missing solid
+        let removeMissing = await registry.callTool(name: "cad_remove_solid", arguments: ["id": .string("nonexistent")])
+        #expect(removeMissing.isError == true)
+        #expect(doc.canUndo == false)
+
+        // 5. Boolean with missing operand
+        let boolMissing = await registry.callTool(name: "cad_boolean_operation", arguments: [
+            "solidA": .string("box-1"),
+            "solidB": .string("nonexistent"),
+            "operation": .string("subtract")
+        ])
+        #expect(boolMissing.isError == true)
+        #expect(doc.canUndo == false)
+    }
+
+    @Test func testAgentThreeSequentialToolCallsUndoneInReverseOrder() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Step 1: Add solid
+        let addRes = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("sphere"),
+            "radius": .double(15)
+        ])
+        #expect(addRes.isError == false)
+        guard let sphereId = doc.objects.last?.id else {
+            Issue.record("Expected sphere")
+            return
+        }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // Step 2: Set param
+        let paramRes = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string(sphereId.rawValue),
+            "param": .string("radius"),
+            "value": .double(25)
+        ])
+        #expect(paramRes.isError == false)
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // Step 3: Set transform
+        let transRes = await registry.callTool(name: "cad_set_transform", arguments: [
+            "id": .string(sphereId.rawValue),
+            "posX": .double(50)
+        ])
+        #expect(transRes.isError == false)
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // 3 steps in reverse order:
+        // Undo 1: Reverts transform
+        #expect(doc.undoActionTitle == "Undo Agent: cad_set_transform")
+        doc.undo()
+        try? await Task.sleep(nanoseconds: 5_000_000)
+        let posAfterUndo1 = doc.objects.first(where: { $0.id == sphereId })?.transform.position.x
+        #expect(posAfterUndo1 == 0)
+
+        // Undo 2: Reverts param
+        #expect(doc.undoActionTitle == "Undo Agent: cad_set_param")
+        doc.undo()
+        try? await Task.sleep(nanoseconds: 5_000_000)
+        if case .sphere(let p) = doc.paramsFor(id: sphereId) {
+            #expect(p.radius == 15)
+        }
+
+        // Undo 3: Reverts add solid
+        #expect(doc.undoActionTitle == "Undo Agent: cad_add_solid")
+        doc.undo()
+        try? await Task.sleep(nanoseconds: 5_000_000)
+        #expect(doc.objects.contains(where: { $0.id == sphereId }) == false)
+        #expect(doc.canUndo == false)
+    }
+
+    @Test func testGUIEditBetweenAgentCallsKeepsSeparateStep() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Agent Call 1: cad_add_solid
+        let addRes = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("wedge"),
+            "width": .double(30),
+            "depth": .double(30),
+            "height": .double(30)
+        ])
+        #expect(addRes.isError == false)
+        guard let wedgeId = doc.objects.last?.id else {
+            Issue.record("Expected wedge")
+            return
+        }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // GUI Mutation: Unattributed setParam
+        let guiRes = doc.setParam(id: wedgeId, key: "width", value: 50)
+        #expect(guiRes == .success(()))
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // Agent Call 2: cad_set_transform
+        let transRes = await registry.callTool(name: "cad_set_transform", arguments: [
+            "id": .string(wedgeId.rawValue),
+            "posX": .double(30)
+        ])
+        #expect(transRes.isError == false)
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // Verify sequence of undo titles:
+        // 1. Agent transform
+        #expect(doc.undoActionTitle == "Undo Agent: cad_set_transform")
+        doc.undo()
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // 2. GUI param change ("Change Width")
+        #expect(doc.undoActionTitle == "Undo Change Width")
+        doc.undo()
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // 3. Agent add solid
+        #expect(doc.undoActionTitle == "Undo Agent: cad_add_solid")
+        doc.undo()
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        #expect(doc.canUndo == false)
+    }
+
+    @Test func testMCPStdioDocumentUndoIsolation() async {
+        let hostDoc = DocumentModel()
+        let stdioDoc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: stdioDoc, kernelClient: kernel)
+
+        #expect(hostDoc.canUndo == false)
+        #expect(stdioDoc.canUndo == false)
+
+        let addRes = await registry.callTool(name: "cad_add_solid", arguments: [
+            "type": .string("sphere"),
+            "radius": .double(12)
+        ])
+        #expect(addRes.isError == false)
+
+        #expect(stdioDoc.canUndo == true)
+        #expect(stdioDoc.undoActionTitle == "Undo Agent: cad_add_solid")
+
+        // Host doc remains untouched
+        #expect(hostDoc.canUndo == false)
+        #expect(hostDoc.undoActionTitle == "Undo")
+    }
+
+    @Test func testKernelRestartBetweenCallAndUndoRegeneratesConsistently() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        await seedKernel(kernel)
+
+        let args: [String: AnyCodableValue] = [
+            "type": .string("box"),
+            "width": .double(50),
+            "depth": .double(40),
+            "height": .double(30)
+        ]
+        let addRes = await registry.callTool(name: "cad_add_solid", arguments: args)
+        #expect(addRes.isError == false)
+        #expect(doc.objects.count == 3)
+        guard let addedId = doc.objects.last?.id else { return }
+
+        // Simulate kernel restart and regeneration before undo
+        await KernelRegeneration.regenerate(document: doc, client: kernel, excluding: nil)
+
+        // Undo the agent call
+        doc.undo()
+        #expect(doc.objects.count == 2)
+        #expect(doc.objects.contains(where: { $0.id == addedId }) == false)
+
+        // Regenerate again after undo
+        await KernelRegeneration.regenerate(document: doc, client: kernel, excluding: nil)
+        #expect(doc.objects.count == 2)
+    }
 }
 
 @MainActor
