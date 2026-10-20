@@ -151,6 +151,36 @@ import MadeCore
         #expect(workspace.selectedSketchRegionId == nil)
     }
 
+    @Test @MainActor func testSketchRegionSelectionIdempotencyAndRapidSwitching() {
+        let workspace = WorkspaceModel()
+        let sketchFeature = Feature(
+            name: "Test Sketch",
+            operation: .sketch(SketchFeatureData(planeName: "XY", entities: []))
+        )
+        workspace.document.addFeature(sketchFeature)
+
+        let region1 = UUID()
+        let region2 = UUID()
+
+        #expect(workspace.selectedSketchRegionId == nil)
+
+        // Select region 1
+        workspace.selectSketchRegion(featureId: sketchFeature.id, regionId: region1)
+        #expect(workspace.selectedSketchRegionId == region1)
+
+        // Select region 1 again (idempotent)
+        workspace.selectSketchRegion(featureId: sketchFeature.id, regionId: region1)
+        #expect(workspace.selectedSketchRegionId == region1)
+
+        // Rapid switch directly to region 2 without prior deselection
+        workspace.selectSketchRegion(featureId: sketchFeature.id, regionId: region2)
+        #expect(workspace.selectedSketchRegionId == region2)
+
+        // Deselection clearing selectedSketchRegionId to nil
+        workspace.selectSketchRegion(featureId: sketchFeature.id, regionId: nil)
+        #expect(workspace.selectedSketchRegionId == nil)
+    }
+
     @Test @MainActor func testNSHostingViewLayoutForInspectorRows() {
         let workspace = WorkspaceModel()
         let lineEntity = SketchEntity.line(

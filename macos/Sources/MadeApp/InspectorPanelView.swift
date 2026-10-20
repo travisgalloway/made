@@ -1600,6 +1600,8 @@ struct InspectorSketchRegionRow: View {
 
     var body: some View {
         let isSelected = workspace.selectedSketchRegionId == region.id
+        let bg = isSelected ? Color.accentColor.opacity(0.12) : Color.clear
+        let strokeColor = isSelected ? Color.accentColor.opacity(0.4) : Color.clear
 
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -1631,7 +1633,14 @@ struct InspectorSketchRegionRow: View {
             .buttonStyle(.bordered)
             .controlSize(.mini)
         }
+        .padding(.horizontal, 4)
         .padding(.vertical, 2)
+        .background(bg)
+        .cornerRadius(4)
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(strokeColor, lineWidth: 1)
+        )
         .contentShape(Rectangle())
         .onHover { isHovered in
             workspace.setHoveredSketchRegion(isHovered ? region.id : nil)
