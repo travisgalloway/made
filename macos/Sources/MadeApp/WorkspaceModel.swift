@@ -2259,6 +2259,74 @@ final class WorkspaceModel {
         partReloadController?.reloadAll()
     }
 
+    // MARK: - DSL Feature Import (BL-SCR-04 / #332)
+
+    /// Evaluates a part script and imports the resulting geometry directly into the document feature list.
+    @discardableResult
+    func importPartScriptAsFeatures(at url: URL) async throws -> [Feature] {
+        let runtime = partReloadController?.partRuntime ?? PartRuntime()
+        let result = await runtime.evaluateScriptFile(at: url)
+        switch result {
+        case .success(_, let evaluation):
+            let baseName = url.deletingPathExtension().lastPathComponent
+            let features = try document.importFeatures(from: evaluation.shape, baseName: baseName)
+            for feature in features {
+                if let solidId = feature.outputSolidId {
+                    recomputeSolid(id: solidId)
+                }
+            }
+            markDocumentModified()
+            return features
+        case .failure(_, let error):
+            throw error
+        }
+    }
+
+    /// Converts an existing `.part` object into editable features in the document feature list.
+    @discardableResult
+    func convertPartToFeatures(id: ObjectId) async throws -> [Feature] {
+        guard let obj = document.objects.first(where: { $0.id == id }) else {
+            return []
+        }
+        guard case .part(let url, let cachedShape) = obj.def else {
+            return []
+        }
+
+        let shapeToDecompose: ShapeNode
+        if let cachedShape {
+            shapeToDecompose = cachedShape
+        } else if let settleResult = await partReloadController?.settle(for: id),
+                  case .success(_, let output) = settleResult {
+            shapeToDecompose = output.shape
+        } else {
+            let runtime = partReloadController?.partRuntime ?? PartRuntime()
+            let result = await runtime.evaluateScriptFile(at: url)
+            switch result {
+            case .success(_, let evaluation):
+                shapeToDecompose = evaluation.shape
+            case .failure(_, let error):
+                throw error
+            }
+        }
+
+        partReloadController?.stopWatching(id: id)
+        document.undoManager?.beginUndoGrouping()
+        _ = document.removeObject(id: id)
+        let baseName = obj.name.isEmpty ? url.deletingPathExtension().lastPathComponent : obj.name
+        let features = try document.importFeatures(from: shapeToDecompose, baseName: baseName)
+        document.undoManager?.setActionName("Convert to Features")
+        document.undoManager?.endUndoGrouping()
+
+        for feature in features {
+            if let solidId = feature.outputSolidId {
+                recomputeSolid(id: solidId)
+            }
+        }
+        markDocumentModified()
+        return features
+    }
+
+
     func promptOpenPartFile() {
         let panel = NSOpenPanel()
         panel.title = "Open Part Script"

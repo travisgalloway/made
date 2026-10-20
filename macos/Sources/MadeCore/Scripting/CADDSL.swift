@@ -157,3 +157,13 @@ public func shape(@CADShapeBuilder _ content: () -> any CADShape) -> any CADShap
     content()
 }
 
+// MARK: - Feature Targeting (BL-SCR-04 / #332)
+
+extension CADShape {
+    @discardableResult
+    @MainActor
+    public func targetFeatures(in document: DocumentModel) throws -> [Feature] {
+        try document.importFeatures(from: shapeDescription)
+    }
+}
+
