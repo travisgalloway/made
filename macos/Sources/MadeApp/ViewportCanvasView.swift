@@ -156,6 +156,12 @@ struct ViewportCanvasView: View {
                         if workspace.commandPanelPlacement == .floatingHUD, let session = workspace.activeCommand {
                             CommandHUDOverlayView(session: session)
                         }
+
+                        if workspace.isPredictiveCommandsVisible,
+                           workspace.activeCommand == nil,
+                           let sub = workspace.document.selectedSubElement {
+                            PredictiveCommandPopoverView(selectedSubElement: sub)
+                        }
                     }
 
                     ViewCubeOverlayView()

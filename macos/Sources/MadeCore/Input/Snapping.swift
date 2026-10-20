@@ -298,6 +298,87 @@ public struct CandidateMesh: Sendable {
         let localCentroid = sum / Float(count)
         return transform.transformPoint(localCentroid)
     }
+
+    /// Determines whether the specified face is planar.
+    /// Evaluates unit normals of constituent triangles: returns true if all non-degenerate
+    /// triangles share the same unit normal within cosine tolerance (dot product > 0.999).
+    public func isFacePlanar(forFaceId faceId: Int) -> Bool {
+        let range: Range<Int>?
+        if let fr = faceRanges.first(where: { $0.faceId == faceId }) {
+            range = fr.triangleRange
+        } else if faceRanges.isEmpty && indices.count >= 3 {
+            range = 0..<(indices.count / 3)
+        } else {
+            range = nil
+        }
+        guard let triRange = range, !triRange.isEmpty else { return false }
+
+        var referenceNormal: SIMD3<Float>? = nil
+
+        for t in triRange {
+            let i0 = Int(t * 3)
+            guard i0 + 2 < indices.count else { continue }
+            let idx0 = Int(indices[i0])
+            let idx1 = Int(indices[i0 + 1])
+            let idx2 = Int(indices[i0 + 2])
+            guard idx0 < positions.count && idx1 < positions.count && idx2 < positions.count else { continue }
+            let p0 = positions[idx0]
+            let p1 = positions[idx1]
+            let p2 = positions[idx2]
+            let cross = simd_cross(p1 - p0, p2 - p0)
+            let len = simd_length(cross)
+            guard len > 1e-6 else { continue }
+            let n = cross / len
+
+            if let ref = referenceNormal {
+                if simd_dot(ref, n) <= 0.999 {
+                    return false
+                }
+            } else {
+                referenceNormal = n
+            }
+        }
+
+        return referenceNormal != nil
+    }
+
+    /// Computes the world-space centroid/midpoint for the specified edge ID, applying the mesh transform.
+    public func edgeCentroid(forEdgeId edgeId: Int) -> SIMD3<Float>? {
+        if let poly = edgePolylines.first(where: { $0.edgeId == edgeId }), !poly.points.isEmpty {
+            let sum = poly.points.reduce(SIMD3<Float>.zero, +)
+            let localCentroid = sum / Float(poly.points.count)
+            return transform.transformPoint(localCentroid)
+        }
+
+        if edgeId >= 0 && edgeId < edges.count {
+            let edge = edges[edgeId]
+            let i0 = Int(edge.v0)
+            let i1 = Int(edge.v1)
+            guard i0 < positions.count && i1 < positions.count else { return nil }
+            let localCentroid = (positions[i0] + positions[i1]) * 0.5
+            return transform.transformPoint(localCentroid)
+        }
+
+        return nil
+    }
+
+    /// Computes the world-space centroid for a sub-element (vertex, edge, or face).
+    public func subElementCentroid(elementType: SubelementType, elementId: Int) -> SIMD3<Float>? {
+        switch elementType {
+        case .vertex:
+            if let vp = vertexPoints.first(where: { $0.vertexId == elementId }) {
+                return transform.transformPoint(vp.position)
+            }
+            if elementId >= 0 && elementId < positions.count {
+                return transform.transformPoint(positions[elementId])
+            }
+            return nil
+        case .edge:
+            return edgeCentroid(forEdgeId: elementId)
+        case .face:
+            return faceCentroid(forFaceId: elementId)
+        }
+    }
 }
 
 public struct ScreenProjection: Sendable {

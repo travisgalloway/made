@@ -82,17 +82,34 @@ public struct SelectedSubElement: Sendable, Codable, Equatable, Hashable {
     public let elementType: SubelementType
     public let elementId: Int
     public let deterministicId: UUID?
+    public let hitPoint: SIMD3<Float>?
 
     public init(
         solidId: SolidId,
         elementType: SubelementType,
         elementId: Int,
-        deterministicId: UUID? = nil
+        deterministicId: UUID? = nil,
+        hitPoint: SIMD3<Float>? = nil
     ) {
         self.solidId = solidId
         self.elementType = elementType
         self.elementId = elementId
         self.deterministicId = deterministicId
+        self.hitPoint = hitPoint
+    }
+
+    public static func == (lhs: SelectedSubElement, rhs: SelectedSubElement) -> Bool {
+        lhs.solidId == rhs.solidId &&
+        lhs.elementType == rhs.elementType &&
+        lhs.elementId == rhs.elementId &&
+        lhs.deterministicId == rhs.deterministicId
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(solidId)
+        hasher.combine(elementType)
+        hasher.combine(elementId)
+        hasher.combine(deterministicId)
     }
 }
 

@@ -1063,7 +1063,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                                 solidId: pick.solidId,
                                 elementType: pick.elementType,
                                 elementId: pick.elementId,
-                                deterministicId: pick.deterministicId
+                                deterministicId: pick.deterministicId,
+                                hitPoint: pick.hitPoint
                             )
                             if pick.elementType == .face {
                                 pickedFace = (pick.solidId, pick.elementId)

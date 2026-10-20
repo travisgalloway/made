@@ -433,6 +433,11 @@ final class WorkspaceModel {
         }
     }
     var activeCommand: CommandSession?
+    public var isPredictiveCommandsVisible: Bool = true
+
+    func togglePredictiveCommandSurface() {
+        isPredictiveCommandsVisible.toggle()
+    }
 
     init(defaults: UserDefaults = .standard, recoveryStore: CrashRecoveryStore = CrashRecoveryStore()) {
         self.defaults = defaults
@@ -973,6 +978,110 @@ final class WorkspaceModel {
 
     func startExtrudeCommand(sketchFeatureId: UUID? = nil) {
         startCommand(CommandSession.makeExtrude(workspace: self, sketchFeatureId: sketchFeatureId))
+    }
+
+    func startPushPullCommand(solidId: SolidId, faceId: Int) {
+        startCommand(CommandSession.makePushPull(workspace: self, solidId: solidId, faceId: faceId))
+    }
+
+    func isFacePlanar(solidId: SolidId, faceId: Int) -> Bool {
+        if let renderer = viewportManager.renderer,
+           let mesh = renderer.candidateMeshes().first(where: { $0.id == solidId }) {
+            return mesh.isFacePlanar(forFaceId: faceId)
+        }
+        if let obj = document.objects.first(where: { $0.id == solidId }) {
+            let candidate: CandidateMesh?
+            switch obj.def {
+            case .box(let p):
+                let payload = NativeGeometryGenerator.generateBox(width: p.width, depth: p.depth, height: p.height)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .cylinder(let p):
+                let payload = NativeGeometryGenerator.generateCylinder(radius: p.radius, height: p.height)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .sphere(let p):
+                let payload = NativeGeometryGenerator.generateSphere(radius: p.radius)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .cone(let p):
+                let payload = NativeGeometryGenerator.generateCone(bottomRadius: p.bottomRadius, topRadius: p.topRadius, height: p.height)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .torus(let p):
+                let payload = NativeGeometryGenerator.generateTorus(majorRadius: p.majorRadius, minorRadius: p.minorRadius)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            case .wedge(let p):
+                let payload = NativeGeometryGenerator.generateWedge(width: p.width, depth: p.depth, height: p.height, topWidth: p.topWidth)
+                candidate = CandidateMesh(id: solidId, payload: payload, transform: obj.transform)
+            default:
+                candidate = nil
+            }
+            return candidate?.isFacePlanar(forFaceId: faceId) ?? false
+        }
+        return false
+    }
+
+    func subElementScreenPosition(for sub: SelectedSubElement, viewportSize: CGSize) -> CGPoint? {
+        guard viewportSize.width > 0 && viewportSize.height > 0 else { return nil }
+
+        let worldPoint: SIMD3<Float>?
+        if let hit = sub.hitPoint {
+            worldPoint = hit
+        } else if let renderer = viewportManager.renderer,
+                  let mesh = renderer.candidateMeshes().first(where: { $0.id == sub.solidId }) {
+            worldPoint = mesh.subElementCentroid(elementType: sub.elementType, elementId: sub.elementId)
+        } else if let obj = document.objects.first(where: { $0.id == sub.solidId }) {
+            let candidate: CandidateMesh?
+            switch obj.def {
+            case .box(let p):
+                let payload = NativeGeometryGenerator.generateBox(width: p.width, depth: p.depth, height: p.height)
+                candidate = CandidateMesh(id: sub.solidId, payload: payload, transform: obj.transform)
+            case .cylinder(let p):
+                let payload = NativeGeometryGenerator.generateCylinder(radius: p.radius, height: p.height)
+                candidate = CandidateMesh(id: sub.solidId, payload: payload, transform: obj.transform)
+            case .sphere(let p):
+                let payload = NativeGeometryGenerator.generateSphere(radius: p.radius)
+                candidate = CandidateMesh(id: sub.solidId, payload: payload, transform: obj.transform)
+            case .cone(let p):
+                let payload = NativeGeometryGenerator.generateCone(bottomRadius: p.bottomRadius, topRadius: p.topRadius, height: p.height)
+                candidate = CandidateMesh(id: sub.solidId, payload: payload, transform: obj.transform)
+            case .torus(let p):
+                let payload = NativeGeometryGenerator.generateTorus(majorRadius: p.majorRadius, minorRadius: p.minorRadius)
+                candidate = CandidateMesh(id: sub.solidId, payload: payload, transform: obj.transform)
+            case .wedge(let p):
+                let payload = NativeGeometryGenerator.generateWedge(width: p.width, depth: p.depth, height: p.height, topWidth: p.topWidth)
+                candidate = CandidateMesh(id: sub.solidId, payload: payload, transform: obj.transform)
+            default:
+                candidate = nil
+            }
+            worldPoint = candidate?.subElementCentroid(elementType: sub.elementType, elementId: sub.elementId)
+        } else {
+            worldPoint = nil
+        }
+
+        guard let pt = worldPoint else { return nil }
+        let aspect = Float(max(1.0, viewportSize.width) / max(1.0, viewportSize.height))
+        let matrices: (view: simd_float4x4, projection: simd_float4x4)
+        if let renderer = viewportManager.renderer {
+            matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        } else {
+            let eye = camera.position
+            let target = camera.target
+            let viewMatrix = Orientation.makeLookAt(eye: eye, target: target, up: Orientation.worldUp)
+            let projMatrix: simd_float4x4
+            if camera.projection == .orthographic {
+                let baseDist = max(10.0, simd_length(eye - target))
+                let dist = max(1.0, baseDist * camera.orthographicScale)
+                let halfH = dist * 0.4
+                let halfW = halfH * aspect
+                projMatrix = Orientation.makeOrthographic(left: -halfW, right: halfW, bottom: -halfH, top: halfH, nearZ: 0.1, farZ: 1000.0)
+            } else {
+                projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+            }
+            matrices = (view: viewMatrix, projection: projMatrix)
+        }
+        let vp = simd_mul(matrices.projection, matrices.view)
+        guard let screenMetal = projectToScreen(point: pt, viewProjectionMatrix: vp, viewportSize: viewportSize) else {
+            return nil
+        }
+        return SnapOverlayView.canvasPosition(screenPoint: screenMetal, viewportHeight: viewportSize.height)
     }
 
     func startNewSketchCommand() {

@@ -58,7 +58,7 @@ macos/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry, ShapeEvaluator, ShapeNode, Transform, KernelClient+Default, FaultInjectingKernelClient, SketchEntity
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
     Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, SketchGeometryGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube, UniformArena, MetalRenderer+MeshInstall
-    Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo, SelectionFilter, SpatialIndex
+    Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo, SelectionFilter, SpatialIndex, PredictiveCommands
     Scene/                 DocumentModel (@Observable), Body, Feature, DatumPlane, DatumEntities, Reference, ReferenceResolver, ModelEdgeEvaluator, SolidMeshApplier, KernelRegeneration, UnitSettings, KernelTolerances, DocumentSettings, SketchDOFStatus, SketchError, SketchProfileBuilder, SketchRegion, SketchOperations, SketchConstraint, ConstraintSystem, ConstraintSolver, ConstraintSolverActor, ConstraintInference, SketchRectangle, RecomputeFailures, PartReloadController, PartFileWatcher, MetalRenderer+SolidMeshSink
     Serialization/         DocumentModelCoder, MadeManifest, MadePackage, DocumentMigration, CrashRecovery, UTType+Made
     Licenses/              LicenseCatalog and bundled license resources
@@ -70,9 +70,9 @@ macos/
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView, OpenSourceLicensesView,
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
-                           SnapOverlayView, EmptySceneGuidanceOverlayView, Document/MadeDocument
-  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests)
-  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, SketchStatusIndicatorTests, and application unit tests
+                           SnapOverlayView, EmptySceneGuidanceOverlayView, PredictiveCommandPopoverView, Document/MadeDocument
+  Tests/MadeCoreTests/     Swift Testing suites (including CommandHUDPlacementTests, ViewCubeTests, PredictiveCommandTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests)
+  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, PredictiveCommandPopoverTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, SketchStatusIndicatorTests, and application unit tests
 ```
 
 ## Architectural invariants
