@@ -17,6 +17,10 @@ private enum MetalTestSupport {
 
     private func makeHarness(
         tool: ViewportTool = .select,
+        showsGizmo: Bool = true,
+        boxWidth: Float = 40,
+        boxDepth: Float = 30,
+        boxHeight: Float = 20,
         selectionFilter: SelectionFilter = .all,
         document: DocumentModel = DocumentModel(),
         activeSketchPlane: SketchPlane? = nil,
@@ -39,7 +43,7 @@ private enum MetalTestSupport {
         let renderer = try #require(MetalRenderer(device: device))
 
         // Generate and add box mesh
-        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let payload = NativeGeometryGenerator.generateBox(width: boxWidth, depth: boxDepth, height: boxHeight)
         let boxId = SolidId("box-1")
         let mesh = try #require(renderer.createMesh(from: payload, solidId: boxId, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
         renderer.meshes[boxId] = mesh
@@ -52,6 +56,7 @@ private enum MetalTestSupport {
             renderer: renderer,
             tool: tool,
             selectionFilter: selectionFilter,
+            showsGizmo: showsGizmo,
             onInvalidate: {
                 invalidateCalls += 1
             },
@@ -846,5 +851,227 @@ private enum MetalTestSupport {
         let handled = coordinator.handleKeyDown(with: escapeEvent)
         #expect(handled)
         #expect(dismissCalled)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testShiftDragLocksDominantAxisAndCommitsOnceOnRelease() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness(boxWidth: 120, boxDepth: 100, boxHeight: 40)
+        let boxId = SolidId("box-1")
+        document.setTransform(id: boxId, transform: .identity)
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = matrices.projection * matrices.view
+        let surfacePt = SIMD3<Float>(-40, -30, 10)
+        let screenPt = try #require(projectToScreen(point: surfacePt, viewProjectionMatrix: vp, viewportSize: CGSize(width: width, height: height)))
+        let startLoc = CGPoint(x: CGFloat(screenPt.x), y: CGFloat(screenPt.y))
+
+        // 1. Mouse down with Shift on solid body away from gizmo
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: startLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+
+        let drag = try #require(coordinator.widgetlessDragState)
+        #expect(drag.selectedId == boxId)
+        #expect(coordinator.pointerRouter.arbiter.current().mode == .manipulate)
+
+        // 2. Drag with Shift along screen X by +40 pt
+        let dragLoc = CGPoint(x: startLoc.x + 40.0, y: startLoc.y)
+        let dragEvent = makeMouseEvent(type: .leftMouseDragged, location: dragLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDragged(with: dragEvent, button: .left)
+
+        let activeDrag = try #require(coordinator.widgetlessDragState)
+        #expect(activeDrag.hasMoved == true)
+        #expect(activeDrag.latchedAxis == .x)
+        #expect(renderer.activeGizmoHandle == .translateX)
+
+        let currentPos = try #require(renderer.meshes[boxId]?.transform.position)
+        #expect(currentPos.x != 0.0, "Position X should have translated")
+        #expect(abs(currentPos.y) < 1e-4, "Position Y should be strictly constrained")
+        #expect(abs(currentPos.z) < 1e-4, "Position Z should be strictly constrained")
+
+        // 3. Mouse up commits exactly once to document
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: dragLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+
+        #expect(coordinator.widgetlessDragState == nil)
+        #expect(coordinator.pointerRouter.arbiter.current().mode == nil)
+        #expect(renderer.activeGizmoHandle == nil)
+
+        let docPos = try #require(document.objects.first(where: { $0.id == boxId })?.transform.position)
+        #expect(abs(docPos.x - currentPos.x) < 1e-4)
+        #expect(abs(docPos.y) < 1e-4)
+        #expect(abs(docPos.z) < 1e-4)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testOptionDragLocksToHorizontalGroundPlaneAndCommits() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness(boxWidth: 120, boxDepth: 100, boxHeight: 40)
+        let boxId = SolidId("box-1")
+        let elevatedTransform = Transform(position: SIMD3<Float>(0, 0, 15))
+        document.setTransform(id: boxId, transform: elevatedTransform)
+        _ = renderer.updateTransform(elevatedTransform, for: boxId)
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = matrices.projection * matrices.view
+        let surfacePt = SIMD3<Float>(-40, -30, 25)
+        let screenPt = try #require(projectToScreen(point: surfacePt, viewProjectionMatrix: vp, viewportSize: CGSize(width: width, height: height)))
+        let startLoc = CGPoint(x: CGFloat(screenPt.x), y: CGFloat(screenPt.y))
+
+        // 1. Mouse down with Option on solid body
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: startLoc, windowNumber: window.windowNumber, modifierFlags: .option)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+
+        #expect(coordinator.widgetlessDragState != nil)
+
+        // 2. Drag with Option (+35, -25)
+        let dragLoc = CGPoint(x: startLoc.x + 35.0, y: startLoc.y - 25.0)
+        let dragEvent = makeMouseEvent(type: .leftMouseDragged, location: dragLoc, windowNumber: window.windowNumber, modifierFlags: .option)
+        coordinator.handleMouseDragged(with: dragEvent, button: .left)
+
+        let activeDrag = try #require(coordinator.widgetlessDragState)
+        #expect(activeDrag.hasMoved == true)
+
+        let currentPos = try #require(renderer.meshes[boxId]?.transform.position)
+        #expect(abs(currentPos.z - 15.0) < 1e-4, "Z elevation must remain strictly locked to initial elevation")
+        #expect(currentPos.x != 0.0 || currentPos.y != 0.0, "XY translation should have occurred")
+
+        // 3. Mouse up commits to document
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: dragLoc, windowNumber: window.windowNumber, modifierFlags: .option)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+
+        #expect(coordinator.widgetlessDragState == nil)
+        let docPos = try #require(document.objects.first(where: { $0.id == boxId })?.transform.position)
+        #expect(abs(docPos.z - 15.0) < 1e-4)
+        #expect(docPos == currentPos)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testEscapeKeyCancelsActiveWidgetlessDrag() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness(boxWidth: 120, boxDepth: 100, boxHeight: 40)
+        let boxId = SolidId("box-1")
+        document.setTransform(id: boxId, transform: .identity)
+        let initialPos = try #require(renderer.meshes[boxId]?.transform.position)
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = matrices.projection * matrices.view
+        let surfacePt = SIMD3<Float>(-40, -30, 10)
+        let screenPt = try #require(projectToScreen(point: surfacePt, viewProjectionMatrix: vp, viewportSize: CGSize(width: width, height: height)))
+        let startLoc = CGPoint(x: CGFloat(screenPt.x), y: CGFloat(screenPt.y))
+
+        // 1. Start drag
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: startLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+
+        let dragLoc = CGPoint(x: startLoc.x + 35.0, y: startLoc.y)
+        let dragEvent = makeMouseEvent(type: .leftMouseDragged, location: dragLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDragged(with: dragEvent, button: .left)
+
+        #expect(renderer.meshes[boxId]?.transform.position != initialPos)
+
+        // 2. Press Escape key
+        let escapeEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        )!
+
+        let handled = coordinator.handleKeyDown(with: escapeEvent)
+        #expect(handled)
+        #expect(coordinator.widgetlessDragState == nil)
+        #expect(coordinator.pointerRouter.arbiter.current().mode == nil)
+        #expect(renderer.meshes[boxId]?.transform.position == initialPos)
+        #expect(document.objects.first(where: { $0.id == boxId })?.transform.position == initialPos)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testZeroMovementDragDoesNotInvokeSetTransform() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness(boxWidth: 120, boxDepth: 100, boxHeight: 40)
+        let boxId = SolidId("box-1")
+        let initialTransform = try #require(document.objects.first(where: { $0.id == boxId })?.transform)
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = matrices.projection * matrices.view
+        let surfacePt = SIMD3<Float>(-40, -30, 10)
+        let screenPt = try #require(projectToScreen(point: surfacePt, viewProjectionMatrix: vp, viewportSize: CGSize(width: width, height: height)))
+        let startLoc = CGPoint(x: CGFloat(screenPt.x), y: CGFloat(screenPt.y))
+
+        // Mouse down
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: startLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+
+        // Sub-threshold drag (2 pt)
+        let subThresholdLoc = CGPoint(x: startLoc.x + 2.0, y: startLoc.y)
+        let dragEvent = makeMouseEvent(type: .leftMouseDragged, location: subThresholdLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDragged(with: dragEvent, button: .left)
+
+        #expect(coordinator.widgetlessDragState?.hasMoved == false)
+
+        // Mouse up
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: subThresholdLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+
+        #expect(coordinator.widgetlessDragState == nil)
+        #expect(document.objects.first(where: { $0.id == boxId })?.transform == initialTransform)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testLockedSolidIgnoresWidgetlessDrag() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness(boxWidth: 120, boxDepth: 100, boxHeight: 40)
+        let boxId = SolidId("box-1")
+        document.setLocked(id: boxId, isLocked: true)
+
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = matrices.projection * matrices.view
+        let surfacePt = SIMD3<Float>(-40, -30, 10)
+        let screenPt = try #require(projectToScreen(point: surfacePt, viewProjectionMatrix: vp, viewportSize: CGSize(width: width, height: height)))
+        let startLoc = CGPoint(x: CGFloat(screenPt.x), y: CGFloat(screenPt.y))
+
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: startLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+
+        #expect(coordinator.widgetlessDragState == nil, "Locked solid must never start widgetless drag")
+        #expect(coordinator.pointerRouter.arbiter.current().locked == false)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSolidDeletionMidDragAbortsGestureCleanly() throws {
+        let (window, view, coordinator, _, document, _) = try makeHarness(boxWidth: 120, boxDepth: 100, boxHeight: 40)
+        let boxId = SolidId("box-1")
+
+        let aspect = Float(width) / Float(height)
+        let matrices = coordinator.parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = matrices.projection * matrices.view
+        let surfacePt = SIMD3<Float>(-40, -30, 10)
+        let screenPt = try #require(projectToScreen(point: surfacePt, viewProjectionMatrix: vp, viewportSize: CGSize(width: width, height: height)))
+        let startLoc = CGPoint(x: CGFloat(screenPt.x), y: CGFloat(screenPt.y))
+
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: startLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+
+        let dragLoc = CGPoint(x: startLoc.x + 30.0, y: startLoc.y)
+        let dragEvent = makeMouseEvent(type: .leftMouseDragged, location: dragLoc, windowNumber: window.windowNumber, modifierFlags: .shift)
+        coordinator.handleMouseDragged(with: dragEvent, button: .left)
+
+        #expect(coordinator.widgetlessDragState != nil)
+
+        // Delete the solid feature from document
+        let featId = try #require(document.feature(for: boxId)?.id)
+        _ = document.removeFeature(id: featId)
+
+        coordinator.parent.update(view: view, coordinator: coordinator)
+
+        #expect(coordinator.widgetlessDragState == nil)
+        #expect(coordinator.pointerRouter.arbiter.current().mode == nil)
     }
 }
