@@ -142,6 +142,13 @@ struct ViewportCanvasView: View {
                                     let p3 = start + normal * 0.5
                                     _ = try? workspace.addThreePointRectangle(to: feat.id, point1: start, point2: end, point3: p3)
                                 }
+                            },
+                            isRadialMenuOpen: workspace.radialMenuState != nil,
+                            onOpenRadialMenu: { loc, hitId in
+                                workspace.openRadialMenu(at: loc, targetSolidId: hitId)
+                            },
+                            onDismissRadialMenu: {
+                                workspace.dismissRadialMenu()
                             }
                         )
 
@@ -161,6 +168,16 @@ struct ViewportCanvasView: View {
                            workspace.activeCommand == nil,
                            let sub = workspace.document.selectedSubElement {
                             PredictiveCommandPopoverView(selectedSubElement: sub)
+                        }
+
+                        if let radialState = workspace.radialMenuState {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .onTapGesture {
+                                    workspace.dismissRadialMenu()
+                                }
+                            RadialMenuView(state: radialState)
                         }
                     }
 

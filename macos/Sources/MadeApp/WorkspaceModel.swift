@@ -23,6 +23,9 @@ final class WorkspaceModel {
     var selectedId: ObjectId? {
         get { document.selectedId }
         set {
+            if radialMenuState != nil {
+                radialMenuState = nil
+            }
             if document.selectedId != newValue {
                 document.selectedId = newValue
                 syncViewportSelection()
@@ -36,6 +39,9 @@ final class WorkspaceModel {
     var selectedIds: Set<ObjectId> {
         get { document.selectedIds }
         set {
+            if radialMenuState != nil {
+                radialMenuState = nil
+            }
             if document.selectedIds != newValue {
                 document.selectedIds = newValue
                 syncViewportSelection()
@@ -44,16 +50,25 @@ final class WorkspaceModel {
     }
 
     func clearSelection() {
+        if radialMenuState != nil {
+            radialMenuState = nil
+        }
         document.clearSelection()
         syncViewportSelection()
     }
 
     func select(solidId: ObjectId) {
+        if radialMenuState != nil {
+            radialMenuState = nil
+        }
         document.select(solidId: solidId)
         syncViewportSelection()
     }
 
     func toggleSelection(solidId: ObjectId) {
+        if radialMenuState != nil {
+            radialMenuState = nil
+        }
         document.toggleSelection(solidId: solidId)
         syncViewportSelection()
     }
@@ -83,6 +98,7 @@ final class WorkspaceModel {
         return isDocumentModified ? "\(base) — Edited" : base
     }
     var coordinator: CADMetalViewRepresentable.Coordinator?
+    public var radialMenuState: RadialMenuState? = nil
     var renderInstrumentation: RenderInstrumentation = .shared
     private(set) var renderStats = RenderStats()
     private(set) var kernelStats = KernelStats()
@@ -2549,6 +2565,47 @@ final class WorkspaceModel {
         markDocumentModified()
     }
 
+    // MARK: - Duplication & Radial Menu (INPUT-11, #42)
+
+    @discardableResult
+    public func duplicateObject(_ id: ObjectId) -> ObjectId? {
+        guard let source = document.objects.first(where: { $0.id == id }) else { return nil }
+        var newTransform = source.transform
+        newTransform.position += SIMD3<Float>(10, 10, 0)
+        let newId = document.addObject(def: source.def, transform: newTransform, material: source.material)
+        document.setName(id: newId, name: "\(source.name) Copy")
+        selectedId = newId
+        markDocumentModified()
+        undoManager?.setActionName("Duplicate Object")
+        log(.info, "Scene", "Duplicated object \(id.rawValue) to \(newId.rawValue)")
+        recomputeSolid(id: newId)
+        return newId
+    }
+
+    @discardableResult
+    public func duplicateSelectedObject() -> ObjectId? {
+        guard let id = selectedId else { return nil }
+        return duplicateObject(id)
+    }
+
+    public func openRadialMenu(at point: CGPoint, targetSolidId: ObjectId?) {
+        radialMenuState = RadialMenuState(position: point, targetSolidId: targetSolidId)
+    }
+
+    public func dismissRadialMenu() {
+        radialMenuState = nil
+    }
+
+    public func openRadialMenuAtCenter() {
+        let center: CGPoint
+        if let size = coordinator?.mtkView?.bounds.size, size.width > 0, size.height > 0 {
+            center = CGPoint(x: size.width / 2.0, y: size.height / 2.0)
+        } else {
+            center = CGPoint(x: 400, y: 300)
+        }
+        openRadialMenu(at: center, targetSolidId: selectedId)
+    }
+
     // MARK: - Feature Mutators (BL-FND-13)
 
     func setFeatureName(id: UUID, name: String) {
@@ -3534,5 +3591,15 @@ public struct ShortcutCheatsheetEntry: Identifiable, Sendable, Equatable {
         self.shortcut = shortcut
         self.category = category
         self.description = description
+    }
+}
+
+public struct RadialMenuState: Equatable, Sendable {
+    public var position: CGPoint
+    public var targetSolidId: ObjectId?
+
+    public init(position: CGPoint, targetSolidId: ObjectId? = nil) {
+        self.position = position
+        self.targetSolidId = targetSolidId
     }
 }

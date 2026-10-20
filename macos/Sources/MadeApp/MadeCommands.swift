@@ -75,6 +75,12 @@ struct EditMenuCommands: Commands {
             .disabled(!workspace.canRedo)
         }
         CommandGroup(after: .pasteboard) {
+            Button("Duplicate") {
+                workspace.duplicateSelectedObject()
+            }
+            .keyboardShortcut("d", modifiers: [.command])
+            .disabled(workspace.selectedObject == nil)
+
             Button("Delete") {
                 workspace.deleteSelectedObject()
             }
@@ -309,6 +315,10 @@ struct ViewNavigationCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.resetViewShortcutKey, modifiers: WorkspaceModel.resetViewShortcutModifiers)
             .disabled(workspace.coordinator == nil)
+
+            Button("Contextual Radial Menu") {
+                workspace.openRadialMenuAtCenter()
+            }
 
             Divider()
 
