@@ -108,7 +108,52 @@ public func & (lhs: any CADShape, rhs: any CADShape) -> CSGCompositeShape {
 
 @resultBuilder
 public struct CADShapeBuilder {
-    public static func buildBlock(_ shape: any CADShape) -> any CADShape {
-        return shape
+    public static let emptyBlockMessage = "CADShapeBuilder block cannot be empty"
+
+    #if DEBUG
+    public nonisolated(unsafe) static var emptyBlockHandler: ((String) -> Void)?
+    #endif
+
+    public static func buildExpression(_ shape: any CADShape) -> [any CADShape] {
+        [shape]
+    }
+
+    public static func buildBlock(_ components: [any CADShape]...) -> [any CADShape] {
+        components.flatMap { $0 }
+    }
+
+    public static func buildOptional(_ component: [any CADShape]?) -> [any CADShape] {
+        component ?? []
+    }
+
+    public static func buildEither(first component: [any CADShape]) -> [any CADShape] {
+        component
+    }
+
+    public static func buildEither(second component: [any CADShape]) -> [any CADShape] {
+        component
+    }
+
+    public static func buildArray(_ components: [[any CADShape]]) -> [any CADShape] {
+        components.flatMap { $0 }
+    }
+
+    public static func buildFinalResult(_ component: [any CADShape]) -> any CADShape {
+        guard let first = component.first else {
+            #if DEBUG
+            if let handler = emptyBlockHandler {
+                handler(emptyBlockMessage)
+                return CSGCompositeShape(shapeDescription: .box(BoxParams(width: 0, depth: 0, height: 0)))
+            }
+            #endif
+            preconditionFailure(emptyBlockMessage)
+        }
+        return component.dropFirst().reduce(first) { $0.union($1) }
     }
 }
+
+/// Evaluates a `@CADShapeBuilder` closure into a single `CADShape`.
+public func shape(@CADShapeBuilder _ content: () -> any CADShape) -> any CADShape {
+    content()
+}
+

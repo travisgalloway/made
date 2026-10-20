@@ -4,7 +4,7 @@ Date: 2026-10-17
 Scope: macos/ (Swift 6 package, targets MadeCore, MadeApp, and MadeKernelService)
 Audit run: 20261017-112015
 
-Table 1 lists 191 capabilities with their implementation status. The matrix shows 158 Shipped, 23 In progress, 5 Planned, and 5 Deprecated rows.
+Table 1 lists 191 capabilities with their implementation status. The matrix shows 159 Shipped, 22 In progress, 5 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -58,6 +58,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - DOC-29 to DOC-32 are Shipped. They cover applied sketch constraints, live inference, minimal-movement drag solving, and over-constraint diagnosis (#37, #198, #197). Driven dimensions are open (#199).
 - DOC-33 is Shipped (#553). DOC-34 is In progress. Feature suppression exists in `DocumentModel` and has no UI entry point (#176).
 - DSL-15 is Shipped. The `MADE_PART_FILE` environment variable and positional `.part.ts`, `.part.js`, and `.made` arguments open files at launch (#427).
+- DSL-11 is Shipped. Multi-statement hierarchies, conditionals, and loops in `@CADShapeBuilder` with binary union tree folding were implemented under #330.
 - VIEW-17 is Planned with tracking issue #389. KERN-11 stays In progress because in-process cancellation of an executing job is a no-op (`LocalKernelEngine.terminate` returns false).
 
 Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
@@ -237,7 +238,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | DSL-8 | A developer can intersect with `.intersecting(_:)` | n/a | done | n/a | Shipped |  | n/a |
 | DSL-9 | A developer can evaluate a shape through `KernelClient` with `.evaluate(on:solidId:)` | n/a | done | n/a | Shipped | #331 | n/a |
 | DSL-10 | A developer can compose shapes with the operators `-`, `+` and `&` | n/a | done | n/a | Shipped |  | n/a |
-| DSL-11 | A developer can use `@CADShapeBuilder` to group shapes; only a single-shape `buildBlock` exists, so multi-statement hierarchies do not compile | n/a | done | n/a | In progress |  | n/a |
+| DSL-11 | A developer can use `@CADShapeBuilder` to group shapes with multi-statement hierarchies, conditionals (`if`, `if/else`), and loops (`for`) folded into a binary union tree | n/a | done | n/a | Shipped | #330 | n/a |
 | DSL-12 | An agent can author a DSL model and see it in the viewport or the document | done | done | done | Shipped | #85, #427 | n/a |
 | DSL-13 | A developer or user can evaluate a `.part.ts` or `.part.js` script in a restricted JavaScriptCore runtime on a background thread (`PartRuntime`), with TypeScript type stripping, relative ES module imports inside the part directory, the `made` CAD API (primitives, 2D sketches on planes, extrude, revolve, booleans, transforms, named parameters, and optional `expected` block), source-mapped file/line/column diagnostics, `JobId` cancellation, and bundled `made.d.ts` type definitions | done | done | done | Shipped | #435, #427 | n/a |
 | DSL-14 | A user or agent can open a `.part.ts` or `.part.js` part source file in the window and have edits on disk (including relative helper modules) coalesced with a 60-ms debounce, re-evaluated off the main thread through `PartRuntime` and `KernelClient`, and redrawn once in the viewport on success while keeping the last good model on screen and reporting `file:line:column` diagnostics in the console and Inspector on failure | done | done | done | Shipped | #427 | n/a |
