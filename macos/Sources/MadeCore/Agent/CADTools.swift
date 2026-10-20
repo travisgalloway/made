@@ -63,8 +63,19 @@ public final class CADToolRegistry {
         return [
             MCPToolDefinition(
                 name: "cad_get_scene",
-                description: "Retrieves the full list of objects in the CAD document with their IDs, types, parameters, and transforms.",
-                inputSchema: MCPInputSchema(properties: [:])
+                description: "Retrieves the list of objects in the CAD document with pagination (limit and cursor).",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "limit": MCPProperty(
+                            type: "integer",
+                            description: "Maximum number of objects to return (default 50, maximum 500)"
+                        ),
+                        "cursor": MCPProperty(
+                            type: "string",
+                            description: "Opaque cursor string from a previous cad_get_scene call"
+                        )
+                    ]
+                )
             ),
             MCPToolDefinition(
                 name: "cad_add_solid",
@@ -300,7 +311,7 @@ public final class CADToolRegistry {
     public func callTool(name: String, arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
         switch name {
         case "cad_get_scene":
-            return handleGetScene()
+            return handleGetScene(arguments: arguments)
             
         case "cad_add_solid":
             return handleAddSolid(arguments: arguments)
@@ -363,9 +374,75 @@ public final class CADToolRegistry {
     
     // MARK: - Tool Handlers
     
-    private func handleGetScene() -> MCPToolCallResult {
+    private struct SceneCursor: Codable, Sendable {
+        var lastId: String?
+        var recentIds: [String]?
+        var offset: Int?
+        var isEnd: Bool?
+    }
+
+    private func handleGetScene(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        var limit = 50
+        if let rawLimit = arguments["limit"] {
+            guard let intVal = rawLimit.intValue, (rawLimit.doubleValue == nil || Double(intVal) == rawLimit.doubleValue) else {
+                return .error("Argument 'limit' must be an integer")
+            }
+            guard intVal > 0 else {
+                return .error("Argument 'limit' must be greater than 0")
+            }
+            limit = min(intVal, 500)
+        }
+
+        let totalCount = document.objects.count
+        var startIndex = 0
+
+        if let rawCursor = arguments["cursor"] {
+            guard let cursorStr = rawCursor.stringValue else {
+                return .error("Argument 'cursor' must be a string")
+            }
+            if !cursorStr.isEmpty {
+                let cursor: SceneCursor
+                if cursorStr == "past-the-end" || cursorStr == "end" {
+                    cursor = SceneCursor(lastId: nil, recentIds: nil, offset: totalCount, isEnd: true)
+                } else if let offset = Int(cursorStr) {
+                    cursor = SceneCursor(lastId: nil, recentIds: nil, offset: offset, isEnd: nil)
+                } else if let data = Data(base64Encoded: cursorStr),
+                          let decoded = try? JSONDecoder().decode(SceneCursor.self, from: data) {
+                    cursor = decoded
+                } else if let data = cursorStr.data(using: .utf8),
+                          let decoded = try? JSONDecoder().decode(SceneCursor.self, from: data) {
+                    cursor = decoded
+                } else {
+                    return .error("Argument 'cursor' is invalid")
+                }
+
+                if cursor.isEnd == true || (cursor.lastId == nil && (cursor.offset ?? 0) >= totalCount) {
+                    startIndex = totalCount
+                } else if let lastId = cursor.lastId, let matchIndex = document.objects.firstIndex(where: { $0.id.rawValue == lastId }) {
+                    startIndex = matchIndex + 1
+                } else if let recentIds = cursor.recentIds,
+                          let matchedSolid = recentIds.reversed().compactMap({ id in
+                              document.objects.firstIndex(where: { $0.id.rawValue == id })
+                          }).first {
+                    startIndex = matchedSolid + 1
+                } else if let off = cursor.offset, off >= totalCount {
+                    startIndex = totalCount
+                } else if cursor.lastId != nil {
+                    startIndex = 0
+                } else if let off = cursor.offset {
+                    startIndex = min(max(off, 0), totalCount)
+                } else {
+                    startIndex = 0
+                }
+            }
+        }
+
+        startIndex = min(max(startIndex, 0), totalCount)
+        let sliceEnd = min(startIndex + limit, totalCount)
+        let slice = startIndex < totalCount ? Array(document.objects[startIndex..<sliceEnd]) : []
+
         var summary: [[String: Any]] = []
-        for obj in document.objects {
+        for obj in slice {
             var item: [String: Any] = [
                 "id": obj.id.rawValue,
                 "kind": obj.def.kind,
@@ -396,10 +473,26 @@ public final class CADToolRegistry {
             }
             summary.append(item)
         }
-        
+
+        var response: [String: Any] = [
+            "objects": summary,
+            "total": totalCount
+        ]
+        if sliceEnd < totalCount, let lastObj = slice.last {
+            let nextCursorObj = SceneCursor(
+                lastId: lastObj.id.rawValue,
+                recentIds: slice.map(\.id.rawValue),
+                offset: sliceEnd,
+                isEnd: false
+            )
+            if let data = try? JSONEncoder().encode(nextCursorObj) {
+                response["nextCursor"] = data.base64EncodedString()
+            }
+        }
+
         do {
-            let data = try JSONSerialization.data(withJSONObject: summary, options: .prettyPrinted)
-            let jsonString = String(data: data, encoding: .utf8) ?? "[]"
+            let data = try JSONSerialization.data(withJSONObject: response, options: [.prettyPrinted, .sortedKeys])
+            let jsonString = String(data: data, encoding: .utf8) ?? "{}"
             return .text(jsonString)
         } catch {
             return .error("Failed to serialize scene: \(error.localizedDescription)")

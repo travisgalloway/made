@@ -21,6 +21,204 @@ import simd
         #expect(text.contains("cylinder-1"))
     }
     
+    @Test func testGetScenePaginationAcrossMultiplePages() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        for obj in doc.objects {
+            _ = doc.removeObject(id: obj.id)
+        }
+        for i in 1...120 {
+            _ = doc.addObject(def: .box(BoxParams(width: 10 + Float(i), depth: 10, height: 10)))
+        }
+        #expect(doc.objects.count == 120)
+        
+        let p1 = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(50)])
+        #expect(p1.isError == false)
+        guard let d1 = p1.content.first?.text?.data(using: .utf8),
+              let json1 = try? JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let objs1 = json1["objects"] as? [[String: Any]],
+              let total1 = json1["total"] as? Int,
+              let cursor1 = json1["nextCursor"] as? String else {
+            Issue.record("Failed to parse page 1")
+            return
+        }
+        #expect(objs1.count == 50)
+        #expect(total1 == 120)
+        #expect(!cursor1.isEmpty)
+        
+        let p2 = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(50), "cursor": .string(cursor1)])
+        #expect(p2.isError == false)
+        guard let d2 = p2.content.first?.text?.data(using: .utf8),
+              let json2 = try? JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let objs2 = json2["objects"] as? [[String: Any]],
+              let total2 = json2["total"] as? Int,
+              let cursor2 = json2["nextCursor"] as? String else {
+            Issue.record("Failed to parse page 2")
+            return
+        }
+        #expect(objs2.count == 50)
+        #expect(total2 == 120)
+        #expect(!cursor2.isEmpty)
+        
+        let p3 = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(50), "cursor": .string(cursor2)])
+        #expect(p3.isError == false)
+        guard let d3 = p3.content.first?.text?.data(using: .utf8),
+              let json3 = try? JSONSerialization.jsonObject(with: d3) as? [String: Any],
+              let objs3 = json3["objects"] as? [[String: Any]],
+              let total3 = json3["total"] as? Int else {
+            Issue.record("Failed to parse page 3")
+            return
+        }
+        #expect(objs3.count == 20)
+        #expect(total3 == 120)
+        #expect(json3["nextCursor"] == nil)
+        
+        let allIds = (objs1 + objs2 + objs3).compactMap { $0["id"] as? String }
+        #expect(allIds.count == 120)
+        #expect(Set(allIds).count == 120)
+    }
+
+    @Test func testGetSceneRejectsNonPositiveLimit() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        let res0 = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(0)])
+        #expect(res0.isError == true)
+        #expect(res0.content.first?.text?.contains("limit") == true)
+        
+        let resNeg = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(-5)])
+        #expect(resNeg.isError == true)
+        #expect(resNeg.content.first?.text?.contains("limit") == true)
+    }
+
+    @Test func testGetSceneClampsLimitAboveMax() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        for obj in doc.objects {
+            _ = doc.removeObject(id: obj.id)
+        }
+        for i in 1...550 {
+            _ = doc.addObject(def: .box(BoxParams(width: Float(i), depth: 10, height: 10)))
+        }
+        #expect(doc.objects.count == 550)
+        
+        let res = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(600)])
+        #expect(res.isError == false)
+        guard let data = res.content.first?.text?.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let objs = json["objects"] as? [[String: Any]] else {
+            Issue.record("Failed to parse response")
+            return
+        }
+        #expect(objs.count == 500)
+        #expect(json["total"] as? Int == 550)
+        #expect(json["nextCursor"] != nil)
+    }
+
+    @Test func testGetSceneEmptyDocumentOmitsCursor() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        for obj in doc.objects {
+            _ = doc.removeObject(id: obj.id)
+        }
+        #expect(doc.objects.isEmpty)
+        
+        let res = await registry.callTool(name: "cad_get_scene", arguments: [:])
+        #expect(res.isError == false)
+        guard let data = res.content.first?.text?.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let objs = json["objects"] as? [[String: Any]],
+              let total = json["total"] as? Int else {
+            Issue.record("Failed to parse response")
+            return
+        }
+        #expect(objs.isEmpty)
+        #expect(total == 0)
+        #expect(json["nextCursor"] == nil)
+    }
+
+    @Test func testGetSceneCursorPastEndReturnsEmptyList() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        let total = doc.objects.count
+        let res = await registry.callTool(name: "cad_get_scene", arguments: ["cursor": .string("past-the-end")])
+        #expect(res.isError == false)
+        guard let data = res.content.first?.text?.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let objs = json["objects"] as? [[String: Any]] else {
+            Issue.record("Failed to parse response")
+            return
+        }
+        #expect(objs.isEmpty)
+        #expect(json["total"] as? Int == total)
+        #expect(json["nextCursor"] == nil)
+    }
+
+    @Test func testGetSceneCursorResumesAfterObjectRemoval() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        for obj in doc.objects {
+            _ = doc.removeObject(id: obj.id)
+        }
+        let idA = doc.addObject(def: .box(BoxParams(width: 10, depth: 10, height: 10)))
+        let idB = doc.addObject(def: .box(BoxParams(width: 20, depth: 20, height: 20)))
+        let idC = doc.addObject(def: .box(BoxParams(width: 30, depth: 30, height: 30)))
+        let idD = doc.addObject(def: .box(BoxParams(width: 40, depth: 40, height: 40)))
+        let idE = doc.addObject(def: .box(BoxParams(width: 50, depth: 50, height: 50)))
+        
+        let p1 = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(2)])
+        #expect(p1.isError == false)
+        guard let d1 = p1.content.first?.text?.data(using: .utf8),
+              let json1 = try? JSONSerialization.jsonObject(with: d1) as? [String: Any],
+              let objs1 = json1["objects"] as? [[String: Any]],
+              let cursor1 = json1["nextCursor"] as? String else {
+            Issue.record("Failed to parse page 1")
+            return
+        }
+        #expect(objs1.compactMap { $0["id"] as? String } == [idA.rawValue, idB.rawValue])
+        
+        _ = doc.removeObject(id: idB)
+        
+        let p2 = await registry.callTool(name: "cad_get_scene", arguments: ["limit": .int(2), "cursor": .string(cursor1)])
+        #expect(p2.isError == false)
+        guard let d2 = p2.content.first?.text?.data(using: .utf8),
+              let json2 = try? JSONSerialization.jsonObject(with: d2) as? [String: Any],
+              let objs2 = json2["objects"] as? [[String: Any]] else {
+            Issue.record("Failed to parse page 2")
+            return
+        }
+        let ids2 = objs2.compactMap { $0["id"] as? String }
+        #expect(ids2 == [idC.rawValue, idD.rawValue])
+        #expect(!ids2.contains(idA.rawValue))
+        #expect(!ids2.contains(idB.rawValue))
+        #expect(idE.rawValue != "")
+    }
+
+    @Test func testGetSceneRejectsMalformedCursor() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        
+        let resBadType = await registry.callTool(name: "cad_get_scene", arguments: ["cursor": .int(42)])
+        #expect(resBadType.isError == true)
+        #expect(resBadType.content.first?.text?.contains("cursor") == true)
+        
+        let resGarbage = await registry.callTool(name: "cad_get_scene", arguments: ["cursor": .string("!!!not-a-valid-cursor???")])
+        #expect(resGarbage.isError == true)
+        #expect(resGarbage.content.first?.text?.contains("cursor") == true)
+    }
+    
     @Test func testAddSolidCreatesNewBox() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
@@ -1008,7 +1206,8 @@ import simd
         guard let id = await runBoolean(registry, op: "intersect") else { return }
         let scene = await registry.callTool(name: "cad_get_scene", arguments: [:])
         guard let data = scene.content.first?.text?.data(using: .utf8),
-              let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let rawJson = try? JSONSerialization.jsonObject(with: data),
+              let items = (rawJson as? [String: Any])?["objects"] as? [[String: Any]] ?? (rawJson as? [[String: Any]]),
               let item = items.first(where: { $0["id"] as? String == id.rawValue }) else {
             Issue.record("Expected the boolean result in cad_get_scene")
             return
