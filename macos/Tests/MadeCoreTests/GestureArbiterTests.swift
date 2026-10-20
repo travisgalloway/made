@@ -193,4 +193,56 @@ import Foundation
         #expect(arbiter.handle(.up(pointerId: 9)) == .undecided)
         #expect(arbiter.handle(.move(pointer: pointer(1, 5, 5))) == GestureDecision(mode: .manipulate, locked: true))
     }
+    
+    @Test func testPointerCountAndPeakConcurrentTracking() {
+        let arbiter = GestureArbiter()
+        #expect(arbiter.pointerCount == 0)
+        #expect(arbiter.peakConcurrentCount == 0)
+        
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        #expect(arbiter.pointerCount == 1)
+        #expect(arbiter.peakConcurrentCount == 1)
+        
+        _ = arbiter.handle(.down(pointer: pointer(2)))
+        #expect(arbiter.pointerCount == 2)
+        #expect(arbiter.peakConcurrentCount == 2)
+        
+        _ = arbiter.handle(.down(pointer: pointer(3)))
+        #expect(arbiter.pointerCount == 3)
+        #expect(arbiter.peakConcurrentCount == 3)
+        
+        _ = arbiter.handle(.up(pointerId: 2))
+        #expect(arbiter.pointerCount == 2)
+        #expect(arbiter.peakConcurrentCount == 3)
+        
+        _ = arbiter.handle(.up(pointerId: 1))
+        #expect(arbiter.pointerCount == 1)
+        #expect(arbiter.peakConcurrentCount == 3)
+        
+        _ = arbiter.handle(.up(pointerId: 3))
+        #expect(arbiter.pointerCount == 0)
+        #expect(arbiter.peakConcurrentCount == 0)
+    }
+    
+    @Test func testMultiTouchRetainsNavigateUntilAllPointersLift() {
+        let arbiter = GestureArbiter()
+        _ = arbiter.handle(.down(pointer: pointer(1)))
+        _ = arbiter.handle(.down(pointer: pointer(2)))
+        let move = arbiter.handle(.move(pointer: pointer(1, 10, 10)))
+        #expect(move == GestureDecision(mode: .navigate, locked: true))
+        
+        // Finger 2 lifts: remains in .navigate
+        let up2 = arbiter.handle(.up(pointerId: 2))
+        #expect(up2 == GestureDecision(mode: .navigate, locked: true))
+        #expect(arbiter.current() == GestureDecision(mode: .navigate, locked: true))
+        
+        // Finger 1 continues moving: stays in .navigate
+        let move1 = arbiter.handle(.move(pointer: pointer(1, 20, 20)))
+        #expect(move1 == GestureDecision(mode: .navigate, locked: true))
+        
+        // Finger 1 lifts: last finger releases, decision is .navigate locked, arbiter resets to undecided
+        let up1 = arbiter.handle(.up(pointerId: 1))
+        #expect(up1 == GestureDecision(mode: .navigate, locked: true))
+        #expect(arbiter.current() == .undecided)
+    }
 }

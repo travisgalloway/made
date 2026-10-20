@@ -4,7 +4,7 @@ Date: 2026-10-17
 Scope: macos/ (Swift 6 package, targets MadeCore, MadeApp, and MadeKernelService)
 Audit run: 20261017-112015
 
-Table 1 lists 191 capabilities with their implementation status. The matrix shows 157 Shipped, 24 In progress, 5 Planned, and 5 Deprecated rows.
+Table 1 lists 191 capabilities with their implementation status. The matrix shows 158 Shipped, 23 In progress, 5 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -17,6 +17,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - Issue holds the GitHub issue number that tracks the capability. A blank cell has no tracking issue.
 - KERN-9 is Shipped. The conflation race (finding DSN-efe60d18) was fixed under #90.
 - VIEW-1 is Shipped. Metal unavailable state handling (finding UX-661e2517) was fixed under #108.
+- VIEW-2 is Shipped. iPadOS viewport representable parity with multi-touch camera navigation, Apple Pencil precision channel, palm rejection, hover preselection, and Scribble numeric entry was implemented under #84.
 - VIEW-28 is Shipped. Antialiased B-rep boundary edge rendering with quad ribbons and GPU-evaluated dynamic silhouettes on curved surfaces with a viewport edge visibility toggle was implemented under #382 (BL-VPT-04).
 - VIEW-29 is Shipped. Five viewport display modes (Shaded with Edges, Shaded, Wireframe, Hidden Line Removed, Hidden Lines Visible) across core render types, Metal shaders and depth states, WorkspaceModel state and UserDefaults persistence (`com.made.display.mode`), and UI controls (ViewportCanvasView, MadeCommands, SettingsView) were implemented under #383 (BL-VPT-05).
 - VIEW-30 is Shipped. Spatial indexing for picking, snapping, camera framing, interference detection, and geometric measurement via hierarchical AABB BVH trees (TriangleBVH, EdgeBVH, VertexBVH, BodySpatialIndex) with zero-rebuild transform persistence, sub-2ms 1M-triangle candidate search, and strict Swift 6 Sendable concurrency was implemented under #396 (BL-VPT-23).
@@ -66,7 +67,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | ID | Capability | UI | API | Data | Status | Issue | Contract |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | VIEW-1 | A user can see the scene in a Metal MTKView (sRGB color, 32-bit depth, dark clear color) hosted in the window on macOS | done | n/a | n/a | Shipped | #108 | n/a |
-| VIEW-2 | A user can see the same MTKView on iPadOS through a UIViewRepresentable with multi-touch enabled | none | n/a | n/a | In progress | #84 | n/a |
+| VIEW-2 | A user can see the same MTKView on iPadOS through a UIViewRepresentable with multi-touch enabled | done | done | n/a | Shipped | #84 | n/a |
 | VIEW-3 | A user gets on-demand rendering only (`isPaused = true`, `enableSetNeedsDisplay = true`), so the GPU stays idle until a redraw is requested | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-4 | A user sees the viewport redraw when workspace state changes (mesh update, hide or show, remove, transform edit, perspective change) through `invalidateViewport` (prior wording: `updateNSView` calls `setNeedsDisplay`; that call no longer exists) | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-5 | A user can trigger a tagged invalidate-and-redraw through `Coordinator.invalidate(reason:)` | done | n/a | n/a | Shipped | #94 | n/a |

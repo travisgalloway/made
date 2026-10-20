@@ -20,14 +20,26 @@ public let mouseClickThresholdPx: Float = 6.0
 public final class PointerRouter: @unchecked Sendable {
     public let arbiter = GestureArbiter()
     private var mouseGestures: [Int: (start: (x: Float, y: Float), draggedPastThreshold: Bool)] = [:]
+    private var activePenPointers: Set<Int> = []
+    
+    public var isPenActive: Bool {
+        !activePenPointers.isEmpty
+    }
     
     public init() {}
+    
+    public func reset() {
+        activePenPointers.removeAll()
+        mouseGestures.removeAll()
+        arbiter.reset()
+    }
     
     public func handle(_ event: RouterEvent) -> GestureDecision {
         switch event {
         case .down(let pType, let pointer):
             switch pType {
             case .pen:
+                activePenPointers.insert(pointer.pointerId)
                 return GestureDecision(mode: .manipulate, locked: true)
             case .touch:
                 return arbiter.handle(.down(pointer: pointer))
@@ -41,6 +53,9 @@ public final class PointerRouter: @unchecked Sendable {
             case .pen:
                 return GestureDecision(mode: .manipulate, locked: true)
             case .touch:
+                if isPenActive && arbiter.peakConcurrentCount < 2 {
+                    return .undecided
+                }
                 return arbiter.handle(.move(pointer: pointer))
             case .mouse:
                 if arbiter.current().locked {
@@ -60,8 +75,13 @@ public final class PointerRouter: @unchecked Sendable {
         case .up(let pType, let pointerId):
             switch pType {
             case .pen:
+                activePenPointers.remove(pointerId)
                 return GestureDecision(mode: .manipulate, locked: true)
             case .touch:
+                if isPenActive && arbiter.peakConcurrentCount < 2 {
+                    arbiter.removePointer(pointerId)
+                    return .undecided
+                }
                 return arbiter.handle(.up(pointerId: pointerId))
             case .mouse:
                 if arbiter.current().locked {
@@ -78,8 +98,13 @@ public final class PointerRouter: @unchecked Sendable {
         case .cancel(let pType, let pointerId):
             switch pType {
             case .pen:
+                activePenPointers.remove(pointerId)
                 return GestureDecision(mode: .manipulate, locked: true)
             case .touch:
+                if isPenActive && arbiter.peakConcurrentCount < 2 {
+                    arbiter.removePointer(pointerId)
+                    return .undecided
+                }
                 return arbiter.handle(.cancel(pointerId: pointerId))
             case .mouse:
                 if arbiter.current().locked {

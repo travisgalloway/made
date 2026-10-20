@@ -35,6 +35,10 @@ struct CommitNumberField: View {
             .focused($isFocused)
             .multilineTextAlignment(.trailing)
             .monospacedDigit()
+            .autocorrectionDisabled()
+            #if os(iOS)
+            .keyboardType(.numbersAndPunctuation)
+            #endif
             .frame(width: width)
             .onSubmit(apply)
             .onChange(of: isFocused) { _, focused in
