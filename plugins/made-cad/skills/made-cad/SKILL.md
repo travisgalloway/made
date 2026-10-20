@@ -137,7 +137,7 @@ Only the keys `volume`, `area`, `surfaceArea`, `bounds`, and `tolerance` are val
 
 ## 4. MCP Tools Reference
 
-`made` registers 18 MCP tools in `CADToolRegistry`:
+`made` registers 19 MCP tools in `CADToolRegistry`:
 
 | Tool Name | Purpose | Arguments |
 | --- | --- | --- |
@@ -159,6 +159,7 @@ Only the keys `volume`, `area`, `surfaceArea`, `bounds`, and `tolerance` are val
 | `cad_extrude` | Extrude a closed 2D sketch into a 3D parametric solid. | `sketchId: string` (required), `distance: number` (required), `isSymmetric?: boolean`, `draftAngle?: number`, `regionId?: string`. |
 | `cad_fillet` | Apply a topological fillet blend to a solid edge by topological reference or UUID. | `solidId: string` (required), `edge: string` (required label or UUID), `radius: number` (required). |
 | `cad_query_tree` | Query the document feature history tree, parameters, output solids, and topological references. | `featureId?: string` (optional feature UUID). |
+| `cad_query_topology` | Query 3D topological sub-elements (faces, edges, vertices) with persistent IDs, surface and curve types, normal vectors, centroids, areas, and lengths. | `solidId?: string` (optional solid ID), `featureId?: string` (optional feature UUID), `elementType?: "face" \| "edge" \| "vertex"` (optional filter). |
 
 ## 5. The Agent Workflow Loop: Edit -> Reload -> Diagnostics -> Verify -> Snapshot -> Repair
 

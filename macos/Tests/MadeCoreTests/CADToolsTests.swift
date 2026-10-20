@@ -2014,6 +2014,217 @@ import simd
         ])
         #expect(unknownFeatIdRes.isError == true)
     }
+
+    @Test func testQueryTopologyForSolid() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let res = await registry.callTool(name: "cad_query_topology", arguments: [
+            "solidId": .string("box-1")
+        ])
+        #expect(res.isError == false)
+        let text = try #require(res.content.first?.text)
+        let data = try #require(text.data(using: .utf8))
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(json["solidId"] as? String == "box-1")
+        #expect(json["count"] as? Int == 26)
+
+        let faces = try #require(json["faces"] as? [[String: Any]])
+        #expect(faces.count == 6)
+        let topFace = try #require(faces.first(where: { $0["label"] as? String == "face:top" }))
+        #expect(topFace["elementType"] as? String == "face")
+        #expect(topFace["type"] as? String == "plane")
+        #expect(topFace["area"] as? Double == 1200.0)
+        #expect(topFace["areaOrLength"] as? Double == 1200.0)
+        let normal = try #require(topFace["normal"] as? [Double])
+        #expect(normal.count == 3)
+        #expect(normal[0] == 0.0 && normal[1] == 0.0 && normal[2] == 1.0)
+        let centroid = try #require(topFace["centroid"] as? [Double])
+        #expect(centroid.count == 3)
+        #expect(centroid[0] == 0.0 && centroid[1] == 0.0 && centroid[2] == 10.0)
+
+        let edges = try #require(json["edges"] as? [[String: Any]])
+        #expect(edges.count == 12)
+        let topFrontEdge = try #require(edges.first(where: { $0["label"] as? String == "edge:top-front" }))
+        #expect(topFrontEdge["elementType"] as? String == "edge")
+        #expect(topFrontEdge["type"] as? String == "line")
+        #expect(topFrontEdge["length"] as? Double == 40.0)
+        #expect(topFrontEdge["areaOrLength"] as? Double == 40.0)
+        let edgeCentroid = try #require(topFrontEdge["centroid"] as? [Double])
+        #expect(edgeCentroid.count == 3)
+
+        let vertices = try #require(json["vertices"] as? [[String: Any]])
+        #expect(vertices.count == 8)
+        let vert = try #require(vertices.first(where: { $0["label"] as? String == "vertex:top-front-left" }))
+        #expect(vert["elementType"] as? String == "vertex")
+        let vertCentroid = try #require(vert["centroid"] as? [Double])
+        #expect(vertCentroid.count == 3)
+    }
+
+    @Test func testQueryTopologyFilteredByElementType() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Filter: face
+        let faceRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "solidId": .string("box-1"),
+            "elementType": .string("face")
+        ])
+        #expect(faceRes.isError == false)
+        let faceText = try #require(faceRes.content.first?.text)
+        let faceJson = try #require(try JSONSerialization.jsonObject(with: faceText.data(using: .utf8)!) as? [String: Any])
+        #expect(faceJson["count"] as? Int == 6)
+        let faces = try #require(faceJson["faces"] as? [[String: Any]])
+        #expect(faces.count == 6)
+        #expect(faceJson["edges"] == nil)
+        #expect(faceJson["vertices"] == nil)
+
+        // Filter: edge
+        let edgeRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "solidId": .string("box-1"),
+            "elementType": .string("edge")
+        ])
+        #expect(edgeRes.isError == false)
+        let edgeText = try #require(edgeRes.content.first?.text)
+        let edgeJson = try #require(try JSONSerialization.jsonObject(with: edgeText.data(using: .utf8)!) as? [String: Any])
+        #expect(edgeJson["count"] as? Int == 12)
+        let edges = try #require(edgeJson["edges"] as? [[String: Any]])
+        #expect(edges.count == 12)
+        #expect(edgeJson["faces"] == nil)
+        #expect(edgeJson["vertices"] == nil)
+
+        // Filter: vertex
+        let vertRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "solidId": .string("box-1"),
+            "elementType": .string("vertex")
+        ])
+        #expect(vertRes.isError == false)
+        let vertText = try #require(vertRes.content.first?.text)
+        let vertJson = try #require(try JSONSerialization.jsonObject(with: vertText.data(using: .utf8)!) as? [String: Any])
+        #expect(vertJson["count"] as? Int == 8)
+        let vertices = try #require(vertJson["vertices"] as? [[String: Any]])
+        #expect(vertices.count == 8)
+        #expect(vertJson["faces"] == nil)
+        #expect(vertJson["edges"] == nil)
+    }
+
+    @Test func testQueryTopologyByFeatureId() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let boxFeat = try #require(doc.feature(for: SolidId("box-1")))
+        let featIdStr = boxFeat.id.uuidString
+
+        let res = await registry.callTool(name: "cad_query_topology", arguments: [
+            "featureId": .string(featIdStr)
+        ])
+        #expect(res.isError == false)
+        let text = try #require(res.content.first?.text)
+        let json = try #require(try JSONSerialization.jsonObject(with: text.data(using: .utf8)!) as? [String: Any])
+        #expect(json["featureId"] as? String == featIdStr)
+        #expect(json["solidId"] as? String == "box-1")
+        #expect(json["count"] as? Int == 26)
+
+        // Empty topology feature check
+        let emptyFeat = Feature(
+            id: UUID(),
+            name: "Empty Feature",
+            operation: .primitive(.box(BoxParams(width: 40, depth: 30, height: 20))),
+            inputExpressions: [:],
+            references: [],
+            isSuppressed: false,
+            errorState: nil,
+            generatedTopology: [:]
+        )
+        doc.addFeature(emptyFeat)
+        let emptyRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "featureId": .string(emptyFeat.id.uuidString)
+        ])
+        #expect(emptyRes.isError == false)
+        let emptyText = try #require(emptyRes.content.first?.text)
+        let emptyData = try #require(emptyText.data(using: .utf8))
+        let emptyObj = try JSONSerialization.jsonObject(with: emptyData)
+        let emptyJson = try #require(emptyObj as? [String: Any])
+        #expect(emptyJson["count"] as? Int == 0)
+        let emptyFaces = try #require(emptyJson["faces"] as? [[String: Any]])
+        let emptyEdges = try #require(emptyJson["edges"] as? [[String: Any]])
+        let emptyVertices = try #require(emptyJson["vertices"] as? [[String: Any]])
+        #expect(emptyFaces.isEmpty)
+        #expect(emptyEdges.isEmpty)
+        #expect(emptyVertices.isEmpty)
+    }
+
+    @Test func testQueryTopologyAllSolids() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        let res = await registry.callTool(name: "cad_query_topology", arguments: [:])
+        #expect(res.isError == false)
+        let text = try #require(res.content.first?.text)
+        let json = try #require(try JSONSerialization.jsonObject(with: text.data(using: .utf8)!) as? [String: Any])
+        let solids = try #require(json["solids"] as? [[String: Any]])
+        #expect(solids.count >= 2)
+
+        let boxSummary = try #require(solids.first(where: { $0["solidId"] as? String == "box-1" }))
+        #expect(boxSummary["count"] as? Int == 26)
+
+        let cylSummary = try #require(solids.first(where: { $0["solidId"] as? String == "cylinder-1" }))
+        let cylFaces = try #require(cylSummary["faces"] as? [[String: Any]])
+        #expect(cylFaces.count == 3)
+        let sideFace = try #require(cylFaces.first(where: { $0["label"] as? String == "face:side" }))
+        #expect(sideFace["type"] as? String == "cylinder")
+        let topFace = try #require(cylFaces.first(where: { $0["label"] as? String == "face:top" }))
+        #expect(topFace["type"] as? String == "plane")
+        let bottomFace = try #require(cylFaces.first(where: { $0["label"] as? String == "face:bottom" }))
+        #expect(bottomFace["type"] as? String == "plane")
+
+        let cylEdges = try #require(cylSummary["edges"] as? [[String: Any]])
+        #expect(cylEdges.count == 3)
+        #expect(cylEdges.contains(where: { $0["type"] as? String == "circle" }))
+        #expect(cylEdges.contains(where: { $0["type"] as? String == "line" }))
+
+        let totalCount = try #require(json["count"] as? Int)
+        #expect(totalCount >= 26 + 8)
+    }
+
+    @Test func testQueryTopologyErrorCases() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Nonexistent solid
+        let badSolidRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "solidId": .string("missing-solid")
+        ])
+        #expect(badSolidRes.isError == true)
+        #expect(badSolidRes.content.first?.text?.contains("not found in scene") == true)
+
+        // Malformed feature ID
+        let badFeatIdRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "featureId": .string("not-a-uuid")
+        ])
+        #expect(badFeatIdRes.isError == true)
+        #expect(badFeatIdRes.content.first?.text?.contains("Invalid UUID") == true)
+
+        // Nonexistent feature ID
+        let unknownFeatIdRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "featureId": .string(UUID().uuidString)
+        ])
+        #expect(unknownFeatIdRes.isError == true)
+        #expect(unknownFeatIdRes.content.first?.text?.contains("not found in document") == true)
+
+        // Invalid element type
+        let badTypeRes = await registry.callTool(name: "cad_query_topology", arguments: [
+            "elementType": .string("polygon")
+        ])
+        #expect(badTypeRes.isError == true)
+        #expect(badTypeRes.content.first?.text?.contains("Invalid elementType") == true)
+    }
 }
 
 @MainActor
