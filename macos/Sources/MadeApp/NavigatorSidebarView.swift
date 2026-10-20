@@ -417,6 +417,7 @@ private struct NavigatorRow: View {
         .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(bodyItem.name), \(object?.def.kind ?? "Solid"), ID \(bodyItem.id.rawValue)\(object.map { ", \($0.parameterSummary)" } ?? "")\(errorState.map { ", \($0.severity == .warning ? "Warning" : "Error"): \($0.message)" } ?? "")")
+        .accessibilityIdentifier("navigator-object-\(bodyItem.id.rawValue)")
         .accessibilityAction(named: bodyItem.isVisible ? "Hide Body" : "Show Body") {
             workspace.toggleBodyVisibility(bodyItem.id)
         }

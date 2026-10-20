@@ -354,7 +354,7 @@ final class WorkspaceModel {
     public static let angularToleranceDefaultsKey = "com.made.tolerances.angular"
     public static let chordalToleranceDefaultsKey = "com.made.tolerances.chordal"
 
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     var commandPanelPlacement: CommandPanelPlacement {
         didSet {
             defaults.set(commandPanelPlacement.rawValue, forKey: Self.commandPanelPlacementDefaultsKey)
