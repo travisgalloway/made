@@ -46,29 +46,7 @@ struct CommandPanelView: View {
                 .foregroundStyle(.secondary)
 
             ForEach(session.selectionSlots) { slot in
-                HStack {
-                    Text(slot.label)
-                        .font(.callout)
-                    if slot.isRequired {
-                        Text("*")
-                            .foregroundStyle(.red)
-                    }
-                    Spacer()
-                    if let name = slot.selectedObjectName {
-                        Text(name)
-                            .font(.callout)
-                            .foregroundStyle(.primary)
-                    } else {
-                        Text("Click solid to select")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 2)
-                .padding(.horizontal, 6)
-                .background(slot.isActive ? Color.accentColor.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-                .contentShape(Rectangle())
-                .onTapGesture {
+                CommandSelectionSlotRow(slot: slot) {
                     session.selectSlot(id: slot.id)
                 }
             }
@@ -180,3 +158,84 @@ struct CommandPanelView: View {
         .controlSize(.small)
     }
 }
+
+struct CommandSelectionSlotRow: View {
+    let slot: CommandSelectionSlot
+    let onSelect: () -> Void
+
+    init(slot: CommandSelectionSlot, onSelect: @escaping () -> Void = {}) {
+        self.slot = slot
+        self.onSelect = onSelect
+    }
+
+    nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
+        isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
+    }
+
+    nonisolated static func accessibilityLabel(
+        label: String,
+        isRequired: Bool = false,
+        selectedObjectName: String? = nil
+    ) -> String {
+        let valueText = selectedObjectName ?? "Click solid to select"
+        if isRequired {
+            return "\(label), Required, \(valueText)"
+        } else {
+            return "\(label), \(valueText)"
+        }
+    }
+
+    nonisolated static func accessibilityLabel(for slot: CommandSelectionSlot) -> String {
+        accessibilityLabel(
+            label: slot.label,
+            isRequired: slot.isRequired,
+            selectedObjectName: slot.selectedObjectName
+        )
+    }
+
+    var body: some View {
+        HStack {
+            Text(slot.label)
+                .font(.callout)
+            if slot.isRequired {
+                Text("*")
+                    .foregroundStyle(.red)
+            }
+            Spacer()
+            if let name = slot.selectedObjectName {
+                Text(name)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+            } else {
+                Text("Click solid to select")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+        .background(slot.isActive ? Color.accentColor.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect()
+        }
+        .focusable()
+        .onKeyPress(.return) {
+            onSelect()
+            return .handled
+        }
+        .onKeyPress(.space) {
+            onSelect()
+            return .handled
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(Self.accessibilityTraits(isSelected: slot.isActive))
+        .accessibilityLabel(Self.accessibilityLabel(for: slot))
+        .accessibilityAction {
+            onSelect()
+        }
+    }
+}
+
