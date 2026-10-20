@@ -49,7 +49,7 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 - VIEW-23 | macos/Sources/MadeCore/Viewport/ViewportState.swift:27 | `statusText` and `unavailableReason` have a single reference, because the app builds its own status strings. | closure A
 - VIEW-24 | macos/Sources/MadeCore/Viewport/ViewportState.swift:112 | `CustomMetalDeviceProvider` and `ViewportStateResolver.resolve` have a single reference and may be test seams. | closure A
 - AGENT-9 | macos/Sources/MadeCore/Agent/CADTools.swift:23 | `setSnapshotProvider` has a single reference, because the GUI passes the provider through `init`. | closure A
-- DSL-11 | macos/Sources/MadeCore/Scripting/CADDSL.swift:124 | `CADShapeBuilder.buildBlock` supports a single shape, and the compiler invokes it, so the probe cannot see its use. | closure A
+- DSL-11 | macos/Sources/MadeCore/Scripting/CADDSL.swift:109 | `CADShapeBuilder.buildBlock` supports a single shape, and the compiler invokes it, so the probe cannot see its use. (resolved by #330 on 2026-10-20: multi-statement result builder with conditionals, loops, and binary union folding) | closure A
 - KERN-16 | macos/Sources/MadeCore/Kernel/KernelClient.swift:171 | The `importStep` case returns a hard-coded `geometryFailed`, and no caller constructs the request. #82 and #38 track the bridge. | closure B
 - (no id) | macos/Tests/MadeCoreTests:1 | Four suites use `.enabled(if:)` guards for Metal availability. The guards are environment checks, not disabled tests. | closure B
 - DSN-0b8fce3d | macos/Sources/MadeApp/WorkspaceModel.swift:10 | `WorkspaceModel` and `MadeApp` type `kernelClient` as the concrete actor, while invariant 4 names `KernelClientProtocol`. | design D1
