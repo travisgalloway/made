@@ -90,11 +90,11 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_set_param",
-                description: "Modifies a specific dimension/parameter of an existing solid (e.g. width, depth, height, radius, bottomRadius, topRadius, majorRadius, minorRadius, topWidth). Automatically clamped to safe ranges.",
+                description: "Modifies a specific dimension/parameter of an existing solid (e.g. width, depth, height, radius, bottomRadius, topRadius, majorRadius, minorRadius, topWidth, distance). Automatically clamped to safe ranges.",
                 inputSchema: MCPInputSchema(
                     properties: [
-                        "id": MCPProperty(type: "string", description: "The solid ID (e.g. 'box-1', 'cylinder-1', 'sphere-1', 'cone-1', 'torus-1', 'wedge-1')"),
-                        "param": MCPProperty(type: "string", description: "The parameter name. Box: 'width', 'depth', 'height'. Cylinder: 'radius', 'height'. Sphere: 'radius'. Cone: 'bottomRadius', 'topRadius', 'height'. Torus: 'majorRadius', 'minorRadius'. Wedge: 'width', 'depth', 'height', 'topWidth'. Imported solids have no editable parameters."),
+                        "id": MCPProperty(type: "string", description: "The solid ID (e.g. 'box-1', 'cylinder-1', 'extrude-1') or feature UUID"),
+                        "param": MCPProperty(type: "string", description: "The parameter name. Box: 'width', 'depth', 'height'. Cylinder: 'radius', 'height'. Sphere: 'radius'. Cone: 'bottomRadius', 'topRadius', 'height'. Torus: 'majorRadius', 'minorRadius'. Wedge: 'width', 'depth', 'height', 'topWidth'. Extrude: 'distance'. Imported solids have no editable parameters."),
                         "value": MCPProperty(type: "number", description: "The new numeric value in mm")
                     ],
                     required: ["id", "param", "value"]
@@ -200,6 +200,88 @@ public final class CADToolRegistry {
                         "solidId": MCPProperty(type: "string", description: "Optional solid ID to roll back to (marker placed after this solid). When 'end' or omitted with index omitted, rolls forward to the end.")
                     ]
                 )
+            ),
+            MCPToolDefinition(
+                name: "cad_create_sketch",
+                description: "Creates a new 2D sketch on a specified plane ('XY', 'XZ', 'YZ', or a datum plane name/ID) with optional initial geometric entities (lines, arcs, circles). Returns the sketch feature ID and details.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "plane": MCPProperty(type: "string", description: "The sketch plane: 'XY', 'XZ', 'YZ', or the name/ID of an existing datum plane (default 'XY')"),
+                        "entities": MCPProperty(type: "array", description: "Optional initial geometric entities to add to the sketch")
+                    ]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_add_sketch_entity",
+                description: "Adds a 2D geometric entity (line, arc, or circle) to an existing sketch in the document.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature to add the entity to"),
+                        "type": MCPProperty(type: "string", description: "The entity type: 'line', 'arc', or 'circle'", enum: ["line", "arc", "circle"]),
+                        "startX": MCPProperty(type: "number", description: "Start X coordinate for line or arc"),
+                        "startY": MCPProperty(type: "number", description: "Start Y coordinate for line or arc"),
+                        "endX": MCPProperty(type: "number", description: "End X coordinate for line or arc"),
+                        "endY": MCPProperty(type: "number", description: "End Y coordinate for line or arc"),
+                        "centerX": MCPProperty(type: "number", description: "Center X coordinate for arc or circle"),
+                        "centerY": MCPProperty(type: "number", description: "Center Y coordinate for arc or circle"),
+                        "radius": MCPProperty(type: "number", description: "Radius for circle (must be > 0)"),
+                        "clockwise": MCPProperty(type: "boolean", description: "Optional: True if arc is oriented clockwise (default false)"),
+                        "isConstruction": MCPProperty(type: "boolean", description: "Optional: True if entity is a construction guide (default false)")
+                    ],
+                    required: ["sketchId", "type"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_add_constraint",
+                description: "Applies a geometric constraint (coincident, parallel, perpendicular, horizontal, vertical, tangent, concentric, or symmetric) between entities in a sketch.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
+                        "type": MCPProperty(
+                            type: "string",
+                            description: "Constraint kind: 'parallel', 'perpendicular', 'tangent', 'concentric', 'symmetric', 'coincident', 'horizontal', 'vertical'",
+                            enum: ["parallel", "perpendicular", "tangent", "concentric", "symmetric", "coincident", "horizontal", "vertical"]
+                        ),
+                        "entityIds": MCPProperty(type: "array", description: "Array of entity UUID strings that this constraint applies to"),
+                        "referenceEntityId": MCPProperty(type: "string", description: "Optional reference entity UUID for symmetry or alignment constraints")
+                    ],
+                    required: ["sketchId", "type", "entityIds"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_extrude",
+                description: "Extrudes a closed 2D sketch into a 3D parametric solid by a specified distance, creating an Extrude feature in the history tree.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the closed sketch feature to extrude"),
+                        "distance": MCPProperty(type: "number", description: "Extrusion distance in mm"),
+                        "isSymmetric": MCPProperty(type: "boolean", description: "Optional: If true, extrude symmetrically in both directions (default false)"),
+                        "draftAngle": MCPProperty(type: "number", description: "Optional: Draft angle in degrees (default 0)"),
+                        "regionId": MCPProperty(type: "string", description: "Optional UUID of a specific closed planar region in the sketch")
+                    ],
+                    required: ["sketchId", "distance"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_fillet",
+                description: "Applies a topological fillet (blend) of specified radius to an edge of a solid by topological reference label (e.g. 'edge:top-front') or topological reference UUID.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "solidId": MCPProperty(type: "string", description: "The solid ID (e.g. 'box-1')"),
+                        "edge": MCPProperty(type: "string", description: "Edge topological reference label (e.g. 'edge:top-front') or UUID string"),
+                        "radius": MCPProperty(type: "number", description: "Fillet blend radius in mm (must be positive)")
+                    ],
+                    required: ["solidId", "edge", "radius"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_query_tree",
+                description: "Queries the document's feature history tree, returning features, operations, parameters, output solids, suppression status, and generated topological references for sub-element addressing.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "featureId": MCPProperty(type: "string", description: "Optional feature UUID to query a specific feature instead of the entire tree")
+                    ]
+                )
             )
         ]
     }
@@ -241,6 +323,24 @@ public final class CADToolRegistry {
             
         case "cad_capture_snapshot":
             return await handleCaptureSnapshot(arguments: arguments)
+
+        case "cad_create_sketch":
+            return handleCreateSketch(arguments: arguments)
+
+        case "cad_add_sketch_entity":
+            return handleAddSketchEntity(arguments: arguments)
+
+        case "cad_add_constraint":
+            return handleAddConstraint(arguments: arguments)
+
+        case "cad_extrude":
+            return handleExtrude(arguments: arguments)
+
+        case "cad_fillet":
+            return await handleFillet(arguments: arguments)
+
+        case "cad_query_tree":
+            return handleQueryTree(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -444,7 +544,14 @@ public final class CADToolRegistry {
         }
         let val = Float(rawValue)
         
-        let id = SolidId(idStr)
+        var id = SolidId(idStr)
+        if document.paramsFor(id: id) == nil {
+            if let uuid = UUID(uuidString: idStr),
+               let feat = document.features.first(where: { $0.id == uuid }),
+               let outId = feat.outputSolidId {
+                id = outId
+            }
+        }
         guard let def = document.paramsFor(id: id) else {
             return .error("Solid '\(idStr)' not found in scene")
         }
@@ -1231,6 +1338,422 @@ public final class CADToolRegistry {
     /// Returns the first operand name with no matching object in the document.
     private func missingOperand(_ operands: [(SolidId, String)]) -> String? {
         operands.first { id, _ in !document.objects.contains(where: { $0.id == id }) }?.1
+    }
+
+    // MARK: - Feature-Level Tool Handlers
+
+    private func handleCreateSketch(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        let planeArg = arguments["plane"]?.stringValue ?? "XY"
+        let planeUpper = planeArg.uppercased()
+        let resolvedPlaneName: String
+        if ["XY", "XZ", "YZ"].contains(planeUpper) {
+            resolvedPlaneName = planeUpper
+        } else if let datumFeat = document.features.first(where: { feat in
+            if case .datumPlane = feat.operation {
+                return feat.name.caseInsensitiveCompare(planeArg) == .orderedSame || feat.id.uuidString.caseInsensitiveCompare(planeArg) == .orderedSame
+            }
+            return false
+        }) {
+            resolvedPlaneName = datumFeat.name
+        } else {
+            return .error("Invalid plane '\(planeArg)'. Must be 'XY', 'XZ', 'YZ', or an existing datum plane name/ID.")
+        }
+
+        var entities: [SketchEntity] = []
+        if let rawEntities = arguments["entities"]?.arrayValue {
+            for (idx, rawEnt) in rawEntities.enumerated() {
+                guard let dict = rawEnt.dictionaryValue else {
+                    return .error("Entity at index \(idx) must be an object")
+                }
+                do {
+                    let entity = try Self.parseSketchEntity(from: dict)
+                    entities.append(entity)
+                } catch {
+                    return .error(error.message)
+                }
+            }
+        }
+
+        let feature = document.addSketchFeature(planeName: resolvedPlaneName, entities: entities)
+        let summary: [String: Any] = [
+            "id": feature.id.uuidString,
+            "name": feature.name,
+            "plane": resolvedPlaneName,
+            "entityCount": entities.count
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]),
+              let jsonText = String(data: jsonData, encoding: .utf8) else {
+            return .text("Created sketch '\(feature.name)' with ID \(feature.id.uuidString) on plane \(resolvedPlaneName)")
+        }
+        return .text(jsonText)
+    }
+
+    private func handleAddSketchEntity(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let feature = document.feature(for: sketchUUID) else {
+            return .error("Sketch '\(sketchIdStr)' not found in document")
+        }
+        guard case .sketch = feature.operation else {
+            return .error("Feature '\(sketchIdStr)' is not a sketch")
+        }
+
+        let entity: SketchEntity
+        do {
+            entity = try Self.parseSketchEntity(from: arguments)
+        } catch {
+            return .error(error.message)
+        }
+
+        let result = document.addSketchEntity(to: sketchUUID, entity: entity)
+        switch result {
+        case .success:
+            return .text("Added \(entity.kind) entity '\(entity.id.uuidString)' to sketch '\(sketchIdStr)'")
+        case .failure(let err):
+            return .error("Failed to add entity to sketch: \(err)")
+        }
+    }
+
+    private static func parseSketchEntity(from dict: [String: AnyCodableValue]) throws(ArgumentError) -> SketchEntity {
+        guard let type = dict["type"]?.stringValue ?? dict["kind"]?.stringValue else {
+            throw ArgumentError(message: "Entity missing required 'type' ('line', 'arc', or 'circle')")
+        }
+        let isConstruction = dict["isConstruction"]?.boolValue ?? false
+        switch type.lowercased() {
+        case "line":
+            guard let sx = dict["startX"]?.doubleValue, sx.isFinite else {
+                throw ArgumentError(message: "Line entity missing or invalid 'startX'")
+            }
+            guard let sy = dict["startY"]?.doubleValue, sy.isFinite else {
+                throw ArgumentError(message: "Line entity missing or invalid 'startY'")
+            }
+            guard let ex = dict["endX"]?.doubleValue, ex.isFinite else {
+                throw ArgumentError(message: "Line entity missing or invalid 'endX'")
+            }
+            guard let ey = dict["endY"]?.doubleValue, ey.isFinite else {
+                throw ArgumentError(message: "Line entity missing or invalid 'endY'")
+            }
+            return SketchEntity.line(start: SIMD2(sx, sy), end: SIMD2(ex, ey), isConstruction: isConstruction)
+
+        case "arc":
+            guard let sx = dict["startX"]?.doubleValue, sx.isFinite else {
+                throw ArgumentError(message: "Arc entity missing or invalid 'startX'")
+            }
+            guard let sy = dict["startY"]?.doubleValue, sy.isFinite else {
+                throw ArgumentError(message: "Arc entity missing or invalid 'startY'")
+            }
+            guard let ex = dict["endX"]?.doubleValue, ex.isFinite else {
+                throw ArgumentError(message: "Arc entity missing or invalid 'endX'")
+            }
+            guard let ey = dict["endY"]?.doubleValue, ey.isFinite else {
+                throw ArgumentError(message: "Arc entity missing or invalid 'endY'")
+            }
+            guard let cx = dict["centerX"]?.doubleValue, cx.isFinite else {
+                throw ArgumentError(message: "Arc entity missing or invalid 'centerX'")
+            }
+            guard let cy = dict["centerY"]?.doubleValue, cy.isFinite else {
+                throw ArgumentError(message: "Arc entity missing or invalid 'centerY'")
+            }
+            let clockwise = dict["clockwise"]?.boolValue ?? false
+            return SketchEntity.arc(start: SIMD2(sx, sy), end: SIMD2(ex, ey), center: SIMD2(cx, cy), clockwise: clockwise, isConstruction: isConstruction)
+
+        case "circle":
+            guard let cx = dict["centerX"]?.doubleValue, cx.isFinite else {
+                throw ArgumentError(message: "Circle entity missing or invalid 'centerX'")
+            }
+            guard let cy = dict["centerY"]?.doubleValue, cy.isFinite else {
+                throw ArgumentError(message: "Circle entity missing or invalid 'centerY'")
+            }
+            guard let r = dict["radius"]?.doubleValue, r.isFinite, r > 0 else {
+                throw ArgumentError(message: "Circle entity missing or invalid 'radius' (must be > 0)")
+            }
+            return SketchEntity.circle(center: SIMD2(cx, cy), radius: r, isConstruction: isConstruction)
+
+        default:
+            throw ArgumentError(message: "Unknown entity type '\(type)' (supported: 'line', 'arc', 'circle')")
+        }
+    }
+
+    private func handleAddConstraint(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let feature = document.feature(for: sketchUUID) else {
+            return .error("Sketch '\(sketchIdStr)' not found in document")
+        }
+        guard case .sketch(let sketchData) = feature.operation else {
+            return .error("Feature '\(sketchIdStr)' is not a sketch")
+        }
+        guard let typeStr = arguments["type"]?.stringValue else {
+            return .error("Missing required argument 'type'")
+        }
+        guard let kind = SketchConstraint.Kind(rawValue: typeStr.lowercased()) else {
+            return .error("Unknown constraint kind '\(typeStr)'. Supported: parallel, perpendicular, tangent, concentric, symmetric, coincident, horizontal, vertical")
+        }
+        guard let entityIdsVal = arguments["entityIds"]?.arrayValue, !entityIdsVal.isEmpty else {
+            return .error("Missing or empty required argument 'entityIds'")
+        }
+
+        var entityUUIDs: [UUID] = []
+        for val in entityIdsVal {
+            guard let idStr = val.stringValue, let uuid = UUID(uuidString: idStr) else {
+                return .error("Invalid entity ID in 'entityIds'")
+            }
+            guard sketchData.entities.contains(where: { $0.id == uuid }) else {
+                return .error("Entity '\(idStr)' not found in sketch '\(sketchIdStr)'")
+            }
+            entityUUIDs.append(uuid)
+        }
+
+        var refUUID: UUID? = nil
+        if let refStr = arguments["referenceEntityId"]?.stringValue {
+            guard let rUUID = UUID(uuidString: refStr) else {
+                return .error("Invalid 'referenceEntityId'")
+            }
+            guard sketchData.entities.contains(where: { $0.id == rUUID }) else {
+                return .error("Reference entity '\(refStr)' not found in sketch '\(sketchIdStr)'")
+            }
+            refUUID = rUUID
+        }
+
+        let constraint = SketchConstraint(kind: kind, entityIds: entityUUIDs, referenceEntityId: refUUID)
+        let res = document.addSketchConstraint(to: sketchUUID, constraint: constraint)
+        switch res {
+        case .success:
+            return .text("Added \(kind.rawValue) constraint '\(constraint.id.uuidString)' to sketch '\(sketchIdStr)'")
+        case .failure(let err):
+            return .error("Failed to add constraint to sketch: \(err)")
+        }
+    }
+
+    private func handleExtrude(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let feature = document.feature(for: sketchUUID) else {
+            return .error("Sketch '\(sketchIdStr)' not found in document")
+        }
+        guard case .sketch = feature.operation else {
+            return .error("Feature '\(sketchIdStr)' is not a sketch")
+        }
+        guard let rawDistance = arguments["distance"]?.doubleValue, rawDistance.isFinite else {
+            return .error("Missing or invalid 'distance' (must be a finite number)")
+        }
+
+        let isSymmetric = arguments["isSymmetric"]?.boolValue ?? false
+        var draftAngle = 0.0
+        if let da = arguments["draftAngle"]?.doubleValue {
+            guard da.isFinite else {
+                return .error("Argument 'draftAngle' must be a finite number")
+            }
+            draftAngle = da
+        }
+
+        var regionUUID: UUID? = nil
+        if let rStr = arguments["regionId"]?.stringValue {
+            guard let ruuid = UUID(uuidString: rStr) else {
+                return .error("Invalid 'regionId': '\(rStr)'")
+            }
+            regionUUID = ruuid
+        }
+
+        do {
+            let extrudeFeature = try document.extrudeSketch(
+                sketchFeatureId: sketchUUID,
+                distance: rawDistance,
+                isSymmetric: isSymmetric,
+                draftAngle: draftAngle,
+                regionId: regionUUID
+            )
+            guard let solidId = extrudeFeature.outputSolidId else {
+                return .error("Extrude feature did not produce an output solid")
+            }
+            scheduleRecompute(id: solidId)
+            return .text("Created extrude feature '\(extrudeFeature.id.uuidString)' with solid '\(solidId.rawValue)' (distance: \(rawDistance) mm)")
+        } catch {
+            return .error("Failed to extrude sketch: \(error)")
+        }
+    }
+
+    private func handleFillet(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        guard let solidIdStr = arguments["solidId"]?.stringValue else {
+            return .error("Missing required argument 'solidId'")
+        }
+        let solidId = SolidId(solidIdStr)
+        guard document.objects.contains(where: { $0.id == solidId }) else {
+            return .error("Solid '\(solidIdStr)' not found in scene")
+        }
+        guard let rawRadius = arguments["radius"]?.doubleValue, rawRadius.isFinite, rawRadius > 0 else {
+            return .error("Fillet radius must be a finite positive number")
+        }
+        guard let edgeStr = arguments["edge"]?.stringValue, !edgeStr.isEmpty else {
+            return .error("Missing required argument 'edge'")
+        }
+
+        await settleRecomputes(for: [solidId])
+
+        guard let feat = document.feature(for: solidId) else {
+            return .error("Feature for solid '\(solidIdStr)' not found")
+        }
+
+        let edgeRef: TopologicalReference
+        if let ref = feat.generatedTopology[edgeStr] {
+            edgeRef = ref
+        } else if let ref = feat.generatedTopology.values.first(where: {
+            $0.id.uuidString.caseInsensitiveCompare(edgeStr) == .orderedSame && $0.elementType == .edge
+        }) {
+            edgeRef = ref
+        } else {
+            let available = feat.generatedTopology.filter { $0.value.elementType == .edge }.keys.sorted()
+            return .error("Edge '\(edgeStr)' not found on solid '\(solidId.rawValue)'. Available edges: \(available.joined(separator: ", "))")
+        }
+
+        let jobId = JobId("fillet-\(UUID().uuidString)")
+        let req = KernelRequest.fillet(jobId: jobId, solidId: solidId, edgeReference: edgeRef, radius: rawRadius)
+        let res = await kernelClient.request(req)
+        switch res {
+        case .success:
+            if let sink = meshSink {
+                _ = SolidMeshApplier.apply(res, to: solidId, document: document, sink: sink)
+            }
+            onViewportInvalidated?()
+            return .text("Successfully applied fillet of radius \(rawRadius) mm to edge '\(edgeStr)' on solid '\(solidId.rawValue)'")
+        case .failure(_, let err):
+            return .error("Fillet failed on solid '\(solidId.rawValue)': \(err.message)")
+        }
+    }
+
+    private func handleQueryTree(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        if let featIdStr = arguments["featureId"]?.stringValue {
+            guard let uuid = UUID(uuidString: featIdStr) else {
+                return .error("Invalid UUID for 'featureId': '\(featIdStr)'")
+            }
+            guard let feat = document.features.first(where: { $0.id == uuid }) else {
+                return .error("Feature '\(featIdStr)' not found in document")
+            }
+            let dict = featureSummary(feat)
+            guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys, .prettyPrinted]),
+                  let text = String(data: data, encoding: .utf8) else {
+                return .error("Failed to serialize feature '\(featIdStr)'")
+            }
+            return .text(text)
+        }
+
+        let summaries = document.features.map { featureSummary($0) }
+        let root: [String: Any] = ["features": summaries]
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys, .prettyPrinted]),
+              let text = String(data: data, encoding: .utf8) else {
+            return .error("Failed to serialize feature tree")
+        }
+        return .text(text)
+    }
+
+    private func featureSummary(_ feature: Feature) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": feature.id.uuidString,
+            "name": feature.name,
+            "isSuppressed": feature.isSuppressed,
+            "isLocked": feature.isLocked
+        ]
+        if let solidId = feature.outputSolidId {
+            dict["outputSolidId"] = solidId.rawValue
+        }
+
+        var paramsDict: [String: Any] = [:]
+        for (k, expr) in feature.inputExpressions {
+            paramsDict[k] = expr.value
+        }
+        dict["params"] = paramsDict
+
+        var topologyDict: [String: String] = [:]
+        for (k, topRef) in feature.generatedTopology {
+            topologyDict[k] = topRef.id.uuidString
+        }
+        dict["generatedTopology"] = topologyDict
+
+        switch feature.operation {
+        case .primitive(let prim):
+            dict["type"] = "primitive"
+            switch prim {
+            case .box: dict["primitiveKind"] = "box"
+            case .cylinder: dict["primitiveKind"] = "cylinder"
+            case .sphere: dict["primitiveKind"] = "sphere"
+            case .cone: dict["primitiveKind"] = "cone"
+            case .torus: dict["primitiveKind"] = "torus"
+            case .wedge: dict["primitiveKind"] = "wedge"
+            }
+        case .sketch(let sketchData):
+            dict["type"] = "sketch"
+            dict["plane"] = sketchData.planeName ?? "XY"
+            dict["entityCount"] = sketchData.entities.count
+            dict["entities"] = sketchData.entities.map { ent -> [String: Any] in
+                var ed: [String: Any] = [
+                    "id": ent.id.uuidString,
+                    "kind": ent.kind,
+                    "isConstruction": ent.isConstruction
+                ]
+                for (k, v) in ent.data {
+                    ed[k] = v
+                }
+                return ed
+            }
+            dict["constraints"] = sketchData.constraints.map { c -> [String: Any] in
+                var cd: [String: Any] = [
+                    "id": c.id.uuidString,
+                    "kind": c.kind.rawValue,
+                    "entityIds": c.entityIds.map(\.uuidString)
+                ]
+                if let ref = c.referenceEntityId {
+                    cd["referenceEntityId"] = ref.uuidString
+                }
+                return cd
+            }
+        case .extrude(let extrudeData):
+            dict["type"] = "extrude"
+            dict["distance"] = extrudeData.distance
+            dict["isSymmetric"] = extrudeData.isSymmetric
+            dict["draftAngle"] = extrudeData.draftAngle
+            if let sfId = extrudeData.sketchFeatureId {
+                dict["sketchFeatureId"] = sfId.uuidString
+            }
+            if let rId = extrudeData.regionId {
+                dict["regionId"] = rId.uuidString
+            }
+        case .boolean(let boolData):
+            dict["type"] = "boolean"
+            dict["operation"] = boolData.op.rawValue
+            dict["targetSolidId"] = boolData.targetSolidId.rawValue
+            dict["toolSolidId"] = boolData.toolSolidId.rawValue
+        case .part(let partData):
+            dict["type"] = "part"
+            dict["url"] = partData.url.path
+        case .imported(let impData):
+            dict["type"] = "imported"
+            dict["name"] = impData.name
+        case .datumPlane(let datumData):
+            dict["type"] = "datumPlane"
+            dict["originPreset"] = datumData.originPreset
+        case .datumAxis(let axisData):
+            dict["type"] = "datumAxis"
+            dict["presetName"] = axisData.presetName
+        case .datumPoint(let pointData):
+            dict["type"] = "datumPoint"
+            dict["mode"] = pointData.mode.rawValue
+        case .datumCoordinateSystem:
+            dict["type"] = "datumCoordinateSystem"
+        }
+
+        return dict
     }
     
     // MARK: - Recompute & Viewport Synchronization

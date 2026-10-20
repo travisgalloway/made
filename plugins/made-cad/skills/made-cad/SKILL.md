@@ -137,7 +137,7 @@ Only the keys `volume`, `area`, `surfaceArea`, `bounds`, and `tolerance` are val
 
 ## 4. MCP Tools Reference
 
-`made` registers 12 MCP tools in `CADToolRegistry`:
+`made` registers 18 MCP tools in `CADToolRegistry`:
 
 | Tool Name | Purpose | Arguments |
 | --- | --- | --- |
@@ -148,11 +148,17 @@ Only the keys `volume`, `area`, `surfaceArea`, `bounds`, and `tolerance` are val
 | `cad_measure` | Measure exact tessellated `volume`, `surfaceArea`, and `boundingBox` (`min`, `max`, `size`) for a solid. | `id: string` (required solid UUID). |
 | `cad_get_scene` | List all objects in the scene with their `id`, `name`, `primitiveType`, `parameters`, `transform`, or `partFilePath`. | None (`{}`). |
 | `cad_add_solid` | Add a primitive solid (`box`, `cylinder`) directly to the scene. | `type: "box" \| "cylinder"`, `width?: number`, `depth?: number`, `height?: number`, `radius?: number`, `posX?: number`, `posY?: number`, `posZ?: number`. |
-| `cad_set_param` | Update a numeric parameter on a primitive solid and regenerate its mesh. | `id: string` (required), `param: string` (required), `value: number` (required). |
+| `cad_set_param` | Update a numeric parameter on a primitive solid or feature (including extrude distance) and regenerate its mesh. | `id: string` (solid ID or feature UUID, required), `param: string` (required), `value: number` (required). |
 | `cad_set_transform` | Set the 3D world position of a solid. | `id: string` (required), `posX?: number`, `posY?: number`, `posZ?: number`. |
 | `cad_remove_solid` | Remove a solid from the scene (and stop its file watcher if it is a part). | `id: string` (required). |
 | `cad_boolean_operation` | Combine two existing scene solids using CSG `union`, `subtract`, or `intersect`. | `operation: "union" \| "subtract" \| "intersect"`, `solidA: string`, `solidB: string`, `name?: string`. |
 | `cad_rollback` | Roll the timeline marker backward or forward. Features after the marker are excluded from scene projection and evaluation. | `index?: number` (0-based feature index), `solidId?: string` (solid UUID or "end"). |
+| `cad_create_sketch` | Create a new 2D sketch on a plane (XY, XZ, YZ, or datum plane) with optional initial geometric entities. | `plane?: string` ("XY", "XZ", "YZ", or datum plane ID/name), `entities?: object[]`. |
+| `cad_add_sketch_entity` | Add a 2D geometric entity (line, arc, or circle) to an existing sketch. | `sketchId: string` (required), `type: "line" \| "arc" \| "circle"` (required), coordinates (`startX`, `startY`, `endX`, `endY`, `centerX`, `centerY`, `radius`, `clockwise`, `isConstruction`). |
+| `cad_add_constraint` | Apply a geometric constraint between entities in a sketch. | `sketchId: string` (required), `type: string` (required), `entityIds: string[]` (required), `referenceEntityId?: string`. |
+| `cad_extrude` | Extrude a closed 2D sketch into a 3D parametric solid. | `sketchId: string` (required), `distance: number` (required), `isSymmetric?: boolean`, `draftAngle?: number`, `regionId?: string`. |
+| `cad_fillet` | Apply a topological fillet blend to a solid edge by topological reference or UUID. | `solidId: string` (required), `edge: string` (required label or UUID), `radius: number` (required). |
+| `cad_query_tree` | Query the document feature history tree, parameters, output solids, and topological references. | `featureId?: string` (optional feature UUID). |
 
 ## 5. The Agent Workflow Loop: Edit -> Reload -> Diagnostics -> Verify -> Snapshot -> Repair
 
