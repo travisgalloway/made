@@ -812,6 +812,25 @@ extension CommandSession {
         return session
     }
 
+    static func makePushPull(workspace: WorkspaceModel, solidId: SolidId, faceId: Int) -> CommandSession {
+        let inputs: [CommandInput] = [
+            CommandInput(
+                id: "distance",
+                label: "Distance (Z)",
+                value: .number(20.0, range: DocumentLimits.extrudeDistance.min...DocumentLimits.extrudeDistance.max, step: 1.0, unit: "mm")
+            )
+        ]
+        return CommandSession(
+            title: "Push-Pull",
+            selectionSlots: [],
+            inputs: inputs,
+            onCommit: {
+            },
+            onCancel: {
+            }
+        )
+    }
+
     static func makeExtrude(workspace: WorkspaceModel, sketchFeatureId: UUID? = nil) -> CommandSession {
         let sketches = workspace.document.activeFeatures.filter {
             if case .sketch = $0.operation { return true }

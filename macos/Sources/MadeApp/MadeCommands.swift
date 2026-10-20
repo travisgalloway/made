@@ -408,6 +408,13 @@ struct ToolsMenuCommands: Commands {
 
             Divider()
 
+            Button("Predictive Commands") {
+                workspace.togglePredictiveCommandSurface()
+            }
+            .disabled(workspace.document.selectedSubElement == nil)
+
+            Divider()
+
             Menu("Sketch Operations") {
                 Button("Project Selected Geometry") {
                     _ = workspace.projectSelectedGeometry()

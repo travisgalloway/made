@@ -4,7 +4,7 @@ Date: 2026-10-17
 Scope: macos/ (Swift 6 package, targets MadeCore, MadeApp, and MadeKernelService)
 Audit run: 20261017-112015
 
-Table 1 lists 190 capabilities with their implementation status. The matrix shows 156 Shipped, 24 In progress, 5 Planned, and 5 Deprecated rows.
+Table 1 lists 191 capabilities with their implementation status. The matrix shows 157 Shipped, 24 In progress, 5 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -193,6 +193,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | UI-36 | A user can copy a Claude Desktop config snippet from the MCP popover; the snippet launches `swift run ... --mcp-stdio`, which drives a separate document, not the window's session, and uses the process working directory | done | n/a | n/a | In progress |  | n/a |
 | UI-37 | A user can read the registered CAD tool names and the TCP address in the MCP popover | done | n/a | n/a | Shipped |  | n/a |
 | UI-38 | A user can open an Open Source Licenses window from the app menu or the Help menu and read the `made` MPL-2.0 text, each bundled library or helper's name, version, copyright and exact license text from bundled resource files, and links to the source repository and build-from-source guide | done | done | done | Shipped | #425 | n/a |
+| UI-39 | A user selecting a 3D sub-element sees a contextual predictive command popover anchored to the element; edge selection shows Fillet (disabled pending #82); planar face selection shows Push-Pull (enabled); non-planar faces and vertices show no popover; Tools > Predictive Commands toggles visibility | done | done | done | Shipped | #41 | n/a |
 | AGENT-1 | An agent can start an MCP server on standard input and output with a fresh document and kernel and an offscreen snapshot renderer (none without a Metal 4 device); the SwiftUI window scene is still declared and `exit(0)` runs at end of input | none | done | n/a | In progress |  | n/a |
 | AGENT-2 | An agent can list every object with ID, kind, position and parameters | n/a | done | done | Shipped |  | n/a |
 | AGENT-3 | An agent can add a box, cylinder, sphere, cone, torus, or wedge with dimensions (clamped) and position; a wrong-typed or non-finite argument (including Float overflow) or an out-of-bound position returns an error; the success message reports the solid ID, clamped dimensions, and world position; the solid is registered with the kernel and drawn in the viewport when a mesh sink is attached | n/a | done | done | Shipped | #132, #135, #314 | n/a |
