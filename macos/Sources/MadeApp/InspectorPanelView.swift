@@ -204,7 +204,10 @@ struct InspectorPanelView: View {
                 set: { workspace.setBodyVisibility(id: obj.id, isVisible: $0) }
             ))
             LabeledContent("ID") {
-                Text(obj.id.rawValue).monospaced().textSelection(.enabled)
+                Text(obj.id.rawValue)
+                    .accessibilityIdentifier("inspector-selected-object")
+                    .monospaced()
+                    .textSelection(.enabled)
             }
             LabeledContent("Kind", value: obj.def.kind.capitalized)
         } header: {

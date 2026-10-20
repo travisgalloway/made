@@ -1,11 +1,54 @@
 import SwiftUI
 import MadeCore
 
+final class MadeAppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--ui-testing") {
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                for window in NSApplication.shared.windows {
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
+        }
+    }
+}
+
 @main
 struct MadeApp: App {
-    @State private var workspace = WorkspaceModel()
+    @NSApplicationDelegateAdaptor(MadeAppDelegate.self) private var appDelegate
+    @State private var workspace: WorkspaceModel
+
+    @MainActor
+    static func makeWorkspace(
+        arguments: [String] = CommandLine.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> WorkspaceModel {
+        if arguments.contains("--ui-testing") {
+            let suiteName = "com.made.app.uitesting"
+            let defaults = UserDefaults(suiteName: suiteName) ?? .standard
+            defaults.removePersistentDomain(forName: suiteName)
+
+            let recoveryURL: URL
+            if let path = environment["MADE_RECOVERY_DIR"], !path.isEmpty {
+                recoveryURL = URL(fileURLWithPath: path, isDirectory: true)
+            } else {
+                recoveryURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("made-uitesting-\(UUID().uuidString)", isDirectory: true)
+            }
+            try? FileManager.default.createDirectory(at: recoveryURL, withIntermediateDirectories: true)
+
+            return WorkspaceModel(defaults: defaults, recoveryStore: CrashRecoveryStore(recoveryDirectoryURL: recoveryURL))
+        }
+
+        return WorkspaceModel()
+    }
 
     init() {
+        _workspace = State(initialValue: Self.makeWorkspace())
         if CommandLine.arguments.contains("--mcp-stdio") {
             let doc = DocumentModel()
             let kernel = KernelClient.makeDefault()
@@ -35,6 +78,7 @@ struct MadeApp: App {
             ContentView()
                 .environment(workspace)
         }
+        .handlesExternalEvents(matching: Set(arrayLiteral: "*"))
         .defaultSize(width: 1440, height: 900)
         .windowToolbarStyle(.unified)
         .commands {

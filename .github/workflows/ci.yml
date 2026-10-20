@@ -51,3 +51,30 @@ jobs:
 
       - name: Test
         run: swift test --build-system swiftbuild --skip-build
+
+  ui-tests:
+    name: Panel UI tests
+    runs-on: macos-26
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: macos/.build
+          key: spm-v6-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+          restore-keys: |
+            spm-v6-${{ runner.os }}-
+
+      - name: Run panel UI tests
+        run: make test-ui
