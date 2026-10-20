@@ -207,7 +207,7 @@ public final class CADToolRegistry {
                 description: "Rolls the CAD history timeline backward or forward to an earlier or later feature. Features after the rollback marker are excluded from evaluation and viewport rendering. New solids added while rolled back are inserted at the marker position.",
                 inputSchema: MCPInputSchema(
                     properties: [
-                        "index": MCPProperty(type: "number", description: "Optional 0-based insertion index to position the rollback marker. When omitted and solidId is provided, rolls back to that solid."),
+                        "index": MCPProperty(type: "integer", description: "Optional 0-based insertion index to position the rollback marker. When omitted and solidId is provided, rolls back to that solid."),
                         "solidId": MCPProperty(type: "string", description: "Optional solid ID to roll back to (marker placed after this solid). When 'end' or omitted with index omitted, rolls forward to the end.")
                     ]
                 )
@@ -587,10 +587,9 @@ public final class CADToolRegistry {
         let result: Result<Void, DocumentMutationError>
 
         if let rawIndex = arguments["index"] {
-            guard let doubleVal = rawIndex.doubleValue, doubleVal.isFinite else {
-                return .error("Argument 'index' must be a valid number")
+            guard let index = rawIndex.intValue else {
+                return .error("Argument 'index' must be an integer")
             }
-            let index = Int(doubleVal)
             result = document.setRollbackIndex(index)
         } else if let rawSolidId = (arguments["solidId"] ?? arguments["solid_id"])?.stringValue {
             if rawSolidId == "end" {

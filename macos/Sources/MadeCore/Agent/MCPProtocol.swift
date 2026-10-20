@@ -176,7 +176,10 @@ public enum AnyCodableValue: Codable, Sendable, Equatable {
     
     public var intValue: Int? {
         if case .int(let i) = self { return i }
-        if case .double(let d) = self { return Int(d) }
+        if case .double(let d) = self {
+            guard d.isFinite else { return nil }
+            return Int(exactly: d)
+        }
         return nil
     }
     
