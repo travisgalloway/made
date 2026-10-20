@@ -11,6 +11,17 @@ Source [`macos/Sources/MadeApp/InspectorPanelView.swift`](../../../macos/Sources
 
 ## Sketch entities
 - Each entity is a card with `space-4` padding, `radius-sm` and a 1pt stroke. Construction geometry gets a dashed divider and a dashed `badge`; projected geometry gets a `system-purple` badge at `opacity-projected`.
+- Rows declare `.isButton` accessibility traits, adding `.isSelected` when active.
+- Accessibility labels announce entity kind, degrees of freedom status, and construction or projection states.
+- Rows support keyboard focus via `.focusable()` and selection via `.onKeyPress(.return)`.
+- VoiceOver accessibility actions expose entity selection, construction toggling, and deletion.
+
+## Sketch regions
+- Each region row displays region number, computed area in square millimeters, and hole counts.
+- Rows declare `.isButton` accessibility traits, adding `.isSelected` when active.
+- Accessibility labels announce region number, area, and hole count.
+- Rows support keyboard focus via `.focusable()` and selection via `.onKeyPress(.return)`.
+- VoiceOver accessibility actions expose region selection and extrusion.
 
 ## Rules
 - Edits go through `DocumentModel.setParam`, which clamps to `DocumentLimits`, and regeneration is debounced. Never bind a field straight to the model.
