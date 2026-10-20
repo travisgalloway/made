@@ -1239,6 +1239,8 @@ struct InspectorSketchEntityRow: View {
     }
 
     nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+    nonisolated static let deleteEntityAccessibilityLabel = "Delete Entity"
+    nonisolated static let deleteEntityHelpText = "Delete Entity"
 
     nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
         isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
@@ -1319,6 +1321,8 @@ struct InspectorSketchEntityRow: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.red)
+                .accessibilityLabel(Self.deleteEntityAccessibilityLabel)
+                .help(Self.deleteEntityHelpText)
             }
 
             switch entity.kind {

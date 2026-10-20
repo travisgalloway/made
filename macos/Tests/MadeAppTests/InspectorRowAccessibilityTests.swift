@@ -222,4 +222,9 @@ import MadeCore
         #expect(regionHosting.frame.width == 260)
         #expect(regionHosting.frame.height == 40)
     }
+
+    @Test func testSketchEntityDeleteButtonAccessibilityAndHelp() {
+        #expect(InspectorSketchEntityRow.deleteEntityAccessibilityLabel == "Delete Entity")
+        #expect(InspectorSketchEntityRow.deleteEntityHelpText == "Delete Entity")
+    }
 }
