@@ -1074,4 +1074,22 @@ private enum MetalTestSupport {
         #expect(coordinator.widgetlessDragState == nil)
         #expect(coordinator.pointerRouter.arbiter.current().mode == nil)
     }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testAccessibilityProbeGatedByUITestingFlag() throws {
+        let (_, view, coordinator, _, _, _) = try makeHarness()
+        _ = coordinator
+
+        let originalFlag = CADMTKView.isUITestingEnabled
+        defer { CADMTKView.isUITestingEnabled = originalFlag }
+
+        CADMTKView.isUITestingEnabled = false
+        #expect(view.accessibilityValue() == nil)
+
+        CADMTKView.isUITestingEnabled = true
+        let probeValue = try #require(view.accessibilityValue() as? String)
+        let snapshot = ViewportProbe.parse(probeValue)
+        #expect(snapshot.state == "ready")
+        #expect(snapshot.hits.contains { $0.id == SolidId("box-1") })
+    }
 }

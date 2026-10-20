@@ -1,4 +1,4 @@
-.PHONY: all help setup build build-tests test test-ui bundle run run-mcp clean ci-local hooks
+.PHONY: all help setup build build-tests test test-ui test-viewport bundle run run-mcp clean ci-local hooks
 
 PKG_PATH := macos
 # Swift Build compiles Shaders.metal; the native build system (the Swift 6.3 default) only copies it.
@@ -14,6 +14,7 @@ help:
 	@echo "  make build-tests    Build application targets and unit test suite"
 	@echo "  make test           Run all unit tests (or 'make test FILTER=<name>')"
 	@echo "  make test-ui        Run XCUITest UI tests (or 'make test-ui FILTER=<name>')"
+	@echo "  make test-viewport  Run Metal 4 XCUITest viewport tests (or 'make test-viewport FILTER=<name>')"
 	@echo "  make bundle         Assemble macos/.build/Made.app with the kernel XPC service"
 	@echo "  make run            Launch the bundled MadeApp GUI application"
 	@echo "  make run-mcp        Run the bundled MadeApp with embedded MCP server on stdio"
@@ -43,6 +44,15 @@ ifdef FILTER
 else
 	xcodebuild test -project $(PKG_PATH)/UITests/MadeUITests.xcodeproj -scheme MadeUITests -destination "platform=macOS" -derivedDataPath $(PKG_PATH)/.build/UITests
 endif
+
+test-viewport: bundle
+ifdef FILTER
+	MADE_UI_REQUIRE_METAL4=1 xcodebuild test -project $(PKG_PATH)/UITests/MadeUITests.xcodeproj -scheme MadeUITests -destination "platform=macOS" -derivedDataPath $(PKG_PATH)/.build/UITests $(if $(findstring MadeUITests/,$(FILTER)),-only-testing:$(FILTER),-only-testing:MadeUITests/$(FILTER))
+else
+	MADE_UI_REQUIRE_METAL4=1 xcodebuild test -project $(PKG_PATH)/UITests/MadeUITests.xcodeproj -scheme MadeUITests -destination "platform=macOS" -derivedDataPath $(PKG_PATH)/.build/UITests -only-testing:MadeUITests/ViewportSelectionUITests
+endif
+	mkdir -p $(PKG_PATH)/.build/viewport-pass
+	touch $(PKG_PATH)/.build/viewport-pass/$$(git rev-parse HEAD^{tree})
 
 # Runs the bundle's executable directly, so stdout and logs stay in this terminal.
 run: bundle

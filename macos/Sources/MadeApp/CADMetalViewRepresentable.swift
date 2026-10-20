@@ -34,8 +34,22 @@ enum MouseButton: Int {
 }
 
 final class CADMTKView: MTKView {
+    static var isUITestingEnabled: Bool = CommandLine.arguments.contains("--ui-testing")
     weak var coordinator: CADMetalViewRepresentable.Coordinator?
     private var trackingArea: NSTrackingArea?
+
+    override func isAccessibilityElement() -> Bool {
+        true
+    }
+
+    override func accessibilityIdentifier() -> String {
+        "viewport-canvas"
+    }
+
+    override func accessibilityValue() -> Any? {
+        guard Self.isUITestingEnabled else { return nil }
+        return coordinator?.makeViewportProbeString()
+    }
     
     var tool: ViewportTool = .select {
         didSet {
@@ -288,6 +302,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         view.tool = tool
         view.device = renderer.device
         view.delegate = renderer
+        view.setAccessibilityElement(true)
+        view.setAccessibilityIdentifier("viewport-canvas")
         
         // Invariant 2: On-demand rendering (no continuous rAF loop)
         view.isPaused = true
@@ -437,6 +453,31 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private var trimMouseDownLocation: CGPoint = .zero
         private var rectangleMouseDownLocation: CGPoint = .zero
         private var rectangleStartUV: SIMD2<Double>?
+
+        func makeViewportProbeString() -> String {
+            guard let mtkView = self.mtkView else {
+                return ViewportProbeSnapshot(state: "unavailable").formatted()
+            }
+            let bounds = mtkView.bounds
+            let aspect = Float(bounds.width > 0 && bounds.height > 0 ? bounds.width / bounds.height : 1.0)
+            let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+            let candidateMeshes = parent.renderer.candidateMeshes()
+            let hits = ViewportProbe.projectHits(
+                candidateMeshes: candidateMeshes,
+                viewMatrix: matrices.view,
+                projectionMatrix: matrices.projection
+            )
+            let selectedSolidId = parent.selectedId ?? parent.document.selectedId
+            let snapshot = ViewportProbeSnapshot(
+                state: "ready",
+                renders: RenderInstrumentation.shared.renderCount,
+                draws: RenderInstrumentation.shared.drawCalls,
+                reason: RenderInstrumentation.shared.lastReason?.rawValue ?? "",
+                selection: selectedSolidId?.rawValue ?? "",
+                hits: hits
+            )
+            return snapshot.formatted()
+        }
 
         public struct SketchDragState {
             public var featureId: UUID

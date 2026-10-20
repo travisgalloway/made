@@ -332,6 +332,7 @@ private struct NavigatorRow: View {
     var body: some View {
         let object = workspace.document.objects.first(where: { $0.id == bodyItem.id })
         let errorState = workspace.document.feature(for: bodyItem.id)?.errorState
+        let isSelected = workspace.document.isSelected(solidId: bodyItem.id)
 
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: icon(for: object))
@@ -418,6 +419,7 @@ private struct NavigatorRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(bodyItem.name), \(object?.def.kind ?? "Solid"), ID \(bodyItem.id.rawValue)\(object.map { ", \($0.parameterSummary)" } ?? "")\(errorState.map { ", \($0.severity == .warning ? "Warning" : "Error"): \($0.message)" } ?? "")")
         .accessibilityIdentifier("navigator-object-\(bodyItem.id.rawValue)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityAction(named: bodyItem.isVisible ? "Hide Body" : "Show Body") {
             workspace.toggleBodyVisibility(bodyItem.id)
         }
