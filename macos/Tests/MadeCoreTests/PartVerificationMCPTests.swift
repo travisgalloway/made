@@ -70,12 +70,21 @@ struct PartVerificationMCPTests {
         #expect(toolNames.contains("cad_verify"))
         #expect(toolNames.contains("cad_capture_snapshot"))
         #expect(toolNames.contains("cad_rollback"))
-        #expect(registry.tools.count == 18)
+        #expect(toolNames.contains("cad_query_topology"))
+        #expect(registry.tools.count == 19)
 
         let snapshotTool = registry.tools.first { $0.name == "cad_capture_snapshot" }
         let viewProp = snapshotTool?.inputSchema.properties["view"]
         #expect(viewProp?.type == "string")
         #expect(viewProp?.enum == ["front", "top", "right", "isometric", "perspective"])
+
+        let topoTool = registry.tools.first { $0.name == "cad_query_topology" }
+        #expect(topoTool != nil)
+        #expect(topoTool?.inputSchema.properties["solidId"]?.type == "string")
+        #expect(topoTool?.inputSchema.properties["featureId"]?.type == "string")
+        let elemProp = topoTool?.inputSchema.properties["elementType"]
+        #expect(elemProp?.type == "string")
+        #expect(elemProp?.enum == ["face", "edge", "vertex"])
     }
 
     @Test func testReloadOpensAndEvaluatesPartByFileAndByIdAndReloadsAll() async throws {

@@ -29,6 +29,7 @@
 │   • cad_create_sketch        • cad_extrude            │
 │   • cad_add_sketch_entity    • cad_fillet             │
 │   • cad_add_constraint       • cad_query_tree         │
+│   • cad_query_topology                                │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Live Mutation            │ Snapshot Request
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
@@ -93,7 +94,7 @@ Add `made` to your `claude_desktop_config.json`:
 
 ## 2. Core CAD Tools
 
-The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) provides 18 tools. Argument names below match the input schemas in `CADTools.swift`:
+The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) provides 19 tools. Argument names below match the input schemas in `CADTools.swift`:
 
 | Tool Name | Parameters | Description |
 | --------- | ---------- | ----------- |
@@ -115,6 +116,7 @@ The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) p
 | `cad_extrude` | `sketchId`, `distance`, `isSymmetric` (optional, default false), `draftAngle` (optional, default 0), `regionId` (optional) | Extrudes a closed 2D sketch into a 3D parametric solid by the specified distance, creating an Extrude feature in the history tree and updating the viewport mesh. Returns the extrude feature ID, solid ID, distance, and symmetry status. |
 | `cad_fillet` | `solidId`, `edge` (topological reference label or UUID), `radius` | Applies a topological fillet blend of the specified radius to an edge of a solid by topological reference label or UUID. Updates the solid mesh in the kernel and viewport. Returns the solid ID, edge reference, and fillet radius. |
 | `cad_query_tree` | `featureId` (optional) | Queries the document feature history tree, returning features, operations, parameters, output solids, suppression status, and generated topological references for sub-element addressing. When `featureId` is specified, returns details for that feature. |
+| `cad_query_topology` | `solidId` (optional), `featureId` (optional), `elementType` (optional: "face" \| "edge" \| "vertex") | Queries 3D topological sub-elements (faces, edges, vertices) of a solid or feature, returning deterministic IDs, labels, surface/curve types, normal vectors, centroids, areas, and lengths for downstream reference selection. |
 
 ### Error Behavior
 A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` (never a JSON-RPC error payload). JSON-RPC error payloads are limited to the following protocol cases:

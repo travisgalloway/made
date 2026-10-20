@@ -282,6 +282,17 @@ public final class CADToolRegistry {
                         "featureId": MCPProperty(type: "string", description: "Optional feature UUID to query a specific feature instead of the entire tree")
                     ]
                 )
+            ),
+            MCPToolDefinition(
+                name: "cad_query_topology",
+                description: "Queries 3D topological sub-elements (faces, edges, vertices) of a solid or feature, returning deterministic IDs, labels, surface/curve types, normal vectors, centroids, areas, and lengths for downstream reference selection.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "solidId": MCPProperty(type: "string", description: "Optional solid ID in the scene (e.g. 'box-1'). If omitted and featureId is omitted, returns topology for all solids in the document."),
+                        "featureId": MCPProperty(type: "string", description: "Optional feature UUID to query topology of a specific feature directly"),
+                        "elementType": MCPProperty(type: "string", description: "Optional filter to restrict returned topology elements", enum: ["face", "edge", "vertex"])
+                    ]
+                )
             )
         ]
     }
@@ -341,6 +352,9 @@ public final class CADToolRegistry {
 
         case "cad_query_tree":
             return handleQueryTree(arguments: arguments)
+
+        case "cad_query_topology":
+            return await handleQueryTopology(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -1753,6 +1767,139 @@ public final class CADToolRegistry {
             dict["type"] = "datumCoordinateSystem"
         }
 
+        return dict
+    }
+
+    private func handleQueryTopology(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        var filterType: SubelementType? = nil
+        if let typeVal = arguments["elementType"]?.stringValue, !typeVal.isEmpty {
+            switch typeVal.lowercased() {
+            case "face":
+                filterType = .face
+            case "edge":
+                filterType = .edge
+            case "vertex":
+                filterType = .vertex
+            default:
+                return .error("Invalid elementType: '\(typeVal)'. Expected 'face', 'edge', or 'vertex'")
+            }
+        }
+
+        if let solidIdStr = arguments["solidId"]?.stringValue {
+            let solidId = SolidId(solidIdStr)
+            guard document.objects.contains(where: { $0.id == solidId }) else {
+                return .error("Solid '\(solidIdStr)' not found in scene")
+            }
+            await settleRecomputes(for: [solidId])
+            guard let feat = document.feature(for: solidId) else {
+                return .error("Feature for solid '\(solidIdStr)' not found")
+            }
+            let summary = topologySummary(feature: feat, solidId: solidId, filter: filterType)
+            guard let data = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]),
+                  let text = String(data: data, encoding: .utf8) else {
+                return .error("Failed to serialize topology for solid '\(solidIdStr)'")
+            }
+            return .text(text)
+        } else if let featIdStr = arguments["featureId"]?.stringValue {
+            guard let uuid = UUID(uuidString: featIdStr) else {
+                return .error("Invalid UUID for 'featureId': '\(featIdStr)'")
+            }
+            guard let feat = document.features.first(where: { $0.id == uuid }) else {
+                return .error("Feature '\(featIdStr)' not found in document")
+            }
+            if let solidId = feat.outputSolidId {
+                await settleRecomputes(for: [solidId])
+            }
+            let summary = topologySummary(feature: feat, solidId: feat.outputSolidId, filter: filterType)
+            guard let data = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]),
+                  let text = String(data: data, encoding: .utf8) else {
+                return .error("Failed to serialize topology for feature '\(featIdStr)'")
+            }
+            return .text(text)
+        } else {
+            await settleRecomputes(for: document.objects.map(\.id))
+            var summaries: [[String: Any]] = []
+            var totalCount = 0
+            for obj in document.objects {
+                if let feat = document.feature(for: obj.id) {
+                    let summary = topologySummary(feature: feat, solidId: obj.id, filter: filterType)
+                    summaries.append(summary)
+                    if let count = summary["count"] as? Int {
+                        totalCount += count
+                    }
+                }
+            }
+            let root: [String: Any] = [
+                "solids": summaries,
+                "count": totalCount
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys, .prettyPrinted]),
+                  let text = String(data: data, encoding: .utf8) else {
+                return .error("Failed to serialize topology")
+            }
+            return .text(text)
+        }
+    }
+
+    private func topologySummary(feature: Feature, solidId: SolidId?, filter: SubelementType?) -> [String: Any] {
+        var faces: [[String: Any]] = []
+        var edges: [[String: Any]] = []
+        var vertices: [[String: Any]] = []
+
+        for (label, ref) in feature.generatedTopology.sorted(by: { $0.key < $1.key }) {
+            if let filter, ref.elementType != filter {
+                continue
+            }
+            var elemDict: [String: Any] = [
+                "id": ref.id.uuidString,
+                "label": label,
+                "elementType": ref.elementType.rawValue
+            ]
+            if let sig = ref.disambiguator {
+                if let surfaceOrCurveType = sig.surfaceOrCurveType {
+                    elemDict["type"] = surfaceOrCurveType
+                }
+                if let normal = sig.normal {
+                    elemDict["normal"] = [Double(normal.x), Double(normal.y), Double(normal.z)]
+                }
+                if let centroid = sig.centroid {
+                    elemDict["centroid"] = [Double(centroid.x), Double(centroid.y), Double(centroid.z)]
+                }
+                if let aol = sig.areaOrLength {
+                    elemDict["areaOrLength"] = aol
+                    if ref.elementType == .face {
+                        elemDict["area"] = aol
+                    } else if ref.elementType == .edge {
+                        elemDict["length"] = aol
+                    }
+                }
+            }
+            switch ref.elementType {
+            case .face:
+                faces.append(elemDict)
+            case .edge:
+                edges.append(elemDict)
+            case .vertex:
+                vertices.append(elemDict)
+            }
+        }
+
+        var dict: [String: Any] = [
+            "featureId": feature.id.uuidString,
+            "count": faces.count + edges.count + vertices.count
+        ]
+        if let solidId {
+            dict["solidId"] = solidId.rawValue
+        }
+        if filter == nil || filter == .face {
+            dict["faces"] = faces
+        }
+        if filter == nil || filter == .edge {
+            dict["edges"] = edges
+        }
+        if filter == nil || filter == .vertex {
+            dict["vertices"] = vertices
+        }
         return dict
     }
     
