@@ -31,6 +31,9 @@ enum InspectorUnitConversion {
 struct InspectorPanelView: View {
     @Environment(WorkspaceModel.self) private var workspace
 
+    nonisolated static let deleteConstraintAccessibilityLabel = InspectorSketchConstraintRow.deleteConstraintAccessibilityLabel
+    nonisolated static let deleteConstraintHelpText = InspectorSketchConstraintRow.deleteConstraintHelpText
+
     var body: some View {
         @Bindable var workspace = workspace
 
@@ -818,7 +821,7 @@ struct InspectorPanelView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(data.constraints) { constraint in
-                    sketchConstraintRow(sketchId: sketch.id, constraint: constraint)
+                    InspectorSketchConstraintRow(sketchId: sketch.id, constraint: constraint)
                 }
             }
         } header: {
@@ -827,131 +830,11 @@ struct InspectorPanelView: View {
     }
 
     private func sketchConstraintRow(sketchId: UUID, constraint: SketchConstraint) -> some View {
-        let isConflicting = workspace.conflictingConstraintIds.contains(constraint.id)
-        let isRedundant = workspace.redundantConstraintIds.contains(constraint.id)
-
-        let labelColor: Color = {
-            if constraint.isDriven {
-                return .secondary
-            } else if isConflicting {
-                return .red
-            } else if isRedundant {
-                return .orange
-            } else {
-                return .primary
-            }
-        }()
-
-        let rowBackground: Color = {
-            if isConflicting {
-                return Color.red.opacity(0.1)
-            } else if isRedundant {
-                return Color.orange.opacity(0.08)
-            } else {
-                return Color.clear
-            }
-        }()
-
-        return HStack(spacing: 6) {
-            Image(systemName: constraintIcon(for: constraint.kind))
-                .font(.caption)
-                .foregroundStyle(labelColor)
-
-            Text(constraint.kind.rawValue.capitalized)
-                .font(.caption.bold())
-                .foregroundStyle(labelColor)
-
-            if constraint.isDriven {
-                Text("Driven")
-                    .font(.system(size: 9, weight: .semibold))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .foregroundStyle(.secondary)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.secondary.opacity(0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-                    )
-            } else if isConflicting {
-                Text("Conflict")
-                    .font(.system(size: 9, weight: .semibold))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .foregroundStyle(.red)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.red.opacity(0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .stroke(Color.red.opacity(0.35), lineWidth: 1)
-                    )
-            } else if isRedundant {
-                Text("Redundant")
-                    .font(.system(size: 9, weight: .semibold))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .foregroundStyle(.orange)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.orange.opacity(0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 3)
-                            .stroke(Color.orange.opacity(0.35), lineWidth: 1)
-                    )
-            }
-
-            Spacer()
-
-            Button {
-                workspace.toggleSketchConstraintDriven(in: sketchId, constraintId: constraint.id)
-            } label: {
-                Text(constraint.isDriven ? "Make Driving" : "Make Driven")
-                    .font(.caption2)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
-
-            Button(role: .destructive) {
-                workspace.removeSketchConstraint(from: sketchId, constraintId: constraint.id)
-            } label: {
-                Image(systemName: "trash")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.red)
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 3)
-        .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(rowBackground)
-        )
-        .contextMenu {
-            Button(constraint.isDriven ? "Convert to Driving" : "Convert to Driven") {
-                workspace.toggleSketchConstraintDriven(in: sketchId, constraintId: constraint.id)
-            }
-            Button("Delete Constraint", role: .destructive) {
-                workspace.removeSketchConstraint(from: sketchId, constraintId: constraint.id)
-            }
-        }
+        InspectorSketchConstraintRow(sketchId: sketchId, constraint: constraint)
     }
 
     private func constraintIcon(for kind: SketchConstraint.Kind) -> String {
-        switch kind {
-        case .parallel: return "equal"
-        case .perpendicular: return "angle"
-        case .tangent: return "circle.dotted"
-        case .concentric: return "circle.circle"
-        case .symmetric: return "arrow.left.and.right"
-        case .coincident: return "point.topleft.down.to.point.bottomright.filled"
-        case .horizontal: return "arrow.left.and.right.line"
-        case .vertical: return "arrow.up.and.down.line"
-        }
+        InspectorSketchConstraintRow.constraintIcon(for: kind)
     }
 
     @ViewBuilder
@@ -1570,6 +1453,150 @@ struct InspectorSketchEntityRow: View {
                 )
         case .inactive:
             EmptyView()
+        }
+    }
+}
+
+struct InspectorSketchConstraintRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let sketchId: UUID
+    let constraint: SketchConstraint
+
+    init(sketchId: UUID, constraint: SketchConstraint) {
+        self.sketchId = sketchId
+        self.constraint = constraint
+    }
+
+    nonisolated static let deleteConstraintAccessibilityLabel = "Delete Constraint"
+    nonisolated static let deleteConstraintHelpText = "Delete Constraint"
+
+    nonisolated static func constraintIcon(for kind: SketchConstraint.Kind) -> String {
+        switch kind {
+        case .parallel: return "equal"
+        case .perpendicular: return "angle"
+        case .tangent: return "circle.dotted"
+        case .concentric: return "circle.circle"
+        case .symmetric: return "arrow.left.and.right"
+        case .coincident: return "point.topleft.down.to.point.bottomright.filled"
+        case .horizontal: return "arrow.left.and.right.line"
+        case .vertical: return "arrow.up.and.down.line"
+        }
+    }
+
+    var body: some View {
+        let isConflicting = workspace.conflictingConstraintIds.contains(constraint.id)
+        let isRedundant = workspace.redundantConstraintIds.contains(constraint.id)
+
+        let labelColor: Color = {
+            if constraint.isDriven {
+                return .secondary
+            } else if isConflicting {
+                return .red
+            } else if isRedundant {
+                return .orange
+            } else {
+                return .primary
+            }
+        }()
+
+        let rowBackground: Color = {
+            if isConflicting {
+                return Color.red.opacity(0.1)
+            } else if isRedundant {
+                return Color.orange.opacity(0.08)
+            } else {
+                return Color.clear
+            }
+        }()
+
+        return HStack(spacing: 6) {
+            Image(systemName: Self.constraintIcon(for: constraint.kind))
+                .font(.caption)
+                .foregroundStyle(labelColor)
+
+            Text(constraint.kind.rawValue.capitalized)
+                .font(.caption.bold())
+                .foregroundStyle(labelColor)
+
+            if constraint.isDriven {
+                Text("Driven")
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .foregroundStyle(.secondary)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.secondary.opacity(0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+                    )
+            } else if isConflicting {
+                Text("Conflict")
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .foregroundStyle(.red)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.red.opacity(0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(Color.red.opacity(0.35), lineWidth: 1)
+                    )
+            } else if isRedundant {
+                Text("Redundant")
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .foregroundStyle(.orange)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.orange.opacity(0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                    )
+            }
+
+            Spacer()
+
+            Button {
+                workspace.toggleSketchConstraintDriven(in: sketchId, constraintId: constraint.id)
+            } label: {
+                Text(constraint.isDriven ? "Make Driving" : "Make Driven")
+                    .font(.caption2)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+
+            Button(role: .destructive) {
+                workspace.removeSketchConstraint(from: sketchId, constraintId: constraint.id)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+            .accessibilityLabel(Self.deleteConstraintAccessibilityLabel)
+            .help(Self.deleteConstraintHelpText)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(rowBackground)
+        )
+        .contextMenu {
+            Button(constraint.isDriven ? "Convert to Driving" : "Convert to Driven") {
+                workspace.toggleSketchConstraintDriven(in: sketchId, constraintId: constraint.id)
+            }
+            Button("Delete Constraint", role: .destructive) {
+                workspace.removeSketchConstraint(from: sketchId, constraintId: constraint.id)
+            }
         }
     }
 }

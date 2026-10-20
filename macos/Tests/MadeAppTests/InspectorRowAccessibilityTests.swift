@@ -221,10 +221,54 @@ import MadeCore
         regionHosting.layoutSubtreeIfNeeded()
         #expect(regionHosting.frame.width == 260)
         #expect(regionHosting.frame.height == 40)
+
+        let constraint = SketchConstraint(kind: .parallel, entityIds: [lineEntity.id])
+        let constraintRow = InspectorSketchConstraintRow(sketchId: sketchFeature.id, constraint: constraint)
+            .environment(workspace)
+
+        let constraintHosting = NSHostingView(rootView: AnyView(constraintRow))
+        constraintHosting.frame = NSRect(x: 0, y: 0, width: 260, height: 30)
+        constraintHosting.layoutSubtreeIfNeeded()
+        #expect(constraintHosting.frame.width == 260)
+        #expect(constraintHosting.frame.height == 30)
+    }
+
+    @Test @MainActor func testSketchConstraintRowLayoutAcrossConstraintStates() {
+        let workspace = WorkspaceModel()
+        let sketchId = UUID()
+        let cNormal = SketchConstraint(kind: .parallel, entityIds: [UUID(), UUID()])
+        let cDriven = SketchConstraint(kind: .perpendicular, entityIds: [UUID(), UUID()], isDriven: true)
+        let cConflict = SketchConstraint(kind: .tangent, entityIds: [UUID(), UUID()])
+        let cRedundant = SketchConstraint(kind: .concentric, entityIds: [UUID(), UUID()])
+
+        workspace.conflictingConstraintIds.insert(cConflict.id)
+        workspace.redundantConstraintIds.insert(cRedundant.id)
+
+        let rows = [
+            InspectorSketchConstraintRow(sketchId: sketchId, constraint: cNormal),
+            InspectorSketchConstraintRow(sketchId: sketchId, constraint: cDriven),
+            InspectorSketchConstraintRow(sketchId: sketchId, constraint: cConflict),
+            InspectorSketchConstraintRow(sketchId: sketchId, constraint: cRedundant),
+        ]
+
+        for row in rows {
+            let hosting = NSHostingView(rootView: AnyView(row.environment(workspace)))
+            hosting.frame = NSRect(x: 0, y: 0, width: 260, height: 30)
+            hosting.layoutSubtreeIfNeeded()
+            #expect(hosting.frame.width == 260)
+            #expect(hosting.frame.height == 30)
+        }
     }
 
     @Test func testSketchEntityDeleteButtonAccessibilityAndHelp() {
         #expect(InspectorSketchEntityRow.deleteEntityAccessibilityLabel == "Delete Entity")
         #expect(InspectorSketchEntityRow.deleteEntityHelpText == "Delete Entity")
+    }
+
+    @Test func testSketchConstraintDeleteButtonAccessibilityAndHelp() {
+        #expect(InspectorSketchConstraintRow.deleteConstraintAccessibilityLabel == "Delete Constraint")
+        #expect(InspectorSketchConstraintRow.deleteConstraintHelpText == "Delete Constraint")
+        #expect(InspectorPanelView.deleteConstraintAccessibilityLabel == "Delete Constraint")
+        #expect(InspectorPanelView.deleteConstraintHelpText == "Delete Constraint")
     }
 }
