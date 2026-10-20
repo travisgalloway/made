@@ -45,6 +45,31 @@ import Darwin
         #expect(resp.contains("cad_capture_snapshot"))
     }
     
+    @Test func testToolsListCadGetSceneSchemaIncludesLimitAndCursor() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+
+        guard let tool = registry.tools.first(where: { $0.name == "cad_get_scene" }) else {
+            Issue.record("Expected cad_get_scene tool definition")
+            return
+        }
+
+        #expect(tool.inputSchema.properties["limit"]?.type == "integer")
+        #expect(tool.inputSchema.properties["cursor"]?.type == "string")
+
+        let requestJson = """
+        {"jsonrpc":"2.0","id":10,"method":"tools/list","params":{}}
+        """
+        let responseJson = await server.processMessage(requestJson)
+        #expect(responseJson != nil)
+        guard let resp = responseJson else { return }
+        #expect(resp.contains("cad_get_scene"))
+        #expect(resp.contains("limit"))
+        #expect(resp.contains("cursor"))
+    }
+    
     @Test func testToolsCallExecutesTool() async {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))

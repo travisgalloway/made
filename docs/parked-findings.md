@@ -27,7 +27,7 @@ The list holds 55 parked findings, in source order and unranked. Format: ID, fil
 - DSN-9e901d18 | macos/Sources/MadeApp/WorkspaceModel.swift:152 | The `Task` in `recomputeSolid` drops its handle and ignores the failure branch. | design D2
 - DSN-dbd85a54 | macos/Sources/MadeCore/Viewport/MetalRenderer.swift:64 | `MetalRenderer.meshes` is mutated on the main actor and iterated off it, grouped under the decision DSN-1eb23904. (ticketed as #131 on 2026-10-11) | design D2
 - API-24a1c7aa | macos/Sources/MadeCore/Agent/CADTools.swift:143 | An unknown tool name returns an `isError` result where MCP specifies a -32602 protocol error. | api P1
-- API-0e69ca70 | macos/Sources/MadeCore/Agent/CADTools.swift:149 | `cad_get_scene` returns every object in one response with no limit or cursor. | api P1
+- API-0e69ca70 | macos/Sources/MadeCore/Agent/CADTools.swift:149 | `cad_get_scene` returns every object in one response with no limit or cursor. (resolved by #156) | api P1
 - API-9d5c8a37 | macos/Sources/MadeCore/Agent/CADTools.swift:149 | The object type key is `kind` in one tool and `type` in two others. | api P1
 - REQ-95ea66a6 | macos/Tests/MadeCoreTests/OrientationTests.swift:1 | No test references `Orientation`, so issue #61 has no Z-up regression test. (contradicted on 2026-10-11: `OrientationTests` holds 4 tests) | requirements R1
 - REQ-ae1cd1ec | macos/Tests/MadeCoreTests/GestureArbiterTests.swift:1 | No test adds a second pointer after the lock to assert that the mode holds until release. | requirements R1
