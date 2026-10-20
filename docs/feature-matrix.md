@@ -70,7 +70,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | VIEW-1 | A user can see the scene in a Metal MTKView (sRGB color, 32-bit depth, dark clear color) hosted in the window on macOS | done | n/a | n/a | Shipped | #108 | n/a |
 | VIEW-2 | A user can see the same MTKView on iPadOS through a UIViewRepresentable with multi-touch enabled | done | done | n/a | Shipped | #84 | n/a |
-| VIEW-3 | A user gets on-demand rendering only (`isPaused = true`, `enableSetNeedsDisplay = true`), so the GPU stays idle until a redraw is requested | done | n/a | n/a | Shipped |  | n/a |
+| VIEW-3 | A user gets on-demand rendering only (`isPaused = true`, `enableSetNeedsDisplay = true`), so the GPU stays idle until a redraw is requested | done | n/a | n/a | Shipped | #551 | n/a |
 | VIEW-4 | A user sees the viewport redraw when workspace state changes (mesh update, hide or show, remove, transform edit, perspective change) through `invalidateViewport` (prior wording: `updateNSView` calls `setNeedsDisplay`; that call no longer exists) | done | n/a | n/a | Shipped |  | n/a |
 | VIEW-5 | A user can trigger a tagged invalidate-and-redraw through `Coordinator.invalidate(reason:)` | done | n/a | n/a | Shipped | #94 | n/a |
 | VIEW-6 | A user can read live Metal status, render count, draw calls, last invalidate reason, active tool and snap kind in the viewport status bar | done | n/a | n/a | Shipped |  | n/a |

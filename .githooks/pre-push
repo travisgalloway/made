@@ -22,6 +22,19 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "Check out $local_ref and stash local macos/ changes, or bypass deliberately with: $bypass" >&2
         exit 1
     fi
+
+    if printf '%s\n' "$changed" | grep -qE '^(macos/Sources/MadeApp/|macos/Sources/MadeCore/Viewport/|macos/Sources/MadeCore/Input/|macos/UITests/)'; then
+        tree_hash=$(git rev-parse "$local_sha^{tree}") || {
+            echo "pre-push: cannot resolve tree hash for $local_sha" >&2
+            exit 1
+        }
+        pass_record="macos/.build/viewport-pass/$tree_hash"
+        if [ ! -f "$pass_record" ]; then
+            echo "pre-push: missing viewport pass record for tree $tree_hash" >&2
+            echo "Push touches viewport paths. Run 'make test-viewport' on a Metal 4 machine, or bypass with: $bypass" >&2
+            exit 1
+        fi
+    fi
     needs_tests=1
 done
 
