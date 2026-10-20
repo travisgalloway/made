@@ -23,7 +23,10 @@ private enum MetalTestSupport {
         sketchEntities: [SketchEntity] = [],
         activeSketchFeatureId: UUID? = nil,
         onSketchDragStart: ((UUID, UUID) -> Void)? = nil,
-        onSketchDragEnd: ((UUID) -> Void)? = nil
+        onSketchDragEnd: ((UUID) -> Void)? = nil,
+        isRadialMenuOpen: Bool = false,
+        onOpenRadialMenu: ((CGPoint, ObjectId?) -> Void)? = nil,
+        onDismissRadialMenu: (() -> Void)? = nil
     ) throws -> (
         window: NSWindow,
         view: CADMTKView,
@@ -56,7 +59,10 @@ private enum MetalTestSupport {
             sketchEntities: sketchEntities,
             activeSketchFeatureId: activeSketchFeatureId,
             onSketchDragStart: onSketchDragStart,
-            onSketchDragEnd: onSketchDragEnd
+            onSketchDragEnd: onSketchDragEnd,
+            isRadialMenuOpen: isRadialMenuOpen,
+            onOpenRadialMenu: onOpenRadialMenu,
+            onDismissRadialMenu: onDismissRadialMenu
         )
 
         let window = NSWindow(
@@ -735,5 +741,110 @@ private enum MetalTestSupport {
         )
         disabledRepresentable.update(view: view, coordinator: coordinator)
         #expect(coordinator.activeSnapResult == nil)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSecondaryClickOnSolidOpensRadialMenuAndSelectsSolid() throws {
+        var openedAt: CGPoint?
+        var openedSolidId: ObjectId?
+
+        let (window, _, coordinator, _, document, _) = try makeHarness(
+            onOpenRadialMenu: { loc, solidId in
+                openedAt = loc
+                openedSolidId = solidId
+            }
+        )
+
+        let center = CGPoint(x: width / 2.0, y: height / 2.0)
+        let downEvent = makeMouseEvent(type: .rightMouseDown, location: center, windowNumber: window.windowNumber)
+        coordinator.handleMouseDown(with: downEvent, button: .right)
+
+        let upEvent = makeMouseEvent(type: .rightMouseUp, location: center, windowNumber: window.windowNumber)
+        coordinator.handleMouseUp(with: upEvent, button: .right)
+
+        #expect(openedAt != nil)
+        #expect(openedSolidId == ObjectId("box-1"))
+        #expect(document.selectedId == ObjectId("box-1"))
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSecondaryClickOnEmptySpaceOpensRadialMenuWithNilSolid() throws {
+        var openedAt: CGPoint?
+        var openedSolidId: ObjectId?
+
+        let (window, _, coordinator, _, document, _) = try makeHarness(
+            onOpenRadialMenu: { loc, solidId in
+                openedAt = loc
+                openedSolidId = solidId
+            }
+        )
+
+        let initialSelectedId = document.selectedId
+        let emptyLocation = CGPoint(x: 50, y: 50)
+        let downEvent = makeMouseEvent(type: .rightMouseDown, location: emptyLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseDown(with: downEvent, button: .right)
+
+        let upEvent = makeMouseEvent(type: .rightMouseUp, location: emptyLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseUp(with: upEvent, button: .right)
+
+        #expect(openedAt != nil)
+        #expect(openedSolidId == nil)
+        #expect(document.selectedId == initialSelectedId)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSecondaryDragPastThresholdNavigatesAndDoesNotOpenRadialMenu() throws {
+        var openMenuCalled = false
+
+        let (window, _, coordinator, renderer, _, _) = try makeHarness(
+            onOpenRadialMenu: { _, _ in
+                openMenuCalled = true
+            }
+        )
+
+        let startLocation = CGPoint(x: width / 2.0, y: height / 2.0)
+        let initialCamera = renderer.camera
+
+        let downEvent = makeMouseEvent(type: .rightMouseDown, location: startLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseDown(with: downEvent, button: .right)
+
+        let dragLocation = CGPoint(x: startLocation.x + 25.0, y: startLocation.y)
+        let dragEvent = makeMouseEvent(type: .rightMouseDragged, location: dragLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseDragged(with: dragEvent, button: .right)
+
+        let upEvent = makeMouseEvent(type: .rightMouseUp, location: dragLocation, windowNumber: window.windowNumber)
+        coordinator.handleMouseUp(with: upEvent, button: .right)
+
+        #expect(!openMenuCalled)
+        #expect(renderer.camera != initialCamera)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testEscapeKeyDismissesRadialMenu() throws {
+        var dismissCalled = false
+
+        let (window, _, coordinator, _, _, _) = try makeHarness(
+            isRadialMenuOpen: true,
+            onDismissRadialMenu: {
+                dismissCalled = true
+            }
+        )
+
+        let escapeEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53 // Escape
+        )!
+
+        let handled = coordinator.handleKeyDown(with: escapeEvent)
+        #expect(handled)
+        #expect(dismissCalled)
     }
 }

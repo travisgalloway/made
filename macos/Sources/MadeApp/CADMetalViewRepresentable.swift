@@ -183,6 +183,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onSketchDragEnd: ((UUID) -> Void)?
     var activeRectangleKind: SketchRectangleKind
     var onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)?
+    var isRadialMenuOpen: Bool
+    var onOpenRadialMenu: ((CGPoint, ObjectId?) -> Void)?
+    var onDismissRadialMenu: (() -> Void)?
     
     public init(
         document: DocumentModel,
@@ -221,7 +224,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onSketchDragUpdate: ((UUID, DragTarget) -> Void)? = nil,
         onSketchDragEnd: ((UUID) -> Void)? = nil,
         activeRectangleKind: SketchRectangleKind = .corner,
-        onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)? = nil
+        onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)? = nil,
+        isRadialMenuOpen: Bool = false,
+        onOpenRadialMenu: ((CGPoint, ObjectId?) -> Void)? = nil,
+        onDismissRadialMenu: (() -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -260,6 +266,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onSketchDragEnd = onSketchDragEnd
         self.activeRectangleKind = activeRectangleKind
         self.onRectangleCompleted = onRectangleCompleted
+        self.isRadialMenuOpen = isRadialMenuOpen
+        self.onOpenRadialMenu = onOpenRadialMenu
+        self.onDismissRadialMenu = onDismissRadialMenu
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -704,6 +713,13 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         }
         
         func handleKeyDown(with event: NSEvent) -> Bool {
+            if event.keyCode == 53 { // Esc
+                if parent.isRadialMenuOpen {
+                    parent.onDismissRadialMenu?()
+                    return true
+                }
+            }
+
             if parent.isCommandActive {
                 if event.keyCode == 53 { // Esc
                     parent.onCancelCommand?()
@@ -1039,6 +1055,32 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 pointerRouter.arbiter.reset()
                 invalidate(reason: .interaction)
                 return
+            }
+
+            if button == .right && decision.mode == .manipulate {
+                guard let view = mtkView else { return }
+                let loc = view.convert(event.locationInWindow, from: nil)
+                let canvasLoc = CGPoint(x: loc.x, y: view.bounds.height - loc.y)
+                let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
+                let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                let hitId = pickSolidAtPointer(
+                    pointer: pointer,
+                    viewportSize: view.bounds.size,
+                    viewMatrix: matrices.view,
+                    projectionMatrix: matrices.projection,
+                    candidateMeshes: parent.renderer.candidateMeshes()
+                )
+                if let hitId {
+                    if parent.document.selectedId != hitId {
+                        parent.document.selectedId = hitId
+                        parent.renderer.selectedId = hitId
+                        parent.renderer.selectedIds = [hitId]
+                        parent.renderer.selectedSubElement = nil
+                        invalidate(reason: .interaction)
+                    }
+                }
+                parent.onOpenRadialMenu?(canvasLoc, hitId)
             }
 
             if button == .left && decision.mode == .manipulate {
