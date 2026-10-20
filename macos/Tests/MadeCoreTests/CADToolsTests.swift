@@ -1700,6 +1700,71 @@ import simd
         #expect(badResp?.contains("not found in timeline") == true)
     }
 
+    @Test func testCADRollbackRejectsOutOfRangeAndNonIntegerIndices() async {
+        // Direct AnyCodableValue intValue validation
+        #expect(AnyCodableValue.double(1.5).intValue == nil)
+        #expect(AnyCodableValue.double(1e30).intValue == nil)
+        #expect(AnyCodableValue.double(-1e30).intValue == nil)
+        #expect(AnyCodableValue.double(.nan).intValue == nil)
+        #expect(AnyCodableValue.double(.infinity).intValue == nil)
+        #expect(AnyCodableValue.double(-.infinity).intValue == nil)
+        #expect(AnyCodableValue.double(42.0).intValue == 42)
+        #expect(AnyCodableValue.int(42).intValue == 42)
+        #expect(AnyCodableValue.string("42").intValue == nil)
+
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        let server = MCPServer(toolRegistry: registry)
+
+        let initialCount = doc.objects.count
+        #expect(doc.rollbackIndex == nil)
+
+        // 1. Non-integer index (1.5) via JSON-RPC
+        let nonIntMsg = #"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"cad_rollback","arguments":{"index":1.5}}}"#
+        let nonIntResp = await server.processMessage(nonIntMsg)
+        #expect(nonIntResp?.contains("\"isError\":true") == true)
+        #expect(doc.rollbackIndex == nil)
+        #expect(doc.objects.count == initialCount)
+
+        // 2. Positive out-of-Int-range index (1e30) via JSON-RPC
+        let posOverflowMsg = #"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"cad_rollback","arguments":{"index":1e30}}}"#
+        let posOverflowResp = await server.processMessage(posOverflowMsg)
+        #expect(posOverflowResp?.contains("\"isError\":true") == true)
+        #expect(doc.rollbackIndex == nil)
+        #expect(doc.objects.count == initialCount)
+
+        // 3. Negative out-of-Int-range index (-1e30) via JSON-RPC
+        let negOverflowMsg = #"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"cad_rollback","arguments":{"index":-1e30}}}"#
+        let negOverflowResp = await server.processMessage(negOverflowMsg)
+        #expect(negOverflowResp?.contains("\"isError\":true") == true)
+        #expect(doc.rollbackIndex == nil)
+        #expect(doc.objects.count == initialCount)
+
+        // 4. Direct registry call validation
+        let directNonInt = await registry.callTool(name: "cad_rollback", arguments: ["index": .double(1.5)])
+        #expect(directNonInt.isError == true)
+
+        let directPosOverflow = await registry.callTool(name: "cad_rollback", arguments: ["index": .double(1e30)])
+        #expect(directPosOverflow.isError == true)
+
+        let directNegOverflow = await registry.callTool(name: "cad_rollback", arguments: ["index": .double(-1e30)])
+        #expect(directNegOverflow.isError == true)
+
+        #expect(doc.rollbackIndex == nil)
+        #expect(doc.objects.count == initialCount)
+
+        // 5. Timeline preservation when already rolled back
+        _ = doc.setRollbackIndex(1)
+        #expect(doc.rollbackIndex == 1)
+        let rolledCount = doc.objects.count
+
+        let badWhileRolled = await registry.callTool(name: "cad_rollback", arguments: ["index": .double(1e30)])
+        #expect(badWhileRolled.isError == true)
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.objects.count == rolledCount)
+    }
+
     @Test func testChangingChordalToleranceRetessellatesCylinderInMeshSink() async throws {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))
