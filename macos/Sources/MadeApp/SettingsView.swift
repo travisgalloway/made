@@ -21,6 +21,9 @@ public struct SettingsView: View {
         self._selectedTab = State(initialValue: initialTab)
     }
 
+    public nonisolated static let clearSearchAccessibilityLabel = ShortcutsSettingsTab.clearSearchAccessibilityLabel
+    public nonisolated static let clearSearchHelpText = ShortcutsSettingsTab.clearSearchHelpText
+
     public var body: some View {
         TabView(selection: $selectedTab) {
             GeneralSettingsTab()
@@ -334,6 +337,9 @@ struct TolerancesSettingsTab: View {
 }
 
 struct ShortcutsSettingsTab: View {
+    nonisolated static let clearSearchAccessibilityLabel = "Clear Search"
+    nonisolated static let clearSearchHelpText = "Clear Search"
+
     @Environment(WorkspaceModel.self) private var workspace
     @State private var searchQuery: String = ""
     @State private var selectedCategory: ShortcutCategory = .all
@@ -360,11 +366,14 @@ struct ShortcutsSettingsTab: View {
                     .textFieldStyle(.plain)
 
                 if !searchQuery.isEmpty {
-                    Button(action: { searchQuery = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                    Button(Self.clearSearchAccessibilityLabel, systemImage: "xmark.circle.fill") {
+                        searchQuery = ""
                     }
                     .buttonStyle(.plain)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.secondary)
+                    .help(Self.clearSearchHelpText)
+                    .accessibilityLabel(Self.clearSearchAccessibilityLabel)
                 }
 
                 Picker("Category", selection: $selectedCategory) {

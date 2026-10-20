@@ -88,4 +88,11 @@ import MadeCore
         let view = DocumentSettingsInspectorView().environment(model)
         _ = view
     }
+
+    @Test func testShortcutsSearchClearButtonAccessibilityAndHelp() {
+        #expect(ShortcutsSettingsTab.clearSearchAccessibilityLabel == "Clear Search")
+        #expect(ShortcutsSettingsTab.clearSearchHelpText == "Clear Search")
+        #expect(SettingsView.clearSearchAccessibilityLabel == "Clear Search")
+        #expect(SettingsView.clearSearchHelpText == "Clear Search")
+    }
 }
