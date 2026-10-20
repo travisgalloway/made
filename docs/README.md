@@ -46,7 +46,7 @@ Then navigate based on your task:
 | **CAE Solver & Mesher** | CalculiX `ccx` (structural/thermal) and Gmsh (volume mesher) out-of-process via bundled helpers (#413) with clean-room Swift fallback in `libs/` ([ADR-D5](./architecture/adr/ADR-D5-cae-solver-and-mesher-integration.md), #147, #415-#417) |
 | **Agent Interface** | Model Context Protocol (JSON-RPC 2.0 over stdio and local TCP on port 9820) |
 | **CAD Scripting DSL** | Cadova-inspired declarative Swift (`@resultBuilder`) |
-| **Testing** | Swift Package Manager (`swift test`), Swift Testing (`@Test`) |
+| **Testing** | Swift Package Manager (`swift test`), Swift Testing (`@Test`), layered viewport and XCUITest harness ([ADR-D10](./architecture/adr/ADR-D10-ui-and-viewport-testing.md), #549) |
 
 ---
 
@@ -55,6 +55,7 @@ Then navigate based on your task:
 ```
 macos/
   Package.swift           # Swift 6 Package manifest defining MadeCore, MadeApp, and MadeKernelService
+  UITests/                # MadeUITests.xcodeproj UI test target launching script-built Made.app (ADR-D10)
   Sources/
     MadeCore/             # Core engineering library
       Kernel/             # Geometry generators, CSG engine, KernelClient actor
@@ -78,6 +79,7 @@ macos/
   Tests/
     MadeCoreTests/        # 69 test files (kernel, sketch and solver, document, serialization, input, viewport, MCP, scripting)
     MadeAppTests/         # 16 test files (WorkspaceModel, commands, panes, sketch UI, document)
+    Goldens/              # Stored reference scenes for offscreen golden comparison (ADR-D10, #321)
 docs/
   design-system/          # Color, type, spacing tokens and per-view UI guidelines
   architecture/           # Canonical architecture reference specifications

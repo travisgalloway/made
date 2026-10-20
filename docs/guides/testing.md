@@ -6,7 +6,7 @@ The testing architecture in `made` is built on Swift Package Manager (`swift tes
 
 ## Test Suites Overview
 
-`MadeCoreTests` has 69 test files and 951 tests, and `MadeAppTests` has 16 files and 200 tests. All of them are unit tests that run in process. The package has no XCUITest target and no end-to-end suite. `MadeAppTests` constructs individual SwiftUI views, such as `ViewportStatusBar`, and tests `WorkspaceModel`. The table below lists a subset of the suites. `docs/test-plan.md` Table 2 maps 1,150 of the 1,151 tests to capabilities. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
+`MadeCoreTests` has 69 test files and 951 tests, and `MadeAppTests` has 16 files and 200 tests. All of them are unit tests that run in process. While SwiftPM targets hold in-process unit tests, end-to-end and UI testing is defined under ADR-D10 using XCUITest in `macos/UITests/MadeUITests.xcodeproj` and offscreen golden image comparisons under `macos/Tests/Goldens/`. `MadeAppTests` constructs individual SwiftUI views, such as `ViewportStatusBar`, and tests `WorkspaceModel`. The table below lists a subset of the suites. `docs/test-plan.md` Table 2 maps 1,150 of the 1,151 tests to capabilities. `MetalRendererGeometryTests` and `ShaderLibraryTests` create Metal devices, and the renderer tests need Metal 4.
 
 | Suite Name | Target Module | What It Verifies |
 | ---------- | ------------- | ---------------- |
@@ -60,6 +60,65 @@ swift run --build-system swiftbuild MadeApp --mcp-stdio
 ```
 
 To check the recompute failure message by hand, run a debug build and choose Debug > Fail Next Recompute. Drag the box Width slider. The previous box stays on screen, and the Inspector shows `box-1 failed to recompute (invalid-params): Forced failure` with a matching error line in the console. Drag again, and the message clears as the box resizes.
+
+---
+
+## UI and Viewport Testing
+
+End-to-end and UI testing is organized into four validation layers and a Panel E2E suite under ADR-D10. The UI testing harness lives in `macos/UITests/MadeUITests.xcodeproj` and exercises the bundled application (`macos/.build/Made.app`) built by `scripts/bundle-app.sh`.
+
+### Viewport Validation Layers
+
+| Layer | Proves | Mechanism | Runs on |
+| --- | --- | --- | --- |
+| 1. Math and state | Camera, picking rays, snapping, gesture arbiter, tool routing, viewport state machine, invalidation reasons | Swift Testing in `MadeCoreTests`, no device | Everywhere, including hosted CI |
+| 2. Offscreen goldens | The renderer draws the expected pixels for fixed scenes | `MetalRenderer` offscreen render compared to a stored PNG within a tolerance | Metal 4 only: hooks and local runs; hosted CI skips it |
+| 3. In-app viewport E2E | Real input reaches the viewport, and its effects reach the panels | XCUITest coordinate clicks and drags on `viewport-canvas`, read back through the `viewport-probe` value | Metal 4 only: `make test-viewport` |
+| 4. Invariant checks in E2E | Invariants 2 and 8 hold in the shipped app | Layer 3 assertions on probe fields | Metal 4 only: `make test-viewport` |
+| Panel E2E | Menus, Navigator, Inspector, and the no-GPU state | XCUITest launched with `--force-no-gpu` | Everywhere, including hosted CI |
+
+### Running UI and Viewport Suites
+
+Assemble the application bundle first, then run either the panel suite or the viewport suite:
+
+```sh
+# Assemble the application bundle
+make bundle
+
+# Run headless UI panel tests
+make test-ui
+# Or direct xcodebuild invocation:
+xcodebuild test -project macos/UITests/MadeUITests.xcodeproj -scheme MadeUITests -only-testing:MadeUITests/PanelUITests
+
+# Run Metal 4 viewport E2E tests
+make test-viewport
+# Or direct xcodebuild invocation:
+MADE_UI_REQUIRE_METAL4=1 xcodebuild test -project macos/UITests/MadeUITests.xcodeproj -scheme MadeUITests -only-testing:MadeUITests/ViewportUITests
+```
+
+### Focus Capture and System Permissions
+
+Executing UI tests dispatches synthetic mouse clicks and keyboard events to `Made.app`. During local runs:
+- Avoid typing, clicking, or switching desktop spaces while `make test-ui` or `make test-viewport` executes. The test runner requires window focus to deliver input events.
+- On first execution, macOS prompts for Accessibility permissions (`System Settings > Privacy & Security > Accessibility`). Add Terminal or Xcode to the allowed applications list.
+- macOS may also request authentication to enable Automation Mode.
+
+### Golden Image Recording Workflow
+
+Layer 2 tests compare rendered scenes against baseline reference images in `macos/Tests/Goldens/<Suite>/<test>.png`.
+- A pixel comparison fails when any color channel differs by more than 8 out of 255. A test fails when more than 0.1 percent of pixels differ.
+- To record or update baseline goldens, run the test suite with `MADE_RECORD_GOLDENS=1`. The test writes the actual render over the reference PNG and reports a failure so the recording run never passes accidentally. Review the updated PNG in the git diff before committing.
+- On comparison failure, the test helper writes `actual.png`, `expected.png`, and `diff.png` to `macos/.build/golden-failures/`, and attaches the images to the Swift Testing result.
+
+### Pre-Push Gating
+
+The pre-push git hook inspects `macos/.build/viewport-pass/<tree-hash>` whenever a push modifies any of the following four paths:
+- `macos/Sources/MadeApp/`
+- `macos/Sources/MadeCore/Viewport/`
+- `macos/Sources/MadeCore/Input/`
+- `macos/UITests/`
+
+The hook verifies that `make test-viewport` completed cleanly against the current tree hash. The pre-push hook runs no UI tests directly, preventing window focus disruption during git pushes.
 
 ---
 
