@@ -465,6 +465,10 @@ struct NavigatorSketchRow: View {
 
     nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
 
+    nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
+        isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
+    }
+
     var body: some View {
         let isSelected = workspace.isFeatureSelected(feature)
         let status = workspace.sketchDOFStatus(for: feature)
@@ -532,7 +536,7 @@ struct NavigatorSketchRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
         .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, entityCount: count, status: status, isLocked: feature.isLocked))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
@@ -625,6 +629,10 @@ struct NavigatorDatumPlaneRow: View {
 
     nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
 
+    nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
+        isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
+    }
+
     nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
         "\(featureName), Datum Plane\(isLocked ? ", Locked" : "")"
     }
@@ -690,7 +698,7 @@ struct NavigatorDatumPlaneRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
         .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
@@ -715,6 +723,10 @@ struct NavigatorDatumAxisRow: View {
     }
 
     nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
+        isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
+    }
 
     nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
         "\(featureName), Datum Axis\(isLocked ? ", Locked" : "")"
@@ -781,7 +793,7 @@ struct NavigatorDatumAxisRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
         .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
@@ -806,6 +818,10 @@ struct NavigatorDatumPointRow: View {
     }
 
     nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
+        isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
+    }
 
     nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
         "\(featureName), Datum Point\(isLocked ? ", Locked" : "")"
@@ -872,7 +888,7 @@ struct NavigatorDatumPointRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
         .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
@@ -897,6 +913,10 @@ struct NavigatorDatumCoordinateSystemRow: View {
     }
 
     nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
+        isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
+    }
 
     nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
         "\(featureName), Datum UCS\(isLocked ? ", Locked" : "")"
@@ -963,7 +983,7 @@ struct NavigatorDatumCoordinateSystemRow: View {
             .disabled(feature.isLocked)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? [Self.defaultAccessibilityTraits, .isSelected] : Self.defaultAccessibilityTraits)
+        .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
         .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
