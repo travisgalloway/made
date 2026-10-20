@@ -226,6 +226,9 @@ public actor LocalKernelEngine: KernelEngine {
             } catch {
                 return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to parse STEP geometry"))
             }
+
+        case .fillet(let jobId, let sId, let edgeRef, let radius):
+            return await fillet(solidId: sId, edgeReference: edgeRef, radius: radius, jobId: jobId)
         }
     }
     
@@ -239,8 +242,8 @@ public actor LocalKernelEngine: KernelEngine {
         }
     }
 
-    public func fillet(solidId: SolidId, edgeReference: TopologicalReference, radius: Double) async -> KernelResult<MeshPayload> {
-        let jobId = JobId("fillet-\(UUID().uuidString)")
+    public func fillet(solidId: SolidId, edgeReference: TopologicalReference, radius: Double, jobId: JobId? = nil) async -> KernelResult<MeshPayload> {
+        let jobId = jobId ?? JobId("fillet-\(UUID().uuidString)")
         guard let shape = occtShapes[solidId] else {
             return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid '\(solidId)' not found"))
         }

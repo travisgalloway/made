@@ -256,4 +256,5 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | DOC-33 | (new) A person can name, hide, lock, recolor and set the operation (create, add, cut, intersect) of a body inside a part | done | done | done | Shipped | #239, #240, #553 | n/a |
 | DOC-34 | (new) A person can suppress or unsuppress a feature so it is skipped during regeneration | none | done | done | In progress | #176 | n/a |
 | AGENT-33 | (new) An agent can roll the document timeline back to an index or solid, or forward to the end, over MCP with cad_rollback | n/a | done | done | Shipped | #235 | n/a |
+| AGENT-34 | (new) An agent can create sketches, add sketch entities and constraints, extrude profiles into 3D solids, apply topological edge fillets, edit feature parameters, and query the feature tree over MCP | n/a | done | done | Shipped | #151 | n/a |
 | DSL-15 | (new) A person can open a part file at launch by passing a .part.ts, .part.js or .made path as a command-line argument or by setting MADE_PART_FILE | done | n/a | done | Shipped | #427 | n/a |

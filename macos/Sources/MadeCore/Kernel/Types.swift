@@ -353,6 +353,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case importStep(jobId: JobId, solidId: SolidId, data: Data)
     case booleanOperation(jobId: JobId, solidId: SolidId, op: BooleanOp, solidA: SolidId, solidB: SolidId)
     case evaluateShape(jobId: JobId, solidId: SolidId, shape: ShapeNode)
+    case fillet(jobId: JobId, solidId: SolidId, edgeReference: TopologicalReference, radius: Double)
     
     public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
         .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
@@ -369,7 +370,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
              .tessellate(let j, _, _),
              .importStep(let j, _, _),
              .booleanOperation(let j, _, _, _, _),
-             .evaluateShape(let j, _, _):
+             .evaluateShape(let j, _, _),
+             .fillet(let j, _, _, _):
             return j
         }
     }
@@ -385,7 +387,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
              .tessellate(_, let s, _),
              .importStep(_, let s, _),
              .booleanOperation(_, let s, _, _, _),
-             .evaluateShape(_, let s, _):
+             .evaluateShape(_, let s, _),
+             .fillet(_, let s, _, _):
             return s
         }
     }

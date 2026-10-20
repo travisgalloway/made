@@ -1544,6 +1544,476 @@ import simd
         #expect(finerTriangleCount > fineTriangleCount, "Finer tolerance must further increase cylinder triangle count")
         #expect(sink.meshes[boxSolidId] != nil, "Multiple solids remain installed without dropping meshes")
     }
+
+    // MARK: - Feature-Level Tools Tests (BL-AGT-04, #151)
+
+    @Test func testCreateSketchAndAddEntities() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // 1. Create sketch on default XY plane with initial entities
+        let initialEntities: [AnyCodableValue] = [
+            .dictionary([
+                "type": .string("line"),
+                "startX": .double(0),
+                "startY": .double(0),
+                "endX": .double(10),
+                "endY": .double(0)
+            ]),
+            .dictionary([
+                "type": .string("circle"),
+                "centerX": .double(5),
+                "centerY": .double(5),
+                "radius": .double(2.5)
+            ])
+        ]
+        let createResult = await registry.callTool(name: "cad_create_sketch", arguments: [
+            "plane": .string("XY"),
+            "entities": .array(initialEntities)
+        ])
+        #expect(createResult.isError == false)
+        let text = try #require(createResult.content.first?.text)
+        let createData = try #require(text.data(using: .utf8))
+        let createJson = try #require(try JSONSerialization.jsonObject(with: createData) as? [String: Any])
+        let sketchIdStr = try #require(createJson["id"] as? String)
+        let sketchUUID = try #require(UUID(uuidString: sketchIdStr))
+        #expect(createJson["plane"] as? String == "XY")
+        #expect(createJson["entityCount"] as? Int == 2)
+
+        // Verify in document
+        let sketchFeat = try #require(doc.feature(for: sketchUUID))
+        if case .sketch(let data) = sketchFeat.operation {
+            #expect(data.entities.count == 2)
+            #expect(data.planeName == "XY")
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+
+        // 2. Add an arc entity to the existing sketch
+        let addArcRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("arc"),
+            "startX": .double(10),
+            "startY": .double(0),
+            "endX": .double(10),
+            "endY": .double(10),
+            "centerX": .double(10),
+            "centerY": .double(5),
+            "clockwise": .bool(false)
+        ])
+        #expect(addArcRes.isError == false)
+
+        // 3. Add a construction line
+        let addConstLineRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("line"),
+            "startX": .double(0),
+            "startY": .double(0),
+            "endX": .double(10),
+            "endY": .double(10),
+            "isConstruction": .bool(true)
+        ])
+        #expect(addConstLineRes.isError == false)
+
+        let updatedFeat = try #require(doc.feature(for: sketchUUID))
+        if case .sketch(let data) = updatedFeat.operation {
+            #expect(data.entities.count == 4)
+            #expect(data.entities.last?.isConstruction == true)
+        }
+
+        // 4. Create sketch on XZ and YZ planes
+        let xzRes = await registry.callTool(name: "cad_create_sketch", arguments: ["plane": .string("XZ")])
+        #expect(xzRes.isError == false)
+        let yzRes = await registry.callTool(name: "cad_create_sketch", arguments: ["plane": .string("YZ")])
+        #expect(yzRes.isError == false)
+
+        // 5. Create sketch on a datum plane
+        _ = doc.addDatumPlaneFeature(name: "OffsetPlane1")
+        let datumSketchRes = await registry.callTool(name: "cad_create_sketch", arguments: ["plane": .string("OffsetPlane1")])
+        #expect(datumSketchRes.isError == false)
+    }
+
+    @Test func testAddSketchConstraints() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Create empty sketch
+        let createRes = await registry.callTool(name: "cad_create_sketch", arguments: ["plane": .string("XY")])
+        #expect(createRes.isError == false)
+        let text = try #require(createRes.content.first?.text)
+        let json = try #require(try JSONSerialization.jsonObject(with: text.data(using: .utf8)!) as? [String: Any])
+        let sketchIdStr = try #require(json["id"] as? String)
+        let sketchUUID = try #require(UUID(uuidString: sketchIdStr))
+
+        // Add 2 lines
+        let addL1 = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("line"),
+            "startX": .double(0),
+            "startY": .double(0),
+            "endX": .double(20),
+            "endY": .double(0)
+        ])
+        #expect(addL1.isError == false)
+
+        let addL2 = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("line"),
+            "startX": .double(20),
+            "startY": .double(0),
+            "endX": .double(20),
+            "endY": .double(20)
+        ])
+        #expect(addL2.isError == false)
+
+        let feat = try #require(doc.feature(for: sketchUUID))
+        guard case .sketch(let sketchData) = feat.operation, sketchData.entities.count == 2 else {
+            Issue.record("Expected 2 entities in sketch")
+            return
+        }
+        let e1Id = sketchData.entities[0].id.uuidString
+        let e2Id = sketchData.entities[1].id.uuidString
+
+        // 1. Add horizontal constraint to line 1
+        let hRes = await registry.callTool(name: "cad_add_constraint", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("horizontal"),
+            "entityIds": .array([.string(e1Id)])
+        ])
+        #expect(hRes.isError == false)
+
+        // 2. Add vertical constraint to line 2
+        let vRes = await registry.callTool(name: "cad_add_constraint", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("vertical"),
+            "entityIds": .array([.string(e2Id)])
+        ])
+        #expect(vRes.isError == false)
+
+        // 3. Add coincident constraint between line 1 and line 2
+        let cRes = await registry.callTool(name: "cad_add_constraint", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("coincident"),
+            "entityIds": .array([.string(e1Id), .string(e2Id)])
+        ])
+        #expect(cRes.isError == false)
+
+        // Verify constraints recorded in document
+        let featWithConstraints = try #require(doc.feature(for: sketchUUID))
+        if case .sketch(let data) = featWithConstraints.operation {
+            #expect(data.constraints.count == 3)
+            #expect(data.constraints.contains(where: { $0.kind == .horizontal }))
+            #expect(data.constraints.contains(where: { $0.kind == .vertical }))
+            #expect(data.constraints.contains(where: { $0.kind == .coincident }))
+        }
+    }
+
+    @Test func testExtrudeSketchCreatesSolidAndMesh() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let sink = RecordingMeshSink()
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel, meshSink: sink)
+
+        // Create a sketch with a closed circular profile
+        let createRes = await registry.callTool(name: "cad_create_sketch", arguments: [
+            "plane": .string("XY"),
+            "entities": .array([
+                .dictionary([
+                    "type": .string("circle"),
+                    "centerX": .double(0),
+                    "centerY": .double(0),
+                    "radius": .double(15)
+                ])
+            ])
+        ])
+        #expect(createRes.isError == false)
+        let json = try #require(try JSONSerialization.jsonObject(with: createRes.content.first!.text!.data(using: .utf8)!) as? [String: Any])
+        let sketchIdStr = try #require(json["id"] as? String)
+
+        // Extrude 30mm
+        let extrudeRes = await registry.callTool(name: "cad_extrude", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "distance": .double(30),
+            "isSymmetric": .bool(false)
+        ])
+        #expect(extrudeRes.isError == false)
+        let extrudeText = try #require(extrudeRes.content.first?.text)
+        #expect(extrudeText.contains("extrude-"))
+        #expect(extrudeText.contains("30.0 mm"))
+
+        // Find the created extrude solid
+        let extrudeObj = try #require(doc.objects.first(where: { $0.id.rawValue.hasPrefix("extrude-") }))
+        let solidId = extrudeObj.id
+
+        // Settle kernel recompute
+        await registry.settleRecomputes(for: [solidId])
+
+        // Verify mesh installed in sink
+        let meshEntry = try #require(sink.meshes[solidId])
+        #expect(meshEntry.payload.triangleCount > 0)
+    }
+
+    @Test func testFilletSolidEdgeByTopologicalReference() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let sink = RecordingMeshSink()
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel, meshSink: sink)
+
+        // Settle initial document box recompute
+        registry.scheduleRecompute(id: boxSolidId)
+        await registry.settleRecomputes(for: [boxSolidId])
+
+        // Apply fillet on edge:top-front
+        let filletRes = await registry.callTool(name: "cad_fillet", arguments: [
+            "solidId": .string("box-1"),
+            "edge": .string("edge:top-front"),
+            "radius": .double(2.0)
+        ])
+        #expect(filletRes.isError == false)
+        let text = try #require(filletRes.content.first?.text)
+        #expect(text.contains("Successfully applied fillet of radius 2.0 mm to edge 'edge:top-front' on solid 'box-1'"))
+
+        // Verify updated mesh installed in sink
+        let mesh = try #require(sink.meshes[boxSolidId]?.payload)
+        #expect(mesh.triangleCount > 0)
+    }
+
+    @Test func testFilletErrorCases() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+        registry.scheduleRecompute(id: boxSolidId)
+        await registry.settleRecomputes(for: [boxSolidId])
+
+        // 1. Unknown solid
+        let unknownSolidRes = await registry.callTool(name: "cad_fillet", arguments: [
+            "solidId": .string("nonexistent-solid"),
+            "edge": .string("edge:top-front"),
+            "radius": .double(2.0)
+        ])
+        #expect(unknownSolidRes.isError == true)
+        #expect(unknownSolidRes.content.first?.text?.contains("not found in scene") == true)
+
+        // 2. Negative or zero radius
+        let negRadiusRes = await registry.callTool(name: "cad_fillet", arguments: [
+            "solidId": .string("box-1"),
+            "edge": .string("edge:top-front"),
+            "radius": .double(-1.0)
+        ])
+        #expect(negRadiusRes.isError == true)
+        #expect(negRadiusRes.content.first?.text?.contains("positive number") == true)
+
+        let zeroRadiusRes = await registry.callTool(name: "cad_fillet", arguments: [
+            "solidId": .string("box-1"),
+            "edge": .string("edge:top-front"),
+            "radius": .double(0.0)
+        ])
+        #expect(zeroRadiusRes.isError == true)
+
+        // 3. Missing / nonexistent edge label
+        let missingEdgeRes = await registry.callTool(name: "cad_fillet", arguments: [
+            "solidId": .string("box-1"),
+            "edge": .string("edge:nonexistent-label"),
+            "radius": .double(2.0)
+        ])
+        #expect(missingEdgeRes.isError == true)
+        #expect(missingEdgeRes.content.first?.text?.contains("Available edges:") == true)
+
+        // 4. Excessive radius geometry failure
+        let excessiveRes = await registry.callTool(name: "cad_fillet", arguments: [
+            "solidId": .string("box-1"),
+            "edge": .string("edge:top-front"),
+            "radius": .double(500.0)
+        ])
+        #expect(excessiveRes.isError == true)
+        #expect(excessiveRes.content.first?.text?.contains("Fillet failed") == true)
+    }
+
+    @Test func testQueryTreeReturnsFullHistory() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Query entire tree
+        let allRes = await registry.callTool(name: "cad_query_tree", arguments: [:])
+        #expect(allRes.isError == false)
+        let allText = try #require(allRes.content.first?.text)
+        let allData = try #require(allText.data(using: .utf8))
+        let allJson = try #require(try JSONSerialization.jsonObject(with: allData) as? [String: Any])
+        let features = try #require(allJson["features"] as? [[String: Any]])
+        #expect(features.count >= 2) // default box and cylinder
+
+        let firstFeat = try #require(features.first)
+        #expect(firstFeat["type"] as? String == "primitive")
+        #expect(firstFeat["primitiveKind"] as? String == "box")
+        let topology = try #require(firstFeat["generatedTopology"] as? [String: String])
+        #expect(topology["edge:top-front"] != nil)
+        let featIdStr = try #require(firstFeat["id"] as? String)
+
+        // Query single feature by ID
+        let singleRes = await registry.callTool(name: "cad_query_tree", arguments: [
+            "featureId": .string(featIdStr)
+        ])
+        #expect(singleRes.isError == false)
+        let singleText = try #require(singleRes.content.first?.text)
+        let singleJson = try #require(try JSONSerialization.jsonObject(with: singleText.data(using: .utf8)!) as? [String: Any])
+        #expect(singleJson["id"] as? String == featIdStr)
+        #expect(singleJson["name"] as? String == firstFeat["name"] as? String)
+    }
+
+    @Test func testSetParamExtrudeDistance() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // Create sketch and extrude
+        let createRes = await registry.callTool(name: "cad_create_sketch", arguments: [
+            "plane": .string("XY"),
+            "entities": .array([
+                .dictionary([
+                    "type": .string("circle"),
+                    "centerX": .double(0),
+                    "centerY": .double(0),
+                    "radius": .double(10)
+                ])
+            ])
+        ])
+        #expect(createRes.isError == false)
+        let json = try #require(try JSONSerialization.jsonObject(with: createRes.content.first!.text!.data(using: .utf8)!) as? [String: Any])
+        let sketchIdStr = try #require(json["id"] as? String)
+
+        let extrudeRes = await registry.callTool(name: "cad_extrude", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "distance": .double(25)
+        ])
+        #expect(extrudeRes.isError == false)
+
+        let extrudeObj = try #require(doc.objects.first(where: { $0.id.rawValue.hasPrefix("extrude-") }))
+        let solidId = extrudeObj.id
+
+        // Modify distance via solidId
+        let setParamRes = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string(solidId.rawValue),
+            "param": .string("distance"),
+            "value": .double(45)
+        ])
+        #expect(setParamRes.isError == false)
+        #expect(setParamRes.content.first?.text?.contains("45.0") == true)
+
+        if case .extrude(let p) = doc.paramsFor(id: solidId) {
+            #expect(p.distance == 45.0)
+        } else {
+            Issue.record("Expected extrude params")
+        }
+
+        // Modify distance via feature UUID
+        let extrudeFeat = try #require(doc.features.first(where: { $0.outputSolidId == solidId }))
+        let setParamByFeatRes = await registry.callTool(name: "cad_set_param", arguments: [
+            "id": .string(extrudeFeat.id.uuidString),
+            "param": .string("distance"),
+            "value": .double(60)
+        ])
+        #expect(setParamByFeatRes.isError == false)
+        #expect(setParamByFeatRes.content.first?.text?.contains("60.0") == true)
+
+        if case .extrude(let p) = doc.paramsFor(id: solidId) {
+            #expect(p.distance == 60.0)
+        } else {
+            Issue.record("Expected extrude params")
+        }
+    }
+
+    @Test func testFeatureToolsArgumentValidationErrors() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // cad_create_sketch: invalid plane
+        let badPlaneRes = await registry.callTool(name: "cad_create_sketch", arguments: [
+            "plane": .string("INVALID_PLANE")
+        ])
+        #expect(badPlaneRes.isError == true)
+
+        // cad_add_sketch_entity: missing sketchId
+        let noSketchIdRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "type": .string("line"),
+            "startX": .double(0),
+            "startY": .double(0),
+            "endX": .double(10),
+            "endY": .double(0)
+        ])
+        #expect(noSketchIdRes.isError == true)
+
+        // cad_add_sketch_entity: unknown sketchId
+        let fakeUUID = UUID().uuidString
+        let unknownSketchRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(fakeUUID),
+            "type": .string("line"),
+            "startX": .double(0),
+            "startY": .double(0),
+            "endX": .double(10),
+            "endY": .double(0)
+        ])
+        #expect(unknownSketchRes.isError == true)
+
+        // cad_add_sketch_entity: missing type
+        let noTypeRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(fakeUUID)
+        ])
+        #expect(noTypeRes.isError == true)
+
+        // cad_add_sketch_entity: non-finite coordinates
+        let nonFiniteRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(fakeUUID),
+            "type": .string("line"),
+            "startX": .double(.nan),
+            "startY": .double(0),
+            "endX": .double(10),
+            "endY": .double(0)
+        ])
+        #expect(nonFiniteRes.isError == true)
+
+        // cad_add_constraint: missing entityIds
+        let noEntitiesRes = await registry.callTool(name: "cad_add_constraint", arguments: [
+            "sketchId": .string(fakeUUID),
+            "type": .string("horizontal")
+        ])
+        #expect(noEntitiesRes.isError == true)
+
+        // cad_add_constraint: unknown constraint kind
+        let badKindRes = await registry.callTool(name: "cad_add_constraint", arguments: [
+            "sketchId": .string(fakeUUID),
+            "type": .string("skew"),
+            "entityIds": .array([.string(UUID().uuidString)])
+        ])
+        #expect(badKindRes.isError == true)
+
+        // cad_extrude: missing distance
+        let noDistRes = await registry.callTool(name: "cad_extrude", arguments: [
+            "sketchId": .string(fakeUUID)
+        ])
+        #expect(noDistRes.isError == true)
+
+        // cad_fillet: missing arguments
+        let noEdgeRes = await registry.callTool(name: "cad_fillet", arguments: [
+            "solidId": .string("box-1"),
+            "radius": .double(2.0)
+        ])
+        #expect(noEdgeRes.isError == true)
+
+        // cad_query_tree: invalid featureId
+        let badFeatIdRes = await registry.callTool(name: "cad_query_tree", arguments: [
+            "featureId": .string("not-a-uuid")
+        ])
+        #expect(badFeatIdRes.isError == true)
+
+        let unknownFeatIdRes = await registry.callTool(name: "cad_query_tree", arguments: [
+            "featureId": .string(UUID().uuidString)
+        ])
+        #expect(unknownFeatIdRes.isError == true)
+    }
 }
 
 @MainActor

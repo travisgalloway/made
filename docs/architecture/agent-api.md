@@ -26,6 +26,9 @@
 │   • cad_set_transform        • cad_verify             │
 │   • cad_remove_solid         • cad_capture_snapshot    │
 │   • cad_measure              • cad_rollback           │
+│   • cad_create_sketch        • cad_extrude            │
+│   • cad_add_sketch_entity    • cad_fillet             │
+│   • cad_add_constraint       • cad_query_tree         │
 └──────────────┬──────────────────────────┬──────────────┘
                │ Live Mutation            │ Snapshot Request
 ┌──────────────▼─────────────┐ ┌──────────▼──────────────┐
@@ -90,13 +93,13 @@ Add `made` to your `claude_desktop_config.json`:
 
 ## 2. Core CAD Tools
 
-The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) provides 12 tools. Argument names below match the input schemas in `CADTools.swift`:
+The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) provides 18 tools. Argument names below match the input schemas in `CADTools.swift`:
 
 | Tool Name | Parameters | Description |
 | --------- | ---------- | ----------- |
 | `cad_get_scene` | None | Returns the full scene hierarchy, object IDs, parametric dimensions, and 3D positions in JSON format. |
 | `cad_add_solid` | `type` ("box" \| "cylinder"), dimensions (`width`, `depth`, `height`, `radius`), position (`posX`, `posY`, `posZ`) | Instantiates a new parametric solid in the document, schedules its 60 ms debounced kernel tessellation, and installs the resulting mesh in the viewport when a mesh sink is attached. Positions must be finite numbers from -10000 to 10000 mm (`DocumentLimits.position`) and default to 0 when omitted. Sizes must be finite numbers within `Float` range and are clamped to `DocumentLimits`. A wrong-typed (including `null`, `bool`, or string) or non-finite argument (including `Float` overflow), or an out-of-bound position, returns an `isError` result and adds nothing. The success message reports the solid ID, clamped dimensions, and world position (`Successfully added solid with ID: <id> with dimensions (...) at position (...)`). |
-| `cad_set_param` | `id`, `param` (box: "width", "depth", "height"; cylinder: "radius", "height"), `value` | Updates a parameter on a solid, clamped to the `DocumentLimits` ranges, and schedules a debounced recompute and viewport redraw. An unknown `param` for the solid kind, an imported or boolean solid, an unknown solid ID, a locked solid ID, and a non-finite `value` return an `isError` result and change nothing. The success message reports the stored (clamped) value. |
+| `cad_set_param` | `id`, `param` (box: "width", "depth", "height"; cylinder: "radius", "height"; extrude: "distance"), `value` | Updates a parameter on a solid or feature, clamped to the `DocumentLimits` ranges, and schedules a debounced recompute and viewport redraw. Supports feature UUIDs directly. An unknown `param` for the solid kind, an imported or boolean solid, an unknown solid ID, a locked solid ID, and a non-finite `value` return an `isError` result and change nothing. The success message reports the stored (clamped) value. |
 | `cad_set_transform` | `id`, `posX`, `posY`, `posZ`, `rotX`, `rotY`, `rotZ` | Updates the world position and rotation of a solid and updates its viewport mesh transform. Positions must be finite numbers from -10000 to 10000 mm (`DocumentLimits.position`), angles must be finite numbers in degrees, and omitted coordinates and angles are unchanged. A wrong-typed (including `null`) or non-finite argument, an out-of-bound position, an unknown solid ID, or a locked solid ID returns an `isError` result and changes nothing (#136). |
 | `cad_remove_solid` | `id` | Deletes a solid from the document, stops any active part file watcher, removes its mesh from the viewport, and disposes its kernel cache entry. An unknown or locked solid ID returns an `isError` result and leaves the scene untouched. |
 | `cad_measure` | `id` | Returns calculated volume, bounding extents, and surface area. |
@@ -106,6 +109,12 @@ The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) p
 | `cad_verify` | `id` (optional) | Checks that each solid in the scene (or the solid matching `id`) is a valid `closed`, `manifold`, `positiveVolume` mesh, and compares measured `volume`, `area`, and `bounds` against any `export const expected` block in a part file within tolerance. Returns a structured verification report with `isError: true` when topological verification or any `expected` check fails (#428). |
 | `cad_capture_snapshot` | `view` (optional: "front" \| "top" \| "right" \| "isometric" \| "perspective") | Renders an offscreen 800x600 Metal frame and returns it as MCP `image` content (raw base64 PNG with MIME type `image/png`). When `view` is specified, renders from that camera preset without modifying the interactive viewport camera (#89, #428). |
 | `cad_rollback` | `index` (optional), `solidId` (optional) | Moves the history rollback marker backward or forward. Features after the marker are excluded from evaluation and viewport rendering, and new solids are inserted at the marker position. With neither argument, or with `solidId` set to `end`, the marker moves to the end of the history. |
+| `cad_create_sketch` | `plane` (optional, default "XY": "XY" \| "XZ" \| "YZ" or datum plane ID/name), `entities` (optional array of geometric entity objects) | Creates a new 2D sketch on the specified plane with optional initial geometric entities (lines, arcs, circles). Returns the sketch feature ID, plane name, and entity count. |
+| `cad_add_sketch_entity` | `sketchId`, `type` ("line" \| "arc" \| "circle"), entity coordinates (`startX`, `startY`, `endX`, `endY`, `centerX`, `centerY`, `radius`, `clockwise`, `isConstruction`) | Adds a 2D geometric entity to an existing sketch in the document. Returns the created entity ID, entity type, and sketch ID. |
+| `cad_add_constraint` | `sketchId`, `type` ("parallel" \| "perpendicular" \| "tangent" \| "concentric" \| "symmetric" \| "coincident" \| "horizontal" \| "vertical"), `entityIds`, `referenceEntityId` (optional) | Applies a geometric constraint between entities in a sketch. Returns the constraint ID, type, and affected entity IDs. |
+| `cad_extrude` | `sketchId`, `distance`, `isSymmetric` (optional, default false), `draftAngle` (optional, default 0), `regionId` (optional) | Extrudes a closed 2D sketch into a 3D parametric solid by the specified distance, creating an Extrude feature in the history tree and updating the viewport mesh. Returns the extrude feature ID, solid ID, distance, and symmetry status. |
+| `cad_fillet` | `solidId`, `edge` (topological reference label or UUID), `radius` | Applies a topological fillet blend of the specified radius to an edge of a solid by topological reference label or UUID. Updates the solid mesh in the kernel and viewport. Returns the solid ID, edge reference, and fillet radius. |
+| `cad_query_tree` | `featureId` (optional) | Queries the document feature history tree, returning features, operations, parameters, output solids, suppression status, and generated topological references for sub-element addressing. When `featureId` is specified, returns details for that feature. |
 
 ### Error Behavior
 A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` (never a JSON-RPC error payload). JSON-RPC error payloads are limited to the following protocol cases:
@@ -178,7 +187,7 @@ Repository-level Claude Code plugin manifests ([`.claude-plugin/marketplace.json
 The skill provides external agents with:
 - Documentation of the `.part.ts` and `.part.js` part format, coordinate system, centering rules, 2D sketches, sweeps, CSG booleans, transforms, `param` / `defineParams`, and the `export const expected` verification contract.
 - A synchronized copy of the TypeScript declaration file at [`plugins/made-cad/skills/made-cad/references/made.d.ts`](../../plugins/made-cad/skills/made-cad/references/made.d.ts) for `tsc --noEmit` pre-flight validation.
-- Connection instructions for `127.0.0.1:9820` (TCP) and `--mcp-stdio`, reference tables for all 12 MCP tools, and the step-by-step edit -> `cad_reload` -> `cad_get_diagnostics` -> `cad_verify` -> `cad_capture_snapshot` -> repair loop.
+- Connection instructions for `127.0.0.1:9820` (TCP) and `--mcp-stdio`, reference tables for all 18 MCP tools, and the step-by-step edit -> `cad_reload` -> `cad_get_diagnostics` -> `cad_verify` -> `cad_capture_snapshot` -> repair loop.
 - A gallery of six verified `.part.ts` example parts under [`plugins/made-cad/skills/made-cad/examples/`](../../plugins/made-cad/skills/made-cad/examples/) and a five-case evaluation benchmark set under [`plugins/made-cad/skills/made-cad/eval/`](../../plugins/made-cad/skills/made-cad/eval/), validated in CI by [`PluginSkillTests.swift`](../../macos/Tests/MadeCoreTests/PluginSkillTests.swift).
 
 ---
