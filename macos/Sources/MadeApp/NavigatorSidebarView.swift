@@ -92,6 +92,11 @@ struct NavigatorSidebarView: View {
                     if let id = ids.first, let body = workspace.document.body(for: id) {
                         let obj = workspace.document.objects.first(where: { $0.id == id })
                         if let obj, case .part = obj.def {
+                            Button("Convert to Features") {
+                                Task {
+                                    _ = try? await workspace.convertPartToFeatures(id: id)
+                                }
+                            }
                             Button("Reload Part") { workspace.reloadPart(id) }
                             Divider()
                         }

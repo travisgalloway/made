@@ -3079,6 +3079,106 @@ public final class DocumentModel {
         }
     }
 
+    // MARK: - DSL Feature Import (BL-SCR-04 / #332)
+
+    /// Imports an evaluated shape AST tree into the document as canonical, ordered features.
+    @discardableResult
+    public func importFeatures(from shape: ShapeNode, baseName: String? = nil) throws -> [Feature] {
+        let result = try DSLFeatureDecomposer.decompose(shape, baseName: baseName, startingSequence: seq)
+        seq = max(seq, result.maxSequence)
+
+        let previousRollback = rollbackIndex
+        let insertIndex = effectiveRollbackIndex
+
+        features.insert(contentsOf: result.features, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + result.features.count
+        }
+        if let rootSolidId = result.rootSolidId {
+            selectedId = rootSolidId
+        }
+
+        let importedFeatures = result.features
+        let rootSolidId = result.rootSolidId
+        registerImportFeaturesUndo(
+            features: importedFeatures,
+            rootSolidId: rootSolidId,
+            insertIndex: insertIndex,
+            previousRollback: previousRollback,
+            actionName: "Import DSL Features"
+        )
+        undoManager?.setActionName("Import DSL Features")
+        undoStateVersion += 1
+        return result.features
+    }
+
+    /// Imports features from an evaluated part script evaluation.
+    @discardableResult
+    public func importFeatures(from evaluation: PartScriptEvaluation, baseName: String? = nil) throws -> [Feature] {
+        try importFeatures(from: evaluation.shape, baseName: baseName)
+    }
+
+    private func registerImportFeaturesUndo(
+        features importedFeatures: [Feature],
+        rootSolidId: SolidId?,
+        insertIndex: Int,
+        previousRollback: Int?,
+        actionName: String
+    ) {
+        let importedIds = importedFeatures.map(\.id)
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                for id in importedIds.reversed() {
+                    _ = target.removeFeature(id: id, registerUndo: false)
+                }
+                target.rollbackIndex = previousRollback
+                target.registerImportFeaturesRedo(
+                    features: importedFeatures,
+                    rootSolidId: rootSolidId,
+                    insertIndex: insertIndex,
+                    previousRollback: previousRollback,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let rootSolidId {
+                    target.onUndoRedoMutation?(.removed(rootSolidId))
+                }
+            }
+        }
+    }
+
+    private func registerImportFeaturesRedo(
+        features importedFeatures: [Feature],
+        rootSolidId: SolidId?,
+        insertIndex: Int,
+        previousRollback: Int?,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.features.insert(contentsOf: importedFeatures, at: insertIndex)
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + importedFeatures.count
+                }
+                if let rootSolidId {
+                    target.selectedId = rootSolidId
+                }
+                target.registerImportFeaturesUndo(
+                    features: importedFeatures,
+                    rootSolidId: rootSolidId,
+                    insertIndex: insertIndex,
+                    previousRollback: previousRollback,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let rootSolidId {
+                    target.onUndoRedoMutation?(.added(rootSolidId))
+                }
+            }
+        }
+    }
+
+
     @discardableResult
     public func removeObject(id: ObjectId, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {

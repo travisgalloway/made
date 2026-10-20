@@ -2468,6 +2468,92 @@ import MadeCore
         let coarseTriangleCount = coarseMesh.indexCount / 3
         #expect(fineTriangleCount > coarseTriangleCount, "Document opened with fine tolerance must produce denser cylinder mesh than coarse")
     }
+
+    // MARK: - DSL Feature Import (BL-SCR-04 / #332)
+
+    @Test @MainActor func testImportPartScriptAsFeaturesAndInspectorParameters() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ws-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let scriptFile = tempDir.appendingPathComponent("widget.part.ts")
+        try """
+        import { Box, type Shape } from 'made';
+        const widget: Shape = Box({ width: 30, depth: 20, height: 10 });
+        export default widget;
+        """.write(to: scriptFile, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let initialFeatureCount = model.document.features.count
+        let features = try await model.importPartScriptAsFeatures(at: scriptFile)
+
+        #expect(features.count == 1)
+        #expect(model.document.features.count == initialFeatureCount + 1)
+
+        guard let solidId = features[0].outputSolidId else {
+            Issue.record("Expected outputSolidId on imported feature")
+            return
+        }
+
+        #expect(model.document.objects.contains(where: { $0.id == solidId }))
+        #expect(model.document.bodies.contains(where: { $0.id == solidId }))
+        #expect(model.document.paramValue(for: solidId, key: "width") == 30)
+
+        // Mutate parameter through WorkspaceModel (used by Inspector)
+        model.setParam(solidId, "width", 50)
+        #expect(model.document.paramValue(for: solidId, key: "width") == 50)
+
+        guard let updatedFeature = model.document.feature(for: solidId),
+              case .primitive(.box(let params)) = updatedFeature.operation else {
+            Issue.record("Expected updated box feature")
+            return
+        }
+        #expect(params.width == 50)
+    }
+
+    @Test @MainActor func testConvertPartToFeaturesReplacesPartObject() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ws-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let scriptFile = tempDir.appendingPathComponent("bracket.part.ts")
+        try """
+        import { Box, type Shape } from 'made';
+        const bracket: Shape = Box({ width: 40, depth: 40, height: 10 });
+        export default bracket;
+        """.write(to: scriptFile, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel()
+        model.setUp()
+
+        guard let partId = model.openPartFile(at: scriptFile) else {
+            Issue.record("Expected openPartFile to return partId")
+            return
+        }
+
+        #expect(model.document.objects.contains(where: { $0.id == partId }))
+        guard let partObj = model.document.objects.first(where: { $0.id == partId }),
+              case .part = partObj.def else {
+            Issue.record("Expected .part object def")
+            return
+        }
+
+        let features = try await model.convertPartToFeatures(id: partId)
+        #expect(features.count == 1)
+
+        // Part object must be removed and replaced by the decomposed features
+        #expect(!model.document.objects.contains(where: { $0.id == partId }))
+
+        guard let solidId = features[0].outputSolidId else {
+            Issue.record("Expected outputSolidId on decomposed feature")
+            return
+        }
+        #expect(model.document.objects.contains(where: { $0.id == solidId }))
+        #expect(model.document.bodies.contains(where: { $0.id == solidId }))
+    }
 }
+
 
 
