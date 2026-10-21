@@ -1,0 +1,91 @@
+{
+  "entries": [
+    {
+      "id": "nist-ftc06-prismatic",
+      "filename": "nist_ftc06_prismatic.step",
+      "format": "step",
+      "unit": "mm",
+      "license": "CC0-1.0",
+      "description": "NIST CAx-IF derived stepped prismatic benchmark part in millimeters",
+      "expectedBounds": {
+        "min": [0.0, 0.0, 0.0],
+        "max": [60.0, 40.0, 30.0]
+      },
+      "expectedVolume": 54000.0,
+      "boundsTolerance": 0.01,
+      "volumeTolerance": 0.1
+    },
+    {
+      "id": "cube-inches",
+      "filename": "cube_inches.step",
+      "format": "step",
+      "unit": "in",
+      "license": "CC0-1.0",
+      "description": "Unit cube reference model authored in inches with 1.0 inch sides",
+      "expectedBounds": {
+        "min": [0.0, 0.0, 0.0],
+        "max": [25.4, 25.4, 25.4]
+      },
+      "expectedVolume": 16387.064,
+      "boundsTolerance": 0.01,
+      "volumeTolerance": 0.1
+    },
+    {
+      "id": "cylinder-metric",
+      "filename": "cylinder_metric.iges",
+      "format": "iges",
+      "unit": "mm",
+      "license": "CC0-1.0",
+      "description": "Right circular cylinder in IGES format with radius 10 mm and height 20 mm",
+      "expectedBounds": {
+        "min": [-10.0, -10.0, 0.0],
+        "max": [10.0, 10.0, 20.0]
+      },
+      "expectedVolume": 6283.1853,
+      "boundsTolerance": 0.01,
+      "volumeTolerance": 0.1
+    },
+    {
+      "id": "box-metric-ascii",
+      "filename": "box_metric_ascii.stl",
+      "format": "stl",
+      "unit": "mm",
+      "license": "CC0-1.0",
+      "description": "Metric 10x10x10 mm box in ASCII STL format",
+      "expectedBounds": {
+        "min": [0.0, 0.0, 0.0],
+        "max": [10.0, 10.0, 10.0]
+      },
+      "expectedVolume": 1000.0,
+      "boundsTolerance": 0.01,
+      "volumeTolerance": 0.1
+    },
+    {
+      "id": "wedge-inches-binary",
+      "filename": "wedge_inches_binary.stl",
+      "format": "stl",
+      "unit": "in",
+      "license": "CC0-1.0",
+      "description": "1x1x1 inch right triangular prism wedge in binary STL format",
+      "expectedBounds": {
+        "min": [0.0, 0.0, 0.0],
+        "max": [25.4, 25.4, 25.4]
+      },
+      "expectedVolume": 8193.532,
+      "boundsTolerance": 0.01,
+      "volumeTolerance": 0.1
+    },
+    {
+      "id": "unsupported-ap242-pmi",
+      "filename": "unsupported_ap242_pmi.step",
+      "format": "step",
+      "unit": "mm",
+      "license": "CC0-1.0",
+      "description": "STEP AP242 model containing semantic PMI annotations tracking expected failure #403",
+      "expectedFailure": {
+        "issue": "#403",
+        "reason": "AP242 semantic PMI annotations without basic B-Rep geometry roots are not yet supported"
+      }
+    }
+  ]
+}

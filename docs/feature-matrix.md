@@ -71,6 +71,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - PKG-1 is Shipped. Direct-download distribution packaging (.dmg, .zip) with Hardened Runtime inside-out signing, JavaScriptCore JIT entitlements, SHA256 checksums, notarization workflow, AppVersion presentation, and settings persistence was implemented under #254 (BL-MAC-10).
 - XCH-1 is Shipped. Binary STL export with user-configurable tessellation tolerance, unit conversion, streaming 64 KB chunk buffers, and partial write cleanup was implemented under #266 (BL-XCH-05).
 - XCH-2 is Shipped. Multi-object 3MF export with units, body colors from basematerials, tessellation tolerance selection, and open boundary edge warnings was implemented under #405 (BL-XCH-06).
+- XCH-3 is Shipped. Reference STEP, IGES, and STL test corpus with manifest-driven bounds, volume, tolerance verification, unit normalization, and expected failure tracking under CI was implemented under #411 (BL-XCH-14).
 
 Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
 
@@ -292,4 +293,5 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | MEA-2 | (new) A person can inspect the axis-aligned bounding box and optimal minimum-volume oriented bounding box in the Inspector panel formatted in document units, and an agent can query them via cad_measure for imported solids and primitives (BL-MEA-02) | done | done | done | Shipped | #260 | n/a |
 | XCH-1 | (new) A person can export visible scene bodies to binary STL with configurable tessellation tolerance and unit selection via File > Export > STL and Solid > Export STL (BL-XCH-05) | done | done | done | Shipped | #266 | n/a |
 | XCH-2 | (new) A person can export visible scene bodies to multi-object 3MF with units, body colors from basematerials, and tessellation tolerance selection via File > Export > 3MF… and Solid > Export 3MF… (BL-XCH-06) | done | done | done | Shipped | #405 | n/a |
+| XCH-3 | (new) A maintainer can run a reference STEP, IGES, and STL corpus in CI with manifest-driven bounds, volume, tolerance verification, unit scaling, and expected failure tracking (BL-XCH-14) | n/a | done | done | Shipped | #411 | n/a |
 
