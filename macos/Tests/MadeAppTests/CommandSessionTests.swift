@@ -493,6 +493,65 @@ extension WorkspaceModelTests {
         #expect(!session.canCommit)
     }
 
+    @Test @MainActor func testMakeRevolveLifecycle() async {
+        let workspace = WorkspaceModel()
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(20, 0))
+        let l2 = SketchEntity.line(start: SIMD2(20, 0), end: SIMD2(20, 20))
+        let l3 = SketchEntity.line(start: SIMD2(20, 20), end: SIMD2(0, 20))
+        let l4 = SketchEntity.line(start: SIMD2(0, 20), end: SIMD2(0, 0))
+        let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+
+        let session = CommandSession.makeRevolve(workspace: workspace, sketchFeatureId: sketch.id)
+        #expect(session.canCommit)
+        #expect(session.choiceValue(for: "mode") == "Full")
+        #expect(session.numberValue(for: "angle") == 360.0)
+
+        session.setChoiceValue("Angle", for: "mode")
+        session.setNumberValue(90.0, for: "angle")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        await Task.yield()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .revolve(let params)? = added?.def {
+            #expect(params.mode == .angle)
+            #expect(params.angle == 90.0)
+            #expect(params.sketchFeatureId == sketch.id)
+        } else {
+            Issue.record("Expected .revolve def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakeRevolveValidationRejectsOpenProfile() {
+        let workspace = WorkspaceModel()
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let l2 = SketchEntity.line(start: SIMD2(10, 0), end: SIMD2(10, 10))
+        let openSketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1, l2])
+
+        let session = CommandSession.makeRevolve(workspace: workspace, sketchFeatureId: openSketch.id)
+        #expect(!session.canCommit)
+    }
+
+    @Test @MainActor func testMakeRevolveValidationRejectsCrossingAxis() {
+        let workspace = WorkspaceModel()
+        let l1 = SketchEntity.line(start: SIMD2(-5, 0), end: SIMD2(5, 0))
+        let l2 = SketchEntity.line(start: SIMD2(5, 0), end: SIMD2(5, 10))
+        let l3 = SketchEntity.line(start: SIMD2(5, 10), end: SIMD2(-5, 10))
+        let l4 = SketchEntity.line(start: SIMD2(-5, 10), end: SIMD2(-5, 0))
+        let crossingSketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+
+        let datumAxis = workspace.document.addDatumAxisFeature(data: DatumAxisFeatureData(mode: .preset, presetName: "Y"))
+
+        let session = CommandSession.makeRevolve(workspace: workspace, sketchFeatureId: crossingSketch.id)
+        session.setChoiceValue(datumAxis.name, for: "axis")
+        #expect(!session.canCommit)
+    }
+
     @Test @MainActor func testMakeDatumPlaneLifecycle() async {
         let workspace = WorkspaceModel()
         let initialFeatureCount = workspace.document.features.count

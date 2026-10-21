@@ -1028,6 +1028,364 @@ extension CommandSession {
         return session
     }
 
+    static func makeRevolve(workspace: WorkspaceModel, sketchFeatureId: UUID? = nil) -> CommandSession {
+        let sketches = workspace.document.activeFeatures.filter {
+            if case .sketch = $0.operation { return true }
+            return false
+        }
+        let initialSketchId = sketchFeatureId ?? sketches.first?.id
+        let sketchOptions = sketches.map { $0.name }
+        let initialChoice = sketches.first(where: { $0.id == initialSketchId })?.name ?? (sketchOptions.first ?? "None")
+
+        var axisOptions: [String] = []
+        if let initialSketchId,
+           let feat = workspace.document.feature(for: initialSketchId),
+           case .sketch(let data) = feat.operation {
+            let lineEntities = data.entities.filter { $0.kind == "line" && !$0.isConstruction }
+            for (idx, _) in lineEntities.enumerated() {
+                axisOptions.append("Sketch Line \(idx + 1)")
+            }
+        }
+        let datumAxes = workspace.document.activeFeatures.filter {
+            if case .datumAxis = $0.operation { return true }
+            return false
+        }
+        for axisFeat in datumAxes {
+            axisOptions.append(axisFeat.name)
+        }
+        if axisOptions.isEmpty {
+            axisOptions.append("None")
+        }
+        let initialAxisChoice = axisOptions.first ?? "None"
+
+        var inputs: [CommandInput] = [
+            CommandInput(
+                id: "mode",
+                label: "Mode",
+                value: .choice("Full", options: ["Full", "Angle", "Symmetric", "Two-Direction"])
+            ),
+            CommandInput(
+                id: "angle",
+                label: "Angle",
+                value: .number(360.0, range: 0.1...360.0, step: 5.0, unit: "°")
+            ),
+            CommandInput(
+                id: "angle2",
+                label: "Angle 2",
+                value: .number(0.0, range: 0.0...360.0, step: 5.0, unit: "°")
+            ),
+            CommandInput(
+                id: "axis",
+                label: "Axis",
+                value: .choice(initialAxisChoice, options: axisOptions)
+            )
+        ]
+        if !sketchOptions.isEmpty {
+            inputs.insert(CommandInput(id: "sketch", label: "Sketch", value: .choice(initialChoice, options: sketchOptions)), at: 0)
+        }
+
+        var initialRegions: [SketchRegion] = []
+        if let initialSketchId,
+           let feat = workspace.document.feature(for: initialSketchId),
+           case .sketch(let data) = feat.operation {
+            let plane = workspace.document.resolveSketchPlane(for: data)
+            initialRegions = (try? SketchProfileBuilder.detectRegions(from: data.entities, plane: plane)) ?? []
+        }
+        if initialRegions.count > 1 {
+            let regionOptions = initialRegions.indices.map { "Region \($0 + 1)" }
+            var initialRegionChoice = regionOptions.first ?? "Region 1"
+            if let selRegId = workspace.selectedSketchRegionId,
+               let idx = initialRegions.firstIndex(where: { $0.id == selRegId }) {
+                initialRegionChoice = regionOptions[idx]
+            }
+            inputs.insert(CommandInput(id: "region", label: "Region", value: .choice(initialRegionChoice, options: regionOptions)), at: 1)
+        }
+
+        let axisSlot = CommandSelectionSlot(
+            id: "axis",
+            label: "Revolve Axis",
+            isRequired: false,
+            selectedObjectId: nil,
+            selectedObjectName: nil,
+            selectedSubElement: nil,
+            isActive: true
+        )
+
+        let session = CommandSession(
+            title: "Revolve",
+            selectionSlots: [axisSlot],
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        func parseMode(_ str: String?) -> RevolveMode {
+            switch str?.lowercased() {
+            case "angle": return .angle
+            case "symmetric": return .symmetric
+            case "two-direction", "twodirection": return .twoDirection
+            default: return .full
+            }
+        }
+
+        func resolveAxisRef(session: CommandSession, targetSketch: Feature, sketchData: SketchFeatureData) -> Reference? {
+            if let slot = session.selectionSlots.first(where: { $0.id == "axis" }) {
+                if let subEl = slot.selectedSubElement, subEl.elementType == .edge {
+                    if let feat = workspace.document.feature(for: subEl.solidId) {
+                        let topRef: TopologicalReference
+                        if let detId = subEl.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                            topRef = existing
+                        } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "edge:\(subEl.elementId)" }) {
+                            topRef = named
+                        } else {
+                            topRef = TopologicalReference(
+                                sourceFeatureId: feat.id,
+                                elementType: .edge,
+                                historyPath: [HistoryStep(kind: .generated, label: "edge:\(subEl.elementId)")]
+                            )
+                        }
+                        return .edge(topRef)
+                    }
+                }
+                if let objId = slot.selectedObjectId,
+                   let feat = workspace.document.feature(for: objId),
+                   case .datumAxis = feat.operation {
+                    return .feature(feat.id)
+                }
+            }
+
+            let axisChoice = session.choiceValue(for: "axis")
+            if let axisChoice {
+                if let datumAxis = workspace.document.activeFeatures.first(where: {
+                    if case .datumAxis = $0.operation { return $0.name == axisChoice }
+                    return false
+                }) {
+                    return .feature(datumAxis.id)
+                }
+
+                let lineEntities = sketchData.entities.filter { $0.kind == "line" && !$0.isConstruction }
+                for (idx, line) in lineEntities.enumerated() {
+                    if axisChoice == "Sketch Line \(idx + 1)" || axisChoice == "Line \(idx + 1)" {
+                        return .sketchEntity(featureId: targetSketch.id, entityId: line.id)
+                    }
+                }
+            }
+
+            let lineEntities = sketchData.entities.filter { $0.kind == "line" && !$0.isConstruction }
+            if let firstLine = lineEntities.first {
+                return .sketchEntity(featureId: targetSketch.id, entityId: firstLine.id)
+            }
+
+            return nil
+        }
+
+        session.customValidation = { [weak workspace, weak session] in
+            guard let workspace, let session else { return false }
+            let sketchName = session.choiceValue(for: "sketch")
+            let targetSketch = workspace.document.activeFeatures.first {
+                if case .sketch = $0.operation {
+                    if let sketchName { return $0.name == sketchName }
+                    return true
+                }
+                return false
+            }
+            guard let targetSketch, case .sketch(let sketchData) = targetSketch.operation else { return false }
+            guard !sketchData.entities.isEmpty else { return false }
+
+            let plane = workspace.document.resolveSketchPlane(for: sketchData)
+            let profile: SketchProfile
+            let regions = (try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: plane)) ?? []
+            if let regionChoice = session.choiceValue(for: "region"),
+               let num = Int(regionChoice.replacingOccurrences(of: "Region ", with: "")),
+               num >= 1, num <= regions.count {
+                profile = regions[num - 1].toProfile(plane: plane)
+            } else if let selectedRegionId = workspace.selectedSketchRegionId,
+                      let matched = regions.first(where: { $0.id == selectedRegionId }) {
+                profile = matched.toProfile(plane: plane)
+            } else if let primary = regions.first {
+                profile = primary.toProfile(plane: plane)
+            } else {
+                do {
+                    profile = try SketchProfileBuilder.build(from: sketchData.entities, plane: plane)
+                } catch {
+                    return false
+                }
+            }
+            guard profile.points.count >= 3 else { return false }
+
+            guard let axisRef = resolveAxisRef(session: session, targetSketch: targetSketch, sketchData: sketchData) else {
+                return false
+            }
+            guard case .success(let axisGeom) = workspace.document.resolveAxis(from: axisRef) else {
+                return false
+            }
+
+            if DocumentModel.validateRevolveAxis(profile: profile, axisOrigin: axisGeom.origin, axisDirection: axisGeom.direction) != nil {
+                return false
+            }
+
+            let mode = parseMode(session.choiceValue(for: "mode"))
+            let angle = session.numberValue(for: "angle") ?? 360.0
+            guard angle > 0 && angle <= 360.0 else { return false }
+
+            if mode == .twoDirection {
+                let angle2 = session.numberValue(for: "angle2") ?? 0.0
+                guard angle2 > 0 && angle2 <= 360.0 else { return false }
+            }
+
+            return true
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let sketchName = session.choiceValue(for: "sketch")
+            let targetSketch = workspace.document.activeFeatures.first {
+                if case .sketch = $0.operation {
+                    if let sketchName { return $0.name == sketchName }
+                    return true
+                }
+                return false
+            }
+            guard let targetSketch, case .sketch(let sketchData) = targetSketch.operation else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let plane = workspace.document.resolveSketchPlane(for: sketchData)
+            let regions = (try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: plane)) ?? []
+            let profile: SketchProfile?
+            if let regionChoice = session.choiceValue(for: "region"),
+               let num = Int(regionChoice.replacingOccurrences(of: "Region ", with: "")),
+               num >= 1, num <= regions.count {
+                profile = regions[num - 1].toProfile(plane: plane)
+            } else if let selectedRegionId = workspace.selectedSketchRegionId,
+                      let matched = regions.first(where: { $0.id == selectedRegionId }) {
+                profile = matched.toProfile(plane: plane)
+            } else if let primary = regions.first {
+                profile = primary.toProfile(plane: plane)
+            } else {
+                profile = try? SketchProfileBuilder.build(from: sketchData.entities, plane: plane)
+            }
+
+            guard let profile, profile.points.count >= 3 else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            guard let axisRef = resolveAxisRef(session: session, targetSketch: targetSketch, sketchData: sketchData),
+                  case .success(let axisGeom) = workspace.document.resolveAxis(from: axisRef) else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            if DocumentModel.validateRevolveAxis(profile: profile, axisOrigin: axisGeom.origin, axisDirection: axisGeom.direction) != nil {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let mode = parseMode(session.choiceValue(for: "mode"))
+            let angle = session.numberValue(for: "angle") ?? 360.0
+            let angle2 = session.numberValue(for: "angle2") ?? 0.0
+
+            let params = RevolveParams(
+                profile: profile,
+                mode: mode,
+                angle: Double(angle),
+                angle2: Double(angle2),
+                axisOrigin: axisGeom.origin,
+                axisDirection: axisGeom.direction,
+                sketchFeatureId: targetSketch.id,
+                axisReference: axisRef
+            )
+
+            Task { @MainActor in
+                let req = KernelRequest.evaluateShape(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    shape: .revolveSolid(params, slices: 64)
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.6, 0.3, 0.9, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            let sketchName = session.choiceValue(for: "sketch")
+            let targetSketch = workspace.document.activeFeatures.first {
+                if case .sketch = $0.operation {
+                    if let sketchName { return $0.name == sketchName }
+                    return true
+                }
+                return false
+            }
+            guard let targetSketch, case .sketch(let sketchData) = targetSketch.operation else { return }
+
+            let plane = workspace.document.resolveSketchPlane(for: sketchData)
+            let regions = (try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: plane)) ?? []
+            var chosenRegionId: UUID? = nil
+            if let regionChoice = session.choiceValue(for: "region"),
+               let num = Int(regionChoice.replacingOccurrences(of: "Region ", with: "")),
+               num >= 1, num <= regions.count {
+                chosenRegionId = regions[num - 1].id
+            } else if let selectedRegionId = workspace.selectedSketchRegionId,
+                      regions.contains(where: { $0.id == selectedRegionId }) {
+                chosenRegionId = selectedRegionId
+            }
+
+            guard let axisRef = resolveAxisRef(session: session, targetSketch: targetSketch, sketchData: sketchData) else {
+                return
+            }
+
+            let mode = parseMode(session.choiceValue(for: "mode"))
+            let angle = session.numberValue(for: "angle") ?? 360.0
+            let angle2 = session.numberValue(for: "angle2") ?? 0.0
+
+            Task { @MainActor in
+                _ = await workspace.revolveSketch(
+                    sketchFeatureId: targetSketch.id,
+                    regionId: chosenRegionId,
+                    mode: mode,
+                    angle: Double(angle),
+                    angle2: Double(angle2),
+                    axisReference: axisRef
+                )
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+        }
+
+        return session
+    }
+
     static func makeNewSketch(workspace: WorkspaceModel) -> CommandSession {
         let defaultName = "Sketch \(workspace.document.activeFeatures.filter { if case .sketch = $0.operation { return true }; return false }.count + 1)"
         let session = CommandSession(

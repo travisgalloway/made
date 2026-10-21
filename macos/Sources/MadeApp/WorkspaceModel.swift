@@ -1026,6 +1026,10 @@ final class WorkspaceModel {
         startCommand(CommandSession.makeExtrude(workspace: self, sketchFeatureId: sketchFeatureId))
     }
 
+    func startRevolveCommand(sketchFeatureId: UUID? = nil) {
+        startCommand(CommandSession.makeRevolve(workspace: self, sketchFeatureId: sketchFeatureId))
+    }
+
     func startPushPullCommand(solidId: SolidId, faceId: Int) {
         startCommand(CommandSession.makePushPull(workspace: self, solidId: solidId, faceId: faceId))
     }
@@ -1169,6 +1173,33 @@ final class WorkspaceModel {
                 regionId: regionId
             )
             guard let solidId = extrudeFeature.outputSolidId else { return nil }
+            selectedId = solidId
+            recomputeSolid(id: solidId)
+            return solidId
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func revolveSketch(
+        sketchFeatureId: UUID,
+        regionId: UUID? = nil,
+        mode: RevolveMode = .full,
+        angle: Double = 360.0,
+        angle2: Double = 0.0,
+        axisReference: Reference
+    ) async -> ObjectId? {
+        do {
+            let revolveFeature = try document.revolveSketch(
+                sketchFeatureId: sketchFeatureId,
+                regionId: regionId,
+                mode: mode,
+                angle: angle,
+                angle2: angle2,
+                axisReference: axisReference
+            )
+            guard let solidId = revolveFeature.outputSolidId else { return nil }
             selectedId = solidId
             recomputeSolid(id: solidId)
             return solidId

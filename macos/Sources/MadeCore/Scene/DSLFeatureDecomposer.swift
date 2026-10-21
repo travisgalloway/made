@@ -192,7 +192,7 @@ public enum DSLFeatureDecomposer {
             )
             return ([sketchFeature, extrudeFeature], extrudeSolidId)
 
-        case .revolve:
+        case .revolve, .revolveSolid:
             throw DSLDecompositionError.unsupportedNode("revolve is not yet supported in linear feature history (BL-PRT-02)")
 
         case .translate(let child, let offset):

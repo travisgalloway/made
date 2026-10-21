@@ -470,6 +470,8 @@ public final class CADToolRegistry {
                 item["file"] = url.path
             case .extrude(let p):
                 item["params"] = ["distance": p.distance, "isSymmetric": p.isSymmetric]
+            case .revolve(let p):
+                item["params"] = ["mode": p.mode.rawValue, "angle": p.angle, "angle2": p.angle2]
             }
             summary.append(item)
         }
@@ -576,6 +578,8 @@ public final class CADToolRegistry {
             dimStr = "with dimensions (width: \(p.width), depth: \(p.depth), height: \(p.height), topWidth: \(p.topWidth))"
         case .extrude(let p):
             dimStr = "with distance \(p.distance)"
+        case .revolve(let p):
+            dimStr = "with angle \(p.angle)"
         default:
             dimStr = ""
         }
@@ -680,6 +684,8 @@ public final class CADToolRegistry {
             return .error("Sketch error: \(err.localizedDescription)")
         case .failure(.referenceResolutionFailed(let err)):
             return .error("Reference resolution error: \(err.description)")
+        case .failure(.invalidOperation(let msg)):
+            return .error("Invalid operation: \(msg)")
         case .success:
             break
         }
@@ -743,6 +749,12 @@ public final class CADToolRegistry {
         case .torus(let p): return [("majorRadius", p.majorRadius), ("minorRadius", p.minorRadius)]
         case .wedge(let p): return [("width", p.width), ("depth", p.depth), ("height", p.height), ("topWidth", p.topWidth)]
         case .extrude(let p): return [("distance", Float(p.distance))]
+        case .revolve(let p):
+            if p.mode == .twoDirection {
+                return [("angle", Float(p.angle)), ("angle2", Float(p.angle2))]
+            } else {
+                return [("angle", Float(p.angle))]
+            }
         case .imported, .boolean, .part: return nil
         }
     }
@@ -792,6 +804,8 @@ public final class CADToolRegistry {
             return .error("Sketch error: \(err.localizedDescription)")
         case .failure(.referenceResolutionFailed(let err)):
             return .error("Reference resolution error: \(err.description)")
+        case .failure(.invalidOperation(let msg)):
+            return .error("Invalid operation: \(msg)")
         case .success:
             break
         }
@@ -912,6 +926,19 @@ public final class CADToolRegistry {
             resultDict["type"] = "extrude"
             resultDict["distance"] = p.distance
             resultDict["isSymmetric"] = p.isSymmetric
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
+
+        case .revolve(let p):
+            resultDict["type"] = "revolve"
+            resultDict["mode"] = p.mode.rawValue
+            resultDict["angle"] = p.angle
+            resultDict["angle2"] = p.angle2
             await settleRecomputes(for: [id])
             if let payload = await meshForObject(obj),
                let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
@@ -1349,7 +1376,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,
@@ -1873,6 +1900,20 @@ public final class CADToolRegistry {
             }
             if let rId = extrudeData.regionId {
                 dict["regionId"] = rId.uuidString
+            }
+        case .revolve(let revolveData):
+            dict["type"] = "revolve"
+            dict["mode"] = revolveData.mode.rawValue
+            dict["angle"] = revolveData.angle
+            dict["angle2"] = revolveData.angle2
+            if let sfId = revolveData.sketchFeatureId {
+                dict["sketchFeatureId"] = sfId.uuidString
+            }
+            if let rId = revolveData.regionId {
+                dict["regionId"] = rId.uuidString
+            }
+            if let axisRef = revolveData.axisReference {
+                dict["axisReference"] = axisRef.id.uuidString
             }
         case .boolean(let boolData):
             dict["type"] = "boolean"

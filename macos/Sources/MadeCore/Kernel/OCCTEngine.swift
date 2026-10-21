@@ -110,7 +110,7 @@ enum OCCTEngine {
                 return try importStep(data: fileData)
             }
             throw EngineError.emptyData
-        case .boolean, .extrude, .part:
+        case .boolean, .extrude, .revolve, .part:
             throw EngineError.tessellationFailed
         }
     }

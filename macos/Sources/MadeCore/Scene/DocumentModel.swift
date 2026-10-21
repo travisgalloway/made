@@ -18,6 +18,8 @@ public enum ObjectDef: Sendable, Equatable {
     case part(url: URL, shape: ShapeNode? = nil)
     /// A solid extruded from a 2D sketch profile.
     case extrude(ExtrudeParams)
+    /// A solid revolved from a 2D sketch profile about an axis (BL-PRT-02).
+    case revolve(RevolveParams)
     
     public var kind: String {
         switch self {
@@ -31,6 +33,7 @@ public enum ObjectDef: Sendable, Equatable {
         case .boolean: return "boolean"
         case .part: return "part"
         case .extrude: return "extrude"
+        case .revolve: return "revolve"
         }
     }
 }
@@ -68,6 +71,17 @@ extension ObjectDef {
             return (filename.isEmpty || filename == "/") ? "part" : filename
         case .extrude(let p):
             return "h \(Self.formatDim(Float(p.distance))) mm"
+        case .revolve(let p):
+            switch p.mode {
+            case .full:
+                return "360°"
+            case .angle:
+                return "\(Self.formatDim(Float(p.angle)))°"
+            case .symmetric:
+                return "±\(Self.formatDim(Float(p.angle / 2.0)))°"
+            case .twoDirection:
+                return "\(Self.formatDim(Float(p.angle)))° / \(Self.formatDim(Float(p.angle2)))°"
+            }
         }
     }
 
@@ -225,6 +239,9 @@ extension ObjectDef: Codable {
         case "extrude":
             let params = try container.decode(ExtrudeParams.self, forKey: .params)
             self = DocumentLimits.clamp(.extrude(params))
+        case "revolve":
+            let params = try container.decode(RevolveParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.revolve(params))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
@@ -278,6 +295,9 @@ extension ObjectDef: Codable {
             }
         case .extrude(let params):
             try container.encode("extrude", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .revolve(let params):
+            try container.encode("revolve", forKey: .kind)
             try container.encode(params, forKey: .params)
         }
     }
@@ -361,6 +381,7 @@ public enum DocumentLimits {
     public static let wedgeHeight = ParamRange(min: 5, max: 90)
     public static let wedgeTopWidth = ParamRange(min: 0, max: 90)
     public static let extrudeDistance = ParamRange(min: 0.01, max: 10_000)
+    public static let revolveAngle = ParamRange(min: 0.1, max: 360.0)
     
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
@@ -441,6 +462,13 @@ public enum DocumentLimits {
         }
     }
 
+    public static func clampRevolve(key: String, value: Float) -> Float {
+        switch key {
+        case "angle", "angle2": return revolveAngle.clamp(value)
+        default: return value
+        }
+    }
+
     public static func clamp(_ def: ObjectDef) -> ObjectDef {
         switch def {
         case .box(let p):
@@ -478,17 +506,24 @@ public enum DocumentLimits {
             let clamped = extrudeDistance.clamp(Float(p.distance))
             p.distance = Double(clamped)
             return .extrude(p)
+        case .revolve(var p):
+            let clampedAngle = revolveAngle.clamp(Float(p.angle))
+            p.angle = Double(clampedAngle)
+            let clampedAngle2 = revolveAngle.clamp(Float(p.angle2))
+            p.angle2 = Double(clampedAngle2)
+            return .revolve(p)
         case .imported, .boolean:
             return def
         }
     }
 }
 
-public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConvertible {
+public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConvertible, LocalizedError {
     case objectLocked(ObjectId)
     case objectNotFound(ObjectId)
     case sketchError(SketchError)
     case referenceResolutionFailed(ReferenceResolutionError)
+    case invalidOperation(String)
 
     public var description: String {
         switch self {
@@ -500,7 +535,13 @@ public enum DocumentMutationError: Error, Equatable, Sendable, CustomStringConve
             return "Sketch error: \(err.localizedDescription)"
         case .referenceResolutionFailed(let err):
             return "Reference resolution failed: \(err.description)"
+        case .invalidOperation(let msg):
+            return msg
         }
+    }
+
+    public var errorDescription: String? {
+        description
     }
 }
 
@@ -2632,6 +2673,155 @@ public final class DocumentModel {
         return extrudeFeature
     }
 
+    /// Resolves an axis reference into an origin and unit direction vector (BL-PRT-02).
+    public func resolveAxis(from reference: Reference) -> Result<(origin: SIMD3<Float>, direction: SIMD3<Float>), DocumentMutationError> {
+        switch reference.target {
+        case .feature(let featId):
+            guard let feat = self.feature(for: featId) else {
+                return .failure(.invalidOperation("Referenced feature \(featId.uuidString) not found"))
+            }
+            guard case .datumAxis(let axisData) = feat.operation else {
+                return .failure(.invalidOperation("Feature \(feat.name) is not a datum axis"))
+            }
+            do {
+                let geom = try DatumAxisEvaluator.evaluate(feature: feat, data: axisData, in: self)
+                let len = simd_length(geom.direction)
+                guard len > 1e-6 else {
+                    return .failure(.invalidOperation("Datum axis has zero direction"))
+                }
+                return .success((geom.origin, geom.direction / len))
+            } catch {
+                return .failure(.invalidOperation(error.localizedDescription))
+            }
+        case .sketchEntity, .edge:
+            let curveResult = ModelEdgeEvaluator.evaluate(reference: reference, in: self)
+            switch curveResult {
+            case .success(.line(let start, let end)):
+                let diff = end - start
+                let len = simd_length(diff)
+                guard len > 1e-6 else {
+                    return .failure(.invalidOperation("Axis line has zero length"))
+                }
+                return .success((start, diff / len))
+            case .success:
+                return .failure(.invalidOperation("Selected axis edge is not a straight line"))
+            case .failure(let err):
+                return .failure(.invalidOperation(err.description))
+            }
+        default:
+            return .failure(.invalidOperation("Unsupported axis reference target"))
+        }
+    }
+
+    /// Validates that a revolve axis does not cross the sketch profile and has valid direction and extent.
+    public static func validateRevolveAxis(
+        profile: SketchProfile,
+        axisOrigin: SIMD3<Float>,
+        axisDirection: SIMD3<Float>
+    ) -> String? {
+        ShapeEvaluator.validateRevolveAxis(
+            profile: profile,
+            axisOrigin: axisOrigin,
+            axisDirection: axisDirection
+        )
+    }
+
+    /// Creates a revolved solid from a sketch region or profile about an axis (BL-PRT-02).
+    @discardableResult
+    public func revolveSketch(
+        sketchFeatureId: UUID,
+        regionId: UUID? = nil,
+        mode: RevolveMode = .full,
+        angle: Double = 360.0,
+        angle2: Double = 0.0,
+        axisReference: Reference
+    ) throws -> Feature {
+        guard angle > 0 && angle <= 360.0 else {
+            throw DocumentMutationError.invalidOperation("Revolve angle must be within (0, 360]")
+        }
+        if mode == .twoDirection {
+            guard angle2 > 0 && angle2 <= 360.0 else {
+                throw DocumentMutationError.invalidOperation("Revolve angle2 must be within (0, 360]")
+            }
+        }
+
+        guard let sketchFeature = feature(for: sketchFeatureId) else {
+            throw DocumentMutationError.objectNotFound(ObjectId(sketchFeatureId.uuidString))
+        }
+        guard case .sketch(let sketchData) = sketchFeature.operation else {
+            throw DocumentMutationError.objectNotFound(ObjectId(sketchFeatureId.uuidString))
+        }
+
+        let sketchPlane = resolveSketchPlane(for: sketchData)
+        let profile: SketchProfile
+        do {
+            if let regionId,
+               let regions = try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: sketchPlane),
+               let matched = regions.first(where: { $0.id == regionId }) {
+                profile = matched.toProfile(plane: sketchPlane)
+            } else {
+                profile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
+            }
+        } catch let sketchErr as SketchError {
+            throw DocumentMutationError.sketchError(sketchErr)
+        }
+
+        guard profile.points.count >= 3 else {
+            throw DocumentMutationError.invalidOperation("Profile must have at least 3 points")
+        }
+
+        let axisGeom: (origin: SIMD3<Float>, direction: SIMD3<Float>)
+        switch resolveAxis(from: axisReference) {
+        case .success(let geom):
+            axisGeom = geom
+        case .failure(let msg):
+            throw DocumentMutationError.invalidOperation("Failed to resolve revolve axis: \(msg)")
+        }
+
+        if let validationError = ShapeEvaluator.validateRevolveAxis(
+            profile: profile,
+            axisOrigin: axisGeom.origin,
+            axisDirection: axisGeom.direction
+        ) {
+            throw DocumentMutationError.invalidOperation(validationError)
+        }
+
+        let clampedAngle = Double(DocumentLimits.revolveAngle.clamp(Float(angle)))
+        let clampedAngle2 = Double(DocumentLimits.revolveAngle.clamp(Float(angle2)))
+
+        seq += 1
+        let solidId = ObjectId("revolve-\(seq)")
+        var refs: [Reference] = [.feature(sketchFeatureId, role: "sketchProfile")]
+        refs.append(axisReference)
+
+        let revolveFeature = Feature(
+            name: "Revolve \(seq)",
+            operation: .revolve(RevolveFeatureData(
+                sketchFeatureId: sketchFeatureId,
+                regionId: regionId,
+                mode: mode,
+                angle: clampedAngle,
+                angle2: clampedAngle2,
+                axisReference: axisReference,
+                profile: profile,
+                axisOrigin: axisGeom.origin,
+                axisDirection: axisGeom.direction
+            )),
+            inputExpressions: [
+                "angle": FeatureExpression(value: clampedAngle),
+                "angle2": FeatureExpression(value: clampedAngle2)
+            ],
+            references: refs,
+            outputSolidId: solidId,
+            bodyOperation: .create,
+            targetBodyId: nil
+        )
+
+        _ = addFeature(revolveFeature)
+        undoManager?.setActionName("Revolve Sketch")
+        return revolveFeature
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -2678,6 +2868,13 @@ public final class DocumentModel {
         case .extrude(let e):
             if let sId = e.sketchFeatureId {
                 result.insert(sId)
+            }
+        case .revolve(let r):
+            if let sId = r.sketchFeatureId {
+                result.insert(sId)
+            }
+            if let axisRef = r.axisReference, let aId = axisRef.referencedFeatureId {
+                result.insert(aId)
             }
         case .sketch(let s):
             if let planeRef = s.planeReference {
@@ -2774,6 +2971,12 @@ public final class DocumentModel {
         case .extrude(let data):
             switch key {
             case "distance": return Float(data.distance)
+            default: return nil
+            }
+        case .revolve(let data):
+            switch key {
+            case "angle": return Float(data.angle)
+            case "angle2": return Float(data.angle2)
             default: return nil
             }
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
@@ -3714,6 +3917,19 @@ public final class DocumentModel {
             }
             clampedValue = Float(data.distance)
             feature.operation = .extrude(data)
+
+        case .revolve(var data):
+            switch key {
+            case "angle":
+                data.angle = Double(DocumentLimits.clampRevolve(key: "angle", value: value))
+                clampedValue = Float(data.angle)
+            case "angle2":
+                data.angle2 = Double(DocumentLimits.clampRevolve(key: "angle2", value: value))
+                clampedValue = Float(data.angle2)
+            default:
+                clampedValue = value
+            }
+            feature.operation = .revolve(data)
 
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             clampedValue = value
