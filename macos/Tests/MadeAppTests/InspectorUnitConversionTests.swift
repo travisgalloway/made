@@ -181,6 +181,26 @@ import MadeCore
         #expect(parsedUnknown == nil)
     }
 
+    @Test @MainActor func testCommitNumberFieldExpressionEvaluator() {
+        let resolver: (String) -> Double? = { name in
+            (name == "width") ? 40.0 : nil
+        }
+        let evaluator: (String) -> Double? = { expr in
+            try? ExpressionEvaluator.evaluate(
+                expr,
+                context: EvaluationContext(
+                    parameters: [
+                        "width": EvaluationContext.ParameterValue(value: 40.0, dimension: .length, unit: "mm")
+                    ]
+                )
+            ).value
+        }
+
+        let parsedExpr = CommitNumberField.parseDraft("width / 2 + 5 mm", resolver: resolver, evaluator: evaluator)
+        #expect(parsedExpr?.value == 25.0)
+        #expect(parsedExpr?.expression == "width / 2 + 5 mm")
+    }
+
     @Test @MainActor func testDatumPlaneAngleEditingWithUnits() {
         let workspace = WorkspaceModel()
         workspace.setUp()

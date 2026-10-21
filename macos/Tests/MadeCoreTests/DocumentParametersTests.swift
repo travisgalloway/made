@@ -264,4 +264,61 @@ import Foundation
             try doc.updateParameter(id: randomId, value: 50.0)
         }
     }
+
+    // MARK: - Expressions, Cycles, and Cascading (BL-PAR-02)
+
+    @Test func testCycleRejectionOnDefinition() throws {
+        let doc = DocumentModel()
+
+        // Define a with expression "b + 1"
+        let paramA = DocumentParameter(name: "a", value: 0.0, expression: "b + 1")
+        try doc.addParameter(paramA)
+
+        // Defining b with expression "a" forms a cycle [b, a, b]
+        let paramB = DocumentParameter(name: "b", value: 0.0, expression: "a")
+        #expect(throws: DocumentParameterError.referenceCycle(["b", "a", "b"])) {
+            try doc.addParameter(paramB)
+        }
+        #expect(doc.parameter(named: "b") == nil)
+    }
+
+    @Test func testParameterExpressionEvaluationAndSelectiveReevaluation() throws {
+        let doc = DocumentModel()
+
+        // Define root parameter
+        let base = DocumentParameter(name: "base_width", value: 20.0, unit: "mm")
+        try doc.addParameter(base)
+
+        // Define dependent parameter with expression "base_width / 2 + 5 mm"
+        let flange = DocumentParameter(name: "flange_width", value: 0.0, expression: "base_width / 2 + 5 mm")
+        try doc.addParameter(flange)
+        #expect(doc.parameter(named: "flange_width")?.value == 15.0)
+
+        // Define independent parameter
+        let independent = DocumentParameter(name: "wall_thickness", value: 4.0, unit: "mm")
+        try doc.addParameter(independent)
+
+        // Update root parameter
+        try doc.updateParameter(id: base.id, value: 40.0)
+
+        // Dependent parameter re-evaluated to 40 / 2 + 5 = 25
+        #expect(doc.parameter(named: "base_width")?.value == 40.0)
+        #expect(doc.parameter(named: "flange_width")?.value == 25.0)
+
+        // Independent parameter untouched
+        #expect(doc.parameter(named: "wall_thickness")?.value == 4.0)
+    }
+
+    @Test func testUpdateParameterWithCycleRejection() throws {
+        let doc = DocumentModel()
+        let pA = DocumentParameter(name: "param_a", value: 10.0)
+        let pB = DocumentParameter(name: "param_b", value: 20.0, expression: "param_a + 5")
+        try doc.addParameter(pA)
+        try doc.addParameter(pB)
+
+        // Updating param_a to reference param_b forms a cycle
+        #expect(throws: DocumentParameterError.referenceCycle(["param_a", "param_b", "param_a"])) {
+            try doc.updateParameter(id: pA.id, expression: "param_b * 2")
+        }
+    }
 }
