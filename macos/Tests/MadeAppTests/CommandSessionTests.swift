@@ -972,6 +972,81 @@ extension WorkspaceModelTests {
         session.cancel()
         #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
     }
+
+    // MARK: - Shell Command Session Tests (BL-PRT-08)
+
+    @Test @MainActor func testMakeShellLifecycle() async {
+        let workspace = WorkspaceModel()
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-1"),
+            name: "Box 1",
+            params: BoxParams(width: 20, depth: 20, height: 20)
+        )
+        workspace.document.addFeature(boxFeat)
+        let faceRef = TopologicalReference(
+            sourceFeatureId: boxFeat.id,
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:top")]
+        )
+
+        let session = CommandSession.makeShell(
+            workspace: workspace,
+            targetSolidId: boxFeat.outputSolidId,
+            removedFaceReferences: [faceRef]
+        )
+        #expect(session.canCommit)
+        #expect(session.numberValue(for: "thickness") == 1.0)
+
+        session.setNumberValue(2.0, for: "thickness")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        await Task.yield()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .shell(let params)? = added?.def {
+            #expect(params.thickness == 2.0)
+            #expect(params.removedFaceReferences == [faceRef])
+        } else {
+            Issue.record("Expected .shell def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakeShellValidation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeShell(workspace: workspace)
+        #expect(!session.canCommit)
+
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-1"),
+            name: "Box",
+            params: BoxParams(width: 20, depth: 20, height: 20)
+        )
+        workspace.document.addFeature(boxFeat)
+
+        let sessionWithBox = CommandSession.makeShell(workspace: workspace, targetSolidId: boxFeat.outputSolidId)
+        #expect(sessionWithBox.canCommit)
+
+        sessionWithBox.setNumberValue(-1.0, for: "thickness")
+        #expect(!sessionWithBox.canCommit)
+
+        sessionWithBox.setNumberValue(0.0, for: "thickness")
+        #expect(!sessionWithBox.canCommit)
+
+        sessionWithBox.setNumberValue(2.0, for: "thickness")
+        #expect(sessionWithBox.canCommit)
+    }
+
+    @Test @MainActor func testMakeShellCancellation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeShell(workspace: workspace)
+        session.cancel()
+        #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
+    }
 }
 
 }

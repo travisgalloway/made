@@ -375,6 +375,35 @@ public struct ChamferParams: Hashable, Equatable, Sendable, Codable {
     }
 }
 
+public struct FaceThicknessOverride: Hashable, Equatable, Sendable, Codable {
+    public var faceReference: TopologicalReference
+    public var thickness: Double
+
+    public init(faceReference: TopologicalReference, thickness: Double) {
+        self.faceReference = faceReference
+        self.thickness = thickness
+    }
+}
+
+public struct ShellParams: Hashable, Equatable, Sendable, Codable {
+    public var targetSolidId: SolidId
+    public var thickness: Double
+    public var removedFaceReferences: [TopologicalReference]
+    public var perFaceOverrides: [FaceThicknessOverride]
+
+    public init(
+        targetSolidId: SolidId,
+        thickness: Double = 1.0,
+        removedFaceReferences: [TopologicalReference] = [],
+        perFaceOverrides: [FaceThicknessOverride] = []
+    ) {
+        self.targetSolidId = targetSolidId
+        self.thickness = thickness
+        self.removedFaceReferences = removedFaceReferences
+        self.perFaceOverrides = perFaceOverrides
+    }
+}
+
 public enum BooleanOp: String, Sendable, Codable {
     case subtract
     case union
@@ -394,6 +423,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case evaluateShape(jobId: JobId, solidId: SolidId, shape: ShapeNode)
     case fillet(jobId: JobId, solidId: SolidId, edgeReference: TopologicalReference, radius: Double)
     case chamfer(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, edgeReferences: [TopologicalReference], mode: ChamferMode, distance: Double, distance2: Double, angle: Double)
+    case shell(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, thickness: Double, removedFaceReferences: [TopologicalReference], perFaceOverrides: [FaceThicknessOverride])
     
     public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
         .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
@@ -415,6 +445,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
             return j
         case .chamfer(let j, _, _, _, _, _, _, _):
             return j
+        case .shell(let j, _, _, _, _, _):
+            return j
         }
     }
     
@@ -433,6 +465,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
              .fillet(_, let s, _, _):
             return s
         case .chamfer(_, let s, _, _, _, _, _, _):
+            return s
+        case .shell(_, let s, _, _, _, _):
             return s
         }
     }

@@ -451,6 +451,7 @@ private struct NavigatorRow: View {
         case .extrude: return "arrow.up.forward.app.fill"
         case .revolve: return "arrow.triangle.2.circlepath"
         case .chamfer: return "skew"
+        case .shell: return "square.dashed"
         }
     }
 
@@ -469,6 +470,7 @@ private struct NavigatorRow: View {
         case .extrude: return .purple
         case .revolve: return .cyan
         case .chamfer: return .orange
+        case .shell: return .purple
         }
     }
 }

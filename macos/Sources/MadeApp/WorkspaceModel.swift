@@ -1065,6 +1065,37 @@ final class WorkspaceModel {
         ))
     }
 
+    func startShellCommand() {
+        var targetSolidId: SolidId? = nil
+        var initialFaceRef: TopologicalReference? = nil
+        if let sub = document.selectedSubElement, sub.elementType == .face {
+            targetSolidId = sub.solidId
+            if let feat = document.feature(for: sub.solidId) {
+                if let detId = sub.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                    initialFaceRef = existing
+                } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "face:\(sub.elementId)" }) {
+                    initialFaceRef = named
+                } else {
+                    initialFaceRef = TopologicalReference(
+                        sourceFeatureId: feat.id,
+                        elementType: .face,
+                        historyPath: [HistoryStep(kind: .generated, label: "face:\(sub.elementId)")]
+                    )
+                }
+            }
+        } else if let selectedId {
+            targetSolidId = selectedId
+        } else if let firstObj = document.objects.first {
+            targetSolidId = firstObj.id
+        }
+
+        startCommand(CommandSession.makeShell(
+            workspace: self,
+            targetSolidId: targetSolidId,
+            removedFaceReferences: initialFaceRef.map { [$0] } ?? []
+        ))
+    }
+
     public func boundingBoxes(for solidId: SolidId) -> (axisAligned: AxisAlignedBoundingBox, oriented: OrientedBoundingBox)? {
         let candidates = viewportManager.renderer?.candidateMeshes() ?? []
         return BoundingBoxCalculator.boxes(for: solidId, in: document, candidateMeshes: candidates)
@@ -1258,6 +1289,30 @@ final class WorkspaceModel {
                 angle: angle
             )
             guard let solidId = chamferFeature.outputSolidId else { return nil }
+            selectedId = solidId
+            markDocumentModified()
+            recomputeSolid(id: solidId)
+            return solidId
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func shellBody(
+        targetSolidId: SolidId,
+        thickness: Double = 1.0,
+        removedFaceReferences: [TopologicalReference] = [],
+        perFaceOverrides: [FaceThicknessOverride] = []
+    ) async -> ObjectId? {
+        do {
+            let shellFeature = try document.shellBody(
+                targetSolidId: targetSolidId,
+                thickness: thickness,
+                removedFaceReferences: removedFaceReferences,
+                perFaceOverrides: perFaceOverrides
+            )
+            guard let solidId = shellFeature.outputSolidId else { return nil }
             selectedId = solidId
             markDocumentModified()
             recomputeSolid(id: solidId)

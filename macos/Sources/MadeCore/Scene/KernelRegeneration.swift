@@ -73,6 +73,16 @@ public enum KernelRegeneration {
                 distance2: data.distance2,
                 angle: data.angle
             )
+        case .shell(let data):
+            guard let solidId = feature.outputSolidId else { return nil }
+            return .shell(
+                jobId: jobId,
+                solidId: solidId,
+                targetSolidId: data.targetSolidId,
+                thickness: data.thickness,
+                removedFaceReferences: data.removedFaceReferences,
+                perFaceOverrides: data.perFaceOverrides
+            )
         }
     }
 
@@ -110,6 +120,15 @@ public enum KernelRegeneration {
                 distance: params.distance,
                 distance2: params.distance2,
                 angle: params.angle
+            )
+        case .shell(let params):
+            return .shell(
+                jobId: jobId,
+                solidId: object.id,
+                targetSolidId: params.targetSolidId,
+                thickness: params.thickness,
+                removedFaceReferences: params.removedFaceReferences,
+                perFaceOverrides: params.perFaceOverrides
             )
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)

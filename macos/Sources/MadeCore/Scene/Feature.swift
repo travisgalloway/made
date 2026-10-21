@@ -550,6 +550,26 @@ public struct ChamferFeatureData: Sendable, Codable, Equatable {
     }
 }
 
+/// Parameter payload for shell features (BL-PRT-08).
+public struct ShellFeatureData: Sendable, Codable, Equatable {
+    public var targetSolidId: SolidId
+    public var thickness: Double
+    public var removedFaceReferences: [TopologicalReference]
+    public var perFaceOverrides: [FaceThicknessOverride]
+
+    public init(
+        targetSolidId: SolidId,
+        thickness: Double = 1.0,
+        removedFaceReferences: [TopologicalReference] = [],
+        perFaceOverrides: [FaceThicknessOverride] = []
+    ) {
+        self.targetSolidId = targetSolidId
+        self.thickness = thickness
+        self.removedFaceReferences = removedFaceReferences
+        self.perFaceOverrides = perFaceOverrides
+    }
+}
+
 /// Discrete modeling operation recorded in the history timeline (ADR-D2).
 public enum FeatureOperation: Sendable, Codable, Equatable {
     case primitive(PrimitiveFeatureData)
@@ -564,6 +584,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case datumPoint(DatumPointFeatureData)
     case datumCoordinateSystem(DatumCoordinateSystemFeatureData)
     case chamfer(ChamferFeatureData)
+    case shell(ShellFeatureData)
 
     private enum CodingKeys: String, CodingKey {
         case primitive = "primitive"
@@ -578,6 +599,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         case datumPoint = "datumPoint"
         case datumCoordinateSystem = "datumCoordinateSystem"
         case chamfer = "chamfer"
+        case shell = "shell"
     }
 
     private enum PayloadCodingKeys: String, CodingKey {
@@ -632,6 +654,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         }
         if container.contains(.chamfer) {
             self = .chamfer(try Self.decodePayload(ChamferFeatureData.self, forKey: .chamfer, from: container))
+            return
+        }
+        if container.contains(.shell) {
+            self = .shell(try Self.decodePayload(ShellFeatureData.self, forKey: .shell, from: container))
             return
         }
 
@@ -695,6 +721,9 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
             try nested.encode(data, forKey: .payload)
         case .chamfer(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .chamfer)
+            try nested.encode(data, forKey: .payload)
+        case .shell(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .shell)
             try nested.encode(data, forKey: .payload)
         }
     }
@@ -881,6 +910,13 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
                 distance2: data.distance2,
                 angle: data.angle,
                 edgeReferences: data.edgeReferences
+            ))
+        case .shell(let data):
+            def = .shell(ShellParams(
+                targetSolidId: data.targetSolidId,
+                thickness: data.thickness,
+                removedFaceReferences: data.removedFaceReferences,
+                perFaceOverrides: data.perFaceOverrides
             ))
         }
         return SceneObject(
@@ -1927,6 +1963,33 @@ extension Feature {
                     distance2: params.distance2,
                     angle: params.angle,
                     edgeReferences: params.edgeReferences
+                )),
+                inputExpressions: exprs,
+                references: refs,
+                outputSolidId: object.id,
+                bodyOperation: .cut,
+                targetBodyId: params.targetSolidId,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .shell(let params):
+            var refs: [Reference] = params.removedFaceReferences.map { .face($0) }
+            for override in params.perFaceOverrides {
+                refs.append(.face(override.faceReference))
+            }
+            refs.append(.body(params.targetSolidId, role: "targetBody"))
+            let exprs: [String: FeatureExpression] = [
+                "thickness": FeatureExpression(value: params.thickness)
+            ]
+            self.init(
+                name: object.name,
+                operation: .shell(ShellFeatureData(
+                    targetSolidId: params.targetSolidId,
+                    thickness: params.thickness,
+                    removedFaceReferences: params.removedFaceReferences,
+                    perFaceOverrides: params.perFaceOverrides
                 )),
                 inputExpressions: exprs,
                 references: refs,

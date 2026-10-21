@@ -302,6 +302,12 @@ struct InspectorPanelView: View {
                     paramField("Angle", Float(params.angle), DocumentLimits.chamferAngle, id: obj.id, key: "angle") { workspace.setParam(obj.id, "angle", $0) }
                 }
                 LabeledContent("Edges count", value: "\(params.edgeReferences.count)")
+            case .shell(let params):
+                paramField("Thickness", Float(params.thickness), DocumentLimits.shellThickness, id: obj.id, key: "thickness") { workspace.setParam(obj.id, "thickness", $0) }
+                LabeledContent("Removed Faces", value: "\(params.removedFaceReferences.count)")
+                if !params.perFaceOverrides.isEmpty {
+                    LabeledContent("Overrides", value: "\(params.perFaceOverrides.count)")
+                }
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):

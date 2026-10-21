@@ -156,6 +156,8 @@ struct PredictiveCommandPopoverView: View {
             workspace.startPushPullCommand(solidId: selectedSubElement.solidId, faceId: selectedSubElement.elementId)
         case .chamfer:
             workspace.startChamferCommand()
+        case .shell:
+            workspace.startShellCommand()
         case .fillet:
             break
         }

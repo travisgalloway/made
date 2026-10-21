@@ -474,6 +474,8 @@ public final class CADToolRegistry {
                 item["params"] = ["mode": p.mode.rawValue, "angle": p.angle, "angle2": p.angle2]
             case .chamfer(let p):
                 item["params"] = ["mode": p.mode.rawValue, "distance": p.distance, "distance2": p.distance2, "angle": p.angle]
+            case .shell(let p):
+                item["params"] = ["thickness": p.thickness, "removedFacesCount": p.removedFaceReferences.count, "overridesCount": p.perFaceOverrides.count]
             }
             summary.append(item)
         }
@@ -584,6 +586,8 @@ public final class CADToolRegistry {
             dimStr = "with angle \(p.angle)"
         case .chamfer(let p):
             dimStr = "with distance \(p.distance)"
+        case .shell(let p):
+            dimStr = "with thickness \(p.thickness)"
         default:
             dimStr = ""
         }
@@ -768,6 +772,8 @@ public final class CADToolRegistry {
             case .distanceAngle:
                 return [("distance", Float(p.distance)), ("angle", Float(p.angle))]
             }
+        case .shell(let p):
+            return [("thickness", Float(p.thickness))]
         case .imported, .boolean, .part: return nil
         }
     }
@@ -966,6 +972,20 @@ public final class CADToolRegistry {
             resultDict["distance"] = p.distance
             resultDict["distance2"] = p.distance2
             resultDict["angle"] = p.angle
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
+
+        case .shell(let p):
+            resultDict["type"] = "shell"
+            resultDict["thickness"] = p.thickness
+            resultDict["targetSolidId"] = p.targetSolidId.rawValue
+            resultDict["removedFacesCount"] = p.removedFaceReferences.count
+            resultDict["overridesCount"] = p.perFaceOverrides.count
             await settleRecomputes(for: [id])
             if let payload = await meshForObject(obj),
                let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
@@ -1403,7 +1423,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer, .shell:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,
@@ -1950,6 +1970,12 @@ public final class CADToolRegistry {
             dict["angle"] = chamferData.angle
             dict["targetSolidId"] = chamferData.targetSolidId.rawValue
             dict["edgeReferences"] = chamferData.edgeReferences.map { $0.id.uuidString }
+        case .shell(let shellData):
+            dict["type"] = "shell"
+            dict["thickness"] = shellData.thickness
+            dict["targetSolidId"] = shellData.targetSolidId.rawValue
+            dict["removedFaceReferences"] = shellData.removedFaceReferences.map { $0.id.uuidString }
+            dict["overridesCount"] = shellData.perFaceOverrides.count
         case .boolean(let boolData):
             dict["type"] = "boolean"
             dict["operation"] = boolData.op.rawValue
