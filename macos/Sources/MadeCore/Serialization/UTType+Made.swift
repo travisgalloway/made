@@ -6,4 +6,7 @@ extension UTType {
 
     /// Standard stereolithography 3D model format (.stl).
     public static let stl = UTType(importedAs: "public.standard-tesselated-geometry-format", conformingTo: .data)
+
+    /// 3D Manufacturing Format (.3mf) Uniform Type Identifier.
+    public static let threeMF = UTType(importedAs: "org.3mf.3mf", conformingTo: .data)
 }

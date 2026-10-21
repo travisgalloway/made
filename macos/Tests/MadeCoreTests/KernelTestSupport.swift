@@ -29,6 +29,10 @@ actor HookedEngine: KernelEngine {
         await inner.exportSTL(objects: objects, tolerance: tolerance, unit: unit, to: url)
     }
     
+    func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult> {
+        await inner.exportThreeMF(objects: objects, tolerance: tolerance, unit: unit, to: url)
+    }
+    
     func dispose(solidId: SolidId) async { await inner.dispose(solidId: solidId) }
     func terminate(jobId: JobId) async -> Bool { false }
     nonisolated func restarts() -> AsyncStream<KernelRestart> { inner.restarts() }

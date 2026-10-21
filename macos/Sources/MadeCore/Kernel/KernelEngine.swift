@@ -39,6 +39,7 @@ public protocol KernelEngine: Actor {
     func execute(_ request: KernelRequest) async -> KernelResult<MeshPayload>
     func exportStep(objects: [SceneObject]) async -> KernelResult<Data>
     func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int>
+    func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult>
     func dispose(solidId: SolidId) async
     /// Ends the job if it is executing; returns false when it is not.
     func terminate(jobId: JobId) async -> Bool
@@ -54,5 +55,9 @@ extension KernelEngine {
 
     public func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int> {
         .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STL export not supported by this engine"))
+    }
+
+    public func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult> {
+        .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "3MF export not supported by this engine"))
     }
 }

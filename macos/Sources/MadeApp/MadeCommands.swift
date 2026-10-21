@@ -45,6 +45,11 @@ struct FileMenuCommands: Commands {
             }
 
             Menu("Export") {
+                Button("3MF…") {
+                    workspace.promptExportThreeMFFile()
+                }
+                .disabled(workspace.document.objects.isEmpty)
+
                 Button("STL…") {
                     workspace.promptExportSTLFile()
                 }
@@ -200,6 +205,11 @@ struct SolidMenuCommands: Commands {
 
             Button("Export STEP Solid…") {
                 workspace.promptExportStepFile(selectedOnly: workspace.selectedId != nil)
+            }
+            .disabled(workspace.document.objects.isEmpty)
+
+            Button("Export 3MF…") {
+                workspace.promptExportThreeMFFile()
             }
             .disabled(workspace.document.objects.isEmpty)
 
