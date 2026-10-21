@@ -3,6 +3,10 @@ import Foundation
 /// Document-level settings governing units, kernel modeling tolerances, and default solid material (BL-FND-11).
 public struct DocumentSettings: Codable, Sendable, Equatable {
     public var units: UnitSettings
+    public var unitSettings: UnitSettings {
+        get { units }
+        set { units = newValue }
+    }
     public var tolerances: KernelTolerances
     public var defaultMaterial: MaterialAttributes
 

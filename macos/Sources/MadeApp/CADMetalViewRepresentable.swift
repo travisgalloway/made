@@ -182,6 +182,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onCancelCommand: (() -> Void)?
     var onCommitCommand: (() -> Void)?
     var onSelectObjectForCommand: ((ObjectId) -> Void)?
+    var onSelectElementForCommand: ((ObjectId, SelectedSubElement?) -> Void)?
     var onInvalidate: (() -> Void)?
     var onSnapChanged: ((SnapResult?) -> Void)?
     var onToolShortcut: ((ViewportTool) -> Void)?
@@ -224,6 +225,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onCancelCommand: (() -> Void)? = nil,
         onCommitCommand: (() -> Void)? = nil,
         onSelectObjectForCommand: ((ObjectId) -> Void)? = nil,
+        onSelectElementForCommand: ((ObjectId, SelectedSubElement?) -> Void)? = nil,
         onInvalidate: (() -> Void)? = nil,
         onSnapChanged: ((SnapResult?) -> Void)? = nil,
         onToolShortcut: ((ViewportTool) -> Void)? = nil,
@@ -265,6 +267,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onCancelCommand = onCancelCommand
         self.onCommitCommand = onCommitCommand
         self.onSelectObjectForCommand = onSelectObjectForCommand
+        self.onSelectElementForCommand = onSelectElementForCommand
         self.onInvalidate = onInvalidate
         self.onSnapChanged = onSnapChanged
         self.onToolShortcut = onToolShortcut
@@ -1481,7 +1484,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                             parent.document.selectedSubElement = selectedSub
                         }
                         if parent.isCommandActive {
-                            parent.onSelectObjectForCommand?(hitId)
+                            if let onSelectElement = parent.onSelectElementForCommand {
+                                onSelectElement(hitId, selectedSub)
+                            } else {
+                                parent.onSelectObjectForCommand?(hitId)
+                            }
                         }
                     } else {
                         // Empty space click clears selection
@@ -1890,6 +1897,7 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
     var onCancelCommand: (() -> Void)?
     var onCommitCommand: (() -> Void)?
     var onSelectObjectForCommand: ((ObjectId) -> Void)?
+    var onSelectElementForCommand: ((ObjectId, SelectedSubElement?) -> Void)?
     var onInvalidate: (() -> Void)?
     var onSnapChanged: ((SnapResult?) -> Void)?
     var onToolShortcut: ((ViewportTool) -> Void)?
@@ -1932,6 +1940,7 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         onCancelCommand: (() -> Void)? = nil,
         onCommitCommand: (() -> Void)? = nil,
         onSelectObjectForCommand: ((ObjectId) -> Void)? = nil,
+        onSelectElementForCommand: ((ObjectId, SelectedSubElement?) -> Void)? = nil,
         onInvalidate: (() -> Void)? = nil,
         onSnapChanged: ((SnapResult?) -> Void)? = nil,
         onToolShortcut: ((ViewportTool) -> Void)? = nil,
@@ -1973,6 +1982,7 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         self.onCancelCommand = onCancelCommand
         self.onCommitCommand = onCommitCommand
         self.onSelectObjectForCommand = onSelectObjectForCommand
+        self.onSelectElementForCommand = onSelectElementForCommand
         self.onInvalidate = onInvalidate
         self.onSnapChanged = onSnapChanged
         self.onToolShortcut = onToolShortcut
