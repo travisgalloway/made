@@ -31,10 +31,11 @@ import simd
         let facePopover = PredictiveCommandPopoverView(workspace: model, selectedSubElement: faceSub)
         #expect(facePopover.badgeTitle == "Face #0")
         let faceCommands = facePopover.availableCommands
-        #expect(faceCommands.count == 3)
+        #expect(faceCommands.count == 4)
         #expect(faceCommands.contains(where: { $0.id == .pushPull && $0.isEnabled }))
         #expect(faceCommands.contains(where: { $0.id == .shell && $0.isEnabled }))
         #expect(faceCommands.contains(where: { $0.id == .hole && $0.isEnabled }))
+        #expect(faceCommands.contains(where: { $0.id == .pattern && $0.isEnabled }))
         #expect(faceCommands.contains(where: { $0.id == .fillet }) == false)
 
         let faceScreenPos = model.subElementScreenPosition(for: faceSub, viewportSize: CGSize(width: 800, height: 600))

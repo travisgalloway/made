@@ -586,6 +586,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case chamfer(ChamferFeatureData)
     case shell(ShellFeatureData)
     case hole(HoleFeatureData)
+    case pattern(PatternFeatureData)
 
     private enum CodingKeys: String, CodingKey {
         case primitive = "primitive"
@@ -602,6 +603,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         case chamfer = "chamfer"
         case shell = "shell"
         case hole = "hole"
+        case pattern = "pattern"
     }
 
     private enum PayloadCodingKeys: String, CodingKey {
@@ -664,6 +666,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         }
         if container.contains(.hole) {
             self = .hole(try Self.decodePayload(HoleFeatureData.self, forKey: .hole, from: container))
+            return
+        }
+        if container.contains(.pattern) {
+            self = .pattern(try Self.decodePayload(PatternFeatureData.self, forKey: .pattern, from: container))
             return
         }
 
@@ -733,6 +739,9 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
             try nested.encode(data, forKey: .payload)
         case .hole(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .hole)
+            try nested.encode(data, forKey: .payload)
+        case .pattern(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .pattern)
             try nested.encode(data, forKey: .payload)
         }
     }
@@ -929,6 +938,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             ))
         case .hole(let data):
             def = .hole(data)
+        case .pattern(let data):
+            def = .pattern(data)
         }
         return SceneObject(
             id: solidId,
@@ -2039,6 +2050,34 @@ extension Feature {
                 references: refs,
                 outputSolidId: object.id,
                 bodyOperation: .cut,
+                targetBodyId: params.targetSolidId,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .pattern(let params):
+            var refs: [Reference] = [
+                .body(params.targetSolidId, role: "patternTarget")
+            ]
+            if let baseBodyId = params.baseBodySolidId {
+                refs.append(.body(baseBodyId, role: "baseBody"))
+            }
+            var exprs: [String: FeatureExpression] = [
+                "count": FeatureExpression(value: Double(params.count))
+            ]
+            if params.patternType == .linear {
+                exprs["linearSpacing"] = FeatureExpression(value: params.linearSpacing)
+            } else {
+                exprs["totalAngle"] = FeatureExpression(value: params.totalAngle)
+            }
+            self.init(
+                name: object.name,
+                operation: .pattern(params),
+                inputExpressions: exprs,
+                references: refs,
+                outputSolidId: object.id,
+                bodyOperation: .create,
                 targetBodyId: params.targetSolidId,
                 transform: object.transform,
                 isVisible: object.isVisible,

@@ -2950,4 +2950,423 @@ extension CommandSession {
 
         return session
     }
+
+    public static func makeLinearPattern(
+        workspace: WorkspaceModel,
+        targetSolidId: SolidId? = nil,
+        initialCount: Int = 3,
+        initialSpacing: Double = 20.0,
+        direction: [Double] = [1.0, 0.0, 0.0],
+        isSymmetric: Bool = false,
+        skippedIndices: [Int] = []
+    ) -> CommandSession {
+        let initialId = targetSolidId ?? workspace.selectedId ?? workspace.document.selectedSubElement?.solidId ?? workspace.document.objects.first?.id
+        let initialName = initialId.flatMap { id in workspace.document.objects.first(where: { $0.id == id })?.name }
+
+        let targetSlot = CommandSelectionSlot(
+            id: "target",
+            label: "Target Solid",
+            isRequired: true,
+            selectedObjectId: initialId,
+            selectedObjectName: initialName,
+            isActive: initialId == nil
+        )
+
+        let initialAxisChoice: String
+        if direction == [0.0, 1.0, 0.0] {
+            initialAxisChoice = "Y Axis"
+        } else if direction == [0.0, 0.0, 1.0] {
+            initialAxisChoice = "Z Axis"
+        } else {
+            initialAxisChoice = "X Axis"
+        }
+
+        let skippedString = skippedIndices.map(String.init).joined(separator: ", ")
+
+        let inputs: [CommandInput] = [
+            CommandInput(
+                id: "count",
+                label: "Count",
+                value: .number(Float(initialCount), range: Float(DocumentLimits.patternCount.min)...Float(DocumentLimits.patternCount.max), step: 1.0, unit: "")
+            ),
+            CommandInput(
+                id: "spacing",
+                label: "Spacing",
+                value: .number(Float(initialSpacing), range: Float(DocumentLimits.patternSpacing.min)...Float(DocumentLimits.patternSpacing.max), step: 1.0, unit: "mm")
+            ),
+            CommandInput(
+                id: "axis",
+                label: "Direction",
+                value: .choice(initialAxisChoice, options: ["X Axis", "Y Axis", "Z Axis"])
+            ),
+            CommandInput(
+                id: "isSymmetric",
+                label: "Symmetric",
+                value: .toggle(isSymmetric)
+            ),
+            CommandInput(
+                id: "skippedIndices",
+                label: "Skip Indices",
+                value: .text(skippedString)
+            )
+        ]
+
+        let session = CommandSession(
+            title: "Linear Pattern",
+            selectionSlots: [targetSlot],
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        func resolveTargetId(session: CommandSession) -> SolidId? {
+            session.selectionSlots.first(where: { $0.id == "target" })?.selectedObjectId
+        }
+
+        func parseSkipped(session: CommandSession) -> [Int] {
+            guard let text = session.textValue(for: "skippedIndices") else { return [] }
+            return text.split(separator: ",")
+                .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        }
+
+        func resolveDirection(session: CommandSession) -> [Double] {
+            let choice = session.choiceValue(for: "axis") ?? "X Axis"
+            switch choice {
+            case "Y Axis": return [0.0, 1.0, 0.0]
+            case "Z Axis": return [0.0, 0.0, 1.0]
+            default: return [1.0, 0.0, 0.0]
+            }
+        }
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            guard resolveTargetId(session: session) != nil else { return false }
+            let countVal = session.numberValue(for: "count") ?? 0
+            guard !countVal.isNaN, countVal >= 1.0 else { return false }
+            let spacingVal = session.numberValue(for: "spacing") ?? 0
+            guard !spacingVal.isNaN, spacingVal > 0 else { return false }
+            return true
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            guard let targetId = resolveTargetId(session: session) else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let count = Int(session.numberValue(for: "count") ?? 3)
+            let spacing = Double(session.numberValue(for: "spacing") ?? 20.0)
+            let dir = resolveDirection(session: session)
+            let isSym = session.toggleValue(for: "isSymmetric") ?? false
+            let skipped = parseSkipped(session: session)
+
+            guard count >= 1, spacing > 0 else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let params = PatternParams(
+                targetSolidId: targetId,
+                targetType: .body,
+                patternType: .linear,
+                direction: dir,
+                linearSpacing: spacing,
+                count: count,
+                isSymmetric: isSym,
+                axisOrigin: [0.0, 0.0, 0.0],
+                axisDirection: [0.0, 0.0, 1.0],
+                totalAngle: 360.0,
+                isFullCircle: true,
+                skippedIndices: skipped
+            )
+
+            Task { @MainActor in
+                let req = KernelRequest.pattern(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    params: params
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.9, 0.5, 0.2, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                } else {
+                    if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+        session.onParamChanged = { _, _ in
+            updatePreview()
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            guard let targetId = resolveTargetId(session: session) else { return }
+            let count = Int(session.numberValue(for: "count") ?? 3)
+            let spacing = Double(session.numberValue(for: "spacing") ?? 20.0)
+            let dir = resolveDirection(session: session)
+            let isSym = session.toggleValue(for: "isSymmetric") ?? false
+            let skipped = parseSkipped(session: session)
+
+            let params = PatternParams(
+                targetSolidId: targetId,
+                targetType: .body,
+                patternType: .linear,
+                direction: dir,
+                linearSpacing: spacing,
+                count: count,
+                isSymmetric: isSym,
+                axisOrigin: [0.0, 0.0, 0.0],
+                axisDirection: [0.0, 0.0, 1.0],
+                totalAngle: 360.0,
+                isFullCircle: true,
+                skippedIndices: skipped
+            )
+
+            Task { @MainActor in
+                _ = await workspace.patternBody(params: params)
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        return session
+    }
+
+    public static func makeCircularPattern(
+        workspace: WorkspaceModel,
+        targetSolidId: SolidId? = nil,
+        initialCount: Int = 4,
+        initialTotalAngle: Double = 360.0,
+        isFullCircle: Bool = true,
+        axisOrigin: [Double] = [0.0, 0.0, 0.0],
+        axisDirection: [Double] = [0.0, 0.0, 1.0],
+        skippedIndices: [Int] = []
+    ) -> CommandSession {
+        let initialId = targetSolidId ?? workspace.selectedId ?? workspace.document.selectedSubElement?.solidId ?? workspace.document.objects.first?.id
+        let initialName = initialId.flatMap { id in workspace.document.objects.first(where: { $0.id == id })?.name }
+
+        let targetSlot = CommandSelectionSlot(
+            id: "target",
+            label: "Target Solid",
+            isRequired: true,
+            selectedObjectId: initialId,
+            selectedObjectName: initialName,
+            isActive: initialId == nil
+        )
+
+        let initialAxisChoice: String
+        if axisDirection == [1.0, 0.0, 0.0] {
+            initialAxisChoice = "X Axis"
+        } else if axisDirection == [0.0, 1.0, 0.0] {
+            initialAxisChoice = "Y Axis"
+        } else {
+            initialAxisChoice = "Z Axis"
+        }
+
+        let skippedString = skippedIndices.map(String.init).joined(separator: ", ")
+
+        let inputs: [CommandInput] = [
+            CommandInput(
+                id: "count",
+                label: "Count",
+                value: .number(Float(initialCount), range: Float(DocumentLimits.patternCount.min)...Float(DocumentLimits.patternCount.max), step: 1.0, unit: "")
+            ),
+            CommandInput(
+                id: "totalAngle",
+                label: "Angle",
+                value: .number(Float(initialTotalAngle), range: Float(DocumentLimits.patternAngle.min)...Float(DocumentLimits.patternAngle.max), step: 1.0, unit: "°")
+            ),
+            CommandInput(
+                id: "axis",
+                label: "Axis",
+                value: .choice(initialAxisChoice, options: ["X Axis", "Y Axis", "Z Axis"])
+            ),
+            CommandInput(
+                id: "isFullCircle",
+                label: "Full Circle",
+                value: .toggle(isFullCircle)
+            ),
+            CommandInput(
+                id: "skippedIndices",
+                label: "Skip Indices",
+                value: .text(skippedString)
+            )
+        ]
+
+        let session = CommandSession(
+            title: "Circular Pattern",
+            selectionSlots: [targetSlot],
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        func resolveTargetId(session: CommandSession) -> SolidId? {
+            session.selectionSlots.first(where: { $0.id == "target" })?.selectedObjectId
+        }
+
+        func parseSkipped(session: CommandSession) -> [Int] {
+            guard let text = session.textValue(for: "skippedIndices") else { return [] }
+            return text.split(separator: ",")
+                .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        }
+
+        func resolveAxisDirection(session: CommandSession) -> [Double] {
+            let choice = session.choiceValue(for: "axis") ?? "Z Axis"
+            switch choice {
+            case "X Axis": return [1.0, 0.0, 0.0]
+            case "Y Axis": return [0.0, 1.0, 0.0]
+            default: return [0.0, 0.0, 1.0]
+            }
+        }
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            guard resolveTargetId(session: session) != nil else { return false }
+            let countVal = session.numberValue(for: "count") ?? 0
+            guard !countVal.isNaN, countVal >= 1.0 else { return false }
+            let angleVal = session.numberValue(for: "totalAngle") ?? 0
+            guard !angleVal.isNaN, angleVal > 0 else { return false }
+            return true
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            guard let targetId = resolveTargetId(session: session) else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let count = Int(session.numberValue(for: "count") ?? 4)
+            let totalAngle = Double(session.numberValue(for: "totalAngle") ?? 360.0)
+            let axisDir = resolveAxisDirection(session: session)
+            let isFull = session.toggleValue(for: "isFullCircle") ?? true
+            let skipped = parseSkipped(session: session)
+
+            guard count >= 1, totalAngle > 0 else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let params = PatternParams(
+                targetSolidId: targetId,
+                targetType: .body,
+                patternType: .circular,
+                direction: [1.0, 0.0, 0.0],
+                linearSpacing: 20.0,
+                count: count,
+                isSymmetric: false,
+                axisOrigin: axisOrigin,
+                axisDirection: axisDir,
+                totalAngle: totalAngle,
+                isFullCircle: isFull,
+                skippedIndices: skipped
+            )
+
+            Task { @MainActor in
+                let req = KernelRequest.pattern(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    params: params
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.9, 0.5, 0.2, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                } else {
+                    if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+        session.onParamChanged = { _, _ in
+            updatePreview()
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            guard let targetId = resolveTargetId(session: session) else { return }
+            let count = Int(session.numberValue(for: "count") ?? 4)
+            let totalAngle = Double(session.numberValue(for: "totalAngle") ?? 360.0)
+            let axisDir = resolveAxisDirection(session: session)
+            let isFull = session.toggleValue(for: "isFullCircle") ?? true
+            let skipped = parseSkipped(session: session)
+
+            let params = PatternParams(
+                targetSolidId: targetId,
+                targetType: .body,
+                patternType: .circular,
+                direction: [1.0, 0.0, 0.0],
+                linearSpacing: 20.0,
+                count: count,
+                isSymmetric: false,
+                axisOrigin: axisOrigin,
+                axisDirection: axisDir,
+                totalAngle: totalAngle,
+                isFullCircle: isFull,
+                skippedIndices: skipped
+            )
+
+            Task { @MainActor in
+                _ = await workspace.patternBody(params: params)
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        return session
+    }
 }

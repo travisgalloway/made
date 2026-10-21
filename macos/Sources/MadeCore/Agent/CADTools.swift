@@ -484,6 +484,16 @@ public final class CADToolRegistry {
                     "depth": p.depth,
                     "isThrough": p.isThrough
                 ]
+            case .pattern(let p):
+                item["params"] = [
+                    "patternType": p.patternType.rawValue,
+                    "targetType": p.targetType.rawValue,
+                    "targetSolidId": p.targetSolidId.rawValue,
+                    "count": p.count,
+                    "linearSpacing": p.linearSpacing,
+                    "totalAngle": p.totalAngle,
+                    "skippedCount": p.skippedIndices.count
+                ]
             }
             summary.append(item)
         }
@@ -598,6 +608,8 @@ public final class CADToolRegistry {
             dimStr = "with thickness \(p.thickness)"
         case .hole(let p):
             dimStr = "with diameter \(p.diameter)"
+        case .pattern(let p):
+            dimStr = "with count \(p.count)"
         default:
             dimStr = ""
         }
@@ -795,6 +807,14 @@ public final class CADToolRegistry {
             } else if p.holeType == .countersink {
                 params.append(("countersinkDiameter", Float(p.countersinkDiameter)))
                 params.append(("countersinkAngle", Float(p.countersinkAngle)))
+            }
+            return params
+        case .pattern(let p):
+            var params: [(String, Float)] = [("count", Float(p.count))]
+            if p.patternType == .linear {
+                params.append(("linearSpacing", Float(p.linearSpacing)))
+            } else {
+                params.append(("totalAngle", Float(p.totalAngle)))
             }
             return params
         case .imported, .boolean, .part: return nil
@@ -1024,6 +1044,21 @@ public final class CADToolRegistry {
             resultDict["diameter"] = p.diameter
             resultDict["depth"] = p.depth
             resultDict["isThrough"] = p.isThrough
+            resultDict["targetSolidId"] = p.targetSolidId.rawValue
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
+            
+        case .pattern(let p):
+            resultDict["type"] = "pattern"
+            resultDict["patternType"] = p.patternType.rawValue
+            resultDict["count"] = p.count
+            resultDict["linearSpacing"] = p.linearSpacing
+            resultDict["totalAngle"] = p.totalAngle
             resultDict["targetSolidId"] = p.targetSolidId.rawValue
             await settleRecomputes(for: [id])
             if let payload = await meshForObject(obj),
@@ -1462,7 +1497,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer, .shell, .hole:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer, .shell, .hole, .pattern:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,
@@ -2046,6 +2081,20 @@ public final class CADToolRegistry {
             dict["mode"] = pointData.mode.rawValue
         case .datumCoordinateSystem:
             dict["type"] = "datumCoordinateSystem"
+        case .pattern(let patternData):
+            dict["type"] = "pattern"
+            dict["patternType"] = patternData.patternType.rawValue
+            dict["targetType"] = patternData.targetType.rawValue
+            dict["targetSolidId"] = patternData.targetSolidId.rawValue
+            dict["count"] = patternData.count
+            dict["linearSpacing"] = patternData.linearSpacing
+            dict["direction"] = patternData.direction
+            dict["isSymmetric"] = patternData.isSymmetric
+            dict["axisOrigin"] = [patternData.axisOrigin.x, patternData.axisOrigin.y, patternData.axisOrigin.z]
+            dict["axisDirection"] = [patternData.axisDirection.x, patternData.axisDirection.y, patternData.axisDirection.z]
+            dict["totalAngle"] = patternData.totalAngle
+            dict["isFullCircle"] = patternData.isFullCircle
+            dict["skippedIndices"] = Array(patternData.skippedIndices)
         }
 
         return dict
@@ -2275,6 +2324,7 @@ public final class CADToolRegistry {
         onRecomputeResult?(result, id)
         switch result {
         case .failure(_, let err):
+            guard err.code != .cancelled else { return }
             if let feat = document.feature(for: id) {
                 document.setFeatureError(
                     id: feat.id,

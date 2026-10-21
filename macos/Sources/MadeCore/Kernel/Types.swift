@@ -2,11 +2,15 @@ import Foundation
 import simd
 import CryptoKit
 
-public struct SolidId: Hashable, Equatable, Sendable, Codable, CustomStringConvertible {
+public struct SolidId: Hashable, Equatable, Sendable, Codable, CustomStringConvertible, ExpressibleByStringLiteral {
     public let rawValue: String
     
     public init(_ rawValue: String) {
         self.rawValue = rawValue
+    }
+
+    public init(stringLiteral value: String) {
+        self.rawValue = value
     }
     
     public var description: String { rawValue }
@@ -461,6 +465,104 @@ public struct HoleParams: Hashable, Equatable, Sendable, Codable {
 
 public typealias HoleFeatureData = HoleParams
 
+public enum PatternType: String, Sendable, Codable, Equatable, Hashable {
+    case linear
+    case circular
+}
+
+public enum PatternTargetType: String, Sendable, Codable, Equatable, Hashable {
+    case body
+    case feature
+    case face
+}
+
+public struct PatternParams: Hashable, Equatable, Sendable, Codable {
+    public var patternType: PatternType
+    public var targetType: PatternTargetType
+    public var targetSolidId: SolidId
+    public var baseBodySolidId: SolidId?
+    public var count: Int
+    public var linearSpacing: Double
+    public var linearDirection: SIMD3<Double>
+    public var axisOrigin: SIMD3<Double>
+    public var axisDirection: SIMD3<Double>
+    public var totalAngle: Double
+    public var isFullCircle: Bool
+    public var isSymmetric: Bool
+    public var skippedIndices: Set<Int>
+
+    public var direction: [Double] {
+        get { [linearDirection.x, linearDirection.y, linearDirection.z] }
+        set {
+            if newValue.count == 3 {
+                linearDirection = SIMD3<Double>(newValue[0], newValue[1], newValue[2])
+            }
+        }
+    }
+
+    public init(
+        targetSolidId: SolidId = SolidId(""),
+        targetType: PatternTargetType = .body,
+        patternType: PatternType = .linear,
+        count: Int = 3,
+        linearSpacing: Double = 10.0,
+        linearDirection: SIMD3<Double> = SIMD3<Double>(1, 0, 0),
+        isSymmetric: Bool = false,
+        axisOrigin: SIMD3<Double> = SIMD3<Double>(0, 0, 0),
+        axisDirection: SIMD3<Double> = SIMD3<Double>(0, 0, 1),
+        totalAngle: Double = 360.0,
+        isFullCircle: Bool = true,
+        skippedIndices: Set<Int> = [],
+        baseBodySolidId: SolidId? = nil
+    ) {
+        self.patternType = patternType
+        self.targetType = targetType
+        self.targetSolidId = targetSolidId
+        self.baseBodySolidId = baseBodySolidId
+        self.count = count
+        self.linearSpacing = linearSpacing
+        self.linearDirection = linearDirection
+        self.isSymmetric = isSymmetric
+        self.axisOrigin = axisOrigin
+        self.axisDirection = axisDirection
+        self.totalAngle = totalAngle
+        self.isFullCircle = isFullCircle
+        self.skippedIndices = skippedIndices
+    }
+
+    public init(
+        targetSolidId: SolidId,
+        targetType: PatternTargetType = .body,
+        patternType: PatternType = .linear,
+        direction: [Double],
+        linearSpacing: Double = 10.0,
+        count: Int = 3,
+        isSymmetric: Bool = false,
+        axisOrigin: [Double] = [0.0, 0.0, 0.0],
+        axisDirection: [Double] = [0.0, 0.0, 1.0],
+        totalAngle: Double = 360.0,
+        isFullCircle: Bool = true,
+        skippedIndices: [Int] = [],
+        baseBodySolidId: SolidId? = nil
+    ) {
+        self.patternType = patternType
+        self.targetType = targetType
+        self.targetSolidId = targetSolidId
+        self.baseBodySolidId = baseBodySolidId
+        self.count = count
+        self.linearSpacing = linearSpacing
+        self.linearDirection = direction.count == 3 ? SIMD3<Double>(direction[0], direction[1], direction[2]) : SIMD3<Double>(1, 0, 0)
+        self.isSymmetric = isSymmetric
+        self.axisOrigin = axisOrigin.count == 3 ? SIMD3<Double>(axisOrigin[0], axisOrigin[1], axisOrigin[2]) : SIMD3<Double>(0, 0, 0)
+        self.axisDirection = axisDirection.count == 3 ? SIMD3<Double>(axisDirection[0], axisDirection[1], axisDirection[2]) : SIMD3<Double>(0, 0, 1)
+        self.totalAngle = totalAngle
+        self.isFullCircle = isFullCircle
+        self.skippedIndices = Set(skippedIndices)
+    }
+}
+
+public typealias PatternFeatureData = PatternParams
+
 public enum BooleanOp: String, Sendable, Codable {
     case subtract
     case union
@@ -482,6 +584,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case chamfer(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, edgeReferences: [TopologicalReference], mode: ChamferMode, distance: Double, distance2: Double, angle: Double)
     case shell(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, thickness: Double, removedFaceReferences: [TopologicalReference], perFaceOverrides: [FaceThicknessOverride])
     case hole(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, faceReference: TopologicalReference, holeData: HoleFeatureData)
+    case pattern(jobId: JobId, solidId: SolidId, params: PatternParams)
     
     public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
         .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
@@ -507,6 +610,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
             return j
         case .hole(let j, _, _, _, _):
             return j
+        case .pattern(let j, _, _):
+            return j
         }
     }
     
@@ -529,6 +634,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         case .shell(_, let s, _, _, _, _):
             return s
         case .hole(_, let s, _, _, _):
+            return s
+        case .pattern(_, let s, _):
             return s
         }
     }

@@ -333,6 +333,19 @@ struct InspectorPanelView: View {
                         LabeledContent("Class", value: thread.threadClass)
                     }
                 }
+            case .pattern(let params):
+                LabeledContent("Pattern Type", value: params.patternType == .linear ? "Linear" : "Circular")
+                paramField("Count", Float(params.count), DocumentLimits.patternCount, id: obj.id, key: "count") { workspace.setParam(obj.id, "count", $0) }
+                if params.patternType == .linear {
+                    paramField("Spacing", Float(params.linearSpacing), DocumentLimits.patternSpacing, id: obj.id, key: "spacing") { workspace.setParam(obj.id, "spacing", $0) }
+                    LabeledContent("Direction", value: params.isSymmetric ? "Symmetric" : "Standard")
+                } else {
+                    paramField("Angle", Float(params.totalAngle), DocumentLimits.patternAngle, id: obj.id, key: "totalAngle") { workspace.setParam(obj.id, "totalAngle", $0) }
+                    LabeledContent("Span", value: params.isFullCircle ? "Full 360°" : "Partial Arc")
+                }
+                if !params.skippedIndices.isEmpty {
+                    LabeledContent("Skipped", value: params.skippedIndices.map(String.init).joined(separator: ", "))
+                }
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):
