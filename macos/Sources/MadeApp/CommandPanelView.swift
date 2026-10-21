@@ -75,8 +75,13 @@ struct CommandPanelView: View {
                     label: input.label,
                     value: Double(val),
                     width: 64,
+                    range: range.map { Double($0.lowerBound)...Double($0.upperBound) },
+                    step: Double(step),
                     parameterResolver: { name in
                         workspace.document.parameter(named: name)?.value
+                    },
+                    evaluator: { expr in
+                        try workspace.document.evaluateExpression(expr).value
                     }
                 ) { newVal in
                     session.setNumberValue(Float(newVal), for: input.id)
