@@ -923,6 +923,41 @@ public final class CADToolRegistry {
         case .imported(let name, _, _):
             resultDict["type"] = "imported"
             resultDict["name"] = name
+            await settleRecomputes(for: [id])
+            var candidate = meshSink?.candidateMesh(for: id)
+            var payload: MeshPayload? = nil
+            if candidate == nil {
+                if let resolvedPayload = await meshForObject(obj) {
+                    payload = resolvedPayload
+                    candidate = CandidateMesh(id: id, payload: resolvedPayload, transform: obj.transform)
+                }
+            }
+            if payload == nil, let c = candidate, c.indices.count >= 3 {
+                var rawPos: [Float] = []
+                rawPos.reserveCapacity(c.positions.count * 3)
+                for p in c.positions {
+                    rawPos.append(contentsOf: [p.x, p.y, p.z])
+                }
+                let rawNormals: [Float] = Array(repeating: 0, count: rawPos.count)
+                payload = MeshPayload(
+                    positions: rawPos,
+                    normals: rawNormals,
+                    indices: c.indices,
+                    faceRanges: c.faceRanges,
+                    edgePolylines: c.edgePolylines,
+                    vertexPoints: c.vertexPoints
+                )
+            }
+            if let payload,
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
+            if let candidate, let boxes = BoundingBoxCalculator.boxes(for: candidate) {
+                resultDict["bounds"] = boxes.axisAligned.toDictionary()
+                resultDict["axisAlignedBox"] = boxes.axisAligned.toDictionary()
+                resultDict["orientedBox"] = boxes.oriented.toDictionary()
+            }
             
         case .boolean(let op, let solidA, let solidB):
             resultDict["type"] = "boolean"
@@ -948,6 +983,14 @@ public final class CADToolRegistry {
             }
         }
         
+        if resultDict["axisAlignedBox"] == nil {
+            let candidates = meshSink?.candidateMesh(for: id).map { [$0] } ?? []
+            if let boxes = BoundingBoxCalculator.boxes(for: id, in: document, candidateMeshes: candidates) {
+                resultDict["axisAlignedBox"] = boxes.axisAligned.toDictionary()
+                resultDict["orientedBox"] = boxes.oriented.toDictionary()
+            }
+        }
+
         if let data = try? JSONSerialization.data(withJSONObject: resultDict, options: .prettyPrinted),
            let str = String(data: data, encoding: .utf8) {
             return .text(str)

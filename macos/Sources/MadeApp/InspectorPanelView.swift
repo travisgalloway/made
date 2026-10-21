@@ -70,6 +70,7 @@ struct InspectorPanelView: View {
                         .disabled(selected.isLocked)
                     dimensionsSection(selected)
                         .disabled(selected.isLocked)
+                    boundingBoxSection(selected)
                     materialSection(selected)
                         .disabled(selected.isLocked)
                 }
@@ -304,6 +305,47 @@ struct InspectorPanelView: View {
             }
         } header: {
             sectionHeader("Dimensions")
+        }
+    }
+
+    @ViewBuilder
+    private func boundingBoxSection(_ obj: SceneObject) -> some View {
+        Section {
+            if let boxes = workspace.boundingBoxes(for: obj.id) {
+                let unit = workspace.document.settings.units.lengthUnit
+                let aabbSize = boxes.axisAligned.size
+                let aabbX = InspectorUnitConversion.displayLength(aabbSize.x, unit: unit)
+                let aabbY = InspectorUnitConversion.displayLength(aabbSize.y, unit: unit)
+                let aabbZ = InspectorUnitConversion.displayLength(aabbSize.z, unit: unit)
+                let aabbStr = "\(aabbX.formatted(.number.precision(.fractionLength(1)))) × \(aabbY.formatted(.number.precision(.fractionLength(1)))) × \(aabbZ.formatted(.number.precision(.fractionLength(1)))) \(unit.symbol)"
+
+                let obbDims = boxes.oriented.sortedDimensions
+                let obb0 = InspectorUnitConversion.displayLength(obbDims.x, unit: unit)
+                let obb1 = InspectorUnitConversion.displayLength(obbDims.y, unit: unit)
+                let obb2 = InspectorUnitConversion.displayLength(obbDims.z, unit: unit)
+                let obbStr = "\(obb0.formatted(.number.precision(.fractionLength(1)))) × \(obb1.formatted(.number.precision(.fractionLength(1)))) × \(obb2.formatted(.number.precision(.fractionLength(1)))) \(unit.symbol)"
+
+                LabeledContent("Axis-Aligned (X, Y, Z)") {
+                    Text(aabbStr)
+                        .accessibilityIdentifier("inspector-aabb-size")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+                LabeledContent("Oriented (Optimal)") {
+                    Text(obbStr)
+                        .accessibilityIdentifier("inspector-obb-size")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+            } else {
+                LabeledContent("Bounding Box") {
+                    Text("None")
+                        .accessibilityIdentifier("inspector-no-bounding-box")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            sectionHeader("Bounding Box")
         }
     }
 

@@ -272,4 +272,31 @@ import MadeCore
         let views: [any View] = [sidebarView, inspectorView]
         #expect(views.count == 2)
     }
+
+    @Test @MainActor func testInspectorDisplaysBoundingBoxForSelectedBody() {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let boxId = ObjectId("box-1")
+        model.selectedId = boxId
+        #expect(model.selectedObject?.id == boxId)
+
+        let boxes = model.boundingBoxes(for: boxId)
+        #expect(boxes != nil)
+        if let (aabb, obb) = boxes {
+            #expect(abs(aabb.size.x - 40.0) < 0.01)
+            #expect(abs(aabb.size.y - 30.0) < 0.01)
+            #expect(abs(aabb.size.z - 20.0) < 0.01)
+            #expect(abs(aabb.volume - 24000.0) < 0.1)
+
+            let sorted = obb.sortedDimensions
+            #expect(abs(sorted.x - 20.0) < 0.01)
+            #expect(abs(sorted.y - 30.0) < 0.01)
+            #expect(abs(sorted.z - 40.0) < 0.01)
+            #expect(abs(obb.volume - 24000.0) < 0.1)
+        }
+
+        let inspectorView = InspectorPanelView().environment(model)
+        _ = inspectorView
+    }
 }

@@ -1030,6 +1030,11 @@ final class WorkspaceModel {
         startCommand(CommandSession.makePushPull(workspace: self, solidId: solidId, faceId: faceId))
     }
 
+    public func boundingBoxes(for solidId: SolidId) -> (axisAligned: AxisAlignedBoundingBox, oriented: OrientedBoundingBox)? {
+        let candidates = viewportManager.renderer?.candidateMeshes() ?? []
+        return BoundingBoxCalculator.boxes(for: solidId, in: document, candidateMeshes: candidates)
+    }
+
     func isFacePlanar(solidId: SolidId, faceId: Int) -> Bool {
         if let renderer = viewportManager.renderer,
            let mesh = renderer.candidateMeshes().first(where: { $0.id == solidId }) {
