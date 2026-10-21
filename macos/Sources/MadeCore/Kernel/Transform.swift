@@ -47,6 +47,16 @@ public struct Transform: Sendable, Equatable, Codable {
         m.columns.2 *= (1.0 / scale.z)
         return m
     }
+
+    /// Composes two transforms such that `(lhs * rhs).transformPoint(p) == lhs.transformPoint(rhs.transformPoint(p))`.
+    public static func * (lhs: Transform, rhs: Transform) -> Transform {
+        let scaledPos = lhs.scale * rhs.position
+        let rotatedPos = lhs.rotation.act(scaledPos)
+        let newPos = lhs.position + rotatedPos
+        let newRot = simd_normalize(lhs.rotation * rhs.rotation)
+        let newScale = lhs.scale * rhs.scale
+        return Transform(position: newPos, rotation: newRot, scale: newScale)
+    }
 }
 
 extension simd_quatf: @retroactive Codable {

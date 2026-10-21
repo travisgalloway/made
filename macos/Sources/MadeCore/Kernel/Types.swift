@@ -653,6 +653,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case hole(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, faceReference: TopologicalReference, holeData: HoleFeatureData)
     case pattern(jobId: JobId, solidId: SolidId, params: PatternParams)
     case mirror(jobId: JobId, solidId: SolidId, params: MirrorParams)
+    case copySolid(jobId: JobId, solidId: SolidId, sourceSolidId: SolidId)
     
     public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
         .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
@@ -682,6 +683,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
             return j
         case .mirror(let j, _, _):
             return j
+        case .copySolid(let j, _, _):
+            return j
         }
     }
     
@@ -708,6 +711,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         case .pattern(_, let s, _):
             return s
         case .mirror(_, let s, _):
+            return s
+        case .copySolid(_, let s, _):
             return s
         }
     }

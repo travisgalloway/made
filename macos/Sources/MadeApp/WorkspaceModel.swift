@@ -1572,6 +1572,86 @@ final class WorkspaceModel {
         return await mirrorBody(params: params, actionName: actionName)
     }
 
+    @discardableResult
+    func combineBodies(
+        targetBodyId: SolidId,
+        toolBodyId: SolidId,
+        operation: BooleanOp = .union,
+        keepTool: Bool = false,
+        actionName: String? = nil
+    ) -> Feature? {
+        do {
+            let feat = try document.combineBodies(
+                targetBodyId: targetBodyId,
+                toolBodyId: toolBodyId,
+                operation: operation,
+                keepTool: keepTool,
+                actionName: actionName
+            )
+            selectedId = targetBodyId
+            markDocumentModified()
+            recomputeSolid(id: targetBodyId)
+            return feat
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func moveBody(
+        targetBodyId: ObjectId,
+        transform: Transform,
+        actionName: String = "Move Body"
+    ) -> Feature? {
+        do {
+            let feat = try document.moveBody(targetBodyId: targetBodyId, transform: transform, actionName: actionName)
+            markDocumentModified()
+            recomputeSolid(id: targetBodyId)
+            invalidateViewport(.model)
+            return feat
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func copyBody(
+        sourceBodyId: ObjectId,
+        transform: Transform = .identity,
+        actionName: String = "Copy Body"
+    ) -> Feature? {
+        do {
+            let feat = try document.copyBody(sourceBodyId: sourceBodyId, transform: transform, actionName: actionName)
+            if let outputId = feat.outputSolidId {
+                selectedId = outputId
+                recomputeSolid(id: outputId)
+            }
+            markDocumentModified()
+            invalidateViewport(.model)
+            return feat
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func deleteBody(
+        _ id: ObjectId,
+        actionName: String = "Delete Body"
+    ) -> Feature? {
+        do {
+            let feat = try document.deleteBody(targetBodyId: id, actionName: actionName)
+            if selectedId == id {
+                selectedId = nil
+            }
+            markDocumentModified()
+            invalidateViewport(.model)
+            return feat
+        } catch {
+            return nil
+        }
+    }
+
     private func processSolverResult(
         _ result: SolverResult,
         for featureId: UUID,
@@ -3041,7 +3121,7 @@ final class WorkspaceModel {
         }
         let dependents = document.dependentObjects(of: id)
         partReloadController?.stopWatching(id: id)
-        document.removeObject(id: id)
+        _ = document.removeObject(id: id)
         syncViewportSelection()
         markDocumentModified()
         let task = Task {
@@ -3121,17 +3201,28 @@ final class WorkspaceModel {
 
     @discardableResult
     public func duplicateObject(_ id: ObjectId) -> ObjectId? {
-        guard let source = document.objects.first(where: { $0.id == id }) else { return nil }
-        var newTransform = source.transform
-        newTransform.position += SIMD3<Float>(10, 10, 0)
-        let newId = document.addObject(def: source.def, transform: newTransform, material: source.material)
-        document.setName(id: newId, name: "\(source.name) Copy")
-        selectedId = newId
-        markDocumentModified()
-        undoManager?.setActionName("Duplicate Object")
-        log(.info, "Scene", "Duplicated object \(id.rawValue) to \(newId.rawValue)")
-        recomputeSolid(id: newId)
-        return newId
+        let offsetTransform = Transform(position: SIMD3<Float>(10, 10, 0))
+        do {
+            let feature = try document.copyBody(sourceBodyId: id, transform: offsetTransform)
+            guard let newId = feature.outputSolidId else { return nil }
+            selectedId = newId
+            markDocumentModified()
+            log(.info, "Scene", "Duplicated body \(id.rawValue) to \(newId.rawValue)")
+            recomputeSolid(id: newId)
+            return newId
+        } catch {
+            guard let source = document.objects.first(where: { $0.id == id }) else { return nil }
+            var newTransform = source.transform
+            newTransform.position += SIMD3<Float>(10, 10, 0)
+            let newId = document.addObject(def: source.def, transform: newTransform, material: source.material)
+            document.setName(id: newId, name: "\(source.name) Copy")
+            selectedId = newId
+            markDocumentModified()
+            undoManager?.setActionName("Duplicate Object")
+            log(.info, "Scene", "Duplicated object \(id.rawValue) to \(newId.rawValue)")
+            recomputeSolid(id: newId)
+            return newId
+        }
     }
 
     @discardableResult
@@ -3434,7 +3525,14 @@ final class WorkspaceModel {
             }
             return
         }
-        guard let request = KernelRegeneration.request(for: obj, jobId: JobId("job-\(UUID().uuidString)")) else { return }
+        let request: KernelRequest? = {
+            if let feat = document.features.first(where: { $0.outputSolidId == id }),
+               let req = KernelRegeneration.request(for: feat, jobId: JobId("job-\(UUID().uuidString)")) {
+                return req
+            }
+            return KernelRegeneration.request(for: obj, jobId: JobId("job-\(UUID().uuidString)"))
+        }()
+        guard let request else { return }
 
         let clock = ContinuousClock()
         let start = clock.now

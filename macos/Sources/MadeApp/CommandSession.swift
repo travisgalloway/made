@@ -792,17 +792,28 @@ extension CommandSession {
             default: .subtract
             }
 
-            let def = ObjectDef.boolean(op: op, solidA: a, solidB: b)
-            let newId = workspace.document.reserveId(for: def)
-
-            // Hide target solid A; tool solid B visibility depends on keepTool
-            workspace.setVisibility(a, isVisible: false)
             let keepTool = session.toggleValue(for: "keepTool") ?? false
+            workspace.setVisibility(a, isVisible: false)
             workspace.setVisibility(b, isVisible: keepTool)
 
-            workspace.document.addObject(newId, def: def)
-            workspace.selectedId = newId
-            workspace.recomputeSolid(id: newId)
+            do {
+                let feature = try workspace.document.combineBodies(
+                    targetBodyId: a,
+                    toolBodyId: b,
+                    operation: op,
+                    keepTool: keepTool
+                )
+                if let newId = feature.outputSolidId {
+                    workspace.selectedId = newId
+                    workspace.recomputeSolid(id: newId)
+                }
+            } catch {
+                let def = ObjectDef.boolean(op: op, solidA: a, solidB: b)
+                let newId = workspace.document.reserveId(for: def)
+                workspace.document.addObject(newId, def: def)
+                workspace.selectedId = newId
+                workspace.recomputeSolid(id: newId)
+            }
         }
 
         session.onCancel = { [weak workspace] in

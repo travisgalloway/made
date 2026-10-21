@@ -2132,6 +2132,22 @@ public final class CADToolRegistry {
             dict["planeNormal"] = [mirrorData.planeNormal.x, mirrorData.planeNormal.y, mirrorData.planeNormal.z]
             dict["planeOrigin"] = [mirrorData.planeOrigin.x, mirrorData.planeOrigin.y, mirrorData.planeOrigin.z]
             dict["keepOriginal"] = mirrorData.keepOriginal
+        case .combine(let combineData):
+            dict["type"] = "combine"
+            dict["operation"] = combineData.operation.rawValue
+            dict["targetBodyId"] = combineData.targetBodyId.rawValue
+            dict["toolBodyId"] = combineData.toolBodyId.rawValue
+            dict["keepTool"] = combineData.keepTool
+        case .moveBody(let moveData):
+            dict["type"] = "moveBody"
+            dict["targetBodyId"] = moveData.targetBodyId.rawValue
+        case .copyBody(let copyData):
+            dict["type"] = "copyBody"
+            dict["sourceBodyId"] = copyData.sourceBodyId.rawValue
+            dict["newBodyId"] = copyData.newBodyId.rawValue
+        case .deleteBody(let deleteData):
+            dict["type"] = "deleteBody"
+            dict["targetBodyId"] = deleteData.targetBodyId.rawValue
         }
 
         return dict
