@@ -44,10 +44,18 @@ struct FileMenuCommands: Commands {
                 workspace.promptImportStepFile()
             }
 
-            Button("Export STEP…") {
-                workspace.promptExportStepFile(selectedOnly: false)
+            Menu("Export") {
+                Button("STL…") {
+                    workspace.promptExportSTLFile()
+                }
+                .disabled(workspace.document.objects.isEmpty)
+
+                Button("STEP…") {
+                    workspace.promptExportStepFile(selectedOnly: false)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
             }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(workspace.document.objects.isEmpty)
 
             Button("Reload Part Scripts") {
                 workspace.reloadAllParts()
@@ -192,6 +200,11 @@ struct SolidMenuCommands: Commands {
 
             Button("Export STEP Solid…") {
                 workspace.promptExportStepFile(selectedOnly: workspace.selectedId != nil)
+            }
+            .disabled(workspace.document.objects.isEmpty)
+
+            Button("Export STL…") {
+                workspace.promptExportSTLFile()
             }
             .disabled(workspace.document.objects.isEmpty)
 
