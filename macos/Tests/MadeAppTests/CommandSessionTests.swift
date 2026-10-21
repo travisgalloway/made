@@ -736,6 +736,92 @@ extension WorkspaceModelTests {
         let overConstrainedSession = CommandSession.makeDimension(workspace: workspace, sketchFeatureId: feature.id, entityId: line.id)
         #expect(!overConstrainedSession.canCommit)
     }
+
+    @Test @MainActor func testMeasureCommandSessionInitialization() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeMeasure(workspace: workspace)
+
+        #expect(session.title == "Measure")
+        #expect(!session.isPreviewEnabled)
+        #expect(session.selectionSlots.count == 2)
+        #expect(session.selectionSlots[0].id == "element1")
+        #expect(session.selectionSlots[0].isActive)
+        #expect(session.selectionSlots[1].id == "element2")
+        #expect(!session.selectionSlots[1].isActive)
+        #expect(session.canCommit)
+
+        workspace.startCommand(session)
+        #expect(workspace.activeCommand === session)
+        session.cancel()
+        #expect(workspace.activeCommand == nil)
+    }
+
+    @Test @MainActor func testMeasureCommandSessionInputFormatting() {
+        let testDefaults = UserDefaults(suiteName: "test-measure-\(UUID())")!
+        let workspace = WorkspaceModel(defaults: testDefaults)
+        workspace.setDocumentUnits(UnitSettings(lengthUnit: .millimeters, decimalPrecision: 2))
+        let boxId = SolidId("box-1")
+        let boxFeat = Feature.makeBox(
+            solidId: boxId,
+            params: BoxParams(width: 10, depth: 10, height: 10)
+        )
+        _ = workspace.document.addFeature(boxFeat)
+
+        workspace.startMeasureCommand()
+        guard let session = workspace.activeCommand else {
+            Issue.record("Expected active Measure command session")
+            return
+        }
+
+        let topSub = SelectedSubElement(solidId: boxId, elementType: .face, elementId: 0)
+        let bottomSub = SelectedSubElement(solidId: boxId, elementType: .face, elementId: 1)
+
+        workspace.selectElementForActiveCommand(boxId, subElement: topSub)
+        #expect(session.selectionSlots[0].selectedObjectId == boxId)
+        #expect(session.selectionSlots[0].selectedSubElement == topSub)
+        #expect(session.selectionSlots[1].isActive)
+
+        workspace.selectElementForActiveCommand(boxId, subElement: bottomSub)
+        #expect(session.selectionSlots[1].selectedObjectId == boxId)
+        #expect(session.selectionSlots[1].selectedSubElement == bottomSub)
+
+        let minInput = session.inputs.first(where: { $0.id == "minDistance" })
+        #expect(minInput != nil)
+        if case .readOnlyText(let val, let unit) = minInput?.value {
+            #expect(val == "10.00")
+            #expect(unit == "mm")
+        } else {
+            Issue.record("Expected readOnlyText value for minDistance")
+        }
+
+        let centerInput = session.inputs.first(where: { $0.id == "centerDistance" })
+        #expect(centerInput != nil)
+        if case .readOnlyText(let val, let unit) = centerInput?.value {
+            #expect(val == "10.00")
+            #expect(unit == "mm")
+        }
+
+        let normInput = session.inputs.first(where: { $0.id == "normalDistance" })
+        #expect(normInput != nil)
+        if case .readOnlyText(let val, let unit) = normInput?.value {
+            #expect(val == "10.00")
+            #expect(unit == "mm")
+        }
+
+        let angleInput = session.inputs.first(where: { $0.id == "angle" })
+        #expect(angleInput != nil)
+        if case .readOnlyText(let val, let unit) = angleInput?.value {
+            #expect(val == "0.00")
+            #expect(unit == "deg")
+        }
+
+        let areaInput = session.inputs.first(where: { $0.id == "area" })
+        #expect(areaInput != nil)
+        if case .readOnlyText(let val, let unit) = areaInput?.value {
+            #expect(val == "100.00")
+            #expect(unit == "mm²")
+        }
+    }
 }
 
 }

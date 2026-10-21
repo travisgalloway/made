@@ -15,6 +15,7 @@ struct CommandSelectionSlot: Identifiable, Sendable, Equatable {
     var isRequired: Bool
     var selectedObjectId: ObjectId?
     var selectedObjectName: String?
+    var selectedSubElement: SelectedSubElement?
     var isActive: Bool
 
     init(
@@ -23,6 +24,7 @@ struct CommandSelectionSlot: Identifiable, Sendable, Equatable {
         isRequired: Bool = true,
         selectedObjectId: ObjectId? = nil,
         selectedObjectName: String? = nil,
+        selectedSubElement: SelectedSubElement? = nil,
         isActive: Bool = false
     ) {
         self.id = id
@@ -30,6 +32,7 @@ struct CommandSelectionSlot: Identifiable, Sendable, Equatable {
         self.isRequired = isRequired
         self.selectedObjectId = selectedObjectId
         self.selectedObjectName = selectedObjectName
+        self.selectedSubElement = selectedSubElement
         self.isActive = isActive
     }
 }
@@ -39,6 +42,7 @@ enum CommandInputValue: Sendable, Equatable {
     case text(String)
     case toggle(Bool)
     case choice(String, options: [String])
+    case readOnlyText(String, unit: String = "")
 }
 
 struct CommandInput: Identifiable, Sendable, Equatable {
@@ -101,7 +105,7 @@ final class CommandSession: Identifiable {
 
     var canCommit: Bool {
         for slot in selectionSlots where slot.isRequired {
-            if slot.selectedObjectId == nil { return false }
+            if slot.selectedObjectId == nil && slot.selectedSubElement == nil { return false }
         }
         for input in inputs {
             switch input.value {
@@ -205,13 +209,12 @@ final class CommandSession: Identifiable {
         }
     }
 
-    func setSlotSelection(slotId: String, objectId: ObjectId?, objectName: String?) {
+    func setSlotSelection(slotId: String, objectId: ObjectId?, objectName: String?, subElement: SelectedSubElement? = nil) {
         guard let idx = selectionSlots.firstIndex(where: { $0.id == slotId }) else { return }
         selectionSlots[idx].selectedObjectId = objectId
         selectionSlots[idx].selectedObjectName = objectName
-        if isPreviewEnabled {
-            onPreviewUpdate?()
-        }
+        selectionSlots[idx].selectedSubElement = subElement
+        onPreviewUpdate?()
     }
 
     func commit() {
@@ -1638,6 +1641,168 @@ extension CommandSession {
             } catch {
                 // If over-constrained or error, captured by workspace
             }
+        }
+
+        return session
+    }
+
+    static func makeMeasure(workspace: WorkspaceModel) -> CommandSession {
+        let session = CommandSession(
+            title: "Measure",
+            selectionSlots: [
+                CommandSelectionSlot(
+                    id: "element1",
+                    label: "Element 1",
+                    isRequired: false,
+                    selectedObjectId: nil,
+                    selectedObjectName: nil,
+                    selectedSubElement: nil,
+                    isActive: true
+                ),
+                CommandSelectionSlot(
+                    id: "element2",
+                    label: "Element 2",
+                    isRequired: false,
+                    selectedObjectId: nil,
+                    selectedObjectName: nil,
+                    selectedSubElement: nil,
+                    isActive: false
+                )
+            ],
+            inputs: [],
+            isPreviewEnabled: false
+        )
+
+        let recalculate: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            let slot1 = session.selectionSlots.first(where: { $0.id == "element1" })
+            let slot2 = session.selectionSlots.first(where: { $0.id == "element2" })
+
+            let elem1: MeasuredElement?
+            if let sub = slot1?.selectedSubElement {
+                elem1 = MeasuredElement(selectedSubElement: sub)
+            } else if let objId = slot1?.selectedObjectId {
+                elem1 = .body(objId)
+            } else {
+                elem1 = nil
+            }
+
+            let elem2: MeasuredElement?
+            if let sub = slot2?.selectedSubElement {
+                elem2 = MeasuredElement(selectedSubElement: sub)
+            } else if let objId = slot2?.selectedObjectId {
+                elem2 = .body(objId)
+            } else {
+                elem2 = nil
+            }
+
+            guard let elem1 else {
+                session.inputs = []
+                return
+            }
+
+            let candidateMeshes = workspace.viewportManager.renderer?.candidateMeshes() ?? []
+            let hiddenIds = workspace.viewportManager.renderer?.hiddenSolidIds ?? []
+            let unitSettings = workspace.document.settings.unitSettings
+
+            guard let result = MeasureTool.measure(
+                elementA: elem1,
+                elementB: elem2,
+                in: workspace.document,
+                candidateMeshes: candidateMeshes,
+                hiddenSolidIds: hiddenIds
+            ) else {
+                session.inputs = []
+                return
+            }
+
+            var newInputs: [CommandInput] = []
+
+            if elem2 != nil {
+                let minValStr = unitSettings.formatLength(result.minDistance, includeSymbol: false)
+                newInputs.append(CommandInput(
+                    id: "minDistance",
+                    label: "Minimum Distance",
+                    value: .readOnlyText(minValStr, unit: unitSettings.lengthUnit.symbol)
+                ))
+
+                let centerValStr = unitSettings.formatLength(result.centerDistance, includeSymbol: false)
+                newInputs.append(CommandInput(
+                    id: "centerDistance",
+                    label: "Center Distance",
+                    value: .readOnlyText(centerValStr, unit: unitSettings.lengthUnit.symbol)
+                ))
+
+                if let normDist = result.normalDistance {
+                    let normValStr = unitSettings.formatLength(normDist, includeSymbol: false)
+                    newInputs.append(CommandInput(
+                        id: "normalDistance",
+                        label: "Normal Distance",
+                        value: .readOnlyText(normValStr, unit: unitSettings.lengthUnit.symbol)
+                    ))
+                }
+
+                if let angle = result.angleDegrees {
+                    let angleValStr = unitSettings.formatAngle(angle, includeSymbol: false)
+                    newInputs.append(CommandInput(
+                        id: "angle",
+                        label: "Angle",
+                        value: .readOnlyText(angleValStr, unit: unitSettings.angleUnit.symbol)
+                    ))
+                }
+            }
+
+            let geomA = result.geometryA
+            let geomB = result.geometryB
+
+            if let area = geomA.area ?? geomB?.area {
+                let factor = unitSettings.lengthUnit.fromMillimeters(1.0)
+                let convertedArea = area * (factor * factor)
+                let areaValStr = UnitSettings.format(value: convertedArea, precision: unitSettings.decimalPrecision)
+                let areaUnitStr = "\(unitSettings.lengthUnit.symbol)²"
+                newInputs.append(CommandInput(
+                    id: "area",
+                    label: "Area",
+                    value: .readOnlyText(areaValStr, unit: areaUnitStr)
+                ))
+            }
+
+            if let length = geomA.length ?? geomB?.length {
+                let lenValStr = unitSettings.formatLength(length, includeSymbol: false)
+                newInputs.append(CommandInput(
+                    id: "length",
+                    label: "Length",
+                    value: .readOnlyText(lenValStr, unit: unitSettings.lengthUnit.symbol)
+                ))
+            }
+
+            if let radius = geomA.radius ?? geomB?.radius {
+                let radValStr = unitSettings.formatLength(radius, includeSymbol: false)
+                newInputs.append(CommandInput(
+                    id: "radius",
+                    label: "Radius",
+                    value: .readOnlyText(radValStr, unit: unitSettings.lengthUnit.symbol)
+                ))
+            }
+
+            if let diameter = geomA.diameter ?? geomB?.diameter {
+                let diamValStr = unitSettings.formatLength(diameter, includeSymbol: false)
+                newInputs.append(CommandInput(
+                    id: "diameter",
+                    label: "Diameter",
+                    value: .readOnlyText(diamValStr, unit: unitSettings.lengthUnit.symbol)
+                ))
+            }
+
+            session.inputs = newInputs
+        }
+
+        session.onPreviewUpdate = recalculate
+        session.onCommit = { [weak workspace] in
+            workspace?.cancelActiveCommand()
+        }
+        session.onCancel = { [weak workspace] in
+            workspace?.cancelActiveCommand()
         }
 
         return session

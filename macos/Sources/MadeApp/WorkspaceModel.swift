@@ -943,20 +943,50 @@ final class WorkspaceModel {
     }
 
     func selectObjectForActiveCommand(_ id: ObjectId) {
+        selectElementForActiveCommand(id, subElement: nil)
+    }
+
+    func selectElementForActiveCommand(_ id: ObjectId, subElement: SelectedSubElement?) {
         guard let session = activeCommand else { return }
-        let name = document.objects.first(where: { $0.id == id })?.name ?? id.rawValue
+        let hiddenIds = viewportManager.renderer?.hiddenSolidIds ?? []
+        guard MeasureTool.isSolidVisible(id, in: document, hiddenSolidIds: hiddenIds) else { return }
+
+        let name: String
+        if let sub = subElement {
+            let baseName = document.objects.first(where: { $0.id == id })?.name ?? id.rawValue
+            switch sub.elementType {
+            case .face:
+                name = "Face \(sub.elementId) (\(baseName))"
+            case .edge:
+                name = "Edge \(sub.elementId) (\(baseName))"
+            case .vertex:
+                name = "Vertex \(sub.elementId) (\(baseName))"
+            }
+        } else {
+            name = document.objects.first(where: { $0.id == id })?.name ?? id.rawValue
+        }
+
         if let activeIndex = session.selectionSlots.firstIndex(where: { $0.isActive }) {
             let activeSlotId = session.selectionSlots[activeIndex].id
-            session.setSlotSelection(slotId: activeSlotId, objectId: id, objectName: name)
-            if let nextEmpty = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil }) {
+            session.setSlotSelection(slotId: activeSlotId, objectId: id, objectName: name, subElement: subElement)
+            if let nextEmpty = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil && $0.selectedSubElement == nil }) {
                 session.selectSlot(id: session.selectionSlots[nextEmpty].id)
             }
-        } else if let emptyIndex = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil }) {
+        } else if let emptyIndex = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil && $0.selectedSubElement == nil }) {
             let emptySlotId = session.selectionSlots[emptyIndex].id
-            session.setSlotSelection(slotId: emptySlotId, objectId: id, objectName: name)
-            if let nextEmpty = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil }) {
+            session.setSlotSelection(slotId: emptySlotId, objectId: id, objectName: name, subElement: subElement)
+            if let nextEmpty = session.selectionSlots.firstIndex(where: { $0.selectedObjectId == nil && $0.selectedSubElement == nil }) {
                 session.selectSlot(id: session.selectionSlots[nextEmpty].id)
             }
+        }
+        session.onPreviewUpdate?()
+    }
+
+    func startMeasureCommand() {
+        let session = CommandSession.makeMeasure(workspace: self)
+        startCommand(session)
+        if let sub = document.selectedSubElement {
+            selectElementForActiveCommand(sub.solidId, subElement: sub)
         }
     }
 

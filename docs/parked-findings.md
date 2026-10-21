@@ -196,3 +196,4 @@ Date: 2026-10-17. The run parked 84 findings, in source order and unranked. Form
 - (no id) | macos/Tests/MadeAppTests/SettingsViewTests.swift:21 | Comparing non-optional value of type 'some View' to nil always returns true. | execution #563
 - (no id) | macos/Tests/MadeAppTests/SketchConstructionAppTests.swift:71 | Under parallel test suite execution, explicit regenerateIncremental races with undo recompute causing sporadic conflation failure. | execution #571
 - (no id) | macos/Tests/MadeAppTests/SketchOperationsAppTests.swift:207 | Under parallel test execution, testTrimRegeneratesDownstreamExtrude sleep window can race with background recompute. | execution #154
+- (no id) | macos/Sources/MadeApp/WorkspaceModel.swift:373 | decimalPrecision.didSet updates defaults but does not propagate to document.settings.units.decimalPrecision. | execution #259

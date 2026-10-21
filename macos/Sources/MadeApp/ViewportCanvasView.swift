@@ -90,6 +90,7 @@ struct ViewportCanvasView: View {
                             onCancelCommand: { workspace.cancelActiveCommand() },
                             onCommitCommand: { workspace.commitActiveCommand() },
                             onSelectObjectForCommand: { id in workspace.selectObjectForActiveCommand(id) },
+                            onSelectElementForCommand: { id, sub in workspace.selectElementForActiveCommand(id, subElement: sub) },
                             onInvalidate: { workspace.updateStats() },
                             onSnapChanged: { workspace.handleSnapChanged($0) },
                             onToolShortcut: { workspace.tool = $0 },

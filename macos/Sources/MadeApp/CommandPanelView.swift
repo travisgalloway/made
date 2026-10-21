@@ -17,10 +17,12 @@ struct CommandPanelView: View {
 
             inputsSection
 
-            Divider()
+            if session.title != "Measure" {
+                Divider()
 
-            Toggle("Preview", isOn: $session.isPreviewEnabled)
-                .controlSize(.small)
+                Toggle("Preview", isOn: $session.isPreviewEnabled)
+                    .controlSize(.small)
+            }
 
             Divider()
 
@@ -143,6 +145,20 @@ struct CommandPanelView: View {
                 }
                 .labelsHidden()
                 .frame(width: 120)
+            }
+        case .readOnlyText(let val, let unit):
+            HStack(spacing: 4) {
+                Text(input.label)
+                    .font(.callout)
+                Spacer()
+                Text(val)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.primary)
+                if !unit.isEmpty {
+                    Text(unit)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

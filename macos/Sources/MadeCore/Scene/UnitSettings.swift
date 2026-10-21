@@ -133,6 +133,12 @@ public struct UnitSettings: Sendable, Codable, Equatable {
         Self.format(value: angleUnit.fromDegrees(valueInDegrees), precision: decimalPrecision, symbol: includeSymbol ? angleUnit.symbol : nil)
     }
 
+    public func formatArea(_ valueInSquareMillimeters: Double, includeSymbol: Bool = true) -> String {
+        let factor = lengthUnit.fromMillimeters(1.0)
+        let convertedArea = valueInSquareMillimeters * (factor * factor)
+        return Self.format(value: convertedArea, precision: decimalPrecision, symbol: includeSymbol ? "\(lengthUnit.symbol)²" : nil)
+    }
+
     public static func format(value: Double, precision: Int, symbol: String? = nil) -> String {
         let clamped = clampPrecision(precision)
         let formatted = String(format: "%.\(clamped)f", value)

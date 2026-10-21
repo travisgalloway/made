@@ -394,6 +394,12 @@ struct ToolsMenuCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Tools") {
+            Button("Measure") {
+                workspace.startMeasureCommand()
+            }
+
+            Divider()
+
             Button(workspace.mcpServerToggleTitle) {
                 workspace.toggleMCPServer()
             }
