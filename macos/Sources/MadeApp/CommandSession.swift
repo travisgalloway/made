@@ -66,6 +66,7 @@ final class CommandSession: Identifiable {
     let title: String
     var selectionSlots: [CommandSelectionSlot]
     var inputs: [CommandInput]
+    var errorMessage: String?
     var isPreviewEnabled: Bool {
         didSet {
             if oldValue != isPreviewEnabled {
@@ -85,6 +86,7 @@ final class CommandSession: Identifiable {
         selectionSlots: [CommandSelectionSlot] = [],
         inputs: [CommandInput] = [],
         isPreviewEnabled: Bool = true,
+        errorMessage: String? = nil,
         customValidation: (@MainActor () -> Bool)? = nil,
         onParamChanged: (@MainActor (String, CommandInputValue) -> Void)? = nil,
         onPreviewUpdate: (@MainActor () -> Void)? = nil,
@@ -96,6 +98,7 @@ final class CommandSession: Identifiable {
         self.selectionSlots = selectionSlots
         self.inputs = inputs
         self.isPreviewEnabled = isPreviewEnabled
+        self.errorMessage = errorMessage
         self.customValidation = customValidation
         self.onParamChanged = onParamChanged
         self.onPreviewUpdate = onPreviewUpdate
@@ -3610,5 +3613,538 @@ extension CommandSession {
         }
 
         return session
+    }
+
+    // MARK: - Edit Feature (BL-PRT-25)
+
+    static func makeEditFeature(workspace: WorkspaceModel, featureId: UUID) -> CommandSession? {
+        guard let feature = workspace.document.feature(for: featureId), !feature.isLocked else {
+            return nil
+        }
+        guard case .primitive(let prim) = feature.operation else {
+            return nil
+        }
+
+        let solidId = feature.outputSolidId ?? SolidId(feature.id.uuidString)
+        let wasOriginallyHidden = workspace.viewportManager.renderer?.hiddenSolidIds.contains(solidId) ?? false
+
+        let inputs: [CommandInput]
+        let title: String
+        let customValidation: (@MainActor (CommandSession) -> Bool)?
+
+        switch prim {
+        case .box(let params):
+            title = "Edit Box"
+            inputs = [
+                CommandInput(id: "width", label: "Width (X)", value: .number(params.width, range: DocumentLimits.boxWidth.min...DocumentLimits.boxWidth.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "depth", label: "Depth (Y)", value: .number(params.depth, range: DocumentLimits.boxDepth.min...DocumentLimits.boxDepth.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "height", label: "Height (Z)", value: .number(params.height, range: DocumentLimits.boxHeight.min...DocumentLimits.boxHeight.max, step: 1.0, unit: "mm"))
+            ]
+            customValidation = nil
+
+        case .cylinder(let params):
+            title = "Edit Cylinder"
+            inputs = [
+                CommandInput(id: "radius", label: "Radius", value: .number(params.radius, range: DocumentLimits.cylinderRadius.min...DocumentLimits.cylinderRadius.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "height", label: "Height (Z)", value: .number(params.height, range: DocumentLimits.cylinderHeight.min...DocumentLimits.cylinderHeight.max, step: 1.0, unit: "mm"))
+            ]
+            customValidation = nil
+
+        case .sphere(let params):
+            title = "Edit Sphere"
+            inputs = [
+                CommandInput(id: "radius", label: "Radius", value: .number(params.radius, range: DocumentLimits.sphereRadius.min...DocumentLimits.sphereRadius.max, step: 1.0, unit: "mm"))
+            ]
+            customValidation = nil
+
+        case .cone(let params):
+            title = "Edit Cone"
+            inputs = [
+                CommandInput(id: "bottomRadius", label: "Bottom Radius", value: .number(params.bottomRadius, range: DocumentLimits.coneBottomRadius.min...DocumentLimits.coneBottomRadius.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "topRadius", label: "Top Radius", value: .number(params.topRadius, range: DocumentLimits.coneTopRadius.min...DocumentLimits.coneTopRadius.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "height", label: "Height (Z)", value: .number(params.height, range: DocumentLimits.coneHeight.min...DocumentLimits.coneHeight.max, step: 1.0, unit: "mm"))
+            ]
+            customValidation = { sess in
+                let br = sess.numberValue(for: "bottomRadius") ?? params.bottomRadius
+                let tr = sess.numberValue(for: "topRadius") ?? params.topRadius
+                return br > 0 || tr > 0
+            }
+
+        case .torus(let params):
+            title = "Edit Torus"
+            inputs = [
+                CommandInput(id: "majorRadius", label: "Major Radius", value: .number(params.majorRadius, range: DocumentLimits.torusMajorRadius.min...DocumentLimits.torusMajorRadius.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "minorRadius", label: "Minor Radius", value: .number(params.minorRadius, range: DocumentLimits.torusMinorRadius.min...DocumentLimits.torusMinorRadius.max, step: 1.0, unit: "mm"))
+            ]
+            customValidation = { sess in
+                let maj = sess.numberValue(for: "majorRadius") ?? params.majorRadius
+                let minR = sess.numberValue(for: "minorRadius") ?? params.minorRadius
+                return maj > minR
+            }
+
+        case .wedge(let params):
+            title = "Edit Wedge"
+            inputs = [
+                CommandInput(id: "width", label: "Width (X)", value: .number(params.width, range: DocumentLimits.wedgeWidth.min...DocumentLimits.wedgeWidth.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "depth", label: "Depth (Y)", value: .number(params.depth, range: DocumentLimits.wedgeDepth.min...DocumentLimits.wedgeDepth.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "height", label: "Height (Z)", value: .number(params.height, range: DocumentLimits.wedgeHeight.min...DocumentLimits.wedgeHeight.max, step: 1.0, unit: "mm")),
+                CommandInput(id: "topWidth", label: "Top Width (X)", value: .number(params.topWidth, range: DocumentLimits.wedgeTopWidth.min...DocumentLimits.wedgeTopWidth.max, step: 1.0, unit: "mm"))
+            ]
+            customValidation = { sess in
+                let w = sess.numberValue(for: "width") ?? params.width
+                let tw = sess.numberValue(for: "topWidth") ?? params.topWidth
+                return tw <= w
+            }
+        }
+
+        let session = CommandSession(
+            title: title,
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        if let customValidation {
+            session.customValidation = { [weak session] in
+                guard let session else { return false }
+                return customValidation(session)
+            }
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard let currentFeature = workspace.document.feature(for: featureId) else { return }
+
+            if session.isPreviewEnabled {
+                let payload: MeshPayload?
+                let candidateFeature: Feature?
+
+                switch prim {
+                case .box:
+                    let w = session.numberValue(for: "width") ?? 30.0
+                    let d = session.numberValue(for: "depth") ?? 30.0
+                    let h = session.numberValue(for: "height") ?? 30.0
+                    guard w >= DocumentLimits.boxWidth.min && w <= DocumentLimits.boxWidth.max,
+                          d >= DocumentLimits.boxDepth.min && d <= DocumentLimits.boxDepth.max,
+                          h >= DocumentLimits.boxHeight.min && h <= DocumentLimits.boxHeight.max else {
+                        payload = nil
+                        candidateFeature = nil
+                        break
+                    }
+                    payload = NativeGeometryGenerator.generateBox(width: w, depth: d, height: h)
+                    var f = Feature.makeBox(
+                        id: currentFeature.id,
+                        solidId: solidId,
+                        name: currentFeature.name,
+                        params: BoxParams(width: w, depth: d, height: h),
+                        bodyOperation: currentFeature.bodyOperation,
+                        targetBodyId: currentFeature.targetBodyId,
+                        transform: currentFeature.transform,
+                        isVisible: currentFeature.isVisible,
+                        isLocked: currentFeature.isLocked,
+                        material: currentFeature.material
+                    )
+                    f.isSuppressed = currentFeature.isSuppressed
+                    candidateFeature = f
+
+                case .cylinder:
+                    let r = session.numberValue(for: "radius") ?? 12.0
+                    let h = session.numberValue(for: "height") ?? 35.0
+                    guard r >= DocumentLimits.cylinderRadius.min && r <= DocumentLimits.cylinderRadius.max,
+                          h >= DocumentLimits.cylinderHeight.min && h <= DocumentLimits.cylinderHeight.max else {
+                        payload = nil
+                        candidateFeature = nil
+                        break
+                    }
+                    payload = NativeGeometryGenerator.generateCylinder(radius: r, height: h)
+                    var f = Feature.makeCylinder(
+                        id: currentFeature.id,
+                        solidId: solidId,
+                        name: currentFeature.name,
+                        params: CylinderParams(radius: r, height: h),
+                        bodyOperation: currentFeature.bodyOperation,
+                        targetBodyId: currentFeature.targetBodyId,
+                        transform: currentFeature.transform,
+                        isVisible: currentFeature.isVisible,
+                        isLocked: currentFeature.isLocked,
+                        material: currentFeature.material
+                    )
+                    f.isSuppressed = currentFeature.isSuppressed
+                    candidateFeature = f
+
+                case .sphere:
+                    let r = session.numberValue(for: "radius") ?? 15.0
+                    guard r >= DocumentLimits.sphereRadius.min && r <= DocumentLimits.sphereRadius.max else {
+                        payload = nil
+                        candidateFeature = nil
+                        break
+                    }
+                    payload = NativeGeometryGenerator.generateSphere(radius: r)
+                    var f = Feature.makeSphere(
+                        id: currentFeature.id,
+                        solidId: solidId,
+                        name: currentFeature.name,
+                        params: SphereParams(radius: r),
+                        bodyOperation: currentFeature.bodyOperation,
+                        targetBodyId: currentFeature.targetBodyId,
+                        transform: currentFeature.transform,
+                        isVisible: currentFeature.isVisible,
+                        isLocked: currentFeature.isLocked,
+                        material: currentFeature.material
+                    )
+                    f.isSuppressed = currentFeature.isSuppressed
+                    candidateFeature = f
+
+                case .cone:
+                    let br = session.numberValue(for: "bottomRadius") ?? 15.0
+                    let tr = session.numberValue(for: "topRadius") ?? 0.0
+                    let h = session.numberValue(for: "height") ?? 30.0
+                    guard br >= DocumentLimits.coneBottomRadius.min && br <= DocumentLimits.coneBottomRadius.max,
+                          tr >= DocumentLimits.coneTopRadius.min && tr <= DocumentLimits.coneTopRadius.max,
+                          h >= DocumentLimits.coneHeight.min && h <= DocumentLimits.coneHeight.max,
+                          br > 0 || tr > 0 else {
+                        payload = nil
+                        candidateFeature = nil
+                        break
+                    }
+                    payload = NativeGeometryGenerator.generateCone(bottomRadius: br, topRadius: tr, height: h)
+                    var f = Feature.makeCone(
+                        id: currentFeature.id,
+                        solidId: solidId,
+                        name: currentFeature.name,
+                        params: ConeParams(bottomRadius: br, topRadius: tr, height: h),
+                        bodyOperation: currentFeature.bodyOperation,
+                        targetBodyId: currentFeature.targetBodyId,
+                        transform: currentFeature.transform,
+                        isVisible: currentFeature.isVisible,
+                        isLocked: currentFeature.isLocked,
+                        material: currentFeature.material
+                    )
+                    f.isSuppressed = currentFeature.isSuppressed
+                    candidateFeature = f
+
+                case .torus:
+                    let maj = session.numberValue(for: "majorRadius") ?? 20.0
+                    let minR = session.numberValue(for: "minorRadius") ?? 5.0
+                    guard maj >= DocumentLimits.torusMajorRadius.min && maj <= DocumentLimits.torusMajorRadius.max,
+                          minR >= DocumentLimits.torusMinorRadius.min && minR <= DocumentLimits.torusMinorRadius.max,
+                          maj > minR else {
+                        payload = nil
+                        candidateFeature = nil
+                        break
+                    }
+                    payload = NativeGeometryGenerator.generateTorus(majorRadius: maj, minorRadius: minR)
+                    var f = Feature.makeTorus(
+                        id: currentFeature.id,
+                        solidId: solidId,
+                        name: currentFeature.name,
+                        params: TorusParams(majorRadius: maj, minorRadius: minR),
+                        bodyOperation: currentFeature.bodyOperation,
+                        targetBodyId: currentFeature.targetBodyId,
+                        transform: currentFeature.transform,
+                        isVisible: currentFeature.isVisible,
+                        isLocked: currentFeature.isLocked,
+                        material: currentFeature.material
+                    )
+                    f.isSuppressed = currentFeature.isSuppressed
+                    candidateFeature = f
+
+                case .wedge:
+                    let w = session.numberValue(for: "width") ?? 30.0
+                    let d = session.numberValue(for: "depth") ?? 30.0
+                    let h = session.numberValue(for: "height") ?? 30.0
+                    let tw = session.numberValue(for: "topWidth") ?? 0.0
+                    guard w >= DocumentLimits.wedgeWidth.min && w <= DocumentLimits.wedgeWidth.max,
+                          d >= DocumentLimits.wedgeDepth.min && d <= DocumentLimits.wedgeDepth.max,
+                          h >= DocumentLimits.wedgeHeight.min && h <= DocumentLimits.wedgeHeight.max,
+                          tw >= DocumentLimits.wedgeTopWidth.min && tw <= DocumentLimits.wedgeTopWidth.max,
+                          tw <= w else {
+                        payload = nil
+                        candidateFeature = nil
+                        break
+                    }
+                    payload = NativeGeometryGenerator.generateWedge(width: w, depth: d, height: h, topWidth: tw)
+                    var f = Feature.makeWedge(
+                        id: currentFeature.id,
+                        solidId: solidId,
+                        name: currentFeature.name,
+                        params: WedgeParams(width: w, depth: d, height: h, topWidth: tw),
+                        bodyOperation: currentFeature.bodyOperation,
+                        targetBodyId: currentFeature.targetBodyId,
+                        transform: currentFeature.transform,
+                        isVisible: currentFeature.isVisible,
+                        isLocked: currentFeature.isLocked,
+                        material: currentFeature.material
+                    )
+                    f.isSuppressed = currentFeature.isSuppressed
+                    candidateFeature = f
+                }
+
+                if let payload, let candidateFeature {
+                    workspace.viewportManager.renderer?.hiddenSolidIds.insert(solidId)
+                    let previewColor = SIMD4<Float>(0.2, 0.6, 1.0, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: currentFeature.transform,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    session.errorMessage = checkDownstreamValidation(feature: currentFeature, candidateFeature: candidateFeature, workspace: workspace)
+                } else {
+                    _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                    if !wasOriginallyHidden && !currentFeature.isSuppressed {
+                        workspace.viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+                    }
+                    session.errorMessage = nil
+                }
+                workspace.invalidateViewport(.interaction)
+            } else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                if !wasOriginallyHidden && !currentFeature.isSuppressed {
+                    workspace.viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+                }
+                session.errorMessage = nil
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            let isSuppressed = workspace.document.feature(for: featureId)?.isSuppressed ?? false
+            if !wasOriginallyHidden && !isSuppressed {
+                workspace.viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+            }
+            workspace.invalidateViewport(.interaction)
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            let isSuppressed = workspace.document.feature(for: featureId)?.isSuppressed ?? false
+            if !wasOriginallyHidden && !isSuppressed {
+                workspace.viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+            }
+
+            guard let currentFeature = workspace.document.feature(for: featureId) else { return }
+            let updatedFeature: Feature?
+
+            switch prim {
+            case .box:
+                let w = session.numberValue(for: "width") ?? 30.0
+                let d = session.numberValue(for: "depth") ?? 30.0
+                let h = session.numberValue(for: "height") ?? 30.0
+                var f = Feature.makeBox(
+                    id: currentFeature.id,
+                    solidId: solidId,
+                    name: currentFeature.name,
+                    params: BoxParams(width: w, depth: d, height: h),
+                    bodyOperation: currentFeature.bodyOperation,
+                    targetBodyId: currentFeature.targetBodyId,
+                    transform: currentFeature.transform,
+                    isVisible: currentFeature.isVisible,
+                    isLocked: currentFeature.isLocked,
+                    material: currentFeature.material
+                )
+                f.isSuppressed = currentFeature.isSuppressed
+                updatedFeature = f
+
+            case .cylinder:
+                let r = session.numberValue(for: "radius") ?? 12.0
+                let h = session.numberValue(for: "height") ?? 35.0
+                var f = Feature.makeCylinder(
+                    id: currentFeature.id,
+                    solidId: solidId,
+                    name: currentFeature.name,
+                    params: CylinderParams(radius: r, height: h),
+                    bodyOperation: currentFeature.bodyOperation,
+                    targetBodyId: currentFeature.targetBodyId,
+                    transform: currentFeature.transform,
+                    isVisible: currentFeature.isVisible,
+                    isLocked: currentFeature.isLocked,
+                    material: currentFeature.material
+                )
+                f.isSuppressed = currentFeature.isSuppressed
+                updatedFeature = f
+
+            case .sphere:
+                let r = session.numberValue(for: "radius") ?? 15.0
+                var f = Feature.makeSphere(
+                    id: currentFeature.id,
+                    solidId: solidId,
+                    name: currentFeature.name,
+                    params: SphereParams(radius: r),
+                    bodyOperation: currentFeature.bodyOperation,
+                    targetBodyId: currentFeature.targetBodyId,
+                    transform: currentFeature.transform,
+                    isVisible: currentFeature.isVisible,
+                    isLocked: currentFeature.isLocked,
+                    material: currentFeature.material
+                )
+                f.isSuppressed = currentFeature.isSuppressed
+                updatedFeature = f
+
+            case .cone:
+                let br = session.numberValue(for: "bottomRadius") ?? 15.0
+                let tr = session.numberValue(for: "topRadius") ?? 0.0
+                let h = session.numberValue(for: "height") ?? 30.0
+                var f = Feature.makeCone(
+                    id: currentFeature.id,
+                    solidId: solidId,
+                    name: currentFeature.name,
+                    params: ConeParams(bottomRadius: br, topRadius: tr, height: h),
+                    bodyOperation: currentFeature.bodyOperation,
+                    targetBodyId: currentFeature.targetBodyId,
+                    transform: currentFeature.transform,
+                    isVisible: currentFeature.isVisible,
+                    isLocked: currentFeature.isLocked,
+                    material: currentFeature.material
+                )
+                f.isSuppressed = currentFeature.isSuppressed
+                updatedFeature = f
+
+            case .torus:
+                let maj = session.numberValue(for: "majorRadius") ?? 20.0
+                let minR = session.numberValue(for: "minorRadius") ?? 5.0
+                var f = Feature.makeTorus(
+                    id: currentFeature.id,
+                    solidId: solidId,
+                    name: currentFeature.name,
+                    params: TorusParams(majorRadius: maj, minorRadius: minR),
+                    bodyOperation: currentFeature.bodyOperation,
+                    targetBodyId: currentFeature.targetBodyId,
+                    transform: currentFeature.transform,
+                    isVisible: currentFeature.isVisible,
+                    isLocked: currentFeature.isLocked,
+                    material: currentFeature.material
+                )
+                f.isSuppressed = currentFeature.isSuppressed
+                updatedFeature = f
+
+            case .wedge:
+                let w = session.numberValue(for: "width") ?? 30.0
+                let d = session.numberValue(for: "depth") ?? 30.0
+                let h = session.numberValue(for: "height") ?? 30.0
+                let tw = session.numberValue(for: "topWidth") ?? 0.0
+                var f = Feature.makeWedge(
+                    id: currentFeature.id,
+                    solidId: solidId,
+                    name: currentFeature.name,
+                    params: WedgeParams(width: w, depth: d, height: h, topWidth: tw),
+                    bodyOperation: currentFeature.bodyOperation,
+                    targetBodyId: currentFeature.targetBodyId,
+                    transform: currentFeature.transform,
+                    isVisible: currentFeature.isVisible,
+                    isLocked: currentFeature.isLocked,
+                    material: currentFeature.material
+                )
+                f.isSuppressed = currentFeature.isSuppressed
+                updatedFeature = f
+            }
+
+            if let updatedFeature {
+                _ = workspace.document.updateFeature(updatedFeature)
+                if !updatedFeature.isSuppressed {
+                    workspace.recomputeSolid(id: solidId)
+                }
+            }
+            workspace.invalidateViewport(.interaction)
+        }
+
+        return session
+    }
+
+    private static func checkDownstreamValidation(
+        feature: Feature,
+        candidateFeature: Feature,
+        workspace: WorkspaceModel
+    ) -> String? {
+        let solidId = feature.outputSolidId ?? SolidId(feature.id.uuidString)
+        let downstream = workspace.document.dependentFeatures(referencing: feature.id)
+
+        let directTargetFeatures = workspace.document.features.filter { feat in
+            guard feat.id != feature.id else { return false }
+            if feat.targetBodyId == solidId { return true }
+            if case .chamfer(let ch) = feat.operation, ch.targetSolidId == solidId { return true }
+            if case .shell(let sh) = feat.operation, sh.targetSolidId == solidId { return true }
+            if case .hole(let h) = feat.operation, h.targetSolidId == solidId { return true }
+            if case .boolean(let b) = feat.operation, (b.targetSolidId == solidId || b.toolSolidId == solidId) { return true }
+            return false
+        }
+
+        var allDownstream = downstream
+        for f in directTargetFeatures where !allDownstream.contains(where: { $0.id == f.id }) {
+            allDownstream.append(f)
+        }
+
+        guard !allDownstream.isEmpty else { return nil }
+
+        for dep in allDownstream {
+            if let err = dep.errorState {
+                return "Downstream feature “\(dep.name)” has an error: \(err.message)"
+            }
+
+            switch (candidateFeature.operation, dep.operation) {
+            case (.primitive(.box(let p)), .chamfer(let ch)):
+                let limit = Double(min(p.width, min(p.depth, p.height)))
+                if ch.distance >= limit || (ch.mode == .twoDistances && ch.distance2 >= limit) {
+                    return "Downstream feature “\(dep.name)” would fail: Chamfer distance exceeds solid dimensions."
+                }
+            case (.primitive(.cylinder(let p)), .chamfer(let ch)):
+                let limit = Double(min(p.radius, p.height))
+                if ch.distance >= limit {
+                    return "Downstream feature “\(dep.name)” would fail: Chamfer distance exceeds solid dimensions."
+                }
+            case (.primitive(.sphere(let p)), .chamfer(let ch)):
+                if ch.distance >= Double(p.radius) {
+                    return "Downstream feature “\(dep.name)” would fail: Chamfer distance exceeds solid dimensions."
+                }
+            case (.primitive(.cone(let p)), .chamfer(let ch)):
+                let rMax = Double(max(p.bottomRadius, p.topRadius))
+                let limit = min(rMax, Double(p.height))
+                if ch.distance >= limit {
+                    return "Downstream feature “\(dep.name)” would fail: Chamfer distance exceeds solid dimensions."
+                }
+            case (.primitive(.torus(let p)), .chamfer(let ch)):
+                if ch.distance >= Double(p.minorRadius) {
+                    return "Downstream feature “\(dep.name)” would fail: Chamfer distance exceeds solid dimensions."
+                }
+            case (.primitive(.wedge(let p)), .chamfer(let ch)):
+                let limit = Double(min(p.width, min(p.depth, p.height)))
+                if ch.distance >= limit {
+                    return "Downstream feature “\(dep.name)” would fail: Chamfer distance exceeds solid dimensions."
+                }
+
+            case (.primitive(.box(let p)), .shell(let sh)):
+                let limit = Double(min(p.width, min(p.depth, p.height)))
+                if sh.thickness * 2.0 >= limit {
+                    return "Downstream feature “\(dep.name)” would fail: Shell thickness exceeds solid dimensions."
+                }
+            case (.primitive(.cylinder(let p)), .shell(let sh)):
+                if sh.thickness >= Double(p.radius) || sh.thickness * 2.0 >= Double(p.height) {
+                    return "Downstream feature “\(dep.name)” would fail: Shell thickness exceeds solid dimensions."
+                }
+            case (.primitive(.sphere(let p)), .shell(let sh)):
+                if sh.thickness >= Double(p.radius) {
+                    return "Downstream feature “\(dep.name)” would fail: Shell thickness exceeds solid dimensions."
+                }
+
+            case (.primitive(.box(let p)), .hole(let h)):
+                if Double(p.height) < h.depth || Double(min(p.width, p.depth)) < h.diameter {
+                    return "Downstream feature “\(dep.name)” would fail: Hole exceeds solid bounds."
+                }
+            case (.primitive(.cylinder(let p)), .hole(let h)):
+                if Double(p.height) < h.depth || Double(p.radius * 2.0) < h.diameter {
+                    return "Downstream feature “\(dep.name)” would fail: Hole exceeds solid bounds."
+                }
+
+            default:
+                break
+            }
+        }
+
+        return nil
     }
 }

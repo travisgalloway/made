@@ -24,6 +24,19 @@ struct CommandPanelView: View {
                     .controlSize(.small)
             }
 
+            if let errorMessage = session.errorMessage, !errorMessage.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(6)
+                .background(Color.yellow.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+
             Divider()
 
             footerButtons

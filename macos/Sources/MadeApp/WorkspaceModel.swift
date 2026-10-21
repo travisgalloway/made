@@ -449,6 +449,7 @@ final class WorkspaceModel {
         }
     }
     var activeCommand: CommandSession?
+    public var commandBlockedMessage: String? = nil
     public var isPredictiveCommandsVisible: Bool = true
 
     func togglePredictiveCommandSurface() {
@@ -903,16 +904,23 @@ final class WorkspaceModel {
         }
     }
 
+    func handleKernelRestart(_ restart: KernelRestart) {
+        let culprit = restart.excludedSolid.map { ", skipping \($0.rawValue)" } ?? ""
+        log(.error, "Kernel", "Kernel service restarted (\(restart.reason))\(culprit); regenerating solids")
+        for obj in document.objects where obj.id != restart.excludedSolid {
+            recomputeSolid(id: obj.id)
+        }
+        if let activeCommand, activeCommand.isPreviewEnabled {
+            activeCommand.onPreviewUpdate?()
+        }
+    }
+
     /// A restarted kernel service holds no solids; resubmit each one, except the solid whose job stopped it.
     private func watchKernelRestarts() {
         Task { [weak self, kernelClient] in
             for await restart in await kernelClient.restarts() {
                 guard let self else { return }
-                let culprit = restart.excludedSolid.map { ", skipping \($0.rawValue)" } ?? ""
-                self.log(.error, "Kernel", "Kernel service restarted (\(restart.reason))\(culprit); regenerating solids")
-                for obj in self.document.objects where obj.id != restart.excludedSolid {
-                    self.recomputeSolid(id: obj.id)
-                }
+                self.handleKernelRestart(restart)
             }
         }
     }
@@ -923,10 +931,33 @@ final class WorkspaceModel {
         if activeCommand != nil {
             cancelActiveCommand()
         }
+        commandBlockedMessage = nil
         activeCommand = session
         if session.isPreviewEnabled {
             session.onPreviewUpdate?()
         }
+    }
+
+    func startEditFeature(for solidId: SolidId) {
+        if activeCommand != nil {
+            commandBlockedMessage = "A command session is already active. Complete or cancel it first."
+            return
+        }
+        commandBlockedMessage = nil
+        guard let feature = document.feature(for: solidId) else { return }
+        guard !feature.isLocked else { return }
+        startEditFeature(id: feature.id)
+    }
+
+    func startEditFeature(id: UUID) {
+        if activeCommand != nil {
+            commandBlockedMessage = "A command session is already active. Complete or cancel it first."
+            return
+        }
+        commandBlockedMessage = nil
+        guard let feature = document.feature(for: id), !feature.isLocked else { return }
+        guard let session = CommandSession.makeEditFeature(workspace: self, featureId: id) else { return }
+        startCommand(session)
     }
 
     func cancelActiveCommand() {
@@ -3699,6 +3730,11 @@ final class WorkspaceModel {
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)
         }
+        for obj in document.objects {
+            if let old = oldObjects.first(where: { $0.id == obj.id }), old.def != obj.def {
+                recomputeSolid(id: obj.id)
+            }
+        }
         if let sketch = selectedSketchFeature {
             refreshSketchStatus(for: sketch.id)
         }
@@ -3722,6 +3758,11 @@ final class WorkspaceModel {
         let oldSet = Set(oldObjects.map(\.id))
         for obj in document.objects where !oldSet.contains(obj.id) {
             recomputeSolid(id: obj.id)
+        }
+        for obj in document.objects {
+            if let old = oldObjects.first(where: { $0.id == obj.id }), old.def != obj.def {
+                recomputeSolid(id: obj.id)
+            }
         }
         if let sketch = selectedSketchFeature {
             refreshSketchStatus(for: sketch.id)

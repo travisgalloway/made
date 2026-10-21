@@ -1,5 +1,6 @@
 import Testing
 import SwiftUI
+import Metal
 @testable import MadeApp
 import MadeCore
 import simd
@@ -1379,6 +1380,246 @@ extension WorkspaceModelTests {
         let mirrorSession = CommandSession.makeMirror(workspace: workspace)
         mirrorSession.cancel()
         #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
+    }
+
+    // MARK: - Edit Feature Tests (BL-PRT-25)
+
+    @MainActor
+    private func attachRendererIfAvailable(to workspace: WorkspaceModel) {
+        guard let device = MTLCreateSystemDefaultDevice(),
+              let renderer = MetalRenderer(device: device) else {
+            return
+        }
+        workspace.viewportManager.renderer = renderer
+    }
+
+    @Test @MainActor func testDoubleTapOpensFeatureEditSession() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 40.0, depth: 50.0, height: 60.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+
+        workspace.startEditFeature(for: solidId)
+
+        let session = try #require(workspace.activeCommand)
+        #expect(session.title == "Edit Box")
+        #expect(session.numberValue(for: "width") == 40.0)
+        #expect(session.numberValue(for: "depth") == 50.0)
+        #expect(session.numberValue(for: "height") == 60.0)
+    }
+
+    @Test @MainActor func testEditFeaturePreviewDoesNotDirtyDocument() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 30.0, depth: 30.0, height: 30.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+        let initialDocCount = workspace.document.objects.count
+
+        workspace.startEditFeature(for: solidId)
+        let session = try #require(workspace.activeCommand)
+
+        session.setNumberValue(60.0, for: "width")
+
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(renderer.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }))
+        }
+
+        #expect(workspace.document.objects.count == initialDocCount)
+        if case .box(let params)? = workspace.document.objects.last?.def {
+            #expect(params.width == 30.0)
+        } else {
+            Issue.record("Expected original box parameters")
+        }
+    }
+
+    @Test @MainActor func testEditFeatureCancelRestoresOriginalState() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 30.0, depth: 30.0, height: 30.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+        workspace.document.undoManager?.removeAllActions()
+
+        workspace.startEditFeature(for: solidId)
+        let session = try #require(workspace.activeCommand)
+        session.setNumberValue(75.0, for: "width")
+
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(renderer.hiddenSolidIds.contains(solidId))
+        }
+
+        workspace.cancelActiveCommand()
+
+        #expect(workspace.activeCommand == nil)
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(!renderer.hiddenSolidIds.contains(solidId))
+            #expect(!renderer.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }))
+        }
+        #expect(workspace.document.undoManager?.canUndo == false)
+        if case .box(let params)? = workspace.document.objects.last?.def {
+            #expect(params.width == 30.0)
+        }
+    }
+
+    @Test @MainActor func testEditFeatureCommitRegistersSingleUndoStep() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 30.0, depth: 30.0, height: 30.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+        workspace.document.undoManager?.removeAllActions()
+
+        workspace.startEditFeature(for: solidId)
+        let session = try #require(workspace.activeCommand)
+        session.setNumberValue(85.0, for: "width")
+
+        workspace.commitActiveCommand()
+
+        #expect(workspace.activeCommand == nil)
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(!renderer.hiddenSolidIds.contains(solidId))
+        }
+        #expect(workspace.document.undoManager?.canUndo == true)
+
+        let feature = try #require(workspace.document.feature(for: solidId))
+        if case .primitive(.box(let p)) = feature.operation {
+            #expect(p.width == 85.0)
+        } else {
+            Issue.record("Expected box feature")
+        }
+
+        workspace.document.undoManager?.undo()
+        let undoneFeature = try #require(workspace.document.feature(for: solidId))
+        if case .primitive(.box(let p)) = undoneFeature.operation {
+            #expect(p.width == 30.0)
+        } else {
+            Issue.record("Expected original box feature after undo")
+        }
+    }
+
+    @Test @MainActor func testEditSuppressedFeaturePreivewsWithoutUnsuppressing() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 30.0, depth: 30.0, height: 30.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+        let feat = try #require(workspace.document.feature(for: solidId))
+
+        workspace.document.setFeatureSuppressed(id: feat.id, isSuppressed: true)
+        #expect(workspace.document.feature(for: feat.id)?.isSuppressed == true)
+
+        workspace.startEditFeature(id: feat.id)
+        let session = try #require(workspace.activeCommand)
+        session.setNumberValue(55.0, for: "width")
+
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(renderer.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }))
+        }
+        #expect(workspace.document.feature(for: feat.id)?.isSuppressed == true)
+
+        workspace.commitActiveCommand()
+        #expect(workspace.activeCommand == nil)
+        let committed = try #require(workspace.document.feature(for: feat.id))
+        #expect(committed.isSuppressed == true)
+        if case .primitive(.box(let p)) = committed.operation {
+            #expect(p.width == 55.0)
+        }
+    }
+
+    @Test @MainActor func testEditSuppressedFeaturePreviewsWithoutUnsuppressing() throws {
+        try testEditSuppressedFeaturePreivewsWithoutUnsuppressing()
+    }
+
+    @Test @MainActor func testEditFeatureDownstreamFailureDetected() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 50.0, depth: 50.0, height: 50.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+
+        let chamferFeat = Feature(
+            name: "Chamfer 1",
+            operation: .chamfer(ChamferFeatureData(targetSolidId: solidId, distance: 20.0)),
+            references: [Reference.body(solidId)]
+        )
+        var features = workspace.document.features
+        features.append(chamferFeat)
+        workspace.document.reset(with: features)
+
+        workspace.startEditFeature(for: solidId)
+        let session = try #require(workspace.activeCommand)
+
+        session.setNumberValue(15.0, for: "width")
+
+        #expect(session.errorMessage != nil)
+        #expect(session.errorMessage?.contains("Chamfer") == true)
+
+        session.setNumberValue(50.0, for: "width")
+        #expect(session.errorMessage == nil)
+    }
+
+    @Test @MainActor func testOpeningSecondPanelWhileActiveIsBlocked() throws {
+        let workspace = WorkspaceModel()
+        workspace.addObject(.box(BoxParams(width: 30.0, depth: 30.0, height: 30.0)))
+        workspace.addObject(.box(BoxParams(width: 40.0, depth: 40.0, height: 40.0)))
+        let objs = workspace.document.objects
+        #expect(objs.count >= 2)
+        let id1 = objs[0].id
+        let id2 = objs[1].id
+
+        workspace.startEditFeature(for: id1)
+        let firstSession = try #require(workspace.activeCommand)
+        #expect(workspace.commandBlockedMessage == nil)
+
+        workspace.startEditFeature(for: id2)
+
+        #expect(workspace.activeCommand === firstSession)
+        #expect(workspace.commandBlockedMessage == "A command session is already active. Complete or cancel it first.")
+    }
+
+    @Test @MainActor func testKernelRestartPreservesActiveEditPreview() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 30.0, depth: 30.0, height: 30.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+
+        workspace.startEditFeature(for: solidId)
+        let session = try #require(workspace.activeCommand)
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(renderer.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }))
+        }
+
+        workspace.handleKernelRestart(KernelRestart(reason: .crashed, excludedSolid: nil))
+
+        #expect(workspace.activeCommand === session)
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(renderer.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }))
+        }
+    }
+
+    @Test @MainActor func testMakeEditBoxLifecycle() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        workspace.addObject(.box(BoxParams(width: 25.0, depth: 35.0, height: 45.0)))
+        let solidId = try #require(workspace.document.objects.last?.id)
+        let feat = try #require(workspace.document.feature(for: solidId))
+
+        let session = try #require(CommandSession.makeEditFeature(workspace: workspace, featureId: feat.id))
+        #expect(session.title == "Edit Box")
+        #expect(session.numberValue(for: "width") == 25.0)
+        #expect(session.numberValue(for: "depth") == 35.0)
+        #expect(session.numberValue(for: "height") == 45.0)
+
+        session.onPreviewUpdate?()
+        if let renderer = workspace.viewportManager.renderer {
+            #expect(renderer.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }))
+        }
+
+        session.setNumberValue(50.0, for: "width")
+        session.commit()
+
+        let updated = try #require(workspace.document.feature(for: solidId))
+        if case .primitive(.box(let p)) = updated.operation {
+            #expect(p.width == 50.0)
+        } else {
+            Issue.record("Expected updated box")
+        }
     }
 }
 
