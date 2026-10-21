@@ -670,6 +670,7 @@ public enum KernelRegeneration {
                     document.setFeatureError(id: feature.id, error: nil)
                 }
             case .failure(_, let err):
+                guard err.code != .cancelled else { continue }
                 let errorState = FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
                 document.setFeatureError(id: feature.id, error: errorState)
                 for dep in document.dependentFeatures(referencing: feature.id) {

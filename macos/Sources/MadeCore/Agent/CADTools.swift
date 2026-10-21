@@ -2324,6 +2324,7 @@ public final class CADToolRegistry {
         onRecomputeResult?(result, id)
         switch result {
         case .failure(_, let err):
+            guard err.code != .cancelled else { return }
             if let feat = document.feature(for: id) {
                 document.setFeatureError(
                     id: feat.id,

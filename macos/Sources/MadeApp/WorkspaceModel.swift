@@ -3366,6 +3366,7 @@ final class WorkspaceModel {
             }
             switch result {
             case .failure(_, let err):
+                guard err.code != .cancelled else { return }
                 if let feat = self.document.feature(for: id) {
                     self.document.setFeatureError(
                         id: feat.id,
@@ -3452,6 +3453,7 @@ final class WorkspaceModel {
             }
             switch result {
             case .failure(_, let err):
+                guard err.code != .cancelled else { return }
                 if let feat = self.document.feature(for: id) {
                     self.document.setFeatureError(
                         id: feat.id,
