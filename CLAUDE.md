@@ -65,7 +65,7 @@ macos/
     Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, SketchGeometryGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube, UniformArena, MetalRenderer+MeshInstall
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo, ConstrainedTransform, SelectionFilter, SpatialIndex, PredictiveCommands, RadialMenuLayout
     Scene/                 DocumentModel (@Observable), Body, Feature, DocumentParameter, DSLFeatureDecomposer, DatumPlane, DatumEntities, Reference, ReferenceResolver, ModelEdgeEvaluator, SolidMeshApplier, KernelRegeneration, UnitSettings, KernelTolerances, DocumentSettings, SketchDOFStatus, SketchError, SketchProfileBuilder, SketchRegion, SketchOperations, SketchConstraint, ConstraintSystem, ConstraintSolver, ConstraintSolverActor, ConstraintInference, SketchRectangle, RecomputeFailures, PartReloadController, PartFileWatcher, MetalRenderer+SolidMeshSink, BoundingBox
-    Serialization/         DocumentModelCoder, MadeManifest, MadePackage, DocumentMigration, CrashRecovery, UTType+Made
+    Serialization/         DocumentModelCoder, MadeManifest, MadePackage, DocumentMigration, CrashRecovery, UTType+Made, STLExporter
     Licenses/              LicenseCatalog and bundled license resources
     Agent/                 MCPProtocol, MCPServer, MCPLineFramer (input framing), CADTools (tool registry), HeadlessSnapshotProvider and HeadlessSnapshotTarget (stdio snapshots), SolidVerification, InAppAgentController (no caller in `MadeApp` since the Copilot tab was removed in #124)
     Scripting/             CADDSL (Swift result-builder DSL, for tests and library use), PartRuntime and PartTypes (`.part.ts` part files on JavaScriptCore, ADR-D6, #435)
@@ -75,8 +75,9 @@ macos/
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView, AppVersion, OpenSourceLicensesView,
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
-                           SnapOverlayView, EmptySceneGuidanceOverlayView, PredictiveCommandPopoverView, RadialMenuView, Document/MadeDocument
-  Tests/MadeCoreTests/     Swift Testing suites (including DocumentParametersTests, CommandHUDPlacementTests, ViewCubeTests, PredictiveCommandTests, RadialMenuLayoutTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests, ConstrainedTransformTests)
+                           SnapOverlayView, EmptySceneGuidanceOverlayView, PredictiveCommandPopoverView, RadialMenuView, Document/MadeDocument,
+                           Views/STLExportAccessoryView
+  Tests/MadeCoreTests/     Swift Testing suites (including STLExportTests, DocumentParametersTests, CommandHUDPlacementTests, ViewCubeTests, PredictiveCommandTests, RadialMenuLayoutTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests, ConstrainedTransformTests)
   Tests/MadeAppTests/      DistributionTests, WorkspaceModelTests, CommandSessionTests, PredictiveCommandPopoverTests, RadialMenuViewTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, SketchStatusIndicatorTests, CADMetalViewRepresentableTests, and application unit tests
   Tests/Goldens/           Stored reference scenes for offscreen golden comparison (ADR-D10, #321)
 ```

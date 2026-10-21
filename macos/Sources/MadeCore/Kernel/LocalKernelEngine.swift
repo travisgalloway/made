@@ -242,6 +242,25 @@ public actor LocalKernelEngine: KernelEngine {
         }
     }
 
+    public func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int> {
+        let jobId = JobId("export-stl-\(UUID().uuidString)")
+        do {
+            let count = try STLExporter.export(
+                objects: objects,
+                tolerance: tolerance,
+                unit: unit,
+                to: url,
+                cachedShapes: occtShapes,
+                cachedMeshes: solids
+            )
+            return .success(jobId: jobId, value: count)
+        } catch let kernelError as KernelError {
+            return .failure(jobId: jobId, error: kernelError)
+        } catch {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Export failed: \(error)"))
+        }
+    }
+
     public func fillet(solidId: SolidId, edgeReference: TopologicalReference, radius: Double, jobId: JobId? = nil) async -> KernelResult<MeshPayload> {
         let jobId = jobId ?? JobId("fillet-\(UUID().uuidString)")
         guard let shape = occtShapes[solidId] else {

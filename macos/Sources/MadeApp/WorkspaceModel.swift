@@ -2449,6 +2449,59 @@ final class WorkspaceModel {
         }
     }
 
+    func promptExportSTLFile() {
+        let panel = NSSavePanel()
+        panel.title = "Export STL"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.stl]
+        let defaultName = (document.objects.count == 1 ? document.objects.first?.name : selectedObject?.name) ?? "scene"
+        panel.nameFieldStringValue = defaultName.hasSuffix(".stl") ? defaultName : "\(defaultName).stl"
+
+        let initialTolerance = document.settings.tolerances.chordalTolerance
+        let options = STLExportOptions(tolerance: initialTolerance, unit: .millimeters)
+        panel.accessoryView = STLExportAccessoryHostingView(options: options)
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await exportSTLFile(to: url, tolerance: options.tolerance, unit: options.unit)
+        }
+    }
+
+    @discardableResult
+    func exportSTLFile(to url: URL, tolerance: Double? = nil, unit: LengthUnit = .millimeters) async -> Bool {
+        let candidateObjects = document.objects.filter { $0.isVisible }
+        guard !candidateObjects.isEmpty else {
+            log(.error, "Export", "No visible objects to export")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: "No visible objects to export")
+            isShowingExportErrorAlert = true
+            return false
+        }
+        let tol = tolerance ?? document.settings.tolerances.chordalTolerance
+        guard STLExporter.validateTolerance(tol) else {
+            let msg = "Invalid tessellation tolerance: \(tol). Tolerance must be positive."
+            log(.error, "Export", msg)
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: msg)
+            isShowingExportErrorAlert = true
+            return false
+        }
+        let result = await kernelClient.exportSTL(objects: candidateObjects, tolerance: tol, unit: unit, to: url)
+        switch result {
+        case .success(_, let count):
+            pendingExportError = nil
+            isShowingExportErrorAlert = false
+            log(.info, "Export", "Exported \(count) triangles to STL at \(url.lastPathComponent)")
+            return true
+        case .failure(_, let error):
+            if FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            log(.error, "Export", "Failed to export STL: \(error.message)")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.message)
+            isShowingExportErrorAlert = true
+            return false
+        }
+    }
+
     @discardableResult
     func importStepFile(at url: URL) async -> ObjectId? {
         let data: Data

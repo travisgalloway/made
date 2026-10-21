@@ -76,7 +76,7 @@ struct ContentView: View {
             Text("Could not open \"\(errorInfo.fileName)\": \(errorInfo.reason)")
         }
         .alert(
-            "Failed to Export STEP",
+            workspace.pendingExportError?.fileName.lowercased().hasSuffix(".stl") == true ? "Failed to Export STL" : "Failed to Export STEP",
             isPresented: $workspace.isShowingExportErrorAlert,
             presenting: workspace.pendingExportError
         ) { _ in

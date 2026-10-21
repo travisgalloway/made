@@ -26,6 +26,7 @@ struct KernelStoreCounts: Equatable, Sendable {
 public protocol KernelClientProtocol: Sendable {
     func request(_ request: KernelRequest) async -> KernelResult<MeshPayload>
     func exportStep(objects: [SceneObject]) async -> KernelResult<Data>
+    func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int>
     func cancel(jobId: JobId) async
     func dispose(solidId: SolidId) async
     func getStats() async -> KernelStats
@@ -40,6 +41,10 @@ extension KernelClientProtocol {
 
     public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
         .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STEP export not supported by this client"))
+    }
+
+    public func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int> {
+        .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STL export not supported by this client"))
     }
 }
 
@@ -71,6 +76,10 @@ public actor KernelClient: KernelClientProtocol {
 
     public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
         await engine.exportStep(objects: objects)
+    }
+
+    public func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int> {
+        await engine.exportSTL(objects: objects, tolerance: tolerance, unit: unit, to: url)
     }
     
     /// A pending job is dropped before it runs. An executing job is ended by the engine, which may stop the service.

@@ -638,6 +638,90 @@ import MadeCore
         #expect(model.pendingExportError == nil)
     }
 
+    @Test @MainActor func testExportSTLFileHappyPath() async throws {
+        let model = WorkspaceModel()
+        let box = SceneObject(
+            id: ObjectId("box-1"),
+            name: "Box",
+            def: .box(BoxParams(width: 10, depth: 10, height: 10))
+        )
+        model.document.reset(with: [box])
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-stl-\(UUID().uuidString).stl")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportSTLFile(to: tempURL, tolerance: 0.1, unit: .millimeters)
+        #expect(exported)
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: tempURL.path)
+        let fileSize = attributes[.size] as? Int
+        #expect(fileSize == 684)
+        let readCount = try STLExporter.readTriangleCount(from: tempURL)
+        #expect(readCount == 12)
+    }
+
+    @Test @MainActor func testExportSTLFileEmptySceneShowsAlert() async throws {
+        let model = WorkspaceModel()
+        model.document.reset(with: [SceneObject]())
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-empty-\(UUID().uuidString).stl")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportSTLFile(to: tempURL)
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.destinationURL == tempURL)
+        #expect(model.pendingExportError?.reason == "No visible objects to export")
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportSTLFileInvalidToleranceShowsAlert() async throws {
+        let model = WorkspaceModel()
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-invalid-tol-\(UUID().uuidString).stl")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportSTLFile(to: tempURL, tolerance: 0.0)
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.reason.contains("Tolerance must be positive") == true)
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportSTLFileUnwritableDestinationShowsAlert() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let readOnlyDir = tempDir.appendingPathComponent("ReadOnlyDir")
+        try FileManager.default.createDirectory(at: readOnlyDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyDir.path)
+        let destinationURL = readOnlyDir.appendingPathComponent("UnwritableExport.stl")
+
+        let model = WorkspaceModel()
+        let exported = await model.exportSTLFile(to: destinationURL)
+
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.destinationURL == destinationURL)
+        #expect(model.pendingExportError?.fileName == "UnwritableExport.stl")
+        #expect(!FileManager.default.fileExists(atPath: destinationURL.path))
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
     @Test @MainActor func testImportStepEmptyFileLeavesSceneUnchanged() async throws {
         let model = WorkspaceModel()
         let initialCount = model.document.objects.count

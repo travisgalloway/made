@@ -38,6 +38,7 @@ public struct KernelEngineCounts: Equatable, Sendable {
 public protocol KernelEngine: Actor {
     func execute(_ request: KernelRequest) async -> KernelResult<MeshPayload>
     func exportStep(objects: [SceneObject]) async -> KernelResult<Data>
+    func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int>
     func dispose(solidId: SolidId) async
     /// Ends the job if it is executing; returns false when it is not.
     func terminate(jobId: JobId) async -> Bool
@@ -49,5 +50,9 @@ public protocol KernelEngine: Actor {
 extension KernelEngine {
     public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
         .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STEP export not supported by this engine"))
+    }
+
+    public func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int> {
+        .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STL export not supported by this engine"))
     }
 }
