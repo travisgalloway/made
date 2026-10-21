@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 /// Rebuilds kernel requests from the document, so a restarted kernel service can be repopulated.
 @MainActor
@@ -92,6 +93,13 @@ public enum KernelRegeneration {
                 faceReference: data.faceReference,
                 holeData: data
             )
+        case .pattern(let data):
+            guard let solidId = feature.outputSolidId else { return nil }
+            return .pattern(
+                jobId: jobId,
+                solidId: solidId,
+                params: data
+            )
         }
     }
 
@@ -146,6 +154,12 @@ public enum KernelRegeneration {
                 targetSolidId: params.targetSolidId,
                 faceReference: params.faceReference,
                 holeData: params
+            )
+        case .pattern(let params):
+            return .pattern(
+                jobId: jobId,
+                solidId: object.id,
+                params: params
             )
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)
@@ -649,7 +663,12 @@ public enum KernelRegeneration {
             let result = await client.request(req)
             switch result {
             case .success:
-                document.setFeatureError(id: feature.id, error: nil)
+                if case .pattern(let patternParams) = feature.operation,
+                   let warning = evaluatePatternWarning(params: patternParams, in: document) {
+                    document.setFeatureError(id: feature.id, error: warning)
+                } else {
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
             case .failure(_, let err):
                 let errorState = FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
                 document.setFeatureError(id: feature.id, error: errorState)
@@ -686,6 +705,94 @@ public enum KernelRegeneration {
         excluding excluded: SolidId? = nil
     ) async {
         await regenerate(features: document.activeFeatures, in: document, client: client, excluding: excluded)
+    }
+
+    public static func evaluatePatternWarning(
+        params: PatternParams,
+        in document: DocumentModel
+    ) -> FeatureErrorState? {
+        guard let targetFeat = document.feature(for: params.targetSolidId) ?? document.features.first(where: { $0.outputSolidId == params.targetSolidId }) else {
+            return nil
+        }
+        let targetExtent = sourceExtent(for: targetFeat, along: params.linearDirection)
+
+        // 1. Check if any instance falls outside base target body (when baseBodySolidId is present)
+        if let baseBodyId = params.baseBodySolidId,
+           let baseFeat = document.feature(for: baseBodyId) ?? document.features.first(where: { $0.outputSolidId == baseBodyId }) {
+            let baseExtent = sourceExtent(for: baseFeat, along: params.linearDirection)
+            if params.patternType == .linear {
+                let activeIndices = (0..<params.count).filter { !params.skippedIndices.contains($0) }
+                if let maxIdx = activeIndices.max() {
+                    let maxOffset = Double(maxIdx) * params.linearSpacing
+                    if maxOffset + targetExtent / 2.0 > baseExtent / 2.0 + 1e-4 {
+                        return FeatureErrorState(
+                            code: "pattern-instance-outside",
+                            message: "Pattern instance falls outside body boundary",
+                            severity: .warning
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. Check for overlapping instances
+        if params.patternType == .linear {
+            if params.count > 1 && params.linearSpacing < targetExtent - 1e-4 {
+                return FeatureErrorState(
+                    code: "pattern-overlap",
+                    message: "Pattern instances overlap along pattern axis",
+                    severity: .warning
+                )
+            }
+        } else if params.patternType == .circular {
+            let angularStep: Double
+            if params.isFullCircle || params.totalAngle >= 360.0 {
+                angularStep = 360.0 / Double(params.count)
+            } else {
+                angularStep = params.totalAngle / Double(Swift.max(1, params.count - 1))
+            }
+            let rDist = simd_length(SIMD2<Double>(params.axisOrigin.x, params.axisOrigin.y))
+            if rDist > 1e-4 {
+                let angularSpan = 2.0 * asin(min(1.0, (targetExtent / 2.0) / rDist)) * 180.0 / .pi
+                if params.count > 1 && angularStep < angularSpan - 1e-4 {
+                    return FeatureErrorState(
+                        code: "pattern-overlap",
+                        message: "Pattern instances overlap around circular axis",
+                        severity: .warning
+                    )
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func sourceExtent(for feature: Feature, along direction: SIMD3<Double>) -> Double {
+        let dir = simd_length(direction) > 1e-6 ? simd_normalize(direction) : SIMD3<Double>(1, 0, 0)
+        let dims: SIMD3<Double>
+        switch feature.operation {
+        case .primitive(.box(let p)):
+            dims = SIMD3<Double>(Double(p.width), Double(p.depth), Double(p.height))
+        case .primitive(.cylinder(let p)):
+            dims = SIMD3<Double>(Double(p.radius * 2), Double(p.radius * 2), Double(p.height))
+        case .primitive(.sphere(let p)):
+            dims = SIMD3<Double>(Double(p.radius * 2), Double(p.radius * 2), Double(p.radius * 2))
+        case .primitive(.cone(let p)):
+            let r = Double(max(p.bottomRadius, p.topRadius))
+            dims = SIMD3<Double>(r * 2, r * 2, Double(p.height))
+        case .primitive(.torus(let p)):
+            let r = Double(p.majorRadius + p.minorRadius)
+            dims = SIMD3<Double>(r * 2, r * 2, Double(p.minorRadius * 2))
+        case .primitive(.wedge(let p)):
+            dims = SIMD3<Double>(Double(p.width), Double(p.depth), Double(p.height))
+        case .extrude(let p):
+            dims = SIMD3<Double>(20, 20, p.distance)
+        case .hole(let p):
+            dims = SIMD3<Double>(Double(p.diameter), Double(p.diameter), p.depth)
+        default:
+            dims = SIMD3<Double>(10, 10, 10)
+        }
+        return abs(dir.x) * dims.x + abs(dir.y) * dims.y + abs(dir.z) * dims.z
     }
 }
 

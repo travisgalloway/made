@@ -261,6 +261,9 @@ public actor LocalKernelEngine: KernelEngine {
                 holeData: holeData,
                 jobId: jobId
             )
+
+        case .pattern(let jobId, let solidId, let params):
+            return await pattern(solidId: solidId, params: params, jobId: jobId)
         }
     }
     
@@ -606,6 +609,114 @@ public actor LocalKernelEngine: KernelEngine {
             euclidMeshes[solidId] = sub
         }
 
+        return .success(jobId: jobId, value: payload)
+    }
+
+    private func pattern(
+        solidId: SolidId,
+        params: PatternParams,
+        jobId: JobId
+    ) async -> KernelResult<MeshPayload> {
+        guard params.count >= 1 else {
+            return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Pattern count must be at least 1"))
+        }
+
+        if params.patternType == .linear {
+            guard params.linearSpacing > 0 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Pattern linear spacing must be positive"))
+            }
+            guard simd_length(params.linearDirection) > 1e-6 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Pattern linear direction must not be zero"))
+            }
+        } else if params.patternType == .circular {
+            guard params.totalAngle > 0 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Pattern total angle must be positive"))
+            }
+            guard simd_length(params.axisDirection) > 1e-6 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Pattern axis direction must not be zero"))
+            }
+        }
+
+        let targetId = params.targetSolidId
+        guard let baseShape = occtShapes[targetId] ?? occtShapes[solidId] else {
+            return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Unknown solid: \(targetId.rawValue)"))
+        }
+
+        var shapes: [Shape] = []
+        for i in 0..<params.count {
+            if params.count > 1 && params.skippedIndices.contains(i) {
+                continue
+            }
+
+            let transform: Transform
+            if i == 0 {
+                transform = .identity
+            } else {
+                switch params.patternType {
+                case .linear:
+                    let dir = simd_normalize(SIMD3<Float>(params.linearDirection))
+                    let offset = dir * Float(params.linearSpacing * Double(i))
+                    transform = Transform(position: offset)
+                case .circular:
+                    let angularStep: Double
+                    if params.isFullCircle || params.totalAngle >= 360.0 {
+                        angularStep = 360.0 / Double(params.count)
+                    } else {
+                        angularStep = params.totalAngle / Double(Swift.max(1, params.count - 1))
+                    }
+                    let instanceAngle = Double(i) * angularStep
+                    let rad = Float(instanceAngle * .pi / 180.0)
+                    let axisDir = simd_normalize(SIMD3<Float>(params.axisDirection))
+                    let quat = simd_quatf(angle: rad, axis: axisDir)
+                    let origin = SIMD3<Float>(params.axisOrigin)
+                    let position = origin - quat.act(origin)
+                    transform = Transform(position: position, rotation: quat)
+                }
+            }
+
+            guard let instShape = (transform == .identity) ? baseShape : OCCTEngine.transformed(baseShape, by: transform) else {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to transform pattern instance \(i)"))
+            }
+
+            if let baseBodyId = params.baseBodySolidId,
+               let baseBodyShape = occtShapes[baseBodyId],
+               let bodyBB = baseBodyShape.boundingBox,
+               let instBB = instShape.boundingBox {
+                let eps = 1e-3
+                let isInside = instBB.min.x >= bodyBB.min.x - eps &&
+                               instBB.max.x <= bodyBB.max.x + eps &&
+                               instBB.min.y >= bodyBB.min.y - eps &&
+                               instBB.max.y <= bodyBB.max.y + eps &&
+                               instBB.min.z >= bodyBB.min.z - eps &&
+                               instBB.max.z <= bodyBB.max.z + eps
+                if !isInside {
+                    continue
+                }
+            }
+
+            shapes.append(instShape)
+        }
+
+        if shapes.isEmpty {
+            shapes.append(baseShape)
+        }
+
+        let workingShape: Shape
+        if shapes.count == 1 {
+            workingShape = shapes[0]
+        } else {
+            guard let compound = Shape.compound(shapes) else {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to compound pattern instances"))
+            }
+            workingShape = compound
+        }
+
+        guard let payload = OCCTEngine.toMeshPayload(workingShape) else {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate pattern geometry"))
+        }
+
+        occtShapes[solidId] = workingShape
+        solids[solidId] = payload
         return .success(jobId: jobId, value: payload)
     }
 

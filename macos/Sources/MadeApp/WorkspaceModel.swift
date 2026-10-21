@@ -1127,6 +1127,38 @@ final class WorkspaceModel {
         ))
     }
 
+    func startLinearPatternCommand() {
+        var targetSolidId: SolidId? = nil
+        if let sub = document.selectedSubElement {
+            targetSolidId = sub.solidId
+        } else if let selectedId {
+            targetSolidId = selectedId
+        } else if let firstObj = document.objects.first {
+            targetSolidId = firstObj.id
+        }
+
+        startCommand(CommandSession.makeLinearPattern(
+            workspace: self,
+            targetSolidId: targetSolidId
+        ))
+    }
+
+    func startCircularPatternCommand() {
+        var targetSolidId: SolidId? = nil
+        if let sub = document.selectedSubElement {
+            targetSolidId = sub.solidId
+        } else if let selectedId {
+            targetSolidId = selectedId
+        } else if let firstObj = document.objects.first {
+            targetSolidId = firstObj.id
+        }
+
+        startCommand(CommandSession.makeCircularPattern(
+            workspace: self,
+            targetSolidId: targetSolidId
+        ))
+    }
+
     public func boundingBoxes(for solidId: SolidId) -> (axisAligned: AxisAlignedBoundingBox, oriented: OrientedBoundingBox)? {
         let candidates = viewportManager.renderer?.candidateMeshes() ?? []
         return BoundingBoxCalculator.boxes(for: solidId, in: document, candidateMeshes: candidates)
@@ -1399,6 +1431,56 @@ final class WorkspaceModel {
         } catch {
             return nil
         }
+    }
+
+    @discardableResult
+    func patternBody(
+        params: PatternParams,
+        actionName: String = "Pattern Body"
+    ) async -> ObjectId? {
+        do {
+            let patternFeature = try document.patternBody(params: params, actionName: actionName)
+            guard let solidId = patternFeature.outputSolidId else { return nil }
+            selectedId = solidId
+            markDocumentModified()
+            recomputeSolid(id: solidId)
+            return solidId
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func patternBody(
+        targetSolidId: SolidId,
+        targetType: PatternTargetType = .body,
+        patternType: PatternType = .linear,
+        direction: [Double] = [1.0, 0.0, 0.0],
+        linearSpacing: Double = 20.0,
+        count: Int = 3,
+        isSymmetric: Bool = false,
+        axisOrigin: [Double] = [0.0, 0.0, 0.0],
+        axisDirection: [Double] = [0.0, 0.0, 1.0],
+        totalAngle: Double = 360.0,
+        isFullCircle: Bool = true,
+        skippedIndices: [Int] = [],
+        actionName: String = "Pattern Body"
+    ) async -> ObjectId? {
+        let params = PatternParams(
+            targetSolidId: targetSolidId,
+            targetType: targetType,
+            patternType: patternType,
+            direction: direction,
+            linearSpacing: linearSpacing,
+            count: count,
+            isSymmetric: isSymmetric,
+            axisOrigin: axisOrigin,
+            axisDirection: axisDirection,
+            totalAngle: totalAngle,
+            isFullCircle: isFullCircle,
+            skippedIndices: skippedIndices
+        )
+        return await patternBody(params: params, actionName: actionName)
     }
 
     private func processSolverResult(

@@ -1145,6 +1145,164 @@ extension WorkspaceModelTests {
         session.cancel()
         #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
     }
+
+    // MARK: - Pattern Command Sessions
+
+    @Test @MainActor func testMakeLinearPatternLifecycleAndCommit() async {
+        let workspace = WorkspaceModel()
+        let cylFeat = Feature.makeCylinder(
+            solidId: ObjectId("cyl-linear-cmd"),
+            name: "Cylinder",
+            params: CylinderParams(radius: 2.5, height: 10.0)
+        )
+        workspace.document.addFeature(cylFeat)
+
+        let session = CommandSession.makeLinearPattern(
+            workspace: workspace,
+            targetSolidId: cylFeat.outputSolidId
+        )
+        #expect(session.canCommit)
+        #expect(session.numberValue(for: "count") == 3.0)
+        #expect(session.numberValue(for: "spacing") == 20.0)
+        #expect(session.choiceValue(for: "axis") == "X Axis")
+
+        session.setNumberValue(4.0, for: "count")
+        session.setNumberValue(25.0, for: "spacing")
+        session.setChoiceValue("Y Axis", for: "axis")
+        session.setToggleValue(true, for: "isSymmetric")
+        session.setTextValue("1", for: "skippedIndices")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .pattern(let params)? = added?.def {
+            #expect(params.count == 4)
+            #expect(params.linearSpacing == 25.0)
+            #expect(params.direction == [0.0, 1.0, 0.0])
+            #expect(params.isSymmetric == true)
+            #expect(params.skippedIndices == [1])
+            #expect(params.patternType == .linear)
+        } else {
+            Issue.record("Expected .pattern def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakeCircularPatternLifecycleAndCommit() async {
+        let workspace = WorkspaceModel()
+        let cylFeat = Feature.makeCylinder(
+            solidId: ObjectId("cyl-circ-cmd"),
+            name: "Cylinder",
+            params: CylinderParams(radius: 2.5, height: 10.0)
+        )
+        workspace.document.addFeature(cylFeat)
+
+        let session = CommandSession.makeCircularPattern(
+            workspace: workspace,
+            targetSolidId: cylFeat.outputSolidId
+        )
+        #expect(session.canCommit)
+        #expect(session.numberValue(for: "count") == 4.0)
+        #expect(session.numberValue(for: "totalAngle") == 360.0)
+        #expect(session.choiceValue(for: "axis") == "Z Axis")
+
+        session.setNumberValue(6.0, for: "count")
+        session.setNumberValue(180.0, for: "totalAngle")
+        session.setToggleValue(false, for: "isFullCircle")
+        session.setChoiceValue("X Axis", for: "axis")
+        session.setTextValue("2, 4", for: "skippedIndices")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .pattern(let params)? = added?.def {
+            #expect(params.count == 6)
+            #expect(params.totalAngle == 180.0)
+            #expect(params.isFullCircle == false)
+            #expect(params.axisDirection == [1.0, 0.0, 0.0])
+            #expect(params.skippedIndices == [2, 4])
+            #expect(params.patternType == .circular)
+        } else {
+            Issue.record("Expected .pattern def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakePatternValidation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeLinearPattern(workspace: workspace)
+        session.setSlotSelection(slotId: "target", objectId: nil, objectName: nil)
+        #expect(!session.canCommit)
+
+        let cylFeat = Feature.makeCylinder(
+            solidId: ObjectId("cyl-val"),
+            name: "Cylinder",
+            params: CylinderParams(radius: 2.5, height: 10.0)
+        )
+        workspace.document.addFeature(cylFeat)
+
+        let validSession = CommandSession.makeLinearPattern(
+            workspace: workspace,
+            targetSolidId: cylFeat.outputSolidId
+        )
+        #expect(validSession.canCommit)
+
+        // Count < 1 invalid
+        validSession.setNumberValue(0.0, for: "count")
+        #expect(!validSession.canCommit)
+
+        validSession.setNumberValue(3.0, for: "count")
+        #expect(validSession.canCommit)
+
+        // Spacing <= 0 invalid
+        validSession.setNumberValue(0.0, for: "spacing")
+        #expect(!validSession.canCommit)
+
+        validSession.setNumberValue(15.0, for: "spacing")
+        #expect(validSession.canCommit)
+
+        // Circular pattern validation
+        let circSession = CommandSession.makeCircularPattern(
+            workspace: workspace,
+            targetSolidId: cylFeat.outputSolidId
+        )
+        #expect(circSession.canCommit)
+
+        circSession.setNumberValue(0.0, for: "count")
+        #expect(!circSession.canCommit)
+
+        circSession.setNumberValue(4.0, for: "count")
+        #expect(circSession.canCommit)
+
+        circSession.setNumberValue(0.0, for: "totalAngle")
+        #expect(!circSession.canCommit)
+
+        circSession.setNumberValue(90.0, for: "totalAngle")
+        #expect(circSession.canCommit)
+    }
+
+    @Test @MainActor func testMakePatternCancellation() {
+        let workspace = WorkspaceModel()
+        let linearSession = CommandSession.makeLinearPattern(workspace: workspace)
+        linearSession.cancel()
+        #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
+
+        let circSession = CommandSession.makeCircularPattern(workspace: workspace)
+        circSession.cancel()
+        #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
+    }
 }
 
 }

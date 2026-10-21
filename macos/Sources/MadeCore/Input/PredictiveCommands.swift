@@ -6,6 +6,7 @@ public enum PredictiveCommandKind: String, Sendable, CaseIterable, Equatable {
     case pushPull = "push-pull"
     case shell = "shell"
     case hole = "hole"
+    case pattern = "pattern"
 }
 
 public struct PredictiveCommand: Sendable, Equatable, Identifiable {
@@ -74,6 +75,13 @@ public enum PredictiveCommandProvider {
                     id: .hole,
                     title: "Hole",
                     iconName: "circle.circle",
+                    isEnabled: true,
+                    disabledReason: nil
+                ),
+                PredictiveCommand(
+                    id: .pattern,
+                    title: "Pattern",
+                    iconName: "square.grid.3x3.fill",
                     isEnabled: true,
                     disabledReason: nil
                 )

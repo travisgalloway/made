@@ -453,6 +453,7 @@ private struct NavigatorRow: View {
         case .chamfer: return "skew"
         case .shell: return "square.dashed"
         case .hole: return "circle.circle"
+        case .pattern: return "square.grid.3x3.fill"
         }
     }
 
@@ -473,6 +474,7 @@ private struct NavigatorRow: View {
         case .chamfer: return .orange
         case .shell: return .purple
         case .hole: return .teal
+        case .pattern: return .indigo
         }
     }
 }

@@ -233,6 +233,16 @@ struct SolidMenuCommands: Commands {
             }
             .disabled(workspace.document.objects.isEmpty)
 
+            Button("Linear Pattern…") {
+                workspace.startLinearPatternCommand()
+            }
+            .disabled(workspace.document.objects.isEmpty)
+
+            Button("Circular Pattern…") {
+                workspace.startCircularPatternCommand()
+            }
+            .disabled(workspace.document.objects.isEmpty)
+
             Divider()
 
             Button("New Ground Sketch") {

@@ -26,6 +26,8 @@ public enum ObjectDef: Sendable, Equatable {
     case shell(ShellParams)
     /// A solid with holes cut into a face (BL-PRT-10).
     case hole(HoleParams)
+    /// A pattern repeating bodies or features linearly or circularly (BL-PRT-12).
+    case pattern(PatternParams)
     
     public var kind: String {
         switch self {
@@ -43,6 +45,7 @@ public enum ObjectDef: Sendable, Equatable {
         case .chamfer: return "chamfer"
         case .shell: return "shell"
         case .hole: return "hole"
+        case .pattern: return "pattern"
         }
     }
 }
@@ -112,6 +115,13 @@ extension ObjectDef {
             }
             let depthStr = p.isThrough ? "Through" : "d \(Self.formatDim(Float(p.depth))) mm"
             return "\(typePrefix) × \(depthStr)"
+        case .pattern(let p):
+            switch p.patternType {
+            case .linear:
+                return "Linear: \(p.count)x @ \(Self.formatDim(Float(p.linearSpacing))) mm"
+            case .circular:
+                return "Circular: \(p.count)x @ \(Self.formatDim(Float(p.totalAngle)))°"
+            }
         }
     }
 
@@ -281,6 +291,9 @@ extension ObjectDef: Codable {
         case "hole":
             let params = try container.decode(HoleParams.self, forKey: .params)
             self = DocumentLimits.clamp(.hole(params))
+        case "pattern":
+            let params = try container.decode(PatternParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.pattern(params))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
@@ -346,6 +359,9 @@ extension ObjectDef: Codable {
             try container.encode(params, forKey: .params)
         case .hole(let params):
             try container.encode("hole", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .pattern(let params):
+            try container.encode("pattern", forKey: .kind)
             try container.encode(params, forKey: .params)
         }
     }
@@ -436,6 +452,9 @@ public enum DocumentLimits {
     public static let holeDiameter = ParamRange(min: 0.1, max: 10_000)
     public static let holeDepth = ParamRange(min: 0.1, max: 10_000)
     public static let countersinkAngle = ParamRange(min: 30.0, max: 150.0)
+    public static let patternCount = ParamRange(min: 1, max: 1000)
+    public static let patternSpacing = ParamRange(min: 0.01, max: 10_000)
+    public static let patternAngle = ParamRange(min: 0.1, max: 360.0)
     
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
@@ -551,6 +570,15 @@ public enum DocumentLimits {
         }
     }
 
+    public static func clampPattern(key: String, value: Float) -> Float {
+        switch key {
+        case "count": return patternCount.clamp(value)
+        case "linearSpacing": return patternSpacing.clamp(value)
+        case "totalAngle": return patternAngle.clamp(value)
+        default: return value
+        }
+    }
+
     public static func clamp(_ def: ObjectDef) -> ObjectDef {
         switch def {
         case .box(let p):
@@ -625,6 +653,14 @@ public enum DocumentLimits {
                 p.countersinkAngle = Double(countersinkAngle.clamp(Float(p.countersinkAngle)))
             }
             return .hole(p)
+        case .pattern(var p):
+            p.count = Int(patternCount.clamp(Float(p.count)))
+            if p.patternType == .linear {
+                p.linearSpacing = Double(patternSpacing.clamp(Float(p.linearSpacing)))
+            } else {
+                p.totalAngle = Double(patternAngle.clamp(Float(p.totalAngle)))
+            }
+            return .pattern(p)
         case .imported, .boolean:
             return def
         }
@@ -3455,6 +3491,196 @@ public final class DocumentModel {
         }
     }
 
+    // MARK: - Pattern Mutations (BL-PRT-12)
+
+    public func patternBody(
+        params: PatternParams,
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard params.count > 0 else {
+            throw DocumentMutationError.invalidOperation("Pattern count must be positive")
+        }
+        if params.patternType == .linear {
+            guard params.linearSpacing > 0 else {
+                throw DocumentMutationError.invalidOperation("Pattern linear spacing must be positive")
+            }
+            guard simd_length(params.linearDirection) > 1e-6 else {
+                throw DocumentMutationError.invalidOperation("Pattern linear direction must not be zero")
+            }
+        } else if params.patternType == .circular {
+            guard params.totalAngle > 0 else {
+                throw DocumentMutationError.invalidOperation("Pattern total angle must be positive")
+            }
+            guard simd_length(params.axisDirection) > 1e-6 else {
+                throw DocumentMutationError.invalidOperation("Pattern axis direction must not be zero")
+            }
+        }
+
+        guard let targetFeature = features.first(where: { $0.outputSolidId == params.targetSolidId }) else {
+            throw DocumentMutationError.objectNotFound(params.targetSolidId)
+        }
+        guard !targetFeature.isLocked else {
+            throw DocumentMutationError.objectLocked(params.targetSolidId)
+        }
+
+        var clampedParams = params
+        clampedParams.count = Int(DocumentLimits.patternCount.clamp(Float(params.count)))
+        if params.patternType == .linear {
+            clampedParams.linearSpacing = Double(DocumentLimits.patternSpacing.clamp(Float(params.linearSpacing)))
+        } else {
+            clampedParams.totalAngle = Double(DocumentLimits.patternAngle.clamp(Float(params.totalAngle)))
+        }
+
+        seq += 1
+        let solidId = ObjectId("pattern-\(seq)")
+        var exprs: [String: FeatureExpression] = [
+            "count": FeatureExpression(value: Double(clampedParams.count))
+        ]
+        if clampedParams.patternType == .linear {
+            exprs["linearSpacing"] = FeatureExpression(value: clampedParams.linearSpacing)
+        } else {
+            exprs["totalAngle"] = FeatureExpression(value: clampedParams.totalAngle)
+        }
+
+        var refs: [Reference] = [
+            .body(params.targetSolidId, role: "patternTarget")
+        ]
+        if let baseBodyId = params.baseBodySolidId {
+            refs.append(.body(baseBodyId, role: "baseBody"))
+        }
+
+        let patternFeature = Feature(
+            name: clampedParams.patternType == .linear ? "Linear Pattern \(seq)" : "Circular Pattern \(seq)",
+            operation: .pattern(clampedParams),
+            inputExpressions: exprs,
+            references: refs,
+            outputSolidId: solidId,
+            bodyOperation: .create,
+            targetBodyId: params.targetSolidId,
+            transform: targetFeature.transform,
+            isVisible: true,
+            isLocked: false,
+            material: targetFeature.material
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+        let origTargetVis = targetFeature.isVisible
+
+        features.insert(patternFeature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = solidId
+        setVisibility(id: params.targetSolidId, isVisible: false)
+
+        let effectiveActionName = actionName ?? (clampedParams.patternType == .linear ? "Linear Pattern" : "Circular Pattern")
+        registerPatternUndo(
+            id: solidId,
+            feature: patternFeature,
+            targetSolidId: params.targetSolidId,
+            origTargetVis: origTargetVis,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return patternFeature
+    }
+
+    public func patternBody(
+        targetSolidId: SolidId,
+        patternType: PatternType,
+        count: Int,
+        linearSpacing: Double = 10.0,
+        linearDirection: SIMD3<Double> = SIMD3<Double>(1, 0, 0),
+        axisOrigin: SIMD3<Double> = SIMD3<Double>(0, 0, 0),
+        axisDirection: SIMD3<Double> = SIMD3<Double>(0, 0, 1),
+        totalAngle: Double = 360.0,
+        isFullCircle: Bool = true,
+        skippedIndices: Set<Int> = [],
+        actionName: String? = nil
+    ) throws -> Feature {
+        let params = PatternParams(
+            targetSolidId: targetSolidId,
+            targetType: .body,
+            patternType: patternType,
+            count: count,
+            linearSpacing: linearSpacing,
+            linearDirection: linearDirection,
+            axisOrigin: axisOrigin,
+            axisDirection: axisDirection,
+            totalAngle: totalAngle,
+            isFullCircle: isFullCircle,
+            skippedIndices: skippedIndices
+        )
+        return try patternBody(params: params, actionName: actionName)
+    }
+
+    private func registerPatternUndo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setVisibility(id: targetSolidId, isVisible: origTargetVis)
+                let res = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                guard case .success = res else { return }
+
+                target.registerPatternRedo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+    }
+
+    private func registerPatternRedo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                guard case .success = res else { return }
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.setVisibility(id: targetSolidId, isVisible: false)
+                target.registerPatternUndo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.added(id))
+            }
+        }
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -3548,6 +3774,13 @@ public final class DocumentModel {
             result.insert(h.faceReference.sourceFeatureId)
             if let sId = h.sketchFeatureId {
                 result.insert(sId)
+            }
+        case .pattern(let p):
+            if let targetFeat = self.feature(for: p.targetSolidId) {
+                result.insert(targetFeat.id)
+            }
+            if let baseBodyId = p.baseBodySolidId, let baseFeat = self.feature(for: baseBodyId) {
+                result.insert(baseFeat.id)
             }
         case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
@@ -3657,6 +3890,13 @@ public final class DocumentModel {
             case "counterboreDepth": return Float(data.counterboreDepth)
             case "countersinkDiameter": return Float(data.countersinkDiameter)
             case "countersinkAngle": return Float(data.countersinkAngle)
+            default: return nil
+            }
+        case .pattern(let data):
+            switch key {
+            case "count": return Float(data.count)
+            case "linearSpacing": return Float(data.linearSpacing)
+            case "totalAngle": return Float(data.totalAngle)
             default: return nil
             }
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
@@ -4661,6 +4901,22 @@ public final class DocumentModel {
                 clampedValue = value
             }
             feature.operation = .hole(data)
+
+        case .pattern(var data):
+            switch key {
+            case "count":
+                data.count = Int(DocumentLimits.clampPattern(key: "count", value: value))
+                clampedValue = Float(data.count)
+            case "linearSpacing":
+                data.linearSpacing = Double(DocumentLimits.clampPattern(key: "linearSpacing", value: value))
+                clampedValue = Float(data.linearSpacing)
+            case "totalAngle":
+                data.totalAngle = Double(DocumentLimits.clampPattern(key: "totalAngle", value: value))
+                clampedValue = Float(data.totalAngle)
+            default:
+                clampedValue = value
+            }
+            feature.operation = .pattern(data)
 
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             clampedValue = value
