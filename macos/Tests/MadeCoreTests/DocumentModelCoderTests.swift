@@ -365,4 +365,88 @@ import Foundation
         try DocumentModelCoder.decode(into: targetDoc, from: legacyJSON)
         #expect(targetDoc.parameters.isEmpty)
     }
+
+    // MARK: - Parameter Range Constraints Serialization (BL-PAR-06)
+
+    @Test func testDocumentParametersRangeRoundTrip() throws {
+        let doc = DocumentModel()
+        let p1 = DocumentParameter(
+            name: "walled_width",
+            value: 45.0,
+            unit: "mm",
+            comment: "Wall width constraint",
+            min: 10.0,
+            max: 100.0,
+            step: 0.5
+        )
+        let p2 = DocumentParameter(
+            name: "unbounded_depth",
+            value: 20.0,
+            unit: "mm"
+        )
+        try doc.addParameter(p1)
+        try doc.addParameter(p2)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let decodedData = try DocumentModelCoder.decode(from: encoded)
+
+        #expect(decodedData.parameters?.count == 2)
+        let d1 = try #require(decodedData.parameters?[0])
+        #expect(d1.name == "walled_width")
+        #expect(d1.value == 45.0)
+        #expect(d1.min == 10.0)
+        #expect(d1.max == 100.0)
+        #expect(d1.step == 0.5)
+
+        let d2 = try #require(decodedData.parameters?[1])
+        #expect(d2.name == "unbounded_depth")
+        #expect(d2.min == nil)
+        #expect(d2.max == nil)
+        #expect(d2.step == nil)
+
+        let targetDoc = DocumentModel(features: [])
+        try DocumentModelCoder.decode(into: targetDoc, from: encoded)
+        #expect(targetDoc.parameters.count == 2)
+        #expect(targetDoc.parameters[0].name == "walled_width")
+        #expect(targetDoc.parameters[0].min == 10.0)
+        #expect(targetDoc.parameters[0].max == 100.0)
+        #expect(targetDoc.parameters[0].step == 0.5)
+        #expect(targetDoc.parameters[1].min == nil)
+        #expect(targetDoc.parameters[1].max == nil)
+        #expect(targetDoc.parameters[1].step == nil)
+    }
+
+    @Test func testLegacyDocumentParameterDecodesWithNilRanges() throws {
+        let legacyParameterJSON = """
+        {
+          "schemaVersion": 1,
+          "objects": [],
+          "parameters": [
+            {
+              "id": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+              "name": "legacy_param",
+              "value": 35.0,
+              "unit": "mm",
+              "comment": "Legacy parameter without ranges"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: legacyParameterJSON)
+        let param = try #require(decoded.parameters?.first)
+        #expect(param.name == "legacy_param")
+        #expect(param.value == 35.0)
+        #expect(param.min == nil)
+        #expect(param.max == nil)
+        #expect(param.step == nil)
+
+        let targetDoc = DocumentModel(features: [])
+        try DocumentModelCoder.decode(into: targetDoc, from: legacyParameterJSON)
+        #expect(targetDoc.parameters.count == 1)
+        #expect(targetDoc.parameters[0].name == "legacy_param")
+        #expect(targetDoc.parameters[0].min == nil)
+        #expect(targetDoc.parameters[0].max == nil)
+        #expect(targetDoc.parameters[0].step == nil)
+    }
 }

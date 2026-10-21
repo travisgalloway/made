@@ -240,6 +240,7 @@ import MadeCore
             value: 37.4,
             width: 52,
             minimum: 5.0,
+            maximum: 90.0,
             range: 5.0...90.0,
             step: 1.0,
             expression: "12 mm + 1 in",
@@ -254,11 +255,58 @@ import MadeCore
         #expect(view.value == 37.4)
         #expect(view.width == 52)
         #expect(view.minimum == 5.0)
+        #expect(view.maximum == 90.0)
         #expect(view.range == 5.0...90.0)
         #expect(view.step == 1.0)
         #expect(view.expression == "12 mm + 1 in")
         _ = committedValue
         _ = committedExpr
+    }
+
+    @Test func testCommitNumberFieldIndependentMaximum() throws {
+        // 1. Independent maximum stepping clamp
+        let clampedUp = CommitNumberField.stepValue(
+            value: 48.0,
+            step: 5.0,
+            isUp: true,
+            isShift: false,
+            min: nil,
+            max: 50.0
+        )
+        #expect(clampedUp == 50.0)
+
+        let steppedDown = CommitNumberField.stepValue(
+            value: 50.0,
+            step: 5.0,
+            isUp: false,
+            isShift: false,
+            min: nil,
+            max: 50.0
+        )
+        #expect(steppedDown == 45.0)
+
+        // 2. Independent maximum validation
+        let valid = try CommitNumberField.parseDraftWithValidation("49.5", min: nil, max: 50.0)
+        #expect(valid.value == 49.5)
+
+        let atBoundary = try CommitNumberField.parseDraftWithValidation("50.0", min: nil, max: 50.0)
+        #expect(atBoundary.value == 50.0)
+
+        #expect(throws: CommitFieldError.valueOutOfRange(min: nil, max: 50.0)) {
+            try CommitNumberField.parseDraftWithValidation("50.1", min: nil, max: 50.0)
+        }
+
+        // 3. Combined independent minimum and maximum
+        let inRange = try CommitNumberField.parseDraftWithValidation("25.0", min: 10.0, max: 50.0)
+        #expect(inRange.value == 25.0)
+
+        #expect(throws: CommitFieldError.valueOutOfRange(min: 10.0, max: 50.0)) {
+            try CommitNumberField.parseDraftWithValidation("9.9", min: 10.0, max: 50.0)
+        }
+
+        #expect(throws: CommitFieldError.valueOutOfRange(min: 10.0, max: 50.0)) {
+            try CommitNumberField.parseDraftWithValidation("50.1", min: 10.0, max: 50.0)
+        }
     }
 
     @Test @MainActor func testFeatureExpressionWorkflowIntegration() throws {

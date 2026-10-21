@@ -1057,8 +1057,9 @@ struct DocumentSettingsInspectorView: View {
             } else {
                 VStack(spacing: 8) {
                     HStack(spacing: 6) {
+                        Spacer().frame(width: 12)
                         Text("Name").font(.caption).bold().frame(width: 70, alignment: .leading)
-                        Text("Value").font(.caption).bold().frame(width: 50, alignment: .trailing)
+                        Text("Value").font(.caption).bold().frame(width: 55, alignment: .trailing)
                         Text("Unit").font(.caption).bold().frame(width: 36, alignment: .leading)
                         Text("Comment").font(.caption).bold().frame(maxWidth: .infinity, alignment: .leading)
                         Spacer().frame(width: 24)
@@ -1266,61 +1267,153 @@ struct DocumentParameterRowView: View {
     let param: DocumentParameter
     let onError: (Error) -> Void
 
+    @State private var isExpanded: Bool = false
     @State private var nameDraft: String = ""
-    @State private var valueDraft: String = ""
     @State private var unitDraft: String = ""
     @State private var commentDraft: String = ""
+    @State private var minDraft: String = ""
+    @State private var maxDraft: String = ""
+    @State private var stepDraft: String = ""
     @FocusState private var focusedField: Field?
 
     private enum Field {
-        case name, value, unit, comment
+        case name, unit, comment, min, max, step
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            TextField("Name", text: $nameDraft)
-                .focused($focusedField, equals: .name)
-                .frame(width: 70)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(commitName)
-
-            TextField("Value", text: $valueDraft)
-                .focused($focusedField, equals: .value)
-                .frame(width: 50)
-                .multilineTextAlignment(.trailing)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(commitValue)
-
-            TextField("Unit", text: $unitDraft)
-                .focused($focusedField, equals: .unit)
-                .frame(width: 36)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(commitUnit)
-
-            TextField("Comment", text: $commentDraft)
-                .focused($focusedField, equals: .comment)
-                .frame(maxWidth: .infinity)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(commitComment)
-
-            Button(role: .destructive) {
-                do {
-                    try workspace.deleteParameter(id: param.id)
-                } catch {
-                    onError(error)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12, height: 12)
                 }
-            } label: {
-                Image(systemName: "trash")
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Collapse range settings" : "Expand range settings")
+
+                TextField("Name", text: $nameDraft)
+                    .focused($focusedField, equals: .name)
+                    .frame(width: 70)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(commitName)
+
+                CommitNumberField(
+                    label: "Value",
+                    value: param.value,
+                    width: 55,
+                    minimum: param.min,
+                    maximum: param.max,
+                    step: param.step ?? 1.0,
+                    expression: param.expression,
+                    parameterResolver: { name in
+                        workspace.document.parameters.first(where: { $0.name == name })?.value
+                    },
+                    evaluator: { expr in
+                        try workspace.document.evaluateExpression(expr).value
+                    },
+                    commitExpression: { val, expr in
+                        do {
+                            try workspace.updateParameter(id: param.id, value: val, expression: expr)
+                        } catch {
+                            onError(error)
+                        }
+                    }
+                )
+
+                TextField("Unit", text: $unitDraft)
+                    .focused($focusedField, equals: .unit)
+                    .frame(width: 36)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(commitUnit)
+
+                TextField("Comment", text: $commentDraft)
+                    .focused($focusedField, equals: .comment)
+                    .frame(maxWidth: .infinity)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(commitComment)
+
+                Button(role: .destructive) {
+                    do {
+                        try workspace.deleteParameter(id: param.id)
+                    } catch {
+                        onError(error)
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete \(param.name)")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Delete \(param.name)")
+
+            if isExpanded {
+                HStack(spacing: 8) {
+                    Text("Range:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 4) {
+                        Text("Min")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        TextField("None", text: $minDraft)
+                            .focused($focusedField, equals: .min)
+                            .frame(width: 48)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(commitMin)
+                    }
+
+                    HStack(spacing: 4) {
+                        Text("Max")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        TextField("None", text: $maxDraft)
+                            .focused($focusedField, equals: .max)
+                            .frame(width: 48)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(commitMax)
+                    }
+
+                    HStack(spacing: 4) {
+                        Text("Step")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        TextField("1.0", text: $stepDraft)
+                            .focused($focusedField, equals: .step)
+                            .frame(width: 44)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(commitStep)
+                    }
+
+                    Spacer()
+                }
+                .padding(.leading, 18)
+            }
+
+            if param.isOutOfRange, let errorMsg = param.rangeErrorMessage {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                    Text(errorMsg)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                }
+                .padding(.leading, 18)
+            }
         }
         .onChange(of: focusedField) { oldField, _ in
             switch oldField {
             case .name: commitName()
-            case .value: commitValue()
             case .unit: commitUnit()
             case .comment: commitComment()
+            case .min: commitMin()
+            case .max: commitMax()
+            case .step: commitStep()
             case nil: break
             }
         }
@@ -1334,9 +1427,11 @@ struct DocumentParameterRowView: View {
 
     private func syncFromParam() {
         nameDraft = param.name
-        valueDraft = String(format: "%.1f", param.value)
         unitDraft = param.unit
         commentDraft = param.comment
+        minDraft = param.min.map { String(format: "%.1f", $0) } ?? ""
+        maxDraft = param.max.map { String(format: "%.1f", $0) } ?? ""
+        stepDraft = param.step.map { String(format: "%.1f", $0) } ?? ""
     }
 
     private func commitName() {
@@ -1346,22 +1441,6 @@ struct DocumentParameterRowView: View {
             try workspace.renameParameter(id: param.id, newName: trimmed)
         } catch {
             nameDraft = param.name
-            onError(error)
-        }
-    }
-
-    private func commitValue() {
-        let trimmed = valueDraft.trimmingCharacters(in: .whitespaces)
-        guard let num = Double(trimmed) else {
-            valueDraft = String(format: "%.1f", param.value)
-            onError(DocumentParameterError.emptyValue)
-            return
-        }
-        guard num != param.value else { return }
-        do {
-            try workspace.updateParameter(id: param.id, value: num)
-        } catch {
-            valueDraft = String(format: "%.1f", param.value)
             onError(error)
         }
     }
@@ -1385,6 +1464,78 @@ struct DocumentParameterRowView: View {
         } catch {
             commentDraft = param.comment
             onError(error)
+        }
+    }
+
+    private func commitMin() {
+        let trimmed = minDraft.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            guard param.min != nil else { return }
+            do {
+                try workspace.updateParameter(id: param.id, min: .some(nil))
+            } catch {
+                syncFromParam()
+                onError(error)
+            }
+        } else if let num = Double(trimmed) {
+            guard num != param.min else { return }
+            do {
+                try workspace.updateParameter(id: param.id, min: num)
+            } catch {
+                syncFromParam()
+                onError(error)
+            }
+        } else {
+            syncFromParam()
+            onError(CommitFieldError.invalidNumber(trimmed))
+        }
+    }
+
+    private func commitMax() {
+        let trimmed = maxDraft.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            guard param.max != nil else { return }
+            do {
+                try workspace.updateParameter(id: param.id, max: .some(nil))
+            } catch {
+                syncFromParam()
+                onError(error)
+            }
+        } else if let num = Double(trimmed) {
+            guard num != param.max else { return }
+            do {
+                try workspace.updateParameter(id: param.id, max: num)
+            } catch {
+                syncFromParam()
+                onError(error)
+            }
+        } else {
+            syncFromParam()
+            onError(CommitFieldError.invalidNumber(trimmed))
+        }
+    }
+
+    private func commitStep() {
+        let trimmed = stepDraft.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            guard param.step != nil else { return }
+            do {
+                try workspace.updateParameter(id: param.id, step: .some(nil))
+            } catch {
+                syncFromParam()
+                onError(error)
+            }
+        } else if let num = Double(trimmed) {
+            guard num != param.step else { return }
+            do {
+                try workspace.updateParameter(id: param.id, step: num)
+            } catch {
+                syncFromParam()
+                onError(error)
+            }
+        } else {
+            syncFromParam()
+            onError(CommitFieldError.invalidNumber(trimmed))
         }
     }
 }

@@ -40,6 +40,7 @@ struct CommitNumberField: View {
     let value: Double
     var width: CGFloat = 56
     var minimum: Double? = nil
+    var maximum: Double? = nil
     var range: ClosedRange<Double>? = nil
     var step: Double = 1.0
     var expression: String? = nil
@@ -53,6 +54,7 @@ struct CommitNumberField: View {
         value: Double,
         width: CGFloat = 56,
         minimum: Double? = nil,
+        maximum: Double? = nil,
         range: ClosedRange<Double>? = nil,
         step: Double = 1.0,
         expression: String? = nil,
@@ -64,6 +66,7 @@ struct CommitNumberField: View {
         self.value = value
         self.width = width
         self.minimum = minimum
+        self.maximum = maximum
         self.range = range
         self.step = step
         self.expression = expression
@@ -78,6 +81,7 @@ struct CommitNumberField: View {
         value: Double,
         width: CGFloat = 56,
         minimum: Double? = nil,
+        maximum: Double? = nil,
         range: ClosedRange<Double>? = nil,
         step: Double = 1.0,
         expression: String? = nil,
@@ -89,6 +93,7 @@ struct CommitNumberField: View {
         self.value = value
         self.width = width
         self.minimum = minimum
+        self.maximum = maximum
         self.range = range
         self.step = step
         self.expression = expression
@@ -164,7 +169,7 @@ struct CommitNumberField: View {
                         let isUp = press.key == .upArrow
                         let isShift = press.modifiers.contains(.shift)
                         let effectiveMin = [minimum, range?.lowerBound].compactMap { $0 }.max()
-                        let effectiveMax = range?.upperBound
+                        let effectiveMax = [maximum, range?.upperBound].compactMap { $0 }.min()
                         let newValue = Self.stepValue(
                             value: value,
                             step: step,
@@ -329,7 +334,7 @@ struct CommitNumberField: View {
     private func apply(isSubmitting: Bool = false) {
         let draft = text.trimmingCharacters(in: .whitespaces)
         let effectiveMin = [minimum, range?.lowerBound].compactMap { $0 }.max()
-        let effectiveMax = range?.upperBound
+        let effectiveMax = [maximum, range?.upperBound].compactMap { $0 }.min()
 
         do {
             let parsed = try Self.parseDraftWithValidation(
