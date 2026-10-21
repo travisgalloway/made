@@ -1,4 +1,4 @@
-.PHONY: all help setup build build-tests test test-ui test-viewport bundle run run-mcp clean ci-local hooks
+.PHONY: all help setup build build-tests test test-ui test-viewport bundle package run run-mcp clean ci-local hooks
 
 PKG_PATH := macos
 # Swift Build compiles Shaders.metal; the native build system (the Swift 6.3 default) only copies it.
@@ -16,6 +16,7 @@ help:
 	@echo "  make test-ui        Run XCUITest UI tests (or 'make test-ui FILTER=<name>')"
 	@echo "  make test-viewport  Run Metal 4 XCUITest viewport tests (or 'make test-viewport FILTER=<name>')"
 	@echo "  make bundle         Assemble macos/.build/Made.app with the kernel XPC service"
+	@echo "  make package        Package .dmg and .zip release distribution archives (dry-run)"
 	@echo "  make run            Launch the bundled MadeApp GUI application"
 	@echo "  make run-mcp        Run the bundled MadeApp with embedded MCP server on stdio"
 	@echo "  make clean          Clean SwiftPM build artifacts and caches"
@@ -37,6 +38,9 @@ endif
 
 bundle: build
 	$(PKG_PATH)/scripts/bundle-app.sh
+
+package: bundle
+	$(PKG_PATH)/scripts/package-release.sh --dry-run
 
 test-ui: bundle
 ifdef FILTER

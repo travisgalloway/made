@@ -30,6 +30,7 @@ Run commands from the repository root using `make`, or directly from `macos/` wi
 | Build | `make build` | `swift build --build-system swiftbuild` |
 | Build tests | `make build-tests` | `swift build --build-system swiftbuild --build-tests` |
 | Assemble `Made.app` with the kernel XPC service | `make bundle` | `scripts/bundle-app.sh` (after a build) |
+| Package release archives (dry-run) | `make package` | `scripts/package-release.sh --dry-run` |
 | Run the bundled app | `make run` | `swift run --build-system swiftbuild MadeApp` (no kernel service; geometry runs in process) |
 | Run the bundled app with MCP on stdio | `make run-mcp` | `swift run --build-system swiftbuild MadeApp --mcp-stdio` (no kernel service) |
 | All tests | `make test` | `swift test --build-system swiftbuild` |
@@ -42,7 +43,7 @@ Run commands from the repository root using `make`, or directly from `macos/` wi
 | First-time setup (Metal Toolchain and hooks) | `make setup` | `xcodebuild -downloadComponent MetalToolchain` |
 | Install the git hooks | `make hooks` | `git config core.hooksPath .githooks` (run from the repository root) |
 
-Tests use Swift Testing (`@Test`) in 85 unit test files, 69 under `macos/Tests/MadeCoreTests` and 16 under `macos/Tests/MadeAppTests`. End-to-end and UI testing is organized into four validation layers under ADR-D10, using XCUITest in `macos/UITests/MadeUITests.xcodeproj` and offscreen golden image comparisons under `macos/Tests/Goldens/`.
+Tests use Swift Testing (`@Test`) in 86 unit test files, 69 under `macos/Tests/MadeCoreTests` and 17 under `macos/Tests/MadeAppTests`. End-to-end and UI testing is organized into four validation layers under ADR-D10, using XCUITest in `macos/UITests/MadeUITests.xcodeproj` and offscreen golden image comparisons under `macos/Tests/Goldens/`.
 
 The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTLCreateSystemDefaultDevice` when the change touches `macos/`. A failure or a skipped test blocks the commit or push, because CI runners may have no GPU. When a push touches `macos/Sources/MadeApp/`, `macos/Sources/MadeCore/Viewport/`, `macos/Sources/MadeCore/Input/`, or `macos/UITests/`, the pre-push hook verifies that a pass record exists at `macos/.build/viewport-pass/<tree-hash>` produced by `make test-viewport`. The hook runs no UI tests directly, avoiding keyboard and window focus disruption. The pre-push hook also blocks when the pushed ref is not the clean checkout, because the tests run against the working tree. Bypass deliberately with `git commit --no-verify` or `git push --no-verify`.
 
@@ -53,9 +54,10 @@ The pre-commit and pre-push hooks (`.githooks/`) run every suite that calls `MTL
 ```
 macos/
   Package.swift            MadeCore (library), MadeApp and MadeKernelService (executables), MadeCoreTests, MadeAppTests
-  Support/                 Info.plist files for Made.app and the kernel XPC service
-  scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle)
-                           and compiles the app icon (img/made.icon, an Icon Composer file) with actool
+  Support/                 Info.plist files and Hardened Runtime entitlements for Made.app and the kernel XPC service
+  scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle),
+                           applies version metadata and entitlements, and signs inside-out
+  scripts/package-release.sh Assembles and packages signed .dmg and .zip distribution archives with SHA256 checksums (make package)
   UITests/                 MadeUITests.xcodeproj UI test target launching script-built Made.app (ADR-D10)
   Sources/MadeCore/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry, ShapeEvaluator, ShapeNode, Transform, KernelClient+Default, FaultInjectingKernelClient, SketchEntity
@@ -71,11 +73,11 @@ macos/
   Sources/MadeKernelService/ main.swift: the kernel XPC service's XPCListener
   Sources/MadeApp/         MadeApp (@main, sidebar, console, and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
-                           MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView, OpenSourceLicensesView,
+                           MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView, AppVersion, OpenSourceLicensesView,
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
                            SnapOverlayView, EmptySceneGuidanceOverlayView, PredictiveCommandPopoverView, RadialMenuView, Document/MadeDocument
   Tests/MadeCoreTests/     Swift Testing suites (including DocumentParametersTests, CommandHUDPlacementTests, ViewCubeTests, PredictiveCommandTests, RadialMenuLayoutTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests, ConstrainedTransformTests)
-  Tests/MadeAppTests/      WorkspaceModelTests, CommandSessionTests, PredictiveCommandPopoverTests, RadialMenuViewTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, SketchStatusIndicatorTests, CADMetalViewRepresentableTests, and application unit tests
+  Tests/MadeAppTests/      DistributionTests, WorkspaceModelTests, CommandSessionTests, PredictiveCommandPopoverTests, RadialMenuViewTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, SketchStatusIndicatorTests, CADMetalViewRepresentableTests, and application unit tests
   Tests/Goldens/           Stored reference scenes for offscreen golden comparison (ADR-D10, #321)
 ```
 

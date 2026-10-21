@@ -87,6 +87,10 @@ struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("About Made") {
+                LabeledContent("Version", value: AppVersion.current.displayString)
+            }
+
             Section("Reset to Defaults") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Restore all application preferences, units, navigation conventions, display flags, and kernel tolerances to their default states.")
@@ -101,6 +105,7 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .padding()
+
     }
 }
 
