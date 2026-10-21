@@ -432,7 +432,19 @@ struct InspectorPanelView: View {
                 let spoken = InspectorUnitConversion.angleAccessibilityValue(displayAngle, unit: angleUnit)
                 LabeledContent("Angle") {
                     HStack(spacing: 4) {
-                        CommitNumberField(label: "Angle", value: displayAngle, width: 52) { newAngle in
+                        CommitNumberField(
+                            label: "Angle",
+                            value: displayAngle,
+                            width: 52,
+                            step: angleUnit.defaultStep,
+                            parameterResolver: { name in
+                                workspace.document.parameter(named: name)?.value
+                            },
+                            evaluator: { expr in
+                                let res = try workspace.document.evaluateExpression(expr)
+                                return InspectorUnitConversion.displayAngle(res.value, unit: angleUnit)
+                            }
+                        ) { newAngle in
                             var updatedData = data
                             updatedData.angleDegrees = InspectorUnitConversion.commitAngle(newAngle, unit: angleUnit)
                             var updatedFeature = datumPlane
@@ -920,7 +932,18 @@ struct InspectorPanelView: View {
                 let spoken = unit.map { InspectorUnitConversion.lengthAccessibilityValue(displayValue, unit: $0) }
                     ?? "\(displayValue.formatted(.number.precision(.fractionLength(1))))"
                 VStack(spacing: 2) {
-                    CommitNumberField(label: name, value: displayValue) { newValue in
+                    CommitNumberField(
+                        label: name,
+                        value: displayValue,
+                        step: unit?.defaultStep ?? 1.0,
+                        parameterResolver: { paramName in
+                            workspace.document.parameter(named: paramName)?.value
+                        },
+                        evaluator: { expr in
+                            let res = try workspace.document.evaluateExpression(expr)
+                            return unit.map { InspectorUnitConversion.displayLength(res.value, unit: $0) } ?? res.value
+                        }
+                    ) { newValue in
                         var v = value
                         v[axis] = unit.map { InspectorUnitConversion.commitLength(newValue, unit: $0) } ?? Float(newValue)
                         onChange(v)
@@ -951,6 +974,7 @@ struct InspectorPanelView: View {
         let displayMax = InspectorUnitConversion.displayLength(Double(range.max), unit: lengthUnit)
         let symbol = lengthUnit.symbol
         let spoken = InspectorUnitConversion.lengthAccessibilityValue(displayValue, unit: lengthUnit)
+        let currentExpr = workspace.document.feature(for: id)?.inputExpressions[key]?.formula
         let binding = Binding(
             get: { displayValue },
             set: { onChange(InspectorUnitConversion.commitLength($0, unit: lengthUnit)) }
@@ -973,19 +997,18 @@ struct InspectorPanelView: View {
                     label: label,
                     value: displayValue,
                     width: 52,
+                    range: displayMin...displayMax,
+                    step: lengthUnit.defaultStep,
+                    expression: currentExpr,
                     parameterResolver: { name in
                         workspace.document.parameter(named: name)?.value
                     },
                     evaluator: { expr in
-                        try? workspace.document.evaluateExpression(expr).value
+                        let res = try workspace.document.evaluateExpression(expr)
+                        return InspectorUnitConversion.displayLength(res.value, unit: lengthUnit)
                     },
                     commitExpression: { userVal, expr in
-                        let committed: Float
-                        if expr != nil {
-                            committed = Float(userVal)
-                        } else {
-                            committed = Float(InspectorUnitConversion.commitLength(userVal, unit: lengthUnit))
-                        }
+                        let committed = Float(InspectorUnitConversion.commitLength(userVal, unit: lengthUnit))
                         workspace.setParam(id, key, committed, expression: expr)
                     }
                 )
@@ -1463,28 +1486,63 @@ struct InspectorSketchEntityRow: View {
                 .help(Self.deleteEntityHelpText)
             }
 
+            let sketchParamResolver: (String) -> Double? = { name in
+                workspace.document.parameter(named: name)?.value
+            }
+            let sketchEvaluator: (String) throws -> Double = { expr in
+                try workspace.document.evaluateExpression(expr).value
+            }
+
             switch entity.kind {
             case "line":
                 if let start = entity.startPoint, let end = entity.endPoint {
                     HStack(spacing: 6) {
                         Text("Start:").font(.caption2).foregroundStyle(.secondary)
-                        CommitNumberField(label: "SX", value: start.x, width: 44) {
+                        CommitNumberField(
+                            label: "SX",
+                            value: start.x,
+                            width: 44,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
                             var e = entity
                             e.startPoint = SIMD2<Double>($0, start.y)
                             workspace.updateSketchEntity(in: sketchId, entity: e)
                         }
-                        CommitNumberField(label: "SY", value: start.y, width: 44) {
+                        CommitNumberField(
+                            label: "SY",
+                            value: start.y,
+                            width: 44,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
                             var e = entity
                             e.startPoint = SIMD2<Double>(start.x, $0)
                             workspace.updateSketchEntity(in: sketchId, entity: e)
                         }
                         Text("End:").font(.caption2).foregroundStyle(.secondary)
-                        CommitNumberField(label: "EX", value: end.x, width: 44) {
+                        CommitNumberField(
+                            label: "EX",
+                            value: end.x,
+                            width: 44,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
                             var e = entity
                             e.endPoint = SIMD2<Double>($0, end.y)
                             workspace.updateSketchEntity(in: sketchId, entity: e)
                         }
-                        CommitNumberField(label: "EY", value: end.y, width: 44) {
+                        CommitNumberField(
+                            label: "EY",
+                            value: end.y,
+                            width: 44,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
                             var e = entity
                             e.endPoint = SIMD2<Double>(end.x, $0)
                             workspace.updateSketchEntity(in: sketchId, entity: e)
@@ -1492,7 +1550,15 @@ struct InspectorSketchEntityRow: View {
                     }
                     HStack(spacing: 6) {
                         Text("Length:").font(.caption2).foregroundStyle(.secondary)
-                        CommitNumberField(label: "Length", value: entity.length ?? 0.0, width: 56, minimum: 0.0001) { newLen in
+                        CommitNumberField(
+                            label: "Length",
+                            value: entity.length ?? 0.0,
+                            width: 56,
+                            minimum: 0.0001,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) { newLen in
                             do {
                                 try workspace.dimensionSketchLine(featureId: sketchId, entityId: entity.id, length: newLen)
                             } catch {
@@ -1506,18 +1572,39 @@ struct InspectorSketchEntityRow: View {
                 if let center = entity.centerPoint, let radius = entity.radius {
                     HStack(spacing: 6) {
                         Text("Center:").font(.caption2).foregroundStyle(.secondary)
-                        CommitNumberField(label: "CX", value: center.x, width: 44) {
+                        CommitNumberField(
+                            label: "CX",
+                            value: center.x,
+                            width: 44,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
                             var e = entity
                             e.centerPoint = SIMD2<Double>($0, center.y)
                             workspace.updateSketchEntity(in: sketchId, entity: e)
                         }
-                        CommitNumberField(label: "CY", value: center.y, width: 44) {
+                        CommitNumberField(
+                            label: "CY",
+                            value: center.y,
+                            width: 44,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
                             var e = entity
                             e.centerPoint = SIMD2<Double>(center.x, $0)
                             workspace.updateSketchEntity(in: sketchId, entity: e)
                         }
                         Text("Radius:").font(.caption2).foregroundStyle(.secondary)
-                        CommitNumberField(label: "R", value: radius, width: 44) {
+                        CommitNumberField(
+                            label: "R",
+                            value: radius,
+                            width: 44,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
                             var e = entity
                             e.radius = $0
                             workspace.updateSketchEntity(in: sketchId, entity: e)
@@ -1529,23 +1616,51 @@ struct InspectorSketchEntityRow: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             Text("Start:").font(.caption2).foregroundStyle(.secondary)
-                            CommitNumberField(label: "SX", value: start.x, width: 44) {
+                            CommitNumberField(
+                                label: "SX",
+                                value: start.x,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
                                 var e = entity
                                 e.startPoint = SIMD2<Double>($0, start.y)
                                 workspace.updateSketchEntity(in: sketchId, entity: e)
                             }
-                            CommitNumberField(label: "SY", value: start.y, width: 44) {
+                            CommitNumberField(
+                                label: "SY",
+                                value: start.y,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
                                 var e = entity
                                 e.startPoint = SIMD2<Double>(start.x, $0)
                                 workspace.updateSketchEntity(in: sketchId, entity: e)
                             }
                             Text("End:").font(.caption2).foregroundStyle(.secondary)
-                            CommitNumberField(label: "EX", value: end.x, width: 44) {
+                            CommitNumberField(
+                                label: "EX",
+                                value: end.x,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
                                 var e = entity
                                 e.endPoint = SIMD2<Double>($0, end.y)
                                 workspace.updateSketchEntity(in: sketchId, entity: e)
                             }
-                            CommitNumberField(label: "EY", value: end.y, width: 44) {
+                            CommitNumberField(
+                                label: "EY",
+                                value: end.y,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
                                 var e = entity
                                 e.endPoint = SIMD2<Double>(end.x, $0)
                                 workspace.updateSketchEntity(in: sketchId, entity: e)
@@ -1553,12 +1668,26 @@ struct InspectorSketchEntityRow: View {
                         }
                         HStack(spacing: 6) {
                             Text("Center:").font(.caption2).foregroundStyle(.secondary)
-                            CommitNumberField(label: "CX", value: center.x, width: 44) {
+                            CommitNumberField(
+                                label: "CX",
+                                value: center.x,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
                                 var e = entity
                                 e.centerPoint = SIMD2<Double>($0, center.y)
                                 workspace.updateSketchEntity(in: sketchId, entity: e)
                             }
-                            CommitNumberField(label: "CY", value: center.y, width: 44) {
+                            CommitNumberField(
+                                label: "CY",
+                                value: center.y,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
                                 var e = entity
                                 e.centerPoint = SIMD2<Double>(center.x, $0)
                                 workspace.updateSketchEntity(in: sketchId, entity: e)
