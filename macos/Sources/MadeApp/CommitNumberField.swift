@@ -47,6 +47,9 @@ struct CommitNumberField: View {
     var parameterResolver: ((String) -> Double?)? = nil
     var evaluator: ((String) throws -> Double)? = nil
     var commitExpression: ((Double, String?) -> Void)? = nil
+    var onSubmit: (() -> Void)? = nil
+    var onCancel: (() -> Void)? = nil
+    var autoFocus: Bool = false
     let commit: (Double) -> Void
 
     init(
@@ -60,6 +63,9 @@ struct CommitNumberField: View {
         expression: String? = nil,
         parameterResolver: ((String) -> Double?)? = nil,
         evaluator: ((String) throws -> Double)? = nil,
+        onSubmit: (() -> Void)? = nil,
+        onCancel: (() -> Void)? = nil,
+        autoFocus: Bool = false,
         commit: @escaping (Double) -> Void
     ) {
         self.label = label
@@ -73,6 +79,9 @@ struct CommitNumberField: View {
         self.parameterResolver = parameterResolver
         self.evaluator = evaluator
         self.commitExpression = nil
+        self.onSubmit = onSubmit
+        self.onCancel = onCancel
+        self.autoFocus = autoFocus
         self.commit = commit
     }
 
@@ -87,6 +96,9 @@ struct CommitNumberField: View {
         expression: String? = nil,
         parameterResolver: ((String) -> Double?)? = nil,
         evaluator: ((String) throws -> Double)? = nil,
+        onSubmit: (() -> Void)? = nil,
+        onCancel: (() -> Void)? = nil,
+        autoFocus: Bool = false,
         commitExpression: @escaping (Double, String?) -> Void
     ) {
         self.label = label
@@ -100,6 +112,9 @@ struct CommitNumberField: View {
         self.parameterResolver = parameterResolver
         self.evaluator = evaluator
         self.commitExpression = commitExpression
+        self.onSubmit = onSubmit
+        self.onCancel = onCancel
+        self.autoFocus = autoFocus
         self.commit = { val in commitExpression(val, nil) }
     }
 
@@ -158,10 +173,14 @@ struct CommitNumberField: View {
                 .accessibilityHint(errorMessage ?? "")
                 .onSubmit {
                     apply(isSubmitting: true)
+                    if errorMessage == nil {
+                        onSubmit?()
+                    }
                 }
                 .onKeyPress(.escape) {
                     errorMessage = nil
                     text = Self.textForState(value: value, expression: expression, isFocused: true)
+                    onCancel?()
                     return .handled
                 }
                 .onKeyPress(phases: .down) { press in
@@ -206,6 +225,11 @@ struct CommitNumberField: View {
                     if !isFocused || text.isEmpty || text == Self.format.format(old) {
                         text = Self.format.format(new)
                         errorMessage = nil
+                    }
+                }
+                .onAppear {
+                    if autoFocus {
+                        isFocused = true
                     }
                 }
 

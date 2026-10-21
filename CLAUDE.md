@@ -74,7 +74,7 @@ macos/
   Sources/MadeApp/         MadeApp (@main, sidebar, console, and inspector commands, --mcp-stdio), ContentView, WorkspaceModel, WorkspaceTypes,
                            MadeCommands, NavigatorSidebarView, InspectorPanelView, ViewportCanvasView, ConsoleDrawerView,
                            MCPServerPopoverView, ViewportStatusBar, BarControls, PaneTabs, CommitNumberField, SettingsView, AppVersion, OpenSourceLicensesView,
-                           CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
+                           CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, DimensionLabelsOverlayView, ViewCubeOverlayView,
                            SnapOverlayView, EmptySceneGuidanceOverlayView, PredictiveCommandPopoverView, RadialMenuView, Document/MadeDocument,
                            Views/STLExportAccessoryView
   Tests/MadeCoreTests/     Swift Testing suites (including ExpressionEvaluatorTests, STLExportTests, DocumentParametersTests, CommandHUDPlacementTests, ViewCubeTests, PredictiveCommandTests, RadialMenuLayoutTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests, ConstrainedTransformTests, ChamferTests, ShellTests, HoleFeatureTests, FeaturePatternTests)

@@ -169,3 +169,212 @@ public enum CommandHUDPlacement {
         return bestCorner
     }
 }
+
+/// Represents a candidate dimension label to be rendered in the viewport overlay.
+public struct DimensionLabelCandidate: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let label: String
+    public let value: Float
+    public let unit: String
+    public let worldAnchor: SIMD3<Float>
+    public let size: CGSize
+
+    public init(
+        id: String,
+        label: String,
+        value: Float,
+        unit: String = "mm",
+        worldAnchor: SIMD3<Float>,
+        size: CGSize = CGSize(width: 80, height: 28)
+    ) {
+        self.id = id
+        self.label = label
+        self.value = value
+        self.unit = unit
+        self.worldAnchor = worldAnchor
+        self.size = size
+    }
+}
+
+/// Positioned dimension label result for viewport overlay rendering.
+public struct DimensionLabelPlacementResult: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let candidate: DimensionLabelCandidate
+    public let screenPosition: CGPoint
+    public let frame: CGRect
+    public let isVisible: Bool
+
+    public var center: CGPoint {
+        CGPoint(x: frame.midX, y: frame.midY)
+    }
+
+    public init(
+        candidate: DimensionLabelCandidate,
+        screenPosition: CGPoint,
+        frame: CGRect,
+        isVisible: Bool
+    ) {
+        self.id = candidate.id
+        self.candidate = candidate
+        self.screenPosition = screenPosition
+        self.frame = frame
+        self.isVisible = isVisible
+    }
+}
+
+/// Geometry placement algorithm that computes non-overlapping dimension label positions in SwiftUI screen space.
+public enum DimensionLabelPlacement {
+    public static let defaultPadding: CGFloat = 16
+    public static let defaultSpacing: CGFloat = 6
+
+    /// Computes SwiftUI screen coordinates for dimension labels, clamping inside viewport boundaries
+    /// and offsetting colliding labels so each stays visible and clickable.
+    public static func computePlacements(
+        candidates: [DimensionLabelCandidate],
+        viewProjectionMatrix: simd_float4x4,
+        viewportSize: CGSize,
+        padding: CGFloat = defaultPadding,
+        spacing: CGFloat = defaultSpacing
+    ) -> [DimensionLabelPlacementResult] {
+        guard viewportSize.width > 0 && viewportSize.height > 0 else {
+            return candidates.map {
+                DimensionLabelPlacementResult(
+                    candidate: $0,
+                    screenPosition: .zero,
+                    frame: .zero,
+                    isVisible: false
+                )
+            }
+        }
+
+        struct Intermediate {
+            let candidate: DimensionLabelCandidate
+            var frame: CGRect
+            var isVisible: Bool
+        }
+
+        var intermediates: [Intermediate] = []
+
+        for cand in candidates {
+            guard let proj = projectToScreen(point: cand.worldAnchor, viewProjectionMatrix: viewProjectionMatrix, viewportSize: viewportSize) else {
+                intermediates.append(Intermediate(candidate: cand, frame: .zero, isVisible: false))
+                continue
+            }
+
+            // Metal screen coordinates (origin bottom-left) to SwiftUI canvas coordinates (origin top-left)
+            let screenX = CGFloat(proj.x)
+            let screenY = viewportSize.height - CGFloat(proj.y)
+
+            let initialX = screenX - cand.size.width / 2.0
+            let initialY = screenY - cand.size.height / 2.0
+
+            // Boundary clamping inside viewport padding
+            let minX = padding
+            let maxX = max(padding, viewportSize.width - padding - cand.size.width)
+            let minY = padding
+            let maxY = max(padding, viewportSize.height - padding - cand.size.height)
+
+            let clampedX = min(max(initialX, minX), maxX)
+            let clampedY = min(max(initialY, minY), maxY)
+
+            let frame = CGRect(x: clampedX, y: clampedY, width: cand.size.width, height: cand.size.height)
+            intermediates.append(Intermediate(candidate: cand, frame: frame, isVisible: true))
+        }
+
+        // Iterative collision resolution among visible candidates
+        let visibleIndices = intermediates.indices.filter { intermediates[$0].isVisible }
+        let maxIterations = 20
+
+        for _ in 0..<maxIterations {
+            var collisionResolved = false
+            for iIdx in 0..<visibleIndices.count {
+                let i = visibleIndices[iIdx]
+                for jIdx in (iIdx + 1)..<visibleIndices.count {
+                    let j = visibleIndices[jIdx]
+
+                    if intermediates[i].frame.intersects(intermediates[j].frame) {
+                        collisionResolved = true
+                        let frameI = intermediates[i].frame
+                        var frameJ = intermediates[j].frame
+
+                        if frameJ.midY >= frameI.midY {
+                            let downY = frameI.maxY + spacing
+                            if downY + frameJ.height <= viewportSize.height - padding {
+                                frameJ.origin.y = downY
+                            } else {
+                                let upY = frameI.minY - spacing - frameJ.height
+                                if upY >= padding {
+                                    frameJ.origin.y = upY
+                                } else {
+                                    if frameJ.midX >= frameI.midX {
+                                        let rightX = frameI.maxX + spacing
+                                        if rightX + frameJ.width <= viewportSize.width - padding {
+                                            frameJ.origin.x = rightX
+                                        } else {
+                                            frameJ.origin.x = max(padding, frameI.minX - spacing - frameJ.width)
+                                        }
+                                    } else {
+                                        let leftX = frameI.minX - spacing - frameJ.width
+                                        if leftX >= padding {
+                                            frameJ.origin.x = leftX
+                                        } else {
+                                            frameJ.origin.x = min(viewportSize.width - padding - frameJ.width, frameI.maxX + spacing)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            let upY = frameI.minY - spacing - frameJ.height
+                            if upY >= padding {
+                                frameJ.origin.y = upY
+                            } else {
+                                let downY = frameI.maxY + spacing
+                                if downY + frameJ.height <= viewportSize.height - padding {
+                                    frameJ.origin.y = downY
+                                } else {
+                                    if frameJ.midX >= frameI.midX {
+                                        let rightX = frameI.maxX + spacing
+                                        if rightX + frameJ.width <= viewportSize.width - padding {
+                                            frameJ.origin.x = rightX
+                                        } else {
+                                            frameJ.origin.x = max(padding, frameI.minX - spacing - frameJ.width)
+                                        }
+                                    } else {
+                                        let leftX = frameI.minX - spacing - frameJ.width
+                                        if leftX >= padding {
+                                            frameJ.origin.x = leftX
+                                        } else {
+                                            frameJ.origin.x = min(viewportSize.width - padding - frameJ.width, frameI.maxX + spacing)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        let minX = padding
+                        let maxX = max(padding, viewportSize.width - padding - frameJ.width)
+                        let minY = padding
+                        let maxY = max(padding, viewportSize.height - padding - frameJ.height)
+                        frameJ.origin.x = min(max(frameJ.origin.x, minX), maxX)
+                        frameJ.origin.y = min(max(frameJ.origin.y, minY), maxY)
+
+                        intermediates[j].frame = frameJ
+                    }
+                }
+            }
+            if !collisionResolved {
+                break
+            }
+        }
+
+        return intermediates.map {
+            DimensionLabelPlacementResult(
+                candidate: $0.candidate,
+                screenPosition: $0.isVisible ? $0.frame.origin : .zero,
+                frame: $0.frame,
+                isVisible: $0.isVisible
+            )
+        }
+    }
+}
+

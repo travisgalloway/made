@@ -165,6 +165,10 @@ struct ViewportCanvasView: View {
                             CommandHUDOverlayView(session: session)
                         }
 
+                        if let session = workspace.activeCommand {
+                            DimensionLabelsOverlayView(session: session)
+                        }
+
                         if workspace.isPredictiveCommandsVisible,
                            workspace.activeCommand == nil,
                            let sub = workspace.document.selectedSubElement {
