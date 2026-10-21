@@ -119,6 +119,18 @@ public enum ReferenceResolver {
             return .success(ResolvedReference(reference: reference, target: .sketchEntity(feature: targetFeature, entity: entity)))
 
         case .body(let solidId):
+            if let refIndex {
+                for i in 0..<refIndex {
+                    let prior = document.features[i]
+                    guard !prior.isSuppressed else { continue }
+                    if case .deleteBody(let d) = prior.operation, d.targetBodyId == solidId {
+                        return .failure(.bodyNotFound(solidId))
+                    }
+                    if case .combine(let c) = prior.operation, !c.keepTool, c.toolBodyId == solidId {
+                        return .failure(.bodyNotFound(solidId))
+                    }
+                }
+            }
             if let targetIndex = document.features.firstIndex(where: { $0.outputSolidId == solidId }) {
                 let targetFeature = document.features[targetIndex]
                 if let referencingFeature, referencingFeature.id == targetFeature.id {
@@ -227,6 +239,21 @@ public enum ReferenceResolver {
                 return error
             }
         }
+        let refIndex = document.features.firstIndex(where: { $0.id == feature.id })
+        func isDeleted(_ bodyId: SolidId) -> Bool {
+            guard let refIndex else { return false }
+            for i in 0..<refIndex {
+                let prior = document.features[i]
+                guard !prior.isSuppressed else { continue }
+                if case .deleteBody(let d) = prior.operation, d.targetBodyId == bodyId {
+                    return true
+                }
+                if case .combine(let c) = prior.operation, !c.keepTool, c.toolBodyId == bodyId {
+                    return true
+                }
+            }
+            return false
+        }
         if feature.bodyOperation != .create {
             guard let targetBodyId = feature.targetBodyId else {
                 return .missingTargetBody(featureId: feature.id, operation: feature.bodyOperation)
@@ -239,15 +266,31 @@ public enum ReferenceResolver {
                 if targetFeat.id == feature.id {
                     return .selfReference(feature.id)
                 }
-                if let refIndex = document.features.firstIndex(where: { $0.id == feature.id }), targetIndex > refIndex {
+                if let refIndex, targetIndex > refIndex {
                     return .forwardReference(referencedFeatureId: targetFeat.id, currentFeatureId: feature.id)
                 }
                 if targetFeat.isSuppressed {
                     return .targetFeatureSuppressed(targetFeat.id)
                 }
-            } else if !document.objects.contains(where: { $0.id == targetBodyId }) {
+                if isDeleted(targetBodyId) {
+                    return .bodyNotFound(targetBodyId)
+                }
+            } else if !document.objects.contains(where: { $0.id == targetBodyId }) || isDeleted(targetBodyId) {
                 return .bodyNotFound(targetBodyId)
             }
+        }
+        switch feature.operation {
+        case .combine(let c):
+            if isDeleted(c.targetBodyId) { return .bodyNotFound(c.targetBodyId) }
+            if isDeleted(c.toolBodyId) { return .bodyNotFound(c.toolBodyId) }
+        case .moveBody(let m):
+            if isDeleted(m.targetBodyId) { return .bodyNotFound(m.targetBodyId) }
+        case .copyBody(let c):
+            if isDeleted(c.sourceBodyId) { return .bodyNotFound(c.sourceBodyId) }
+        case .deleteBody(let d):
+            if isDeleted(d.targetBodyId) { return .bodyNotFound(d.targetBodyId) }
+        default:
+            break
         }
         return nil
     }

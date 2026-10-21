@@ -182,6 +182,37 @@ public actor LocalKernelEngine: KernelEngine {
             } else {
                 return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Cannot perform boolean operation between B-Rep body and mesh-only body"))
             }
+
+        case .copySolid(_, let sId, let sourceId):
+            let shape = occtShapes[sourceId]
+            let euclid = euclidMeshes[sourceId]
+            let payload = solids[sourceId]
+
+            guard shape != nil || euclid != nil || payload != nil else {
+                return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Source solid '\(sourceId)' not found for copy"))
+            }
+
+            if let shape {
+                occtShapes[sId] = shape
+            }
+            if let euclid {
+                euclidMeshes[sId] = euclid
+            }
+            if let payload {
+                solids[sId] = payload
+                return .success(jobId: jobId, value: payload)
+            } else if let shape, let p = OCCTEngine.toMeshPayload(shape) {
+                solids[sId] = p
+                return .success(jobId: jobId, value: p)
+            } else if let euclid {
+                let p = EuclidEngine.toMeshPayload(euclid)
+                solids[sId] = p
+                return .success(jobId: jobId, value: p)
+            } else {
+                let emptyPayload = MeshPayload(positions: [], normals: [], indices: [])
+                solids[sId] = emptyPayload
+                return .success(jobId: jobId, value: emptyPayload)
+            }
             
         case .evaluateShape(_, let sId, let shape):
             if let error = shape.validate() {

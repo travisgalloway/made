@@ -107,6 +107,16 @@ public enum KernelRegeneration {
                 solidId: solidId,
                 params: data
             )
+        case .combine(let data):
+            guard let solidId = feature.outputSolidId else { return nil }
+            return .booleanOperation(jobId: jobId, solidId: solidId, op: data.operation, solidA: data.targetBodyId, solidB: data.toolBodyId)
+        case .moveBody:
+            return nil
+        case .copyBody(let data):
+            guard let solidId = feature.outputSolidId else { return nil }
+            return .copySolid(jobId: jobId, solidId: solidId, sourceSolidId: data.sourceBodyId)
+        case .deleteBody:
+            return nil
         }
     }
 

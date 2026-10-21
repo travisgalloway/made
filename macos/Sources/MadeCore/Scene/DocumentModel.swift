@@ -764,6 +764,7 @@ public final class DocumentModel {
     public private(set) var parameterGraph = ParameterDependencyGraph()
     public private(set) var settings: DocumentSettings = DocumentSettings()
     private var seq: Int = 1
+    @ObservationIgnored private var isSyncingObjects = false
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
     @ObservationIgnored private var _selectedSubElement: SelectedSubElement? = nil
@@ -1318,9 +1319,91 @@ public final class DocumentModel {
     }
 
     private func syncObjectsFromFeatures() {
-        objects = activeFeatures.compactMap { $0.toSceneObject() }
+        guard !isSyncingObjects else { return }
+        isSyncingObjects = true
+        defer { isSyncingObjects = false }
+
+        var currentObjects: [SceneObject] = []
+
+        for feature in activeFeatures {
+            guard !feature.isSuppressed else { continue }
+            switch feature.operation {
+            case .combine(let data):
+                if let obj = feature.toSceneObject() {
+                    currentObjects.append(obj)
+                }
+                if let targetIdx = currentObjects.firstIndex(where: { $0.id == data.targetBodyId }) {
+                    currentObjects[targetIdx].isVisible = false
+                }
+                if let toolIdx = currentObjects.firstIndex(where: { $0.id == data.toolBodyId }) {
+                    if !data.keepTool {
+                        currentObjects[toolIdx].isVisible = false
+                    }
+                }
+            case .moveBody(let data):
+                if let idx = currentObjects.firstIndex(where: { $0.id == data.targetBodyId }) {
+                    currentObjects[idx].transform = data.transform * currentObjects[idx].transform
+                }
+            case .copyBody(let data):
+                if let source = currentObjects.first(where: { $0.id == data.sourceBodyId }) {
+                    let copyObj = SceneObject(
+                        id: data.newBodyId,
+                        name: feature.name,
+                        def: source.def,
+                        transform: data.transform * source.transform,
+                        isVisible: feature.isVisible,
+                        isLocked: feature.isLocked,
+                        material: feature.material
+                    )
+                    currentObjects.append(copyObj)
+                }
+            case .deleteBody(let data):
+                currentObjects.removeAll(where: { $0.id == data.targetBodyId })
+            default:
+                if let obj = feature.toSceneObject() {
+                    currentObjects.append(obj)
+                }
+            }
+        }
+
+        objects = currentObjects
         bodies = objects.map { Body(from: $0) }
         pruneInvalidSelection()
+    }
+
+    public func validateTimelineFeatureErrors() {
+        for feature in activeFeatures {
+            let upstreamIds = directDependencies(of: feature)
+            let hasFailedParent = upstreamIds.compactMap { self.feature(for: $0) }.contains { $0.errorState != nil }
+            if hasFailedParent {
+                let errorState = FeatureErrorState(
+                    code: "parent-failed",
+                    message: "parent failed",
+                    severity: .warning
+                )
+                setFeatureError(id: feature.id, error: errorState)
+                continue
+            } else if feature.errorState?.code == "parent-failed" {
+                setFeatureError(id: feature.id, error: nil)
+            }
+
+            if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: self) {
+                let errorState = FeatureErrorState(
+                    code: "reference-broken",
+                    message: "Reference broken: \(brokenErr.description)",
+                    severity: .error
+                )
+                setFeatureError(id: feature.id, error: errorState)
+                for dep in dependentFeatures(referencing: feature.id) {
+                    setFeatureError(
+                        id: dep.id,
+                        error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                    )
+                }
+            } else if feature.errorState?.code == "missing-reference" || feature.errorState?.code == "reference-broken" {
+                setFeatureError(id: feature.id, error: nil)
+            }
+        }
     }
 
     public func body(for id: BodyId) -> Body? {
@@ -1730,7 +1813,11 @@ public final class DocumentModel {
 
     public func setFeatureError(id: UUID, error: FeatureErrorState?) {
         guard let index = features.firstIndex(where: { $0.id == id }) else { return }
+        guard features[index].errorState != error else { return }
+        let prevSyncing = isSyncingObjects
+        isSyncingObjects = true
         features[index].errorState = error
+        isSyncingObjects = prevSyncing
     }
 
     @discardableResult
@@ -3855,6 +3942,454 @@ public final class DocumentModel {
         }
     }
 
+    // MARK: - Body Feature Mutators (BL-PRT-18)
+
+    /// Combines two solid bodies using boolean union, subtract, or intersect recorded as a timeline feature (BL-PRT-18).
+    @discardableResult
+    public func combineBodies(
+        targetBodyId: BodyId,
+        toolBodyId: BodyId,
+        operation: BooleanOp,
+        keepTool: Bool = false,
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard targetBodyId != toolBodyId else {
+            throw DocumentMutationError.invalidOperation("Cannot combine a body with itself")
+        }
+        guard let targetObj = objects.first(where: { $0.id == targetBodyId }) else {
+            throw DocumentMutationError.objectNotFound(targetBodyId)
+        }
+        guard let toolObj = objects.first(where: { $0.id == toolBodyId }) else {
+            throw DocumentMutationError.objectNotFound(toolBodyId)
+        }
+        guard !targetObj.isLocked else {
+            throw DocumentMutationError.objectLocked(targetBodyId)
+        }
+        if let targetFeat = feature(for: targetBodyId), targetFeat.isLocked {
+            throw DocumentMutationError.objectLocked(targetBodyId)
+        }
+        if !keepTool {
+            if toolObj.isLocked || (feature(for: toolBodyId)?.isLocked == true) {
+                throw DocumentMutationError.objectLocked(toolBodyId)
+            }
+        }
+
+        seq += 1
+        let solidId = ObjectId("combine-\(seq)")
+        let data = CombineFeatureData(
+            targetBodyId: targetBodyId,
+            toolBodyId: toolBodyId,
+            operation: operation,
+            keepTool: keepTool
+        )
+
+        let refs = [
+            Reference.body(targetBodyId, role: "targetBody"),
+            Reference.body(toolBodyId, role: "toolBody")
+        ]
+
+        let feature = Feature(
+            name: "Combine \(seq)",
+            operation: .combine(data),
+            references: refs,
+            outputSolidId: solidId,
+            targetBodyId: targetBodyId,
+            transform: targetObj.transform,
+            material: targetObj.material
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        features.insert(feature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = solidId
+
+        let effectiveActionName = actionName ?? "Combine Bodies"
+        registerCombineUndo(
+            feature: feature,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return feature
+    }
+
+    private func registerCombineUndo(
+        feature: Feature,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                target.registerCombineRedo(
+                    feature: feature,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let solidId = feature.outputSolidId {
+                    target.onUndoRedoMutation?(.removed(solidId))
+                }
+            }
+        }
+    }
+
+    private func registerCombineRedo(
+        feature: Feature,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.registerCombineUndo(
+                    feature: feature,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let solidId = feature.outputSolidId {
+                    target.onUndoRedoMutation?(.added(solidId))
+                }
+            }
+        }
+    }
+
+    /// Moves a solid body via spatial transform recorded as a timeline feature (BL-PRT-18).
+    @discardableResult
+    public func moveBody(
+        targetBodyId: BodyId,
+        transform: Transform,
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard transform != .identity else {
+            throw DocumentMutationError.invalidOperation("Move transform is identity")
+        }
+        guard let targetObj = objects.first(where: { $0.id == targetBodyId }) else {
+            throw DocumentMutationError.objectNotFound(targetBodyId)
+        }
+        guard !targetObj.isLocked else {
+            throw DocumentMutationError.objectLocked(targetBodyId)
+        }
+        if let targetFeat = feature(for: targetBodyId), targetFeat.isLocked {
+            throw DocumentMutationError.objectLocked(targetBodyId)
+        }
+
+        seq += 1
+        let data = MoveBodyFeatureData(targetBodyId: targetBodyId, transform: transform)
+        let feature = Feature(
+            name: "Move Body \(seq)",
+            operation: .moveBody(data),
+            references: [Reference.body(targetBodyId, role: "targetBody")],
+            targetBodyId: targetBodyId,
+            transform: transform
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        features.insert(feature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = targetBodyId
+
+        let effectiveActionName = actionName ?? "Move Body"
+        registerMoveBodyUndo(
+            feature: feature,
+            targetBodyId: targetBodyId,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return feature
+    }
+
+    private func registerMoveBodyUndo(
+        feature: Feature,
+        targetBodyId: BodyId,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                target.registerMoveBodyRedo(
+                    feature: feature,
+                    targetBodyId: targetBodyId,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let obj = target.objects.first(where: { $0.id == targetBodyId }) {
+                    target.onUndoRedoMutation?(.transformChanged(targetBodyId, transform: obj.transform))
+                }
+            }
+        }
+    }
+
+    private func registerMoveBodyRedo(
+        feature: Feature,
+        targetBodyId: BodyId,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.registerMoveBodyUndo(
+                    feature: feature,
+                    targetBodyId: targetBodyId,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let obj = target.objects.first(where: { $0.id == targetBodyId }) {
+                    target.onUndoRedoMutation?(.transformChanged(targetBodyId, transform: obj.transform))
+                }
+            }
+        }
+    }
+
+    /// Duplicates a solid body with a unique non-colliding name recorded as a timeline feature (BL-PRT-18).
+    @discardableResult
+    public func copyBody(
+        sourceBodyId: BodyId,
+        transform: Transform = .identity,
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard let sourceObj = objects.first(where: { $0.id == sourceBodyId }) else {
+            throw DocumentMutationError.objectNotFound(sourceBodyId)
+        }
+
+        seq += 1
+        let newBodyId = ObjectId("copy-\(seq)")
+        let uniqueName = generateUniqueBodyName(base: sourceObj.name)
+        let data = CopyBodyFeatureData(
+            sourceBodyId: sourceBodyId,
+            newBodyId: newBodyId,
+            transform: transform
+        )
+
+        let composedTransform = transform * sourceObj.transform
+
+        let feature = Feature(
+            name: uniqueName,
+            operation: .copyBody(data),
+            references: [Reference.body(sourceBodyId, role: "sourceBody")],
+            outputSolidId: newBodyId,
+            targetBodyId: sourceBodyId,
+            transform: composedTransform,
+            material: sourceObj.material
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        features.insert(feature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = newBodyId
+
+        let effectiveActionName = actionName ?? "Copy Body"
+        registerCopyBodyUndo(
+            feature: feature,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return feature
+    }
+
+    private func generateUniqueBodyName(base: String) -> String {
+        let existingNames = Set(bodies.map(\.name) + features.map(\.name) + objects.map(\.name))
+        let candidate = "\(base) Copy"
+        if !existingNames.contains(candidate) {
+            return candidate
+        }
+        var count = 2
+        while existingNames.contains("\(base) Copy \(count)") {
+            count += 1
+        }
+        return "\(base) Copy \(count)"
+    }
+
+    private func registerCopyBodyUndo(
+        feature: Feature,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                target.registerCopyBodyRedo(
+                    feature: feature,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let solidId = feature.outputSolidId {
+                    target.onUndoRedoMutation?(.removed(solidId))
+                }
+            }
+        }
+    }
+
+    private func registerCopyBodyRedo(
+        feature: Feature,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.registerCopyBodyUndo(
+                    feature: feature,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                if let solidId = feature.outputSolidId {
+                    target.onUndoRedoMutation?(.added(solidId))
+                }
+            }
+        }
+    }
+
+    /// Deletes a solid body from the active model recorded as a timeline feature (BL-PRT-18).
+    @discardableResult
+    public func deleteBody(
+        targetBodyId: BodyId,
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard let targetObj = objects.first(where: { $0.id == targetBodyId }) else {
+            throw DocumentMutationError.objectNotFound(targetBodyId)
+        }
+        guard !targetObj.isLocked else {
+            throw DocumentMutationError.objectLocked(targetBodyId)
+        }
+        if let targetFeat = feature(for: targetBodyId), targetFeat.isLocked {
+            throw DocumentMutationError.objectLocked(targetBodyId)
+        }
+
+        seq += 1
+        let data = DeleteBodyFeatureData(targetBodyId: targetBodyId)
+        let feature = Feature(
+            name: "Delete Body \(seq)",
+            operation: .deleteBody(data),
+            references: [Reference.body(targetBodyId, role: "targetBody")],
+            targetBodyId: targetBodyId
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+
+        features.insert(feature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        if selectedId == targetBodyId {
+            selectedId = nil
+        }
+
+        let effectiveActionName = actionName ?? "Delete Body"
+        registerDeleteBodyUndo(
+            feature: feature,
+            targetBodyId: targetBodyId,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return feature
+    }
+
+    private func registerDeleteBodyUndo(
+        feature: Feature,
+        targetBodyId: BodyId,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                target.registerDeleteBodyRedo(
+                    feature: feature,
+                    targetBodyId: targetBodyId,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.added(targetBodyId))
+            }
+        }
+    }
+
+    private func registerDeleteBodyRedo(
+        feature: Feature,
+        targetBodyId: BodyId,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.registerDeleteBodyUndo(
+                    feature: feature,
+                    targetBodyId: targetBodyId,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.removed(targetBodyId))
+            }
+        }
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -3969,6 +4504,25 @@ public final class DocumentModel {
                 default:
                     break
                 }
+            }
+        case .combine(let c):
+            if let fA = self.feature(for: c.targetBodyId) {
+                result.insert(fA.id)
+            }
+            if let fB = self.feature(for: c.toolBodyId) {
+                result.insert(fB.id)
+            }
+        case .moveBody(let m):
+            if let f = self.feature(for: m.targetBodyId) {
+                result.insert(f.id)
+            }
+        case .copyBody(let c):
+            if let f = self.feature(for: c.sourceBodyId) {
+                result.insert(f.id)
+            }
+        case .deleteBody(let d):
+            if let f = self.feature(for: d.targetBodyId) {
+                result.insert(f.id)
             }
         case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
@@ -4095,7 +4649,7 @@ public final class DocumentModel {
             case "keepOriginal": return data.keepOriginal ? 1.0 : 0.0
             default: return nil
             }
-        case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
+        case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem, .combine, .moveBody, .copyBody, .deleteBody:
             return nil
         }
     }
@@ -5133,7 +5687,7 @@ public final class DocumentModel {
             }
             feature.operation = .mirror(data)
 
-        case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
+        case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem, .combine, .moveBody, .copyBody, .deleteBody:
             clampedValue = value
         }
         return clampedValue

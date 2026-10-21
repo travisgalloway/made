@@ -2059,5 +2059,118 @@ import simd
         doc.clearSelection()
         #expect(doc.undoManager?.canUndo == false)
     }
+
+    // MARK: - Body-Level Operations Undo/Redo (BL-PRT-18, #307)
+
+    @Test func testUndoRedoCombineBodies() throws {
+        let doc = DocumentModel()
+        let initialFeaturesCount = doc.features.count
+        let initialObjectsCount = doc.objects.count
+
+        let feature = try doc.combineBodies(
+            targetBodyId: boxSolidId,
+            toolBodyId: cylinderSolidId,
+            operation: .union,
+            keepTool: false
+        )
+        guard let outputSolidId = feature.outputSolidId else {
+            Issue.record("Missing outputSolidId")
+            return
+        }
+
+        #expect(doc.features.count == initialFeaturesCount + 1)
+        #expect(doc.objects.count == initialObjectsCount + 1)
+        #expect(doc.canUndo)
+
+        // Undo combine: restores operands visibility and removes compound object
+        doc.undo()
+        #expect(doc.features.count == initialFeaturesCount)
+        #expect(doc.objects.count == initialObjectsCount)
+        #expect(!doc.objects.contains(where: { $0.id == outputSolidId }))
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.isVisible == true)
+        #expect(doc.objects.first(where: { $0.id == cylinderSolidId })?.isVisible == true)
+
+        // Redo combine: restores compound object and hides operands
+        doc.redo()
+        #expect(doc.features.count == initialFeaturesCount + 1)
+        #expect(doc.objects.count == initialObjectsCount + 1)
+        #expect(doc.objects.contains(where: { $0.id == outputSolidId }))
+        #expect(doc.objects.first(where: { $0.id == boxSolidId })?.isVisible == false)
+        #expect(doc.objects.first(where: { $0.id == cylinderSolidId })?.isVisible == false)
+    }
+
+    @Test func testUndoRedoMoveBody() throws {
+        let doc = DocumentModel()
+        let initialTransform = doc.objects.first(where: { $0.id == boxSolidId })!.transform
+        let delta = Transform(position: SIMD3<Float>(20, 0, 0))
+
+        try doc.moveBody(targetBodyId: boxSolidId, transform: delta)
+        let movedTransform = doc.objects.first(where: { $0.id == boxSolidId })!.transform
+        #expect(abs(movedTransform.position.x - (initialTransform.position.x + 20)) < 0.001)
+        #expect(doc.canUndo)
+
+        // Undo move: restores original position
+        doc.undo()
+        let undoneTransform = doc.objects.first(where: { $0.id == boxSolidId })!.transform
+        #expect(abs(undoneTransform.position.x - initialTransform.position.x) < 0.001)
+
+        // Redo move: reapplies translation
+        doc.redo()
+        let redoneTransform = doc.objects.first(where: { $0.id == boxSolidId })!.transform
+        #expect(abs(redoneTransform.position.x - (initialTransform.position.x + 20)) < 0.001)
+    }
+
+    @Test func testUndoRedoCopyBody() throws {
+        let doc = DocumentModel()
+        let initialFeaturesCount = doc.features.count
+        let initialObjectsCount = doc.objects.count
+
+        let copyFeat = try doc.copyBody(sourceBodyId: boxSolidId, transform: Transform(position: SIMD3<Float>(10, 10, 0)))
+        guard let copyId = copyFeat.outputSolidId else {
+            Issue.record("Missing copyId")
+            return
+        }
+
+        #expect(doc.features.count == initialFeaturesCount + 1)
+        #expect(doc.objects.count == initialObjectsCount + 1)
+        #expect(doc.objects.contains(where: { $0.id == copyId }))
+        #expect(doc.canUndo)
+
+        // Undo copy: removes clone
+        doc.undo()
+        #expect(doc.features.count == initialFeaturesCount)
+        #expect(doc.objects.count == initialObjectsCount)
+        #expect(!doc.objects.contains(where: { $0.id == copyId }))
+
+        // Redo copy: restores clone
+        doc.redo()
+        #expect(doc.features.count == initialFeaturesCount + 1)
+        #expect(doc.objects.count == initialObjectsCount + 1)
+        #expect(doc.objects.contains(where: { $0.id == copyId }))
+    }
+
+    @Test func testUndoRedoDeleteBody() throws {
+        let doc = DocumentModel()
+        let initialFeaturesCount = doc.features.count
+        let initialObjectsCount = doc.objects.count
+
+        try doc.deleteBody(targetBodyId: boxSolidId)
+        #expect(doc.features.count == initialFeaturesCount + 1)
+        #expect(doc.objects.count == initialObjectsCount - 1)
+        #expect(!doc.objects.contains(where: { $0.id == boxSolidId }))
+        #expect(doc.canUndo)
+
+        // Undo delete: restores deleted body
+        doc.undo()
+        #expect(doc.features.count == initialFeaturesCount)
+        #expect(doc.objects.count == initialObjectsCount)
+        #expect(doc.objects.contains(where: { $0.id == boxSolidId }))
+
+        // Redo delete: removes body again
+        doc.redo()
+        #expect(doc.features.count == initialFeaturesCount + 1)
+        #expect(doc.objects.count == initialObjectsCount - 1)
+        #expect(!doc.objects.contains(where: { $0.id == boxSolidId }))
+    }
 }
 

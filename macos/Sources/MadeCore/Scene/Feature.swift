@@ -390,6 +390,59 @@ public struct BooleanFeatureData: Sendable, Codable, Equatable {
     }
 }
 
+/// CSG boolean combine operation parameters referencing target and tool bodies (BL-PRT-18).
+public struct CombineFeatureData: Sendable, Codable, Equatable {
+    public var targetBodyId: BodyId
+    public var toolBodyId: BodyId
+    public var operation: BooleanOp
+    public var keepTool: Bool
+
+    public init(
+        targetBodyId: BodyId,
+        toolBodyId: BodyId,
+        operation: BooleanOp,
+        keepTool: Bool = false
+    ) {
+        self.targetBodyId = targetBodyId
+        self.toolBodyId = toolBodyId
+        self.operation = operation
+        self.keepTool = keepTool
+    }
+}
+
+/// Parameters for moving a solid body via a spatial transform (BL-PRT-18).
+public struct MoveBodyFeatureData: Sendable, Codable, Equatable {
+    public var targetBodyId: BodyId
+    public var transform: Transform
+
+    public init(targetBodyId: BodyId, transform: Transform) {
+        self.targetBodyId = targetBodyId
+        self.transform = transform
+    }
+}
+
+/// Parameters for copying/duplicating a solid body (BL-PRT-18).
+public struct CopyBodyFeatureData: Sendable, Codable, Equatable {
+    public var sourceBodyId: BodyId
+    public var newBodyId: BodyId
+    public var transform: Transform
+
+    public init(sourceBodyId: BodyId, newBodyId: BodyId, transform: Transform = .identity) {
+        self.sourceBodyId = sourceBodyId
+        self.newBodyId = newBodyId
+        self.transform = transform
+    }
+}
+
+/// Parameters for deleting a solid body from the active model (BL-PRT-18).
+public struct DeleteBodyFeatureData: Sendable, Codable, Equatable {
+    public var targetBodyId: BodyId
+
+    public init(targetBodyId: BodyId) {
+        self.targetBodyId = targetBodyId
+    }
+}
+
 /// Scripted part file definition on disk with last-evaluated shape tree.
 public struct PartFeatureData: Sendable, Codable, Equatable {
     public var url: URL
@@ -588,6 +641,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case hole(HoleFeatureData)
     case pattern(PatternFeatureData)
     case mirror(MirrorFeatureData)
+    case combine(CombineFeatureData)
+    case moveBody(MoveBodyFeatureData)
+    case copyBody(CopyBodyFeatureData)
+    case deleteBody(DeleteBodyFeatureData)
 
     private enum CodingKeys: String, CodingKey {
         case primitive = "primitive"
@@ -606,6 +663,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         case hole = "hole"
         case pattern = "pattern"
         case mirror = "mirror"
+        case combine = "combine"
+        case moveBody = "moveBody"
+        case copyBody = "copyBody"
+        case deleteBody = "deleteBody"
     }
 
     private enum PayloadCodingKeys: String, CodingKey {
@@ -676,6 +737,22 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         }
         if container.contains(.mirror) {
             self = .mirror(try Self.decodePayload(MirrorFeatureData.self, forKey: .mirror, from: container))
+            return
+        }
+        if container.contains(.combine) {
+            self = .combine(try Self.decodePayload(CombineFeatureData.self, forKey: .combine, from: container))
+            return
+        }
+        if container.contains(.moveBody) {
+            self = .moveBody(try Self.decodePayload(MoveBodyFeatureData.self, forKey: .moveBody, from: container))
+            return
+        }
+        if container.contains(.copyBody) {
+            self = .copyBody(try Self.decodePayload(CopyBodyFeatureData.self, forKey: .copyBody, from: container))
+            return
+        }
+        if container.contains(.deleteBody) {
+            self = .deleteBody(try Self.decodePayload(DeleteBodyFeatureData.self, forKey: .deleteBody, from: container))
             return
         }
 
@@ -751,6 +828,18 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
             try nested.encode(data, forKey: .payload)
         case .mirror(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .mirror)
+            try nested.encode(data, forKey: .payload)
+        case .combine(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .combine)
+            try nested.encode(data, forKey: .payload)
+        case .moveBody(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .moveBody)
+            try nested.encode(data, forKey: .payload)
+        case .copyBody(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .copyBody)
+            try nested.encode(data, forKey: .payload)
+        case .deleteBody(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .deleteBody)
             try nested.encode(data, forKey: .payload)
         }
     }
@@ -899,11 +988,13 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             def = .wedge(p)
         case .boolean(let b):
             def = .boolean(op: b.op, solidA: b.targetSolidId, solidB: b.toolSolidId)
+        case .combine(let b):
+            def = .boolean(op: b.operation, solidA: b.targetBodyId, solidB: b.toolBodyId)
         case .part(let p):
             def = .part(url: p.url, shape: p.shape)
         case .imported(let imp):
             def = .imported(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
-        case .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
+        case .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem, .moveBody, .copyBody, .deleteBody:
             return nil
         case .extrude(let data):
             guard let profile = data.profile else { return nil }

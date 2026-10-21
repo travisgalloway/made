@@ -438,6 +438,15 @@ private struct NavigatorRow: View {
 
     private func icon(for object: SceneObject?) -> String {
         guard let object else { return "cube.fill" }
+        if let feat = workspace.document.feature(for: object.id) {
+            switch feat.operation {
+            case .combine: return "square.on.circle"
+            case .moveBody: return "arrow.up.and.down.and.arrow.left.and.right"
+            case .copyBody: return "plus.square.on.square"
+            case .deleteBody: return "trash"
+            default: break
+            }
+        }
         switch object.def {
         case .box: return "shippingbox.fill"
         case .cylinder: return "cylinder.fill"
@@ -460,6 +469,15 @@ private struct NavigatorRow: View {
 
     private func tint(for object: SceneObject?) -> Color {
         guard let object else { return .accentColor }
+        if let feat = workspace.document.feature(for: object.id) {
+            switch feat.operation {
+            case .combine: return .green
+            case .moveBody: return .indigo
+            case .copyBody: return .cyan
+            case .deleteBody: return .red
+            default: break
+            }
+        }
         switch object.def {
         case .box: return .blue
         case .cylinder: return .orange
