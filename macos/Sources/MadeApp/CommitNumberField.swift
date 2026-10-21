@@ -8,6 +8,7 @@ struct CommitNumberField: View {
     var width: CGFloat = 56
     var minimum: Double? = nil
     var parameterResolver: ((String) -> Double?)? = nil
+    var evaluator: ((String) -> Double?)? = nil
     var commitExpression: ((Double, String?) -> Void)? = nil
     let commit: (Double) -> Void
 
@@ -17,6 +18,7 @@ struct CommitNumberField: View {
         width: CGFloat = 56,
         minimum: Double? = nil,
         parameterResolver: ((String) -> Double?)? = nil,
+        evaluator: ((String) -> Double?)? = nil,
         commit: @escaping (Double) -> Void
     ) {
         self.label = label
@@ -24,6 +26,7 @@ struct CommitNumberField: View {
         self.width = width
         self.minimum = minimum
         self.parameterResolver = parameterResolver
+        self.evaluator = evaluator
         self.commitExpression = nil
         self.commit = commit
     }
@@ -34,6 +37,7 @@ struct CommitNumberField: View {
         width: CGFloat = 56,
         minimum: Double? = nil,
         parameterResolver: ((String) -> Double?)? = nil,
+        evaluator: ((String) -> Double?)? = nil,
         commitExpression: @escaping (Double, String?) -> Void
     ) {
         self.label = label
@@ -41,6 +45,7 @@ struct CommitNumberField: View {
         self.width = width
         self.minimum = minimum
         self.parameterResolver = parameterResolver
+        self.evaluator = evaluator
         self.commitExpression = commitExpression
         self.commit = { val in commitExpression(val, nil) }
     }
@@ -105,12 +110,19 @@ struct CommitNumberField: View {
         return parsed
     }
 
-    /// Parses a draft string, trying parameterResolver first, then sanitizing units and parsing as a numeric literal.
-    static func parseDraft(_ draft: String, resolver: ((String) -> Double?)?) -> ParsedDraft? {
+    /// Parses a draft string, trying parameterResolver first, then evaluator, then sanitizing units and parsing as a numeric literal.
+    static func parseDraft(
+        _ draft: String,
+        resolver: ((String) -> Double?)?,
+        evaluator: ((String) -> Double?)? = nil
+    ) -> ParsedDraft? {
         let trimmed = draft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         if let resolver, let resolved = resolver(trimmed) {
             return ParsedDraft(value: resolved, expression: trimmed)
+        }
+        if let evaluator, let evaluated = evaluator(trimmed) {
+            return ParsedDraft(value: evaluated, expression: trimmed)
         }
         guard let parsed = parseDraft(draft) else { return nil }
         return ParsedDraft(value: parsed, expression: nil)
@@ -119,7 +131,7 @@ struct CommitNumberField: View {
     /// Commits the draft, then shows the model value; a clamp that leaves the value unchanged still redraws.
     private func apply() {
         let draft = text.trimmingCharacters(in: .whitespaces)
-        if let parsed = Self.parseDraft(draft, resolver: parameterResolver) {
+        if let parsed = Self.parseDraft(draft, resolver: parameterResolver, evaluator: evaluator) {
             text = Self.format.format(parsed.value)
             if let minimum, parsed.value < minimum {
                 text = Self.format.format(value)

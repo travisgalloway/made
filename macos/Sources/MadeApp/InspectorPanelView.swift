@@ -976,6 +976,9 @@ struct InspectorPanelView: View {
                     parameterResolver: { name in
                         workspace.document.parameter(named: name)?.value
                     },
+                    evaluator: { expr in
+                        try? workspace.document.evaluateExpression(expr).value
+                    },
                     commitExpression: { userVal, expr in
                         let committed: Float
                         if expr != nil {

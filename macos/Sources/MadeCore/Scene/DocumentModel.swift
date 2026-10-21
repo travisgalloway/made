@@ -557,6 +557,7 @@ public final class DocumentModel {
     public private(set) var objects: [SceneObject] = []
     public private(set) var bodies: [Body] = []
     public private(set) var parameters: [DocumentParameter] = []
+    public private(set) var parameterGraph = ParameterDependencyGraph()
     public private(set) var settings: DocumentSettings = DocumentSettings()
     private var seq: Int = 1
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
@@ -998,6 +999,7 @@ public final class DocumentModel {
     public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = []) {
         undoManager?.removeAllActions()
         self.parameters = parameters
+        rebuildParameterGraph()
         features = newFeatures
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), newFeatures.count)
@@ -1026,6 +1028,7 @@ public final class DocumentModel {
     public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = []) {
         undoManager?.removeAllActions()
         self.parameters = parameters
+        rebuildParameterGraph()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
         features = convertedFeatures
         if let idx = rollbackIndex {
@@ -3229,7 +3232,7 @@ public final class DocumentModel {
         return .success(())
     }
     
-    // MARK: - Document Parameters (BL-PAR-01)
+    // MARK: - Document Parameters (BL-PAR-01, BL-PAR-02)
 
     public func parameter(named name: String) -> DocumentParameter? {
         parameters.first { $0.name == name }
@@ -3239,11 +3242,28 @@ public final class DocumentModel {
         parameters.first { $0.id == id }
     }
 
+    public func evaluateExpression(_ expr: String) throws -> ExpressionEvaluationResult {
+        let context = EvaluationContext(documentParameters: parameters, unitSettings: settings.unitSettings)
+        return try ExpressionEvaluator.evaluate(expr, context: context)
+    }
+
+    public func rebuildParameterGraph() {
+        parameterGraph = ParameterDependencyGraph()
+        for param in parameters {
+            if let expr = param.expression, !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = try? parameterGraph.updateDependencies(for: param.name, expression: expr)
+            }
+        }
+    }
+
     public func referencingFeatures(for parameterName: String) -> [(feature: Feature, key: String)] {
         var results: [(feature: Feature, key: String)] = []
         for feature in features {
             for (key, expr) in feature.inputExpressions {
                 if expr.formula == parameterName {
+                    results.append((feature, key))
+                } else if let refs = try? ExpressionEvaluator.extractReferencedParameters(from: expr.formula),
+                          refs.contains(parameterName) {
                     results.append((feature, key))
                 }
             }
@@ -3257,14 +3277,37 @@ public final class DocumentModel {
         registerUndo: Bool = true
     ) throws {
         try DocumentParameter.validateName(parameter.name, existingNames: parameters.map(\.name))
-        guard !parameter.value.isNaN && !parameter.value.isInfinite else {
+
+        var paramToInsert = parameter
+        if let expr = parameter.expression, !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let refs = try ExpressionEvaluator.extractReferencedParameters(from: expr)
+            if let cycle = parameterGraph.detectCycle(for: parameter.name, referencing: refs) {
+                throw DocumentParameterError.referenceCycle(cycle)
+            }
+            let existingNames = Set(parameters.map(\.name))
+            if refs.isSubset(of: existingNames) {
+                let evalResult = try evaluateExpression(expr)
+                paramToInsert.value = evalResult.value
+                if paramToInsert.unit.isEmpty, let unit = evalResult.unit {
+                    paramToInsert.unit = unit
+                }
+            }
+        }
+
+        guard !paramToInsert.value.isNaN && !paramToInsert.value.isInfinite else {
             throw DocumentParameterError.emptyValue
         }
         let insertIndex = min(max(0, index ?? parameters.count), parameters.count)
-        parameters.insert(parameter, at: insertIndex)
+        parameters.insert(paramToInsert, at: insertIndex)
+
+        if let expr = paramToInsert.expression, !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? parameterGraph.updateDependencies(for: paramToInsert.name, expression: expr)
+        }
+
+        _ = try? reevaluateDependents(of: paramToInsert.name)
 
         if registerUndo {
-            let paramId = parameter.id
+            let paramId = paramToInsert.id
             undoManager?.registerUndo(withTarget: self) { target in
                 MainActor.assumeIsolated {
                     _ = try? target.deleteParameter(id: paramId, registerUndo: true, allowReferencedOnUndo: true)
@@ -3295,6 +3338,7 @@ public final class DocumentModel {
         }
 
         parameters.remove(at: index)
+        parameterGraph.removeParameter(param.name)
 
         if registerUndo {
             undoManager?.registerUndo(withTarget: self) { target in
@@ -3326,6 +3370,16 @@ public final class DocumentModel {
         )
 
         parameters[index].name = newName
+        parameterGraph.renameParameter(from: oldName, to: newName)
+
+        for i in 0..<parameters.count {
+            if let expr = parameters[i].expression, !expr.isEmpty {
+                let renamed = ExpressionEvaluator.renameIdentifier(in: expr, from: oldName, to: newName)
+                if renamed != expr {
+                    parameters[i].expression = renamed
+                }
+            }
+        }
 
         for i in 0..<features.count {
             var feature = features[i]
@@ -3333,6 +3387,11 @@ public final class DocumentModel {
             for (key, expr) in feature.inputExpressions {
                 if expr.formula == oldName {
                     feature.inputExpressions[key] = FeatureExpression(formula: newName, value: expr.value)
+                    updated = true
+                } else if let refs = try? ExpressionEvaluator.extractReferencedParameters(from: expr.formula),
+                          refs.contains(oldName) {
+                    let renamedFormula = ExpressionEvaluator.renameIdentifier(in: expr.formula, from: oldName, to: newName)
+                    feature.inputExpressions[key] = FeatureExpression(formula: renamedFormula, value: expr.value)
                     updated = true
                 }
             }
@@ -3358,28 +3417,54 @@ public final class DocumentModel {
         value: Double? = nil,
         unit: String? = nil,
         comment: String? = nil,
+        expression: String? = nil,
         registerUndo: Bool = true
     ) throws -> [ObjectId] {
         guard let index = parameters.firstIndex(where: { $0.id == id }) else {
             throw DocumentParameterError.parameterNotFound(id.uuidString)
         }
         let oldParam = parameters[index]
-        if let value {
-            guard !value.isNaN && !value.isInfinite else {
-                throw DocumentParameterError.emptyValue
+
+        var targetValue = value ?? oldParam.value
+        var targetUnit = unit ?? oldParam.unit
+        let targetComment = comment ?? oldParam.comment
+        let targetExpression = (expression != nil) ? expression : oldParam.expression
+
+        if let expr = targetExpression, !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let refs = try ExpressionEvaluator.extractReferencedParameters(from: expr)
+            if let cycle = parameterGraph.detectCycle(for: oldParam.name, referencing: refs) {
+                throw DocumentParameterError.referenceCycle(cycle)
             }
+            if value == nil {
+                let evalResult = try evaluateExpression(expr)
+                targetValue = evalResult.value
+                if unit == nil, let u = evalResult.unit {
+                    targetUnit = u
+                }
+            }
+        }
+
+        guard !targetValue.isNaN && !targetValue.isInfinite else {
+            throw DocumentParameterError.emptyValue
         }
 
         let newParam = DocumentParameter(
             id: id,
             name: oldParam.name,
-            value: value ?? oldParam.value,
-            unit: unit ?? oldParam.unit,
-            comment: comment ?? oldParam.comment
+            value: targetValue,
+            unit: targetUnit,
+            comment: targetComment,
+            expression: targetExpression
         )
         parameters[index] = newParam
 
-        let valueChanged = (value != nil && value! != oldParam.value)
+        if let expr = targetExpression, !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? parameterGraph.updateDependencies(for: oldParam.name, expression: expr)
+        } else {
+            try? parameterGraph.updateDependencies(for: oldParam.name, expression: nil)
+        }
+
+        let valueChanged = (targetValue != oldParam.value)
         var affectedSolidIds: [ObjectId] = []
 
         if valueChanged {
@@ -3390,13 +3475,32 @@ public final class DocumentModel {
             for ref in referencing {
                 guard let fIdx = features.firstIndex(where: { $0.id == ref.feature.id }) else { continue }
                 var feature = features[fIdx]
-                let clampedValue = applyParamValue(to: &feature, key: ref.key, value: newMagnitude)
-                feature.inputExpressions[ref.key] = FeatureExpression(formula: oldParam.name, value: Double(clampedValue))
+                guard let fExpr = feature.inputExpressions[ref.key] else { continue }
+
+                let effectiveVal: Float
+                if fExpr.formula == oldParam.name {
+                    effectiveVal = newMagnitude
+                } else if let fEval = try? evaluateExpression(fExpr.formula) {
+                    effectiveVal = Float(fEval.value)
+                } else {
+                    effectiveVal = newMagnitude
+                }
+
+                let clampedValue = applyParamValue(to: &feature, key: ref.key, value: effectiveVal)
+                feature.inputExpressions[ref.key] = FeatureExpression(formula: fExpr.formula, value: Double(clampedValue))
                 features[fIdx] = feature
                 if let solidId = feature.outputSolidId, !affectedSolidIds.contains(solidId) {
                     affectedSolidIds.append(solidId)
                 }
             }
+
+            let dependentAffected = (try? reevaluateDependents(of: oldParam.name)) ?? []
+            for dSolid in dependentAffected {
+                if !affectedSolidIds.contains(dSolid) {
+                    affectedSolidIds.append(dSolid)
+                }
+            }
+
             syncObjectsFromFeatures()
 
             if registerUndo {
@@ -3425,6 +3529,7 @@ public final class DocumentModel {
                         value: oldParam.value,
                         unit: oldParam.unit,
                         comment: oldParam.comment,
+                        expression: oldParam.expression,
                         registerUndo: true
                     )
                 }
@@ -3433,6 +3538,45 @@ public final class DocumentModel {
             undoStateVersion += 1
         }
 
+        return affectedSolidIds
+    }
+
+    @discardableResult
+    public func reevaluateDependents(of parameterName: String) throws -> [ObjectId] {
+        let downstream = parameterGraph.topologicalDependents(of: parameterName)
+        var affectedSolidIds: [ObjectId] = []
+        for depName in downstream {
+            guard let idx = parameters.firstIndex(where: { $0.name == depName }),
+                  let expr = parameters[idx].expression,
+                  !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            let evalResult = try evaluateExpression(expr)
+            parameters[idx].value = evalResult.value
+            if parameters[idx].unit.isEmpty, let u = evalResult.unit {
+                parameters[idx].unit = u
+            }
+            let referencing = referencingFeatures(for: depName)
+            for ref in referencing {
+                guard let fIdx = features.firstIndex(where: { $0.id == ref.feature.id }) else { continue }
+                var feature = features[fIdx]
+                guard let fExpr = feature.inputExpressions[ref.key] else { continue }
+                let newMag: Float
+                if fExpr.formula == depName {
+                    newMag = Float(evalResult.value)
+                } else if let fEval = try? evaluateExpression(fExpr.formula) {
+                    newMag = Float(fEval.value)
+                } else {
+                    newMag = Float(evalResult.value)
+                }
+                let clamped = applyParamValue(to: &feature, key: ref.key, value: newMag)
+                feature.inputExpressions[ref.key] = FeatureExpression(formula: fExpr.formula, value: Double(clamped))
+                features[fIdx] = feature
+                if let solidId = feature.outputSolidId, !affectedSolidIds.contains(solidId) {
+                    affectedSolidIds.append(solidId)
+                }
+            }
+        }
         return affectedSolidIds
     }
 
@@ -3445,6 +3589,7 @@ public final class DocumentModel {
     ) {
         guard let index = parameters.firstIndex(where: { $0.id == previousParam.id }) else { return }
         parameters[index] = previousParam
+        rebuildParameterGraph()
         features = previousFeatures
         syncObjectsFromFeatures()
 

@@ -7,19 +7,46 @@ public struct DocumentParameter: Identifiable, Sendable, Codable, Equatable {
     public var value: Double
     public var unit: String
     public var comment: String
+    public var expression: String?
 
     public init(
         id: UUID = UUID(),
         name: String,
         value: Double,
         unit: String = "",
-        comment: String = ""
+        comment: String = "",
+        expression: String? = nil
     ) {
         self.id = id
         self.name = name
         self.value = value
         self.unit = unit
         self.comment = comment
+        self.expression = expression
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, value, unit, comment, expression
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.value = try container.decode(Double.self, forKey: .value)
+        self.unit = try container.decodeIfPresent(String.self, forKey: .unit) ?? ""
+        self.comment = try container.decodeIfPresent(String.self, forKey: .comment) ?? ""
+        self.expression = try container.decodeIfPresent(String.self, forKey: .expression)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(value, forKey: .value)
+        try container.encode(unit, forKey: .unit)
+        try container.encode(comment, forKey: .comment)
+        try container.encodeIfPresent(expression, forKey: .expression)
     }
 
     /// Reserved unit symbols that cannot be used as parameter identifiers.
@@ -71,6 +98,7 @@ public enum DocumentParameterError: Error, Equatable, LocalizedError, Sendable {
     case emptyValue
     case parameterNotFound(String)
     case parameterInUse(name: String, referencingFeatures: [String])
+    case referenceCycle([String])
 
     public var errorDescription: String? {
         switch self {
@@ -86,6 +114,8 @@ public enum DocumentParameterError: Error, Equatable, LocalizedError, Sendable {
             return "Parameter '\(name)' not found."
         case .parameterInUse(let name, let referencingFeatures):
             return "Cannot delete parameter '\(name)' because it is referenced by: \(referencingFeatures.joined(separator: ", "))."
+        case .referenceCycle(let cycle):
+            return "Circular reference detected: \(cycle.joined(separator: " -> "))."
         }
     }
 }
