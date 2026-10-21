@@ -41,9 +41,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: macos/.build
-          key: spm-v7-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+          key: spm-v8-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
           restore-keys: |
-            spm-v7-${{ runner.os }}-
+            spm-v8-${{ runner.os }}-
 
       # Swift Build compiles Shaders.metal into default.metallib; the native build system only copies it.
       - name: Build
@@ -72,9 +72,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: macos/.build
-          key: spm-v7-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+          key: spm-v8-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
           restore-keys: |
-            spm-v7-${{ runner.os }}-
+            spm-v8-${{ runner.os }}-
 
       - name: Run panel UI tests
         run: make test-ui
