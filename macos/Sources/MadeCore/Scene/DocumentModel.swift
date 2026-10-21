@@ -24,6 +24,8 @@ public enum ObjectDef: Sendable, Equatable {
     case chamfer(ChamferParams)
     /// A solid shelled to uniform wall thickness (BL-PRT-08).
     case shell(ShellParams)
+    /// A solid with holes cut into a face (BL-PRT-10).
+    case hole(HoleParams)
     
     public var kind: String {
         switch self {
@@ -40,6 +42,7 @@ public enum ObjectDef: Sendable, Equatable {
         case .revolve: return "revolve"
         case .chamfer: return "chamfer"
         case .shell: return "shell"
+        case .hole: return "hole"
         }
     }
 }
@@ -99,6 +102,16 @@ extension ObjectDef {
             }
         case .shell(let p):
             return "\(Self.formatDim(Float(p.thickness))) mm"
+        case .hole(let p):
+            let typePrefix: String
+            switch p.holeType {
+            case .simple: typePrefix = "⌀ \(Self.formatDim(Float(p.diameter)))"
+            case .counterbore: typePrefix = "⌀ \(Self.formatDim(Float(p.diameter))) cb ⌀\(Self.formatDim(Float(p.counterboreDiameter)))"
+            case .countersink: typePrefix = "⌀ \(Self.formatDim(Float(p.diameter))) cs ⌀\(Self.formatDim(Float(p.countersinkDiameter)))"
+            case .tapped: typePrefix = p.threadMetadata?.designation ?? "M\(Self.formatDim(Float(p.diameter)))"
+            }
+            let depthStr = p.isThrough ? "Through" : "d \(Self.formatDim(Float(p.depth))) mm"
+            return "\(typePrefix) × \(depthStr)"
         }
     }
 
@@ -265,6 +278,9 @@ extension ObjectDef: Codable {
         case "shell":
             let params = try container.decode(ShellParams.self, forKey: .params)
             self = DocumentLimits.clamp(.shell(params))
+        case "hole":
+            let params = try container.decode(HoleParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.hole(params))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
@@ -327,6 +343,9 @@ extension ObjectDef: Codable {
             try container.encode(params, forKey: .params)
         case .shell(let params):
             try container.encode("shell", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .hole(let params):
+            try container.encode("hole", forKey: .kind)
             try container.encode(params, forKey: .params)
         }
     }
@@ -414,6 +433,9 @@ public enum DocumentLimits {
     public static let chamferDistance = ParamRange(min: 0.01, max: 10_000)
     public static let chamferAngle = ParamRange(min: 0.1, max: 89.9)
     public static let shellThickness = ParamRange(min: 0.01, max: 10_000)
+    public static let holeDiameter = ParamRange(min: 0.1, max: 10_000)
+    public static let holeDepth = ParamRange(min: 0.1, max: 10_000)
+    public static let countersinkAngle = ParamRange(min: 30.0, max: 150.0)
     
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
@@ -516,6 +538,19 @@ public enum DocumentLimits {
         }
     }
 
+    public static func clampHole(key: String, value: Float) -> Float {
+        switch key {
+        case "diameter", "counterboreDiameter", "countersinkDiameter":
+            return holeDiameter.clamp(value)
+        case "depth", "counterboreDepth":
+            return holeDepth.clamp(value)
+        case "countersinkAngle":
+            return countersinkAngle.clamp(value)
+        default:
+            return value
+        }
+    }
+
     public static func clamp(_ def: ObjectDef) -> ObjectDef {
         switch def {
         case .box(let p):
@@ -574,6 +609,22 @@ public enum DocumentLimits {
                 p.perFaceOverrides[i].thickness = Double(shellThickness.clamp(Float(p.perFaceOverrides[i].thickness)))
             }
             return .shell(p)
+        case .hole(var p):
+            p.diameter = Double(holeDiameter.clamp(Float(p.diameter)))
+            p.depth = Double(holeDepth.clamp(Float(p.depth)))
+            if p.counterboreDiameter > 0 {
+                p.counterboreDiameter = Double(holeDiameter.clamp(Float(p.counterboreDiameter)))
+            }
+            if p.counterboreDepth > 0 {
+                p.counterboreDepth = Double(holeDepth.clamp(Float(p.counterboreDepth)))
+            }
+            if p.countersinkDiameter > 0 {
+                p.countersinkDiameter = Double(holeDiameter.clamp(Float(p.countersinkDiameter)))
+            }
+            if p.countersinkAngle > 0 {
+                p.countersinkAngle = Double(countersinkAngle.clamp(Float(p.countersinkAngle)))
+            }
+            return .hole(p)
         case .imported, .boolean:
             return def
         }
@@ -3195,6 +3246,215 @@ public final class DocumentModel {
         }
     }
 
+    /// Cuts standard or custom holes into a solid planar face (BL-PRT-10).
+    @discardableResult
+    public func holeBody(
+        targetSolidId: SolidId,
+        faceReference: TopologicalReference,
+        sketchFeatureId: UUID? = nil,
+        points: [SIMD2<Double>] = [],
+        holeType: HoleType = .simple,
+        standard: HoleStandard = .custom,
+        sizeDesignation: String? = nil,
+        diameter: Double = 5.0,
+        depth: Double = 10.0,
+        isThrough: Bool = true,
+        counterboreDiameter: Double = 0.0,
+        counterboreDepth: Double = 0.0,
+        countersinkDiameter: Double = 0.0,
+        countersinkAngle: Double = 90.0,
+        drillTipAngle: Double? = nil,
+        threadMetadata: ThreadMetadata? = nil,
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard diameter > 0 else {
+            throw DocumentMutationError.invalidOperation("Hole diameter must be positive")
+        }
+        if !isThrough {
+            guard depth > 0 else {
+                throw DocumentMutationError.invalidOperation("Hole depth must be positive")
+            }
+        }
+        if holeType == .counterbore {
+            guard counterboreDiameter > diameter else {
+                throw DocumentMutationError.invalidOperation("Counterbore diameter must be greater than hole diameter")
+            }
+            guard counterboreDepth > 0 else {
+                throw DocumentMutationError.invalidOperation("Counterbore depth must be positive")
+            }
+        }
+        if holeType == .countersink {
+            guard countersinkDiameter > diameter else {
+                throw DocumentMutationError.invalidOperation("Countersink diameter must be greater than hole diameter")
+            }
+            guard countersinkAngle > 0 && countersinkAngle < 180 else {
+                throw DocumentMutationError.invalidOperation("Countersink angle must be between 0 and 180 degrees")
+            }
+        }
+        if standard != .custom {
+            guard let designation = sizeDesignation, HoleStandards.lookup(standard: standard, designation: designation) != nil else {
+                throw DocumentMutationError.invalidOperation("Unknown standard hole size: \(sizeDesignation ?? "none")")
+            }
+        }
+        guard let targetFeature = features.first(where: { $0.outputSolidId == targetSolidId }) else {
+            throw DocumentMutationError.objectNotFound(targetSolidId)
+        }
+        guard !targetFeature.isLocked else {
+            throw DocumentMutationError.objectLocked(targetSolidId)
+        }
+
+        let clampedDiameter = Double(DocumentLimits.holeDiameter.clamp(Float(diameter)))
+        let clampedDepth = Double(DocumentLimits.holeDepth.clamp(Float(depth)))
+        let clampedCbDia = counterboreDiameter > 0 ? Double(DocumentLimits.holeDiameter.clamp(Float(counterboreDiameter))) : 0.0
+        let clampedCbDepth = counterboreDepth > 0 ? Double(DocumentLimits.holeDepth.clamp(Float(counterboreDepth))) : 0.0
+        let clampedCsDia = countersinkDiameter > 0 ? Double(DocumentLimits.holeDiameter.clamp(Float(countersinkDiameter))) : 0.0
+        let clampedCsAngle = countersinkAngle > 0 ? Double(DocumentLimits.countersinkAngle.clamp(Float(countersinkAngle))) : 90.0
+
+        seq += 1
+        let solidId = ObjectId("hole-\(seq)")
+        var exprs: [String: FeatureExpression] = [
+            "diameter": FeatureExpression(value: clampedDiameter),
+            "depth": FeatureExpression(value: clampedDepth)
+        ]
+        if clampedCbDia > 0 {
+            exprs["counterboreDiameter"] = FeatureExpression(value: clampedCbDia)
+            exprs["counterboreDepth"] = FeatureExpression(value: clampedCbDepth)
+        }
+        if clampedCsDia > 0 {
+            exprs["countersinkDiameter"] = FeatureExpression(value: clampedCsDia)
+            exprs["countersinkAngle"] = FeatureExpression(value: clampedCsAngle)
+        }
+
+        var refs: [Reference] = [
+            .face(faceReference),
+            .body(targetSolidId, role: "targetBody")
+        ]
+        if let sketchFeatureId {
+            refs.append(.feature(sketchFeatureId, role: "holePoints"))
+        }
+
+        let holeData = HoleFeatureData(
+            targetSolidId: targetSolidId,
+            faceReference: faceReference,
+            sketchFeatureId: sketchFeatureId,
+            points: points,
+            holeType: holeType,
+            standard: standard,
+            sizeDesignation: sizeDesignation,
+            diameter: clampedDiameter,
+            depth: clampedDepth,
+            isThrough: isThrough,
+            counterboreDiameter: clampedCbDia,
+            counterboreDepth: clampedCbDepth,
+            countersinkDiameter: clampedCsDia,
+            countersinkAngle: clampedCsAngle,
+            drillTipAngle: drillTipAngle,
+            threadMetadata: threadMetadata
+        )
+
+        let holeFeature = Feature(
+            name: "Hole \(seq)",
+            operation: .hole(holeData),
+            inputExpressions: exprs,
+            references: refs,
+            outputSolidId: solidId,
+            bodyOperation: .cut,
+            targetBodyId: targetSolidId,
+            transform: targetFeature.transform,
+            isVisible: true,
+            isLocked: false,
+            material: targetFeature.material
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+        let origTargetVis = targetFeature.isVisible
+
+        features.insert(holeFeature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = solidId
+        setVisibility(id: targetSolidId, isVisible: false)
+
+        let effectiveActionName = actionName ?? "Create Hole"
+        registerHoleUndo(
+            id: solidId,
+            feature: holeFeature,
+            targetSolidId: targetSolidId,
+            origTargetVis: origTargetVis,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return holeFeature
+    }
+
+    private func registerHoleUndo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setVisibility(id: targetSolidId, isVisible: origTargetVis)
+                let res = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                guard case .success = res else { return }
+
+                target.registerHoleRedo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+    }
+
+    private func registerHoleRedo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                guard case .success = res else { return }
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.setVisibility(id: targetSolidId, isVisible: false)
+                target.registerHoleUndo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.added(id))
+            }
+        }
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -3280,6 +3540,14 @@ public final class DocumentModel {
             }
             for override in s.perFaceOverrides {
                 result.insert(override.faceReference.sourceFeatureId)
+            }
+        case .hole(let h):
+            if let targetFeat = self.feature(for: h.targetSolidId) {
+                result.insert(targetFeat.id)
+            }
+            result.insert(h.faceReference.sourceFeatureId)
+            if let sId = h.sketchFeatureId {
+                result.insert(sId)
             }
         case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
@@ -3379,6 +3647,16 @@ public final class DocumentModel {
         case .shell(let data):
             switch key {
             case "thickness": return Float(data.thickness)
+            default: return nil
+            }
+        case .hole(let data):
+            switch key {
+            case "diameter": return Float(data.diameter)
+            case "depth": return Float(data.depth)
+            case "counterboreDiameter": return Float(data.counterboreDiameter)
+            case "counterboreDepth": return Float(data.counterboreDepth)
+            case "countersinkDiameter": return Float(data.countersinkDiameter)
+            case "countersinkAngle": return Float(data.countersinkAngle)
             default: return nil
             }
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
@@ -4358,6 +4636,31 @@ public final class DocumentModel {
                 clampedValue = value
             }
             feature.operation = .shell(data)
+
+        case .hole(var data):
+            switch key {
+            case "diameter":
+                data.diameter = Double(DocumentLimits.clampHole(key: "diameter", value: value))
+                clampedValue = Float(data.diameter)
+            case "depth":
+                data.depth = Double(DocumentLimits.clampHole(key: "depth", value: value))
+                clampedValue = Float(data.depth)
+            case "counterboreDiameter":
+                data.counterboreDiameter = Double(DocumentLimits.clampHole(key: "counterboreDiameter", value: value))
+                clampedValue = Float(data.counterboreDiameter)
+            case "counterboreDepth":
+                data.counterboreDepth = Double(DocumentLimits.clampHole(key: "counterboreDepth", value: value))
+                clampedValue = Float(data.counterboreDepth)
+            case "countersinkDiameter":
+                data.countersinkDiameter = Double(DocumentLimits.clampHole(key: "countersinkDiameter", value: value))
+                clampedValue = Float(data.countersinkDiameter)
+            case "countersinkAngle":
+                data.countersinkAngle = Double(DocumentLimits.clampHole(key: "countersinkAngle", value: value))
+                clampedValue = Float(data.countersinkAngle)
+            default:
+                clampedValue = value
+            }
+            feature.operation = .hole(data)
 
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             clampedValue = value

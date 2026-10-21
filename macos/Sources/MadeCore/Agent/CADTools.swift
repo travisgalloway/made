@@ -476,6 +476,14 @@ public final class CADToolRegistry {
                 item["params"] = ["mode": p.mode.rawValue, "distance": p.distance, "distance2": p.distance2, "angle": p.angle]
             case .shell(let p):
                 item["params"] = ["thickness": p.thickness, "removedFacesCount": p.removedFaceReferences.count, "overridesCount": p.perFaceOverrides.count]
+            case .hole(let p):
+                item["params"] = [
+                    "type": p.holeType.rawValue,
+                    "standard": p.standard.rawValue,
+                    "diameter": p.diameter,
+                    "depth": p.depth,
+                    "isThrough": p.isThrough
+                ]
             }
             summary.append(item)
         }
@@ -588,6 +596,8 @@ public final class CADToolRegistry {
             dimStr = "with distance \(p.distance)"
         case .shell(let p):
             dimStr = "with thickness \(p.thickness)"
+        case .hole(let p):
+            dimStr = "with diameter \(p.diameter)"
         default:
             dimStr = ""
         }
@@ -774,6 +784,19 @@ public final class CADToolRegistry {
             }
         case .shell(let p):
             return [("thickness", Float(p.thickness))]
+        case .hole(let p):
+            var params: [(String, Float)] = [("diameter", Float(p.diameter))]
+            if !p.isThrough {
+                params.append(("depth", Float(p.depth)))
+            }
+            if p.holeType == .counterbore {
+                params.append(("counterboreDiameter", Float(p.counterboreDiameter)))
+                params.append(("counterboreDepth", Float(p.counterboreDepth)))
+            } else if p.holeType == .countersink {
+                params.append(("countersinkDiameter", Float(p.countersinkDiameter)))
+                params.append(("countersinkAngle", Float(p.countersinkAngle)))
+            }
+            return params
         case .imported, .boolean, .part: return nil
         }
     }
@@ -986,6 +1009,22 @@ public final class CADToolRegistry {
             resultDict["targetSolidId"] = p.targetSolidId.rawValue
             resultDict["removedFacesCount"] = p.removedFaceReferences.count
             resultDict["overridesCount"] = p.perFaceOverrides.count
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
+
+        case .hole(let p):
+            resultDict["type"] = "hole"
+            resultDict["holeType"] = p.holeType.rawValue
+            resultDict["standard"] = p.standard.rawValue
+            resultDict["diameter"] = p.diameter
+            resultDict["depth"] = p.depth
+            resultDict["isThrough"] = p.isThrough
+            resultDict["targetSolidId"] = p.targetSolidId.rawValue
             await settleRecomputes(for: [id])
             if let payload = await meshForObject(obj),
                let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
@@ -1423,7 +1462,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer, .shell:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer, .shell, .hole:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,
@@ -1976,6 +2015,15 @@ public final class CADToolRegistry {
             dict["targetSolidId"] = shellData.targetSolidId.rawValue
             dict["removedFaceReferences"] = shellData.removedFaceReferences.map { $0.id.uuidString }
             dict["overridesCount"] = shellData.perFaceOverrides.count
+        case .hole(let holeData):
+            dict["type"] = "hole"
+            dict["holeType"] = holeData.holeType.rawValue
+            dict["standard"] = holeData.standard.rawValue
+            dict["diameter"] = holeData.diameter
+            dict["depth"] = holeData.depth
+            dict["isThrough"] = holeData.isThrough
+            dict["targetSolidId"] = holeData.targetSolidId.rawValue
+            dict["faceReference"] = holeData.faceReference.id.uuidString
         case .boolean(let boolData):
             dict["type"] = "boolean"
             dict["operation"] = boolData.op.rawValue

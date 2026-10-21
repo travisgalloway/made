@@ -158,6 +158,8 @@ struct PredictiveCommandPopoverView: View {
             workspace.startChamferCommand()
         case .shell:
             workspace.startShellCommand()
+        case .hole:
+            workspace.startHoleCommand()
         case .fillet:
             break
         }

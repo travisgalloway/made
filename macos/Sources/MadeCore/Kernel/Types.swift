@@ -404,6 +404,63 @@ public struct ShellParams: Hashable, Equatable, Sendable, Codable {
     }
 }
 
+public struct HoleParams: Hashable, Equatable, Sendable, Codable {
+    public var targetSolidId: SolidId
+    public var faceReference: TopologicalReference
+    public var sketchFeatureId: UUID?
+    public var points: [SIMD2<Double>]
+    public var holeType: HoleType
+    public var standard: HoleStandard
+    public var sizeDesignation: String?
+    public var diameter: Double
+    public var depth: Double
+    public var isThrough: Bool
+    public var counterboreDiameter: Double
+    public var counterboreDepth: Double
+    public var countersinkDiameter: Double
+    public var countersinkAngle: Double
+    public var drillTipAngle: Double?
+    public var threadMetadata: ThreadMetadata?
+
+    public init(
+        targetSolidId: SolidId,
+        faceReference: TopologicalReference,
+        sketchFeatureId: UUID? = nil,
+        points: [SIMD2<Double>] = [],
+        holeType: HoleType = .simple,
+        standard: HoleStandard = .custom,
+        sizeDesignation: String? = nil,
+        diameter: Double = 5.0,
+        depth: Double = 10.0,
+        isThrough: Bool = true,
+        counterboreDiameter: Double = 0.0,
+        counterboreDepth: Double = 0.0,
+        countersinkDiameter: Double = 0.0,
+        countersinkAngle: Double = 90.0,
+        drillTipAngle: Double? = nil,
+        threadMetadata: ThreadMetadata? = nil
+    ) {
+        self.targetSolidId = targetSolidId
+        self.faceReference = faceReference
+        self.sketchFeatureId = sketchFeatureId
+        self.points = points
+        self.holeType = holeType
+        self.standard = standard
+        self.sizeDesignation = sizeDesignation
+        self.diameter = diameter
+        self.depth = depth
+        self.isThrough = isThrough
+        self.counterboreDiameter = counterboreDiameter
+        self.counterboreDepth = counterboreDepth
+        self.countersinkDiameter = countersinkDiameter
+        self.countersinkAngle = countersinkAngle
+        self.drillTipAngle = drillTipAngle
+        self.threadMetadata = threadMetadata
+    }
+}
+
+public typealias HoleFeatureData = HoleParams
+
 public enum BooleanOp: String, Sendable, Codable {
     case subtract
     case union
@@ -424,6 +481,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case fillet(jobId: JobId, solidId: SolidId, edgeReference: TopologicalReference, radius: Double)
     case chamfer(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, edgeReferences: [TopologicalReference], mode: ChamferMode, distance: Double, distance2: Double, angle: Double)
     case shell(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, thickness: Double, removedFaceReferences: [TopologicalReference], perFaceOverrides: [FaceThicknessOverride])
+    case hole(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, faceReference: TopologicalReference, holeData: HoleFeatureData)
     
     public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
         .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
@@ -447,6 +505,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
             return j
         case .shell(let j, _, _, _, _, _):
             return j
+        case .hole(let j, _, _, _, _):
+            return j
         }
     }
     
@@ -467,6 +527,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         case .chamfer(_, let s, _, _, _, _, _, _):
             return s
         case .shell(_, let s, _, _, _, _):
+            return s
+        case .hole(_, let s, _, _, _):
             return s
         }
     }

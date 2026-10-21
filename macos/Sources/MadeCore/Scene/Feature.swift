@@ -585,6 +585,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case datumCoordinateSystem(DatumCoordinateSystemFeatureData)
     case chamfer(ChamferFeatureData)
     case shell(ShellFeatureData)
+    case hole(HoleFeatureData)
 
     private enum CodingKeys: String, CodingKey {
         case primitive = "primitive"
@@ -600,6 +601,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         case datumCoordinateSystem = "datumCoordinateSystem"
         case chamfer = "chamfer"
         case shell = "shell"
+        case hole = "hole"
     }
 
     private enum PayloadCodingKeys: String, CodingKey {
@@ -658,6 +660,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         }
         if container.contains(.shell) {
             self = .shell(try Self.decodePayload(ShellFeatureData.self, forKey: .shell, from: container))
+            return
+        }
+        if container.contains(.hole) {
+            self = .hole(try Self.decodePayload(HoleFeatureData.self, forKey: .hole, from: container))
             return
         }
 
@@ -724,6 +730,9 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
             try nested.encode(data, forKey: .payload)
         case .shell(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .shell)
+            try nested.encode(data, forKey: .payload)
+        case .hole(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .hole)
             try nested.encode(data, forKey: .payload)
         }
     }
@@ -918,6 +927,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
                 removedFaceReferences: data.removedFaceReferences,
                 perFaceOverrides: data.perFaceOverrides
             ))
+        case .hole(let data):
+            def = .hole(data)
         }
         return SceneObject(
             id: solidId,
@@ -1991,6 +2002,39 @@ extension Feature {
                     removedFaceReferences: params.removedFaceReferences,
                     perFaceOverrides: params.perFaceOverrides
                 )),
+                inputExpressions: exprs,
+                references: refs,
+                outputSolidId: object.id,
+                bodyOperation: .cut,
+                targetBodyId: params.targetSolidId,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .hole(let params):
+            var refs: [Reference] = [
+                .face(params.faceReference),
+                .body(params.targetSolidId, role: "targetBody")
+            ]
+            if let sketchId = params.sketchFeatureId {
+                refs.append(.feature(sketchId, role: "holePoints"))
+            }
+            var exprs: [String: FeatureExpression] = [
+                "diameter": FeatureExpression(value: params.diameter),
+                "depth": FeatureExpression(value: params.depth)
+            ]
+            if params.counterboreDiameter > 0 {
+                exprs["counterboreDiameter"] = FeatureExpression(value: params.counterboreDiameter)
+                exprs["counterboreDepth"] = FeatureExpression(value: params.counterboreDepth)
+            }
+            if params.countersinkDiameter > 0 {
+                exprs["countersinkDiameter"] = FeatureExpression(value: params.countersinkDiameter)
+                exprs["countersinkAngle"] = FeatureExpression(value: params.countersinkAngle)
+            }
+            self.init(
+                name: object.name,
+                operation: .hole(params),
                 inputExpressions: exprs,
                 references: refs,
                 outputSolidId: object.id,

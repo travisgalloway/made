@@ -83,6 +83,15 @@ public enum KernelRegeneration {
                 removedFaceReferences: data.removedFaceReferences,
                 perFaceOverrides: data.perFaceOverrides
             )
+        case .hole(let data):
+            guard let solidId = feature.outputSolidId else { return nil }
+            return .hole(
+                jobId: jobId,
+                solidId: solidId,
+                targetSolidId: data.targetSolidId,
+                faceReference: data.faceReference,
+                holeData: data
+            )
         }
     }
 
@@ -129,6 +138,14 @@ public enum KernelRegeneration {
                 thickness: params.thickness,
                 removedFaceReferences: params.removedFaceReferences,
                 perFaceOverrides: params.perFaceOverrides
+            )
+        case .hole(let params):
+            return .hole(
+                jobId: jobId,
+                solidId: object.id,
+                targetSolidId: params.targetSolidId,
+                faceReference: params.faceReference,
+                holeData: params
             )
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)

@@ -1,6 +1,7 @@
 import Foundation
 import Euclid
 import OCCTSwift
+import simd
 
 /// Runs Tier 1 Euclid CSG geometry in the calling process (ADR-D1, ADR-D9 #247).
 ///
@@ -251,6 +252,15 @@ public actor LocalKernelEngine: KernelEngine {
                 perFaceOverrides: perFaceOverrides,
                 jobId: jobId
             )
+
+        case .hole(let jobId, let solidId, let targetSolidId, let faceReference, let holeData):
+            return await hole(
+                solidId: solidId,
+                targetSolidId: targetSolidId,
+                faceReference: faceReference,
+                holeData: holeData,
+                jobId: jobId
+            )
         }
     }
     
@@ -395,6 +405,208 @@ public actor LocalKernelEngine: KernelEngine {
         } catch {
             return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Shell failed: \(error)"))
         }
+    }
+
+    public func hole(
+        solidId: SolidId,
+        targetSolidId: SolidId,
+        faceReference: TopologicalReference,
+        holeData: HoleFeatureData,
+        jobId: JobId? = nil
+    ) async -> KernelResult<MeshPayload> {
+        let jobId = jobId ?? JobId("hole-\(UUID().uuidString)")
+        guard holeData.diameter > 0 else {
+            return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Hole diameter must be positive"))
+        }
+        if !holeData.isThrough {
+            guard holeData.depth > 0 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Hole depth must be positive"))
+            }
+        }
+        if holeData.standard != .custom {
+            guard let designation = holeData.sizeDesignation, HoleStandards.lookup(standard: holeData.standard, designation: designation) != nil else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Unknown standard hole size: \(holeData.sizeDesignation ?? "none")"))
+            }
+        }
+
+        let targetId = targetSolidId
+        guard let shape = occtShapes[targetId] ?? occtShapes[solidId] else {
+            return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid '\(targetId)' not found"))
+        }
+
+        let face: Face
+        do {
+            face = try TopologicalResolver.resolveFace(in: shape, reference: faceReference)
+        } catch let kernelError as KernelError {
+            return .failure(jobId: jobId, error: kernelError)
+        } catch {
+            return .failure(jobId: jobId, error: KernelError(code: .topologicalReferenceBroken, message: "Failed to resolve face: \(error)"))
+        }
+
+        guard face.isPlanar, let faceNormal = face.normal else {
+            return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Hole target face must be planar"))
+        }
+
+        let n = simd_normalize(faceNormal)
+        let centerOfMass = face.surfaceInertia.centerOfMass ?? SIMD3<Double>.zero
+        let xAxis: SIMD3<Double>
+        if abs(n.z) < 0.9 {
+            xAxis = simd_normalize(simd_cross(n, SIMD3<Double>(0, 0, 1)))
+        } else {
+            xAxis = simd_normalize(simd_cross(n, SIMD3<Double>(0, 1, 0)))
+        }
+        let yAxis = simd_normalize(simd_cross(n, xAxis))
+        let sketchPlane = SketchPlane(
+            origin: SIMD3<Float>(Float(centerOfMass.x), Float(centerOfMass.y), Float(centerOfMass.z)),
+            normal: SIMD3<Float>(Float(n.x), Float(n.y), Float(n.z)),
+            xAxis: SIMD3<Float>(Float(xAxis.x), Float(xAxis.y), Float(xAxis.z))
+        )
+
+        var cutDiameter = holeData.diameter
+        var cbDia = holeData.counterboreDiameter
+        var cbDepth = holeData.counterboreDepth
+        var csDia = holeData.countersinkDiameter
+        var csAngle = holeData.countersinkAngle
+
+        if holeData.standard != .custom, let designation = holeData.sizeDesignation, let stdSize = HoleStandards.lookup(standard: holeData.standard, designation: designation) {
+            switch holeData.holeType {
+            case .simple:
+                if cutDiameter <= 0 { cutDiameter = stdSize.normalClearanceDiameter }
+            case .counterbore:
+                if cutDiameter <= 0 { cutDiameter = stdSize.normalClearanceDiameter }
+                if cbDia <= 0 { cbDia = stdSize.counterboreDiameter }
+                if cbDepth <= 0 { cbDepth = stdSize.counterboreDepth }
+            case .countersink:
+                if cutDiameter <= 0 { cutDiameter = stdSize.normalClearanceDiameter }
+                if csDia <= 0 { csDia = stdSize.countersinkDiameter }
+                if csAngle <= 0 { csAngle = stdSize.countersinkAngle }
+            case .tapped:
+                cutDiameter = stdSize.tapDrillDiameter
+            }
+        }
+
+        var maxRadius = cutDiameter / 2.0
+        if holeData.holeType == .counterbore && cbDia > 0 {
+            maxRadius = max(maxRadius, cbDia / 2.0)
+        }
+        if holeData.holeType == .countersink && csDia > 0 {
+            maxRadius = max(maxRadius, csDia / 2.0)
+        }
+
+        let points = holeData.points.isEmpty ? [SIMD2<Double>(0, 0)] : holeData.points
+        let faceEdges = Shape.fromFace(face)?.edges() ?? []
+
+        var workingShape = shape
+
+        for pt in points {
+            let centerF = sketchPlane.unprojectPoint(pt)
+            let center = SIMD3<Double>(Double(centerF.x), Double(centerF.y), Double(centerF.z))
+
+            // 1. Center must be inside the face
+            if face.classify(point: center, tolerance: 1e-4) != .inside {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Hole breaks through body edge"))
+            }
+
+            // 2. Minimum distance from center to any edge of the face must exceed maxRadius
+            for edge in faceEdges {
+                if let d = edge.distance(to: center) {
+                    if d <= maxRadius + 1e-4 {
+                        return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Hole breaks through body edge"))
+                    }
+                }
+            }
+
+            // 3. Sample points on the circle perimeter must be inside the face
+            let sampleCount = 36
+            for i in 0..<sampleCount {
+                let angle = Double(i) * 2.0 * .pi / Double(sampleCount)
+                let radialOffset = cos(angle) * xAxis + sin(angle) * yAxis
+                let samplePoint = center + maxRadius * radialOffset
+                if face.classify(point: samplePoint, tolerance: 1e-4) == .outside {
+                    return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Hole breaks through body edge"))
+                }
+            }
+
+            // 4. Blind hole depth vs body thickness check
+            let forwardHits = shape.intersectLine(origin: center, direction: -n).filter { $0.parameter > 1e-4 }
+            let bodyThickness: Double
+            if let minHit = forwardHits.map({ $0.parameter }).min() {
+                bodyThickness = minHit
+            } else if let (bMin, bMax) = shape.bounds {
+                let ext = bMax - bMin
+                bodyThickness = max(ext.x, max(ext.y, ext.z))
+            } else {
+                bodyThickness = 100.0
+            }
+
+            if !holeData.isThrough && holeData.depth > bodyThickness + 1e-4 {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Blind hole depth exceeds body thickness. Choose Through All to cut through the body."))
+            }
+
+            // 5. Build cutter solid
+            let cutDepth = holeData.isThrough ? (bodyThickness + 2.0) : holeData.depth
+            let cutterOrigin = center + n * 0.1
+            let cutterDir = -n
+            let mainRadius = cutDiameter / 2.0
+
+            let cutter: Shape
+            switch holeData.holeType {
+            case .simple, .tapped:
+                guard var cyl = Shape.cylinder(at: cutterOrigin, direction: cutterDir, radius: mainRadius, height: cutDepth + 0.1) else {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to construct cylinder cutter"))
+                }
+                if let tipAngle = holeData.drillTipAngle, !holeData.isThrough, tipAngle > 0 {
+                    let halfAngle = (tipAngle / 2.0) * .pi / 180.0
+                    let tipHeight = mainRadius / tan(halfAngle)
+                    let tipOrigin = center + cutterDir * cutDepth
+                    if let tipCone = Shape.cone(at: tipOrigin, direction: cutterDir, bottomRadius: mainRadius, topRadius: 0.001, height: tipHeight) {
+                        cyl = cyl.union(tipCone) ?? cyl
+                    }
+                }
+                cutter = cyl
+
+            case .counterbore:
+                let cbActualDepth = cbDepth > 0 ? cbDepth : min(5.0, cutDepth / 2.0)
+                let cbActualDia = cbDia > 0 ? cbDia : mainRadius * 2.0 * 1.5
+                guard let cbCyl = Shape.cylinder(at: cutterOrigin, direction: cutterDir, radius: cbActualDia / 2.0, height: cbActualDepth + 0.1),
+                      let mainCyl = Shape.cylinder(at: cutterOrigin, direction: cutterDir, radius: mainRadius, height: cutDepth + 0.1) else {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to construct counterbore cutter"))
+                }
+                cutter = cbCyl.union(mainCyl) ?? mainCyl
+
+            case .countersink:
+                let csActualDia = csDia > 0 ? csDia : mainRadius * 2.0 * 1.5
+                let csActualAngle = csAngle > 0 ? csAngle : 90.0
+                let halfAngle = (csActualAngle / 2.0) * .pi / 180.0
+                let csRadius = csActualDia / 2.0
+                let csHeight = max(0.1, (csRadius - mainRadius) / tan(halfAngle))
+                let csTopRadius = csRadius + 0.1 * tan(halfAngle)
+                guard let csCone = Shape.cone(at: cutterOrigin, direction: cutterDir, bottomRadius: csTopRadius, topRadius: mainRadius, height: csHeight + 0.1),
+                      let mainCyl = Shape.cylinder(at: cutterOrigin, direction: cutterDir, radius: mainRadius, height: cutDepth + 0.1) else {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to construct countersink cutter"))
+                }
+                cutter = csCone.union(mainCyl) ?? mainCyl
+            }
+
+            guard let cutResult = workingShape.subtracting(cutter) else {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to subtract hole cutter from solid"))
+            }
+            workingShape = cutResult
+        }
+
+        guard let payload = OCCTEngine.toMeshPayload(workingShape) else {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate hole geometry"))
+        }
+        occtShapes[solidId] = workingShape
+        solids[solidId] = payload
+
+        if let baseEuclid = euclidMeshes[targetId] ?? euclidMeshes[solidId] {
+            let cylMesh = EuclidEngine.makeCylinder(radius: Float(maxRadius), height: Float(holeData.isThrough ? 100.0 : holeData.depth))
+            let sub = EuclidEngine.subtract(baseEuclid, cylMesh)
+            euclidMeshes[solidId] = sub
+        }
+
+        return .success(jobId: jobId, value: payload)
     }
 
     public func dispose(solidId: SolidId) async {

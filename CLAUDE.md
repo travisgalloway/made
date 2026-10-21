@@ -60,7 +60,7 @@ macos/
   scripts/package-release.sh Assembles and packages signed .dmg and .zip distribution archives with SHA256 checksums (make package)
   UITests/                 MadeUITests.xcodeproj UI test target launching script-built Made.app (ADR-D10)
   Sources/MadeCore/
-    Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry, ShapeEvaluator, ShapeNode, Transform, KernelClient+Default, FaultInjectingKernelClient, SketchEntity
+    Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry, ShapeEvaluator, ShapeNode, Transform, KernelClient+Default, FaultInjectingKernelClient, SketchEntity, HoleStandards
     Kernel/XPC/            KernelWire, KernelServiceHandler (service side), XPCKernelEngine (app side)
     Viewport/              MetalRenderer, MetalRenderer+Gizmo, RenderTypes, Shaders.metal, Orientation, Camera, CameraFraming, GridGenerator, AxesGenerator, SketchGeometryGenerator, ViewportState, RenderLoop (instrumentation), CommandHUDPlacement, ViewCube, UniformArena, MetalRenderer+MeshInstall
     Input/                 PointerRouter, GestureArbiter, Snapping, ViewportTool, Picking, Gizmo, ConstrainedTransform, SelectionFilter, SpatialIndex, PredictiveCommands, RadialMenuLayout
@@ -77,7 +77,7 @@ macos/
                            CADMetalViewRepresentable, CommandSession, CommandPanelView, CommandHUDOverlayView, ViewCubeOverlayView,
                            SnapOverlayView, EmptySceneGuidanceOverlayView, PredictiveCommandPopoverView, RadialMenuView, Document/MadeDocument,
                            Views/STLExportAccessoryView
-  Tests/MadeCoreTests/     Swift Testing suites (including ExpressionEvaluatorTests, STLExportTests, DocumentParametersTests, CommandHUDPlacementTests, ViewCubeTests, PredictiveCommandTests, RadialMenuLayoutTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests, ConstrainedTransformTests, ChamferTests, ShellTests)
+  Tests/MadeCoreTests/     Swift Testing suites (including ExpressionEvaluatorTests, STLExportTests, DocumentParametersTests, CommandHUDPlacementTests, ViewCubeTests, PredictiveCommandTests, RadialMenuLayoutTests, UnitsAndTolerancesTests, BRepTessellationTests, SketchDOFStatusTests, SketchTests, SketchRegionTests, SketchOperationsTests, SketchProjectionTests, ConstraintSolverTests, ConstraintInferenceTests, SolverRegressionCorpusTests, ConstrainedTransformTests, ChamferTests, ShellTests, HoleFeatureTests)
   Tests/MadeAppTests/      DistributionTests, WorkspaceModelTests, CommandSessionTests, PredictiveCommandPopoverTests, RadialMenuViewTests, SettingsViewTests, EmptyStatesTests, ViewportStatusBarTests, SnapOverlayViewTests, MadeDocumentTests, ConstraintUITests, SketchRegionAppTests, SketchConstructionAppTests, SketchOperationsAppTests, SketchProjectionAppTests, SketchStatusIndicatorTests, CADMetalViewRepresentableTests, and application unit tests
   Tests/Goldens/           Stored reference scenes for offscreen golden comparison (ADR-D10, #321)
 ```
