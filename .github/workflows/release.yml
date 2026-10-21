@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, Package, and Release
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: macos/.build
+          key: spm-v6-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+          restore-keys: |
+            spm-v6-${{ runner.os }}-
+
+      - name: Determine Version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            TAG_VER="${{ inputs.version }}"
+          else
+            TAG_VER="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=${TAG_VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Signing Certificates
+        id: signing
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_API_KEY: ${{ secrets.APPLE_NOTARY_API_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE_BASE64" ] && [ -n "$APPLE_NOTARY_API_KEY" ]; then
+            echo "has_signing=true" >> "$GITHUB_OUTPUT"
+            KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+            KEYCHAIN_PASSWORD=$(uuidgen)
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+            CERT_PATH="$RUNNER_TEMP/cert.p12"
+            echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+            security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "${APPLE_CERTIFICATE_PASSWORD:-}" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+            NOTARY_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+            echo "$APPLE_NOTARY_API_KEY" > "$NOTARY_KEY_PATH"
+            echo "notary_key_path=$NOTARY_KEY_PATH" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_signing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and Package Release
+        env:
+          HAS_SIGNING: ${{ steps.signing.outputs.has_signing }}
+          NOTARY_KEY_PATH: ${{ steps.signing.outputs.notary_key_path }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ "$HAS_SIGNING" = "true" ] && [ -n "$SIGNING_IDENTITY" ]; then
+            APPLE_NOTARY_API_KEY_PATH="$NOTARY_KEY_PATH" \
+            macos/scripts/package-release.sh \
+              --version "$VERSION" \
+              --identity "$SIGNING_IDENTITY" \
+              --notarize
+          else
+            echo "Running dry-run packaging without developer signing credentials..."
+            macos/scripts/package-release.sh \
+              --version "$VERSION" \
+              --dry-run
+          fi
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          DIST_DIR="macos/.build/dist"
+          gh release create "$TAG" \
+            "$DIST_DIR/Made-${VERSION}.dmg" \
+            "$DIST_DIR/Made-${VERSION}.zip" \
+            "$DIST_DIR/SHA256SUMS" \
+            --title "Made v${VERSION}" \
+            --generate-notes

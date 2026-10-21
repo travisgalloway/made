@@ -12,6 +12,10 @@ resources="MadeNative_MadeCore.bundle"
 # The Icon Composer source; actool compiles it to Assets.car (macOS 26 glass icon) and made.icns (earlier systems).
 icon="$pkg_dir/../img/made.icon"
 
+VERSION="${VERSION:-0.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
+
 for product in MadeApp MadeKernelService "$resources"; do
     if [ ! -e "$bin_dir/$product" ]; then
         echo "bundle-app: $bin_dir/$product is missing; run 'make build' first" >&2
@@ -38,7 +42,23 @@ fi
 cp "$pkg_dir/Support/MadeKernelService-Info.plist" "$service/Contents/Info.plist"
 cp "$bin_dir/MadeKernelService" "$service/Contents/MacOS/MadeKernelService"
 
-# Ad-hoc signatures, inside out: the service, then the app that seals it.
-codesign --force --sign - "$service"
-codesign --force --sign - "$app"
-echo "bundle-app: built $app"
+# Stamp version and build number into Info.plist files
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$app/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$app/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$service/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$service/Contents/Info.plist"
+
+# Sign inside-out: the embedded XPC service first, then the enclosing app bundle
+sign_args=(--force --sign "$SIGNING_IDENTITY" --options runtime)
+if [ "$SIGNING_IDENTITY" != "-" ]; then
+    sign_args+=(--timestamp)
+fi
+
+codesign "${sign_args[@]}" --entitlements "$pkg_dir/Support/MadeKernelService.entitlements" "$service"
+codesign --verify --strict "$service"
+
+codesign "${sign_args[@]}" --entitlements "$pkg_dir/Support/MadeApp.entitlements" "$app"
+codesign --verify --deep --strict "$app"
+
+echo "bundle-app: built and signed $app (version $VERSION, build $BUILD_NUMBER, identity $SIGNING_IDENTITY)"
+

@@ -61,8 +61,10 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - DSL-16 is Shipped. DSL output targets the ordered feature list in `DocumentModel` as editable features with Inspector and Navigator integration (#332).
 - DSL-11 is Shipped. Multi-statement hierarchies, conditionals, and loops in `@CADShapeBuilder` with binary union tree folding were implemented under #330.
 - VIEW-17 is Planned with tracking issue #389. KERN-11 stays In progress because in-process cancellation of an executing job is a no-op (`LocalKernelEngine.terminate` returns false).
+- PKG-1 is Shipped. Direct-download distribution packaging (.dmg, .zip) with Hardened Runtime inside-out signing, JavaScriptCore JIT entitlements, SHA256 checksums, notarization workflow, AppVersion presentation, and settings persistence was implemented under #254 (BL-MAC-10).
 
 Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
+
 
 Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit run 20261017-112015.
 
@@ -264,3 +266,5 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | DSL-15 | (new) A person can open a part file at launch by passing a .part.ts, .part.js or .made path as a command-line argument or by setting MADE_PART_FILE | done | n/a | done | Shipped | #427 | n/a |
 | DSL-16 | (new) A person or developer can target DSL output directly to the document feature list as editable features in the GUI | done | done | done | Shipped | #332 | n/a |
 | DOC-35 | (new) A person can define named parameters (name, value, unit, comment) at the document level, reference them in numeric inputs, cascade updates to referencing feature expressions and solid geometry, rename parameters across referencing expressions, and delete parameters with reference validation (BL-PAR-01) | done | done | done | Shipped | #174 | n/a |
+| PKG-1 | (new) A person can download, verify, install, and update signed, notarized macOS application bundles (.dmg, .zip) with Hardened Runtime entitlements and preserved user preferences and documents (BL-MAC-10) | done | done | done | Shipped | #254 | docs/distribution/entitlements.md |
+
