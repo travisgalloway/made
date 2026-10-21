@@ -7,6 +7,7 @@ public enum PredictiveCommandKind: String, Sendable, CaseIterable, Equatable {
     case shell = "shell"
     case hole = "hole"
     case pattern = "pattern"
+    case mirror = "mirror"
 }
 
 public struct PredictiveCommand: Sendable, Equatable, Identifiable {
@@ -89,5 +90,17 @@ public enum PredictiveCommandProvider {
         case .vertex:
             return []
         }
+    }
+
+    public static func availableCommandsForSolid() -> [PredictiveCommand] {
+        [
+            PredictiveCommand(
+                id: .mirror,
+                title: "Mirror",
+                iconName: "arrow.left.and.right.righttriangle.left.righttriangle.right",
+                isEnabled: true,
+                disabledReason: nil
+            )
+        ]
     }
 }

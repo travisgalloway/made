@@ -1,4 +1,5 @@
 import Foundation
+import simd
 import OCCTSwift
 
 /// Geometry engine wrapper bridging OCCT B-Rep shapes and meshes to MadeCore's engine-neutral representation.
@@ -110,7 +111,7 @@ enum OCCTEngine {
                 return try importStep(data: fileData)
             }
             throw EngineError.emptyData
-        case .boolean, .extrude, .revolve, .part, .chamfer, .shell, .hole, .pattern:
+        case .boolean, .extrude, .revolve, .part, .chamfer, .shell, .hole, .pattern, .mirror:
             throw EngineError.tessellationFailed
         }
     }
@@ -413,6 +414,19 @@ enum OCCTEngine {
         case .intersect:
             return shapeA.intersection(shapeB, fuzzyValue: fuzzyValue)
         }
+    }
+
+    /// Mirrors an OCCT shape across a plane defined by its normal and origin point.
+    static func mirrored(_ shape: Shape, planeNormal: SIMD3<Double>, planeOrigin: SIMD3<Double> = .zero) throws -> Shape {
+        let len = simd_length(planeNormal)
+        guard len > 1e-6 else {
+            throw KernelError(code: .invalidParams, message: "Mirror plane normal must not be zero length")
+        }
+        let normalizedNormal = planeNormal / len
+        guard let mirroredShape = shape.mirrored(planeNormal: normalizedNormal, planeOrigin: planeOrigin) else {
+            throw EngineError.tessellationFailed
+        }
+        return mirroredShape
     }
 
     #if DEBUG

@@ -264,6 +264,9 @@ public actor LocalKernelEngine: KernelEngine {
 
         case .pattern(let jobId, let solidId, let params):
             return await pattern(solidId: solidId, params: params, jobId: jobId)
+
+        case .mirror(let jobId, let solidId, let params):
+            return await mirror(solidId: solidId, params: params, jobId: jobId)
         }
     }
     
@@ -713,6 +716,68 @@ public actor LocalKernelEngine: KernelEngine {
 
         guard let payload = OCCTEngine.toMeshPayload(workingShape) else {
             return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate pattern geometry"))
+        }
+
+        occtShapes[solidId] = workingShape
+        solids[solidId] = payload
+        return .success(jobId: jobId, value: payload)
+    }
+
+    private func mirror(
+        solidId: SolidId,
+        params: MirrorParams,
+        jobId: JobId
+    ) async -> KernelResult<MeshPayload> {
+        let normalLen = simd_length(params.planeNormal)
+        guard normalLen > 1e-6 else {
+            return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Mirror plane normal must not be zero length"))
+        }
+
+        let normal = params.planeNormal / normalLen
+        let origin = params.planeOrigin
+
+        let targetId = params.targetSolidId
+        guard let baseShape = occtShapes[targetId] ?? occtShapes[solidId] else {
+            return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Unknown solid: \(targetId.rawValue)"))
+        }
+
+        guard let mirroredShape = try? OCCTEngine.mirrored(baseShape, planeNormal: normal, planeOrigin: origin) else {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to mirror shape"))
+        }
+
+        let workingShape: Shape
+        if params.keepOriginal {
+            let vertices = baseShape.vertices()
+            var minSignedDist: Double = .infinity
+            var maxSignedDist: Double = -.infinity
+            for v in vertices {
+                let dist = simd_dot(v - origin, normal)
+                minSignedDist = Swift.min(minSignedDist, dist)
+                maxSignedDist = Swift.max(maxSignedDist, dist)
+            }
+            let cutsSource = (minSignedDist < -1e-4 && maxSignedDist > 1e-4)
+
+            if cutsSource {
+                // Plane cuts source body: attempt boolean union
+                if let unionShape = try? OCCTEngine.booleanOperation(op: .union, shapeA: baseShape, shapeB: mirroredShape), unionShape.isValid {
+                    workingShape = unionShape
+                } else if let compound = Shape.compound([baseShape, mirroredShape]) {
+                    workingShape = compound
+                } else {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Mirror plane cuts source body and boolean union failed"))
+                }
+            } else {
+                guard let compound = Shape.compound([baseShape, mirroredShape]) else {
+                    return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to compound mirrored shapes"))
+                }
+                workingShape = compound
+            }
+        } else {
+            workingShape = mirroredShape
+        }
+
+        guard let payload = OCCTEngine.toMeshPayload(workingShape) else {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate mirrored geometry"))
         }
 
         occtShapes[solidId] = workingShape

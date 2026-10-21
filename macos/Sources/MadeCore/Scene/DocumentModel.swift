@@ -28,6 +28,8 @@ public enum ObjectDef: Sendable, Equatable {
     case hole(HoleParams)
     /// A pattern repeating bodies or features linearly or circularly (BL-PRT-12).
     case pattern(PatternParams)
+    /// A mirror reflecting solid bodies about a plane (BL-PRT-14).
+    case mirror(MirrorParams)
     
     public var kind: String {
         switch self {
@@ -46,9 +48,12 @@ public enum ObjectDef: Sendable, Equatable {
         case .shell: return "shell"
         case .hole: return "hole"
         case .pattern: return "pattern"
+        case .mirror: return "mirror"
         }
     }
 }
+
+public typealias ObjectDefinition = ObjectDef
 
 extension ObjectDef {
     /// Human-readable summary of the object's primary parameters.
@@ -122,6 +127,9 @@ extension ObjectDef {
             case .circular:
                 return "Circular: \(p.count)x @ \(Self.formatDim(Float(p.totalAngle)))°"
             }
+        case .mirror(let p):
+            let normalStr = "[\(Self.formatDim(Float(p.planeNormal.x))), \(Self.formatDim(Float(p.planeNormal.y))), \(Self.formatDim(Float(p.planeNormal.z)))]"
+            return p.keepOriginal ? "Mirror + Original (n: \(normalStr))" : "Mirror (n: \(normalStr))"
         }
     }
 
@@ -294,6 +302,9 @@ extension ObjectDef: Codable {
         case "pattern":
             let params = try container.decode(PatternParams.self, forKey: .params)
             self = DocumentLimits.clamp(.pattern(params))
+        case "mirror":
+            let params = try container.decode(MirrorParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.mirror(params))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
@@ -362,6 +373,9 @@ extension ObjectDef: Codable {
             try container.encode(params, forKey: .params)
         case .pattern(let params):
             try container.encode("pattern", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .mirror(let params):
+            try container.encode("mirror", forKey: .kind)
             try container.encode(params, forKey: .params)
         }
     }
@@ -661,7 +675,7 @@ public enum DocumentLimits {
                 p.totalAngle = Double(patternAngle.clamp(Float(p.totalAngle)))
             }
             return .pattern(p)
-        case .imported, .boolean:
+        case .imported, .boolean, .mirror:
             return def
         }
     }
@@ -3681,6 +3695,166 @@ public final class DocumentModel {
         }
     }
 
+    public func mirrorBody(
+        params: MirrorParams,
+        actionName: String? = nil
+    ) throws -> Feature {
+        let normalLen = simd_length(params.planeNormal)
+        guard normalLen > 1e-6 else {
+            throw DocumentMutationError.invalidOperation("Mirror plane normal must not be zero length")
+        }
+
+        guard let targetFeature = features.first(where: { $0.outputSolidId == params.targetSolidId }) else {
+            throw DocumentMutationError.objectNotFound(params.targetSolidId)
+        }
+        guard !targetFeature.isLocked else {
+            throw DocumentMutationError.objectLocked(params.targetSolidId)
+        }
+
+        seq += 1
+        let solidId = ObjectId("mirror-\(seq)")
+        let exprs: [String: FeatureExpression] = [:]
+
+        var refs: [Reference] = [
+            .body(params.targetSolidId, role: "mirrorTarget")
+        ]
+        if let planeRef = params.planeReference {
+            refs.append(planeRef)
+        }
+
+        let mirrorFeature = Feature(
+            name: "Mirror \(seq)",
+            operation: .mirror(params),
+            inputExpressions: exprs,
+            references: refs,
+            outputSolidId: solidId,
+            bodyOperation: .create,
+            targetBodyId: params.targetSolidId,
+            transform: targetFeature.transform,
+            isVisible: true,
+            isLocked: false,
+            material: targetFeature.material
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+        let origTargetVis = targetFeature.isVisible
+
+        features.insert(mirrorFeature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = solidId
+        if params.keepOriginal {
+            setVisibility(id: params.targetSolidId, isVisible: false)
+        }
+
+        let effectiveActionName = actionName ?? "Mirror Body"
+        registerMirrorUndo(
+            id: solidId,
+            feature: mirrorFeature,
+            targetSolidId: params.targetSolidId,
+            origTargetVis: origTargetVis,
+            keepOriginal: params.keepOriginal,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return mirrorFeature
+    }
+
+    public func mirrorBody(
+        targetSolidId: SolidId,
+        planeNormal: SIMD3<Double>,
+        planeOrigin: SIMD3<Double> = .zero,
+        keepOriginal: Bool = true,
+        planeReference: Reference? = nil,
+        actionName: String? = nil
+    ) throws -> Feature {
+        let params = MirrorParams(
+            targetSolidId: targetSolidId,
+            targetType: .body,
+            planeNormal: planeNormal,
+            planeOrigin: planeOrigin,
+            keepOriginal: keepOriginal,
+            planeReference: planeReference
+        )
+        return try mirrorBody(params: params, actionName: actionName)
+    }
+
+    private func registerMirrorUndo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        keepOriginal: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                if keepOriginal {
+                    target.setVisibility(id: targetSolidId, isVisible: origTargetVis)
+                }
+                let res = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                guard case .success = res else { return }
+
+                target.registerMirrorRedo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    keepOriginal: keepOriginal,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+    }
+
+    private func registerMirrorRedo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        keepOriginal: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                guard case .success = res else { return }
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                if keepOriginal {
+                    target.setVisibility(id: targetSolidId, isVisible: false)
+                }
+                target.registerMirrorUndo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    keepOriginal: keepOriginal,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.added(id))
+            }
+        }
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -3781,6 +3955,20 @@ public final class DocumentModel {
             }
             if let baseBodyId = p.baseBodySolidId, let baseFeat = self.feature(for: baseBodyId) {
                 result.insert(baseFeat.id)
+            }
+        case .mirror(let m):
+            if let targetFeat = self.feature(for: m.targetSolidId) {
+                result.insert(targetFeat.id)
+            }
+            if let planeRef = m.planeReference {
+                switch planeRef.target {
+                case .feature(let featId):
+                    result.insert(featId)
+                case .face(let topRef):
+                    result.insert(topRef.sourceFeatureId)
+                default:
+                    break
+                }
             }
         case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
@@ -3897,6 +4085,14 @@ public final class DocumentModel {
             case "count": return Float(data.count)
             case "linearSpacing": return Float(data.linearSpacing)
             case "totalAngle": return Float(data.totalAngle)
+            default: return nil
+            }
+        case .mirror(let data):
+            switch key {
+            case "normalX": return Float(data.planeNormal.x)
+            case "normalY": return Float(data.planeNormal.y)
+            case "normalZ": return Float(data.planeNormal.z)
+            case "keepOriginal": return data.keepOriginal ? 1.0 : 0.0
             default: return nil
             }
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
@@ -4917,6 +5113,25 @@ public final class DocumentModel {
                 clampedValue = value
             }
             feature.operation = .pattern(data)
+
+        case .mirror(var data):
+            switch key {
+            case "normalX":
+                data.planeNormal.x = Double(value)
+                clampedValue = value
+            case "normalY":
+                data.planeNormal.y = Double(value)
+                clampedValue = value
+            case "normalZ":
+                data.planeNormal.z = Double(value)
+                clampedValue = value
+            case "keepOriginal":
+                data.keepOriginal = value > 0.5
+                clampedValue = data.keepOriginal ? 1.0 : 0.0
+            default:
+                clampedValue = value
+            }
+            feature.operation = .mirror(data)
 
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             clampedValue = value

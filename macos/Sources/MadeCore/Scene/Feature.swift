@@ -587,6 +587,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case shell(ShellFeatureData)
     case hole(HoleFeatureData)
     case pattern(PatternFeatureData)
+    case mirror(MirrorFeatureData)
 
     private enum CodingKeys: String, CodingKey {
         case primitive = "primitive"
@@ -604,6 +605,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         case shell = "shell"
         case hole = "hole"
         case pattern = "pattern"
+        case mirror = "mirror"
     }
 
     private enum PayloadCodingKeys: String, CodingKey {
@@ -670,6 +672,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         }
         if container.contains(.pattern) {
             self = .pattern(try Self.decodePayload(PatternFeatureData.self, forKey: .pattern, from: container))
+            return
+        }
+        if container.contains(.mirror) {
+            self = .mirror(try Self.decodePayload(MirrorFeatureData.self, forKey: .mirror, from: container))
             return
         }
 
@@ -742,6 +748,9 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
             try nested.encode(data, forKey: .payload)
         case .pattern(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .pattern)
+            try nested.encode(data, forKey: .payload)
+        case .mirror(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .mirror)
             try nested.encode(data, forKey: .payload)
         }
     }
@@ -940,6 +949,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             def = .hole(data)
         case .pattern(let data):
             def = .pattern(data)
+        case .mirror(let data):
+            def = .mirror(data)
         }
         return SceneObject(
             id: solidId,
@@ -2084,6 +2095,29 @@ extension Feature {
                 isLocked: object.isLocked,
                 material: object.material
             )
+        case .mirror(let params):
+            var refs: [Reference] = [
+                .body(params.targetSolidId, role: "mirrorTarget")
+            ]
+            if let planeRef = params.planeReference {
+                refs.append(planeRef)
+            }
+            let exprs: [String: FeatureExpression] = [:]
+            self.init(
+                name: object.name,
+                operation: .mirror(params),
+                inputExpressions: exprs,
+                references: refs,
+                outputSolidId: object.id,
+                bodyOperation: .create,
+                targetBodyId: params.targetSolidId,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
         }
     }
 }
+
+public typealias FeaturePayload = FeatureOperation

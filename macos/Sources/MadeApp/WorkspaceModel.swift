@@ -1159,6 +1159,57 @@ final class WorkspaceModel {
         ))
     }
 
+    func startMirrorCommand() {
+        var targetSolidId: SolidId? = nil
+        var initialPlaneRef: Reference? = nil
+        var presetPlane = "XY Plane"
+
+        if let sub = document.selectedSubElement {
+            if sub.elementType == .face {
+                if let feat = document.feature(for: sub.solidId) {
+                    let topRef: TopologicalReference
+                    if let detId = sub.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                        topRef = existing
+                    } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "face:\(sub.elementId)" }) {
+                        topRef = named
+                    } else {
+                        topRef = TopologicalReference(
+                            sourceFeatureId: feat.id,
+                            elementType: .face,
+                            historyPath: [HistoryStep(kind: .generated, label: "face:\(sub.elementId)")]
+                        )
+                    }
+                    initialPlaneRef = Reference.face(topRef)
+                    presetPlane = "From Selection"
+                }
+            } else {
+                targetSolidId = sub.solidId
+            }
+        }
+
+        if targetSolidId == nil {
+            if let selectedId {
+                targetSolidId = selectedId
+            } else if let firstObj = document.objects.first {
+                targetSolidId = firstObj.id
+            }
+        }
+
+        if initialPlaneRef == nil, let feat = selectedFeature {
+            if case .datumPlane = feat.operation {
+                initialPlaneRef = Reference.feature(feat.id)
+                presetPlane = "From Selection"
+            }
+        }
+
+        startCommand(CommandSession.makeMirror(
+            workspace: self,
+            targetSolidId: targetSolidId,
+            planeReference: initialPlaneRef,
+            presetPlane: presetPlane
+        ))
+    }
+
     public func boundingBoxes(for solidId: SolidId) -> (axisAligned: AxisAlignedBoundingBox, oriented: OrientedBoundingBox)? {
         let candidates = viewportManager.renderer?.candidateMeshes() ?? []
         return BoundingBoxCalculator.boxes(for: solidId, in: document, candidateMeshes: candidates)
@@ -1481,6 +1532,44 @@ final class WorkspaceModel {
             skippedIndices: skippedIndices
         )
         return await patternBody(params: params, actionName: actionName)
+    }
+
+    @discardableResult
+    func mirrorBody(
+        params: MirrorParams,
+        actionName: String = "Mirror Body"
+    ) async -> ObjectId? {
+        do {
+            let mirrorFeature = try document.mirrorBody(params: params, actionName: actionName)
+            guard let solidId = mirrorFeature.outputSolidId else { return nil }
+            selectedId = solidId
+            markDocumentModified()
+            recomputeSolid(id: solidId)
+            return solidId
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func mirrorBody(
+        targetSolidId: SolidId,
+        targetType: MirrorTargetType = .body,
+        planeNormal: [Double] = [0.0, 0.0, 1.0],
+        planeOrigin: [Double] = [0.0, 0.0, 0.0],
+        keepOriginal: Bool = true,
+        planeReference: Reference? = nil,
+        actionName: String = "Mirror Body"
+    ) async -> ObjectId? {
+        let params = MirrorParams(
+            targetSolidId: targetSolidId,
+            targetType: targetType,
+            planeNormal: planeNormal,
+            planeOrigin: planeOrigin,
+            keepOriginal: keepOriginal,
+            planeReference: planeReference
+        )
+        return await mirrorBody(params: params, actionName: actionName)
     }
 
     private func processSolverResult(

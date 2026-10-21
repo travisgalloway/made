@@ -454,6 +454,7 @@ private struct NavigatorRow: View {
         case .shell: return "square.dashed"
         case .hole: return "circle.circle"
         case .pattern: return "square.grid.3x3.fill"
+        case .mirror: return "arrow.left.and.right.righttriangle.left.righttriangle.right"
         }
     }
 
@@ -475,6 +476,7 @@ private struct NavigatorRow: View {
         case .shell: return .purple
         case .hole: return .teal
         case .pattern: return .indigo
+        case .mirror: return .cyan
         }
     }
 }

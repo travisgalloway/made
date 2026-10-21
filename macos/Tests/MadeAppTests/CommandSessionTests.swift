@@ -1303,6 +1303,83 @@ extension WorkspaceModelTests {
         circSession.cancel()
         #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
     }
+
+    @Test @MainActor func testMakeMirrorLifecycleAndCommit() async {
+        let workspace = WorkspaceModel()
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-mirror-cmd"),
+            name: "Box",
+            params: BoxParams(width: 10, depth: 10, height: 10)
+        )
+        workspace.document.addFeature(boxFeat)
+
+        let session = CommandSession.makeMirror(
+            workspace: workspace,
+            targetSolidId: boxFeat.outputSolidId
+        )
+        #expect(session.canCommit)
+        #expect(session.choiceValue(for: "presetPlane") == "XY Plane")
+        #expect(session.toggleValue(for: "keepOriginal") == true)
+
+        session.setChoiceValue("XZ Plane", for: "presetPlane")
+        session.setToggleValue(false, for: "keepOriginal")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .mirror(let params)? = added?.def {
+            #expect(params.planeNormal == SIMD3<Double>(0, 1, 0))
+            #expect(params.keepOriginal == false)
+            #expect(params.targetType == .body)
+        } else {
+            Issue.record("Expected .mirror def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakeMirrorValidation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeMirror(workspace: workspace)
+        session.setSlotSelection(slotId: "target", objectId: nil, objectName: nil)
+        #expect(!session.canCommit)
+
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-val"),
+            name: "Box",
+            params: BoxParams(width: 10, depth: 10, height: 10)
+        )
+        workspace.document.addFeature(boxFeat)
+
+        let validSession = CommandSession.makeMirror(
+            workspace: workspace,
+            targetSolidId: boxFeat.outputSolidId
+        )
+        #expect(validSession.canCommit)
+
+        // Preset "From Selection" requires mirrorPlane slot
+        validSession.setChoiceValue("From Selection", for: "presetPlane")
+        #expect(!validSession.canCommit)
+
+        let datumFeat = workspace.document.addDatumPlaneFeature(
+            name: "Datum 1",
+            data: DatumPlaneFeatureData(originPreset: "XY", offsetDistance: 10.0)
+        )
+        validSession.setSlotSelection(slotId: "mirrorPlane", objectId: ObjectId(datumFeat.id.uuidString), objectName: "Datum 1")
+        #expect(validSession.canCommit)
+    }
+
+    @Test @MainActor func testMakeMirrorCancellation() {
+        let workspace = WorkspaceModel()
+        let mirrorSession = CommandSession.makeMirror(workspace: workspace)
+        mirrorSession.cancel()
+        #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
+    }
 }
 
 }

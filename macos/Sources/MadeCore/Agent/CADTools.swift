@@ -494,6 +494,14 @@ public final class CADToolRegistry {
                     "totalAngle": p.totalAngle,
                     "skippedCount": p.skippedIndices.count
                 ]
+            case .mirror(let p):
+                item["params"] = [
+                    "targetType": p.targetType.rawValue,
+                    "targetSolidId": p.targetSolidId.rawValue,
+                    "planeNormal": [p.planeNormal.x, p.planeNormal.y, p.planeNormal.z],
+                    "planeOrigin": [p.planeOrigin.x, p.planeOrigin.y, p.planeOrigin.z],
+                    "keepOriginal": p.keepOriginal
+                ]
             }
             summary.append(item)
         }
@@ -610,6 +618,8 @@ public final class CADToolRegistry {
             dimStr = "with diameter \(p.diameter)"
         case .pattern(let p):
             dimStr = "with count \(p.count)"
+        case .mirror(let p):
+            dimStr = "mirrored about normal [\(p.planeNormal.x), \(p.planeNormal.y), \(p.planeNormal.z)]"
         default:
             dimStr = ""
         }
@@ -817,6 +827,12 @@ public final class CADToolRegistry {
                 params.append(("totalAngle", Float(p.totalAngle)))
             }
             return params
+        case .mirror(let p):
+            return [
+                ("normalX", Float(p.planeNormal.x)),
+                ("normalY", Float(p.planeNormal.y)),
+                ("normalZ", Float(p.planeNormal.z))
+            ]
         case .imported, .boolean, .part: return nil
         }
     }
@@ -1060,6 +1076,20 @@ public final class CADToolRegistry {
             resultDict["linearSpacing"] = p.linearSpacing
             resultDict["totalAngle"] = p.totalAngle
             resultDict["targetSolidId"] = p.targetSolidId.rawValue
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
+            
+        case .mirror(let p):
+            resultDict["type"] = "mirror"
+            resultDict["targetSolidId"] = p.targetSolidId.rawValue
+            resultDict["keepOriginal"] = p.keepOriginal
+            resultDict["planeNormal"] = [p.planeNormal.x, p.planeNormal.y, p.planeNormal.z]
+            resultDict["planeOrigin"] = [p.planeOrigin.x, p.planeOrigin.y, p.planeOrigin.z]
             await settleRecomputes(for: [id])
             if let payload = await meshForObject(obj),
                let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
@@ -1497,7 +1527,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer, .shell, .hole, .pattern:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer, .shell, .hole, .pattern, .mirror:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,
@@ -2095,6 +2125,13 @@ public final class CADToolRegistry {
             dict["totalAngle"] = patternData.totalAngle
             dict["isFullCircle"] = patternData.isFullCircle
             dict["skippedIndices"] = Array(patternData.skippedIndices)
+        case .mirror(let mirrorData):
+            dict["type"] = "mirror"
+            dict["targetType"] = mirrorData.targetType.rawValue
+            dict["targetSolidId"] = mirrorData.targetSolidId.rawValue
+            dict["planeNormal"] = [mirrorData.planeNormal.x, mirrorData.planeNormal.y, mirrorData.planeNormal.z]
+            dict["planeOrigin"] = [mirrorData.planeOrigin.x, mirrorData.planeOrigin.y, mirrorData.planeOrigin.z]
+            dict["keepOriginal"] = mirrorData.keepOriginal
         }
 
         return dict
