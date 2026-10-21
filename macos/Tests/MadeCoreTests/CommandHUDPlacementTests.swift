@@ -221,4 +221,199 @@ import MadeCore
             #expect(!hudRect.intersects(geom))
         }
     }
+
+    @Test func testDimensionLabelPerspectiveProjection() {
+        let viewportSize = CGSize(width: 800, height: 600)
+        let camera = Camera(
+            position: SIMD3<Float>(0, -100, 0),
+            target: SIMD3<Float>(0, 0, 0)
+        )
+        let aspect: Float = 800.0 / 600.0
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+        let vp = projMatrix * viewMatrix
+
+        let candidate = DimensionLabelCandidate(
+            id: "width",
+            label: "Width",
+            value: 30.0,
+            worldAnchor: SIMD3<Float>(0, 0, 0),
+            size: CGSize(width: 80, height: 28)
+        )
+
+        let placements = DimensionLabelPlacement.computePlacements(
+            candidates: [candidate],
+            viewProjectionMatrix: vp,
+            viewportSize: viewportSize
+        )
+
+        #expect(placements.count == 1)
+        let result = placements[0]
+        #expect(result.isVisible)
+        #expect(result.id == "width")
+        #expect(abs(result.center.x - 400) < 5)
+        #expect(abs(result.center.y - 300) < 5)
+        #expect(result.frame.width == 80)
+        #expect(result.frame.height == 28)
+    }
+
+    @Test func testDimensionLabelOrthographicProjection() {
+        let viewportSize = CGSize(width: 800, height: 600)
+        let camera = Camera(
+            position: SIMD3<Float>(0, -100, 0),
+            target: SIMD3<Float>(0, 0, 0)
+        )
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let projMatrix = Orientation.makeOrthographic(left: -40, right: 40, bottom: -30, top: 30, nearZ: 0.1, farZ: 1000.0)
+        let vp = projMatrix * viewMatrix
+
+        let candidate = DimensionLabelCandidate(
+            id: "width",
+            label: "Width",
+            value: 20.0,
+            worldAnchor: SIMD3<Float>(0, 0, 0),
+            size: CGSize(width: 80, height: 28)
+        )
+
+        let placements = DimensionLabelPlacement.computePlacements(
+            candidates: [candidate],
+            viewProjectionMatrix: vp,
+            viewportSize: viewportSize
+        )
+
+        #expect(placements.count == 1)
+        let result = placements[0]
+        #expect(result.isVisible)
+        #expect(abs(result.center.x - 400) < 5)
+        #expect(abs(result.center.y - 300) < 5)
+    }
+
+    @Test func testDimensionLabelBehindCameraCulling() {
+        let viewportSize = CGSize(width: 800, height: 600)
+        let camera = Camera(
+            position: SIMD3<Float>(0, -100, 0),
+            target: SIMD3<Float>(0, 0, 0)
+        )
+        let aspect: Float = 800.0 / 600.0
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+        let vp = projMatrix * viewMatrix
+
+        let candidate = DimensionLabelCandidate(
+            id: "depth",
+            label: "Depth",
+            value: 50.0,
+            worldAnchor: SIMD3<Float>(0, -200, 0),
+            size: CGSize(width: 80, height: 28)
+        )
+
+        let placements = DimensionLabelPlacement.computePlacements(
+            candidates: [candidate],
+            viewProjectionMatrix: vp,
+            viewportSize: viewportSize
+        )
+
+        #expect(placements.count == 1)
+        #expect(!placements[0].isVisible)
+    }
+
+    @Test func testDimensionLabelOverlapOffsetting() {
+        let viewportSize = CGSize(width: 800, height: 600)
+        let camera = Camera(
+            position: SIMD3<Float>(0, -100, 0),
+            target: SIMD3<Float>(0, 0, 0)
+        )
+        let aspect: Float = 800.0 / 600.0
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+        let vp = projMatrix * viewMatrix
+
+        let c1 = DimensionLabelCandidate(id: "width", label: "Width", value: 30, worldAnchor: SIMD3<Float>(0, 0, 0), size: CGSize(width: 80, height: 28))
+        let c2 = DimensionLabelCandidate(id: "depth", label: "Depth", value: 30, worldAnchor: SIMD3<Float>(0, 0, 0), size: CGSize(width: 80, height: 28))
+        let c3 = DimensionLabelCandidate(id: "height", label: "Height", value: 30, worldAnchor: SIMD3<Float>(0, 0, 0), size: CGSize(width: 80, height: 28))
+
+        let placements = DimensionLabelPlacement.computePlacements(
+            candidates: [c1, c2, c3],
+            viewProjectionMatrix: vp,
+            viewportSize: viewportSize
+        )
+
+        #expect(placements.count == 3)
+        for p in placements {
+            #expect(p.isVisible)
+        }
+
+        #expect(!placements[0].frame.intersects(placements[1].frame))
+        #expect(!placements[0].frame.intersects(placements[2].frame))
+        #expect(!placements[1].frame.intersects(placements[2].frame))
+
+        for p in placements {
+            #expect(p.frame.minX >= 16)
+            #expect(p.frame.maxX <= viewportSize.width - 16)
+            #expect(p.frame.minY >= 16)
+            #expect(p.frame.maxY <= viewportSize.height - 16)
+        }
+    }
+
+    @Test func testDimensionLabel1mmFeatureBoundaryClamping() {
+        let viewportSize = CGSize(width: 800, height: 600)
+        let camera = Camera(
+            position: SIMD3<Float>(0, -100, 0),
+            target: SIMD3<Float>(0, 0, 0)
+        )
+        let aspect: Float = 800.0 / 600.0
+        let viewMatrix = Orientation.makeLookAt(eye: camera.position, target: camera.target, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: Float.pi / 4.0, aspect: aspect, nearZ: 0.1, farZ: 1000.0)
+        let vp = projMatrix * viewMatrix
+
+        let candidate = DimensionLabelCandidate(
+            id: "tinyFeature",
+            label: "Edge",
+            value: 1.0,
+            worldAnchor: SIMD3<Float>(40, 0, 30),
+            size: CGSize(width: 80, height: 28)
+        )
+
+        let padding: CGFloat = 20
+        let placements = DimensionLabelPlacement.computePlacements(
+            candidates: [candidate],
+            viewProjectionMatrix: vp,
+            viewportSize: viewportSize,
+            padding: padding
+        )
+
+        #expect(placements.count == 1)
+        let p = placements[0]
+        #expect(p.isVisible)
+        #expect(p.frame.minX >= padding)
+        #expect(p.frame.maxX <= viewportSize.width - padding)
+        #expect(p.frame.minY >= padding)
+        #expect(p.frame.maxY <= viewportSize.height - padding)
+    }
+
+    @Test func testDimensionLabelInvalidViewportSize() {
+        let candidate = DimensionLabelCandidate(
+            id: "width",
+            label: "Width",
+            value: 10.0,
+            worldAnchor: SIMD3<Float>(0, 0, 0)
+        )
+
+        let placementsZero = DimensionLabelPlacement.computePlacements(
+            candidates: [candidate],
+            viewProjectionMatrix: matrix_identity_float4x4,
+            viewportSize: .zero
+        )
+        #expect(placementsZero.count == 1)
+        #expect(!placementsZero[0].isVisible)
+
+        let placementsNegative = DimensionLabelPlacement.computePlacements(
+            candidates: [candidate],
+            viewProjectionMatrix: matrix_identity_float4x4,
+            viewportSize: CGSize(width: -100, height: -100)
+        )
+        #expect(placementsNegative.count == 1)
+        #expect(!placementsNegative[0].isVisible)
+    }
 }
+

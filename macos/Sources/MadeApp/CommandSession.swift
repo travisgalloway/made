@@ -79,6 +79,7 @@ final class CommandSession: Identifiable {
     var onPreviewUpdate: (@MainActor () -> Void)?
     var onCommit: (@MainActor () -> Void)?
     var onCancel: (@MainActor () -> Void)?
+    var dimensionAnchorsProvider: (@MainActor () -> [String: SIMD3<Float>])?
 
     init(
         id: String = UUID().uuidString,
@@ -91,7 +92,8 @@ final class CommandSession: Identifiable {
         onParamChanged: (@MainActor (String, CommandInputValue) -> Void)? = nil,
         onPreviewUpdate: (@MainActor () -> Void)? = nil,
         onCommit: (@MainActor () -> Void)? = nil,
-        onCancel: (@MainActor () -> Void)? = nil
+        onCancel: (@MainActor () -> Void)? = nil,
+        dimensionAnchorsProvider: (@MainActor () -> [String: SIMD3<Float>])? = nil
     ) {
         self.id = id
         self.title = title
@@ -104,6 +106,7 @@ final class CommandSession: Identifiable {
         self.onPreviewUpdate = onPreviewUpdate
         self.onCommit = onCommit
         self.onCancel = onCancel
+        self.dimensionAnchorsProvider = dimensionAnchorsProvider
     }
 
     var canCommit: Bool {
@@ -147,6 +150,39 @@ final class CommandSession: Identifiable {
         default:
             break
         }
+    }
+
+    /// Resolves the 3D world-space anchor for a given dimension input, using the explicit
+    /// dimensionAnchorsProvider when set, or falling back to the center of the active preview
+    /// or selected geometry bounds.
+    func dimensionAnchor(for inputId: String, workspace: WorkspaceModel) -> SIMD3<Float>? {
+        if let provider = dimensionAnchorsProvider {
+            let anchors = provider()
+            if let pt = anchors[inputId] {
+                return pt
+            }
+        }
+        guard let renderer = workspace.viewportManager.renderer else { return nil }
+        var targetCandidate: CandidateMesh? = nil
+        let meshes = renderer.candidateMeshes()
+
+        if let previewMesh = renderer.meshes[CommandSession.previewSolidId] {
+            var cand = previewMesh.candidateMesh
+            cand.transform = previewMesh.transform
+            targetCandidate = cand
+        } else if let slotObjId = selectionSlots.first(where: { $0.selectedObjectId != nil })?.selectedObjectId,
+                  let match = meshes.first(where: { $0.id == slotObjId }) {
+            targetCandidate = match
+        } else if let selId = workspace.selectedId,
+                  let match = meshes.first(where: { $0.id == selId }) {
+            targetCandidate = match
+        }
+
+        guard let target = targetCandidate,
+              let bounds = SceneBounds.of([target]) else {
+            return nil
+        }
+        return (bounds.min + bounds.max) * 0.5
     }
 
     func textValue(for id: String) -> String? {
@@ -241,6 +277,18 @@ extension CommandSession {
             ],
             isPreviewEnabled: true
         )
+
+        session.dimensionAnchorsProvider = { [weak session] in
+            guard let session else { return [:] }
+            let w = session.numberValue(for: "width") ?? 30.0
+            let d = session.numberValue(for: "depth") ?? 30.0
+            let h = session.numberValue(for: "height") ?? 30.0
+            return [
+                "width": SIMD3<Float>(0, -d / 2.0, -h / 2.0),
+                "depth": SIMD3<Float>(w / 2.0, 0, -h / 2.0),
+                "height": SIMD3<Float>(w / 2.0, -d / 2.0, 0)
+            ]
+        }
 
         let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
             guard let workspace, let session else { return }
@@ -3707,6 +3755,20 @@ extension CommandSession {
             session.customValidation = { [weak session] in
                 guard let session else { return false }
                 return customValidation(session)
+            }
+        }
+
+        if case .box = prim {
+            session.dimensionAnchorsProvider = { [weak session] in
+                guard let session else { return [:] }
+                let w = session.numberValue(for: "width") ?? 30.0
+                let d = session.numberValue(for: "depth") ?? 30.0
+                let h = session.numberValue(for: "height") ?? 30.0
+                return [
+                    "width": SIMD3<Float>(0, -d / 2.0, -h / 2.0),
+                    "depth": SIMD3<Float>(w / 2.0, 0, -h / 2.0),
+                    "height": SIMD3<Float>(w / 2.0, -d / 2.0, 0)
+                ]
             }
         }
 

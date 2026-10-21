@@ -1621,6 +1621,73 @@ extension WorkspaceModelTests {
             Issue.record("Expected updated box")
         }
     }
+
+    @Test @MainActor func testMakeAddBoxDimensionAnchorsAndMutations() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        let session = CommandSession.makeAddBox(workspace: workspace)
+        #expect(session.title == "Add Box")
+
+        var previewUpdateCount = 0
+        let originalPreviewUpdate = session.onPreviewUpdate
+        session.onPreviewUpdate = {
+            previewUpdateCount += 1
+            originalPreviewUpdate?()
+        }
+
+        let widthAnchor = try #require(session.dimensionAnchor(for: "width", workspace: workspace))
+        let depthAnchor = try #require(session.dimensionAnchor(for: "depth", workspace: workspace))
+        let heightAnchor = try #require(session.dimensionAnchor(for: "height", workspace: workspace))
+
+        #expect(abs(widthAnchor.x - 0) < 1e-4)
+        #expect(abs(widthAnchor.y - (-15.0)) < 1e-4)
+        #expect(abs(widthAnchor.z - (-15.0)) < 1e-4)
+
+        #expect(abs(depthAnchor.x - 15.0) < 1e-4)
+        #expect(abs(depthAnchor.y - 0) < 1e-4)
+        #expect(abs(depthAnchor.z - (-15.0)) < 1e-4)
+
+        #expect(abs(heightAnchor.x - 15.0) < 1e-4)
+        #expect(abs(heightAnchor.y - (-15.0)) < 1e-4)
+        #expect(abs(heightAnchor.z - 0) < 1e-4)
+
+        session.setNumberValue(50.0, for: "width")
+        #expect(session.numberValue(for: "width") == 50.0)
+        #expect(previewUpdateCount > 0)
+
+        let updatedDepthAnchor = try #require(session.dimensionAnchor(for: "depth", workspace: workspace))
+        let updatedHeightAnchor = try #require(session.dimensionAnchor(for: "height", workspace: workspace))
+        #expect(abs(updatedDepthAnchor.x - 25.0) < 1e-4)
+        #expect(abs(updatedHeightAnchor.x - 25.0) < 1e-4)
+    }
+
+    @Test @MainActor func testDimensionAnchorFallbackToSceneBounds() throws {
+        let workspace = WorkspaceModel()
+        attachRendererIfAvailable(to: workspace)
+        let payload = NativeGeometryGenerator.generateBox(width: 40.0, depth: 60.0, height: 80.0)
+        _ = workspace.viewportManager.renderer?.installMesh(
+            payload,
+            for: CommandSession.previewSolidId,
+            transform: .identity,
+            color: SIMD4<Float>(0.2, 0.6, 1.0, 0.75),
+            isHidden: false
+        )
+
+        let session = CommandSession(
+            title: "Custom Command",
+            inputs: [
+                CommandInput(id: "offset", label: "Offset", value: .number(5.0, range: 0.0...10.0, step: 1.0, unit: "mm"))
+            ]
+        )
+
+        let anchor = session.dimensionAnchor(for: "offset", workspace: workspace)
+        if workspace.viewportManager.renderer != nil {
+            let pt = try #require(anchor)
+            #expect(abs(pt.x) < 1.0)
+            #expect(abs(pt.y) < 1.0)
+            #expect(abs(pt.z) < 1.0)
+        }
+    }
 }
 
 }
