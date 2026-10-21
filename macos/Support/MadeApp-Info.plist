@@ -62,5 +62,26 @@
 			</dict>
 		</dict>
 	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.3mf.3mf</string>
+			<key>UTTypeDescription</key>
+			<string>3D Manufacturing Format</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.pkware.zip-archive</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>3mf</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

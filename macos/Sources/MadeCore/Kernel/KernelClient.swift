@@ -27,6 +27,7 @@ public protocol KernelClientProtocol: Sendable {
     func request(_ request: KernelRequest) async -> KernelResult<MeshPayload>
     func exportStep(objects: [SceneObject]) async -> KernelResult<Data>
     func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int>
+    func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult>
     func cancel(jobId: JobId) async
     func dispose(solidId: SolidId) async
     func getStats() async -> KernelStats
@@ -45,6 +46,10 @@ extension KernelClientProtocol {
 
     public func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int> {
         .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STL export not supported by this client"))
+    }
+
+    public func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult> {
+        .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "3MF export not supported by this client"))
     }
 }
 
@@ -80,6 +85,10 @@ public actor KernelClient: KernelClientProtocol {
 
     public func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int> {
         await engine.exportSTL(objects: objects, tolerance: tolerance, unit: unit, to: url)
+    }
+
+    public func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult> {
+        await engine.exportThreeMF(objects: objects, tolerance: tolerance, unit: unit, to: url)
     }
     
     /// A pending job is dropped before it runs. An executing job is ended by the engine, which may stop the service.

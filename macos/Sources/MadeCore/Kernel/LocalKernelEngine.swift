@@ -330,6 +330,25 @@ public actor LocalKernelEngine: KernelEngine {
         }
     }
 
+    public func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult> {
+        let jobId = JobId("export-3mf-\(UUID().uuidString)")
+        do {
+            let result = try ThreeMFExporter.export(
+                objects: objects,
+                tolerance: tolerance,
+                unit: unit,
+                to: url,
+                cachedShapes: occtShapes,
+                cachedMeshes: solids
+            )
+            return .success(jobId: jobId, value: result)
+        } catch let kernelError as KernelError {
+            return .failure(jobId: jobId, error: kernelError)
+        } catch {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Export failed: \(error)"))
+        }
+    }
+
     public func fillet(solidId: SolidId, edgeReference: TopologicalReference, radius: Double, jobId: JobId? = nil) async -> KernelResult<MeshPayload> {
         let jobId = jobId ?? JobId("fillet-\(UUID().uuidString)")
         guard let shape = occtShapes[solidId] else {

@@ -722,6 +722,132 @@ import MadeCore
         #expect(model.pendingExportError == nil)
     }
 
+    // MARK: - 3MF Export Tests
+
+    @Test @MainActor func testExportThreeMFFileHappyPath() async throws {
+        let model = WorkspaceModel()
+        let box = SceneObject(
+            id: ObjectId("box-1"),
+            name: "Box",
+            def: .box(BoxParams(width: 10, depth: 10, height: 10))
+        )
+        model.document.reset(with: [box])
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-export-\(UUID().uuidString).3mf")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportThreeMFFile(to: tempURL, tolerance: 0.1, unit: .millimeters)
+        #expect(exported)
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+
+        let entries = try ZipArchive.read(from: tempURL)
+        #expect(entries.count == 3)
+        let filePaths = Set(entries.map { $0.path })
+        #expect(filePaths.contains("[Content_Types].xml"))
+        #expect(filePaths.contains("_rels/.rels"))
+        #expect(filePaths.contains("3D/3dmodel.model"))
+
+        let infoLogs = model.logs.filter { $0.level == .info && $0.subsystem == "Export" }
+        #expect(!infoLogs.isEmpty)
+        #expect(infoLogs.contains(where: { $0.message.contains("Exported 1 objects") }))
+    }
+
+    @Test @MainActor func testExportThreeMFFileEmptySceneShowsAlert() async throws {
+        let model = WorkspaceModel()
+        model.document.reset(with: [SceneObject]())
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-empty-\(UUID().uuidString).3mf")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportThreeMFFile(to: tempURL)
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.destinationURL == tempURL)
+        #expect(model.pendingExportError?.reason == "No visible objects to export")
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportThreeMFFileInvalidToleranceShowsAlert() async throws {
+        let model = WorkspaceModel()
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-invalid-tol-\(UUID().uuidString).3mf")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportThreeMFFile(to: tempURL, tolerance: 0.0)
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.reason.contains("Tolerance must be positive") == true)
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportThreeMFFileUnwritableDestinationShowsAlert() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let readOnlyDir = tempDir.appendingPathComponent("ReadOnlyDir")
+        try FileManager.default.createDirectory(at: readOnlyDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDir.path)
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyDir.path)
+        let destinationURL = readOnlyDir.appendingPathComponent("UnwritableExport.3mf")
+
+        let model = WorkspaceModel()
+        let exported = await model.exportThreeMFFile(to: destinationURL)
+
+        #expect(!exported)
+        #expect(model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError != nil)
+        #expect(model.pendingExportError?.destinationURL == destinationURL)
+        #expect(model.pendingExportError?.fileName == "UnwritableExport.3mf")
+        #expect(!FileManager.default.fileExists(atPath: destinationURL.path))
+
+        model.dismissExportErrorAlert()
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+    }
+
+    @Test @MainActor func testExportThreeMFFileOpenEdgesEmitsConsoleWarning() async throws {
+        actor MockOpenEdgeClient: KernelClientProtocol {
+            func request(_ request: KernelRequest) async -> KernelResult<MeshPayload> {
+                .failure(jobId: request.jobId, error: KernelError(code: .cancelled, message: "mock"))
+            }
+            func cancel(jobId: JobId) async {}
+            func dispose(solidId: SolidId) async {}
+            func getStats() async -> KernelStats { KernelStats() }
+
+            func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult> {
+                let result = ThreeMFExportResult(
+                    objectCount: 1,
+                    triangleCount: 2,
+                    openEdgeCount: 4,
+                    warnings: ["Body 'OpenBody' has 4 open boundary edges."]
+                )
+                return .success(jobId: JobId("mock"), value: result)
+            }
+        }
+
+        let model = WorkspaceModel()
+        model.kernelClient = MockOpenEdgeClient()
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-open-edges-\(UUID().uuidString).3mf")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let exported = await model.exportThreeMFFile(to: tempURL)
+        #expect(exported)
+        #expect(!model.isShowingExportErrorAlert)
+        #expect(model.pendingExportError == nil)
+
+        let warningLogs = model.logs.filter { $0.level == .warning && $0.subsystem == "Export" }
+        #expect(!warningLogs.isEmpty)
+        #expect(warningLogs.contains(where: { $0.message.contains("open boundary edges") }))
+    }
+
     @Test @MainActor func testImportStepEmptyFileLeavesSceneUnchanged() async throws {
         let model = WorkspaceModel()
         let initialCount = model.document.objects.count

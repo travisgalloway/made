@@ -5,6 +5,7 @@ import MadeCore
 
 public enum ConsoleLogLevel: String, Sendable, CaseIterable {
     case info = "INFO"
+    case warning = "WARNING"
     case kernel = "KERNEL"
     case snap = "SNAP"
     case agent = "AGENT"
@@ -13,6 +14,7 @@ public enum ConsoleLogLevel: String, Sendable, CaseIterable {
     var osLogType: OSLogType {
         switch self {
         case .info, .snap, .agent: return .info
+        case .warning: return .default
         case .kernel: return .debug
         case .error: return .error
         }
@@ -21,6 +23,7 @@ public enum ConsoleLogLevel: String, Sendable, CaseIterable {
     public var color: Color {
         switch self {
         case .info: return .blue
+        case .warning: return .yellow
         case .kernel: return .purple
         case .snap: return .orange
         case .agent: return .green

@@ -12,8 +12,12 @@ import simd
 final class WorkspaceModel {
     let document = DocumentModel()
     #if DEBUG
+    private var customKernelClient: (any KernelClientProtocol)?
     private let faultInjector = FaultInjectingKernelClient(wrapping: KernelClient.makeDefault())
-    var kernelClient: any KernelClientProtocol { faultInjector }
+    var kernelClient: any KernelClientProtocol {
+        get { customKernelClient ?? faultInjector }
+        set { customKernelClient = newValue }
+    }
     #else
     let kernelClient: any KernelClientProtocol = KernelClient.makeDefault()
     #endif
@@ -3002,6 +3006,64 @@ final class WorkspaceModel {
                 try? FileManager.default.removeItem(at: url)
             }
             log(.error, "Export", "Failed to export STL: \(error.message)")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.message)
+            isShowingExportErrorAlert = true
+            return false
+        }
+    }
+
+    func promptExportThreeMFFile() {
+        let panel = NSSavePanel()
+        panel.title = "Export 3MF"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.threeMF]
+        let defaultName = (document.objects.count == 1 ? document.objects.first?.name : selectedObject?.name) ?? "scene"
+        panel.nameFieldStringValue = defaultName.hasSuffix(".3mf") ? defaultName : "\(defaultName).3mf"
+
+        let initialTolerance = document.settings.tolerances.chordalTolerance
+        let options = ThreeMFExportOptions(tolerance: initialTolerance, unit: .millimeters)
+        panel.accessoryView = ThreeMFExportAccessoryHostingView(options: options)
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await exportThreeMFFile(to: url, tolerance: options.tolerance, unit: options.unit)
+        }
+    }
+
+    @discardableResult
+    func exportThreeMFFile(to url: URL, tolerance: Double? = nil, unit: LengthUnit = .millimeters) async -> Bool {
+        let candidateObjects = document.objects.filter { $0.isVisible }
+        guard !candidateObjects.isEmpty else {
+            log(.error, "Export", "No visible objects to export")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: "No visible objects to export")
+            isShowingExportErrorAlert = true
+            return false
+        }
+        let tol = tolerance ?? document.settings.tolerances.chordalTolerance
+        guard ThreeMFExporter.validateTolerance(tol) else {
+            let msg = "Invalid tessellation tolerance: \(tol). Tolerance must be positive."
+            log(.error, "Export", msg)
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: msg)
+            isShowingExportErrorAlert = true
+            return false
+        }
+        let result = await kernelClient.exportThreeMF(objects: candidateObjects, tolerance: tol, unit: unit, to: url)
+        switch result {
+        case .success(_, let exportResult):
+            pendingExportError = nil
+            isShowingExportErrorAlert = false
+            if !exportResult.warnings.isEmpty {
+                for warning in exportResult.warnings {
+                    log(.warning, "Export", warning)
+                }
+            }
+            log(.info, "Export", "Exported \(exportResult.objectCount) objects (\(exportResult.triangleCount) triangles) to 3MF at \(url.lastPathComponent)")
+            return true
+        case .failure(_, let error):
+            if FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            log(.error, "Export", "Failed to export 3MF: \(error.message)")
             pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.message)
             isShowingExportErrorAlert = true
             return false
