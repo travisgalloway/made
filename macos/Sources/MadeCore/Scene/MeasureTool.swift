@@ -576,7 +576,7 @@ public struct MeasureTool: Sendable {
     }
 
     @MainActor
-    private static func resolveMesh(
+    static func resolveMesh(
         for solidId: SolidId,
         in document: DocumentModel,
         candidateMeshes: [CandidateMesh],

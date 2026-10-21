@@ -2889,6 +2889,47 @@ import simd
         await KernelRegeneration.regenerate(document: doc, client: kernel, excluding: nil)
         #expect(doc.objects.count == 2)
     }
+
+    @Test func testMeasureImportedSolidReturnsBounds() async {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let sink = RecordingMeshSink()
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel, meshSink: sink)
+
+        let importedId = doc.addObject(def: .imported(name: "bracket.step"))
+        let payload = NativeGeometryGenerator.generateBox(width: 10, depth: 20, height: 30)
+        _ = sink.installMesh(payload, for: importedId, transform: .identity, color: SIMD4<Float>(0.5, 0.5, 0.5, 1.0), isHidden: false)
+
+        let result = await registry.callTool(name: "cad_measure", arguments: ["id": .string(importedId.rawValue)])
+        #expect(result.isError == false)
+
+        guard let text = result.content.first?.text,
+              let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Issue.record("Expected valid JSON response from cad_measure")
+            return
+        }
+
+        #expect(json["type"] as? String == "imported")
+        #expect(json["name"] as? String == "bracket.step")
+
+        guard let aabb = json["axisAlignedBox"] as? [String: Any],
+              let obb = json["orientedBox"] as? [String: Any],
+              let bounds = json["bounds"] as? [String: Any] else {
+            Issue.record("Expected bounding box and bounds keys in measure result")
+            return
+        }
+
+        #expect(aabb["volume"] as? Double == 6000.0)
+        #expect(obb["volume"] as? Double == 6000.0)
+        if let aabbSize = aabb["size"] as? [Double] {
+            #expect(aabbSize.count == 3)
+            #expect(abs(aabbSize[0] - 10.0) < 0.01)
+            #expect(abs(aabbSize[1] - 20.0) < 0.01)
+            #expect(abs(aabbSize[2] - 30.0) < 0.01)
+        }
+        _ = bounds
+    }
 }
 
 @MainActor
@@ -2917,6 +2958,11 @@ private final class RecordingMeshSink: SolidMeshSink {
 
     func removeMesh(for id: SolidId) -> Bool {
         meshes.removeValue(forKey: id) != nil
+    }
+
+    func candidateMesh(for id: SolidId) -> CandidateMesh? {
+        guard let entry = meshes[id] else { return nil }
+        return CandidateMesh(id: id, payload: entry.payload, transform: entry.transform)
     }
 }
 

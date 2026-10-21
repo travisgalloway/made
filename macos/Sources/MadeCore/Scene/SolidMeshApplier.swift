@@ -12,12 +12,15 @@ public protocol SolidMeshSink: AnyObject {
     func updateColor(_ color: SIMD4<Float>, for id: SolidId) -> Bool
     /// Removes the mesh for `id`, if any. Returns true when a mesh was present.
     func removeMesh(for id: SolidId) -> Bool
+    /// Returns the CPU-side candidate mesh for `id`, if present.
+    func candidateMesh(for id: SolidId) -> CandidateMesh?
 }
 
 extension SolidMeshSink {
     public func updateTransform(_ transform: Transform, for id: SolidId) -> Bool { false }
     public func updateColor(_ color: SIMD4<Float>, for id: SolidId) -> Bool { false }
     public func removeMesh(for id: SolidId) -> Bool { false }
+    public func candidateMesh(for id: SolidId) -> CandidateMesh? { nil }
 }
 
 @MainActor
