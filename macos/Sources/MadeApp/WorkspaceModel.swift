@@ -1796,9 +1796,9 @@ final class WorkspaceModel {
                 }
             }()
             if let features = package.documentData.features {
-                document.reset(with: features, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
+                document.reset(with: features, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings, parameters: package.documentData.parameters ?? [])
             } else {
-                document.reset(with: package.documentData.objects, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings)
+                document.reset(with: package.documentData.objects, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings, parameters: package.documentData.parameters ?? [])
             }
             currentDocumentURL = url
             isDocumentModified = false
@@ -1833,7 +1833,8 @@ final class WorkspaceModel {
             selectedId: selectedId,
             rollbackIndex: document.rollbackIndex,
             bodies: document.bodies,
-            selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString }
+            selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString },
+            parameters: document.parameters
         )
 
         var assets: [String: Data] = [:]
@@ -2858,12 +2859,37 @@ final class WorkspaceModel {
         markDocumentModified()
     }
 
-    func setParam(_ id: ObjectId, _ key: String, _ value: Float) {
-        let result = document.setParam(id: id, key: key, value: value)
+    func setParam(_ id: ObjectId, _ key: String, _ value: Float, expression: String? = nil) {
+        let result = document.setParam(id: id, key: key, value: value, expression: expression)
         guard case .success = result else { return }
         markDocumentModified()
         log(.kernel, "CSG", "Updated \(id.rawValue) \(key) to \(String(format: "%.1f", value))")
         recomputeSolid(id: id)
+    }
+
+    // MARK: - Document Parameters (BL-PAR-01)
+
+    func addParameter(_ parameter: DocumentParameter) throws {
+        try document.addParameter(parameter)
+        markDocumentModified()
+    }
+
+    func deleteParameter(id: UUID) throws {
+        try document.deleteParameter(id: id)
+        markDocumentModified()
+    }
+
+    func renameParameter(id: UUID, newName: String) throws {
+        try document.renameParameter(id: id, newName: newName)
+        markDocumentModified()
+    }
+
+    func updateParameter(id: UUID, value: Double? = nil, unit: String? = nil, comment: String? = nil) throws {
+        let affected = try document.updateParameter(id: id, value: value, unit: unit, comment: comment)
+        markDocumentModified()
+        for solidId in affected {
+            recomputeSolid(id: solidId)
+        }
     }
 
     /// Drops meshes for objects removed by any path, including MCP agent tools.

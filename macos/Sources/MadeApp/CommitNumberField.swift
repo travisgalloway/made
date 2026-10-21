@@ -7,6 +7,8 @@ struct CommitNumberField: View {
     let value: Double
     var width: CGFloat = 56
     var minimum: Double? = nil
+    var parameterResolver: ((String) -> Double?)? = nil
+    var commitExpression: ((Double, String?) -> Void)? = nil
     let commit: (Double) -> Void
 
     init(
@@ -14,13 +16,33 @@ struct CommitNumberField: View {
         value: Double,
         width: CGFloat = 56,
         minimum: Double? = nil,
+        parameterResolver: ((String) -> Double?)? = nil,
         commit: @escaping (Double) -> Void
     ) {
         self.label = label
         self.value = value
         self.width = width
         self.minimum = minimum
+        self.parameterResolver = parameterResolver
+        self.commitExpression = nil
         self.commit = commit
+    }
+
+    init(
+        label: String,
+        value: Double,
+        width: CGFloat = 56,
+        minimum: Double? = nil,
+        parameterResolver: ((String) -> Double?)? = nil,
+        commitExpression: @escaping (Double, String?) -> Void
+    ) {
+        self.label = label
+        self.value = value
+        self.width = width
+        self.minimum = minimum
+        self.parameterResolver = parameterResolver
+        self.commitExpression = commitExpression
+        self.commit = { val in commitExpression(val, nil) }
     }
 
     @State private var text = ""
@@ -52,6 +74,17 @@ struct CommitNumberField: View {
             }
     }
 
+    /// Result of parsing draft input with optional parameter expression identification.
+    public struct ParsedDraft: Equatable {
+        public let value: Double
+        public let expression: String?
+
+        public init(value: Double, expression: String? = nil) {
+            self.value = value
+            self.expression = expression
+        }
+    }
+
     /// Strips trailing unit symbols, letters, and degree signs from draft input.
     static func cleanDraft(_ draft: String) -> String {
         draft.trimmingCharacters(in: .whitespaces)
@@ -72,15 +105,35 @@ struct CommitNumberField: View {
         return parsed
     }
 
+    /// Parses a draft string, trying parameterResolver first, then sanitizing units and parsing as a numeric literal.
+    static func parseDraft(_ draft: String, resolver: ((String) -> Double?)?) -> ParsedDraft? {
+        let trimmed = draft.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if let resolver, let resolved = resolver(trimmed) {
+            return ParsedDraft(value: resolved, expression: trimmed)
+        }
+        guard let parsed = parseDraft(draft) else { return nil }
+        return ParsedDraft(value: parsed, expression: nil)
+    }
+
     /// Commits the draft, then shows the model value; a clamp that leaves the value unchanged still redraws.
     private func apply() {
         let draft = text.trimmingCharacters(in: .whitespaces)
-        text = Self.format.format(value)
-        if let parsed = Self.parseDraft(draft), parsed != value {
-            if let minimum, parsed < minimum {
+        if let parsed = Self.parseDraft(draft, resolver: parameterResolver) {
+            text = Self.format.format(parsed.value)
+            if let minimum, parsed.value < minimum {
+                text = Self.format.format(value)
                 return
             }
-            commit(parsed)
+            if parsed.value != value || parsed.expression != nil {
+                if let commitExpression {
+                    commitExpression(parsed.value, parsed.expression)
+                } else {
+                    commit(parsed.value)
+                }
+            }
+        } else {
+            text = Self.format.format(value)
         }
     }
 }

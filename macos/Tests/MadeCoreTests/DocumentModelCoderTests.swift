@@ -306,4 +306,63 @@ import Foundation
         #expect(decoded.objects == activeObjects)
         #expect(decoded.bodies == activeBodies)
     }
+
+    // MARK: - Document Parameters Serialization (BL-PAR-01)
+
+    @Test func testDocumentParametersRoundTrip() throws {
+        let doc = DocumentModel()
+        let p1 = DocumentParameter(name: "box_width", value: 50.0, unit: "mm", comment: "Primary width")
+        let p2 = DocumentParameter(name: "box_height", value: 30.0, unit: "mm", comment: "Primary height")
+        try doc.addParameter(p1)
+        try doc.addParameter(p2)
+        doc.setParam(id: boxSolidId, key: "width", value: 50.0, expression: "box_width")
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let decodedData = try DocumentModelCoder.decode(from: encoded)
+        #expect(decodedData.parameters?.count == 2)
+        #expect(decodedData.parameters?[0].name == "box_width")
+        #expect(decodedData.parameters?[0].value == 50.0)
+        #expect(decodedData.parameters?[0].comment == "Primary width")
+        #expect(decodedData.parameters?[1].name == "box_height")
+
+        let targetDoc = DocumentModel(features: [])
+        try DocumentModelCoder.decode(into: targetDoc, from: encoded)
+        #expect(targetDoc.parameters.count == 2)
+        #expect(targetDoc.parameters[0].name == "box_width")
+        #expect(targetDoc.parameters[0].value == 50.0)
+        #expect(targetDoc.parameters[1].name == "box_height")
+        #expect(targetDoc.features.first(where: { $0.outputSolidId == boxSolidId })?.inputExpressions["width"]?.formula == "box_width")
+    }
+
+    @Test func testDocumentParametersLegacyDecodeDefaultsEmpty() throws {
+        let legacyJSON = """
+        {
+          "schemaVersion": 1,
+          "objects": [
+            {
+              "id": "box-1",
+              "name": "Box 1",
+              "def": {
+                "kind": "box",
+                "params": {
+                  "width": 30.0,
+                  "depth": 20.0,
+                  "height": 10.0
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: legacyJSON)
+        #expect(decoded.parameters == nil)
+
+        let targetDoc = DocumentModel()
+        try targetDoc.addParameter(DocumentParameter(name: "temp", value: 1.0))
+        #expect(targetDoc.parameters.count == 1)
+
+        try DocumentModelCoder.decode(into: targetDoc, from: legacyJSON)
+        #expect(targetDoc.parameters.isEmpty)
+    }
 }

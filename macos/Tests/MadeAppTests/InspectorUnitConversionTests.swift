@@ -152,6 +152,35 @@ import MadeCore
         #expect(CommitNumberField.parseDraft("") == nil)
     }
 
+    @Test @MainActor func testCommitNumberFieldParameterResolver() {
+        let resolver: (String) -> Double? = { name in
+            switch name {
+            case "width": return 40.0
+            case "depth": return 25.0
+            case "outer_radius": return 15.5
+            default: return nil
+            }
+        }
+
+        // Exact match resolves parameter name and retains expression
+        let parsedWidth = CommitNumberField.parseDraft("width", resolver: resolver)
+        #expect(parsedWidth?.value == 40.0)
+        #expect(parsedWidth?.expression == "width")
+
+        let parsedDepth = CommitNumberField.parseDraft("  depth  ", resolver: resolver)
+        #expect(parsedDepth?.value == 25.0)
+        #expect(parsedDepth?.expression == "depth")
+
+        // Literal number without parameter resolves value with nil expression
+        let parsedLiteral = CommitNumberField.parseDraft("60 mm", resolver: resolver)
+        #expect(parsedLiteral?.value == 60.0)
+        #expect(parsedLiteral?.expression == nil)
+
+        // Unknown parameter identifier falls back to literal parsing (or nil)
+        let parsedUnknown = CommitNumberField.parseDraft("unknown_param", resolver: resolver)
+        #expect(parsedUnknown == nil)
+    }
+
     @Test @MainActor func testDatumPlaneAngleEditingWithUnits() {
         let workspace = WorkspaceModel()
         workspace.setUp()

@@ -2553,6 +2553,39 @@ import MadeCore
         #expect(model.document.objects.contains(where: { $0.id == solidId }))
         #expect(model.document.bodies.contains(where: { $0.id == solidId }))
     }
+
+    @Test @MainActor func testWorkspaceParameterMutatorsAndRecomputation() throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let param = DocumentParameter(name: "box_width", value: 45.0, unit: "mm")
+        try model.addParameter(param)
+        #expect(model.isDocumentModified)
+        #expect(model.document.parameters.count == 1)
+
+        model.setParam(boxSolidId, "width", 45.0, expression: "box_width")
+        #expect(model.document.features.first(where: { $0.outputSolidId == boxSolidId })?.inputExpressions["width"]?.formula == "box_width")
+
+        // Update parameter triggers solid recomputation
+        try model.updateParameter(id: param.id, value: 65.0)
+        #expect(model.document.parameters.first?.value == 65.0)
+        #expect(model.document.paramValue(for: boxSolidId, key: "width") == 65.0)
+
+        // Rename parameter cascades
+        try model.renameParameter(id: param.id, newName: "global_width")
+        #expect(model.document.parameters.first?.name == "global_width")
+        #expect(model.document.features.first(where: { $0.outputSolidId == boxSolidId })?.inputExpressions["width"]?.formula == "global_width")
+
+        // Delete parameter blocked because it's in use
+        #expect(throws: DocumentParameterError.self) {
+            try model.deleteParameter(id: param.id)
+        }
+
+        // Release parameter reference
+        model.setParam(boxSolidId, "width", 50.0)
+        try model.deleteParameter(id: param.id)
+        #expect(model.document.parameters.isEmpty)
+    }
 }
 
 
