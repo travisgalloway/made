@@ -40,6 +40,8 @@ The native application and core modules live in `macos/`:
 
 Run `make setup` once to install the Metal Toolchain and the git hooks. Run commands from the repository root with `make`, or from `macos/` with `swift`. Direct `swift` commands need `--build-system swiftbuild`.
 
+For complete build instructions, code signing options, and steps to relink modified LGPL dependencies (`OCCTSwift`) in compliance with LGPL-2.1, see [`docs/guides/building-from-source.md`](docs/guides/building-from-source.md).
+
 Build the native application:
 ```sh
 make build          # or: cd macos && swift build --build-system swiftbuild

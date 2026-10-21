@@ -263,6 +263,11 @@ import Testing
         }
     }
 
+    @Test func buildFromSourceGuideFileExistsInRepository() throws {
+        let guideURL = Self.repoRoot.appendingPathComponent("docs/guides/building-from-source.md")
+        #expect(FileManager.default.fileExists(atPath: guideURL.path))
+    }
+
     // MARK: - Verification Helpers
 
     struct DeclaredDependency: Equatable {
