@@ -1034,6 +1034,37 @@ final class WorkspaceModel {
         startCommand(CommandSession.makePushPull(workspace: self, solidId: solidId, faceId: faceId))
     }
 
+    func startChamferCommand() {
+        var targetSolidId: SolidId? = nil
+        var initialEdgeRef: TopologicalReference? = nil
+        if let sub = document.selectedSubElement, sub.elementType == .edge {
+            targetSolidId = sub.solidId
+            if let feat = document.feature(for: sub.solidId) {
+                if let detId = sub.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                    initialEdgeRef = existing
+                } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "edge:\(sub.elementId)" }) {
+                    initialEdgeRef = named
+                } else {
+                    initialEdgeRef = TopologicalReference(
+                        sourceFeatureId: feat.id,
+                        elementType: .edge,
+                        historyPath: [HistoryStep(kind: .generated, label: "edge:\(sub.elementId)")]
+                    )
+                }
+            }
+        } else if let selectedId {
+            targetSolidId = selectedId
+        } else if let firstObj = document.objects.first {
+            targetSolidId = firstObj.id
+        }
+
+        startCommand(CommandSession.makeChamfer(
+            workspace: self,
+            targetSolidId: targetSolidId,
+            edgeReferences: initialEdgeRef.map { [$0] } ?? []
+        ))
+    }
+
     public func boundingBoxes(for solidId: SolidId) -> (axisAligned: AxisAlignedBoundingBox, oriented: OrientedBoundingBox)? {
         let candidates = viewportManager.renderer?.candidateMeshes() ?? []
         return BoundingBoxCalculator.boxes(for: solidId, in: document, candidateMeshes: candidates)
@@ -1201,6 +1232,34 @@ final class WorkspaceModel {
             )
             guard let solidId = revolveFeature.outputSolidId else { return nil }
             selectedId = solidId
+            recomputeSolid(id: solidId)
+            return solidId
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func chamferEdges(
+        targetSolidId: SolidId,
+        edgeReferences: [TopologicalReference],
+        mode: ChamferMode = .equalDistance,
+        distance: Double = 1.0,
+        distance2: Double = 1.0,
+        angle: Double = 45.0
+    ) async -> ObjectId? {
+        do {
+            let chamferFeature = try document.chamferEdges(
+                targetSolidId: targetSolidId,
+                edgeReferences: edgeReferences,
+                mode: mode,
+                distance: distance,
+                distance2: distance2,
+                angle: angle
+            )
+            guard let solidId = chamferFeature.outputSolidId else { return nil }
+            selectedId = solidId
+            markDocumentModified()
             recomputeSolid(id: solidId)
             return solidId
         } catch {

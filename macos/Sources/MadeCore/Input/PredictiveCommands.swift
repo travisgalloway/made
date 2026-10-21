@@ -2,6 +2,7 @@ import Foundation
 
 public enum PredictiveCommandKind: String, Sendable, CaseIterable, Equatable {
     case fillet = "fillet"
+    case chamfer = "chamfer"
     case pushPull = "push-pull"
 }
 
@@ -35,6 +36,13 @@ public enum PredictiveCommandProvider {
         switch elementType {
         case .edge:
             return [
+                PredictiveCommand(
+                    id: .chamfer,
+                    title: "Chamfer",
+                    iconName: "skew",
+                    isEnabled: true,
+                    disabledReason: nil
+                ),
                 PredictiveCommand(
                     id: .fillet,
                     title: "Fillet",

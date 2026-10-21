@@ -154,6 +154,8 @@ struct PredictiveCommandPopoverView: View {
         switch command.id {
         case .pushPull:
             workspace.startPushPullCommand(solidId: selectedSubElement.solidId, faceId: selectedSubElement.elementId)
+        case .chamfer:
+            workspace.startChamferCommand()
         case .fillet:
             break
         }

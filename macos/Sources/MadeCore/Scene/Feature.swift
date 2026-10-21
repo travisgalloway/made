@@ -524,6 +524,32 @@ public struct ImportedFeatureData: Sendable, Codable, Equatable {
     }
 }
 
+/// Parameter payload for edge chamfer features (BL-PRT-07).
+public struct ChamferFeatureData: Sendable, Codable, Equatable {
+    public var targetSolidId: SolidId
+    public var mode: ChamferMode
+    public var distance: Double
+    public var distance2: Double
+    public var angle: Double
+    public var edgeReferences: [TopologicalReference]
+
+    public init(
+        targetSolidId: SolidId,
+        mode: ChamferMode = .equalDistance,
+        distance: Double = 1.0,
+        distance2: Double = 1.0,
+        angle: Double = 45.0,
+        edgeReferences: [TopologicalReference] = []
+    ) {
+        self.targetSolidId = targetSolidId
+        self.mode = mode
+        self.distance = distance
+        self.distance2 = distance2
+        self.angle = angle
+        self.edgeReferences = edgeReferences
+    }
+}
+
 /// Discrete modeling operation recorded in the history timeline (ADR-D2).
 public enum FeatureOperation: Sendable, Codable, Equatable {
     case primitive(PrimitiveFeatureData)
@@ -537,6 +563,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case datumAxis(DatumAxisFeatureData)
     case datumPoint(DatumPointFeatureData)
     case datumCoordinateSystem(DatumCoordinateSystemFeatureData)
+    case chamfer(ChamferFeatureData)
 
     private enum CodingKeys: String, CodingKey {
         case primitive = "primitive"
@@ -550,6 +577,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         case datumAxis = "datumAxis"
         case datumPoint = "datumPoint"
         case datumCoordinateSystem = "datumCoordinateSystem"
+        case chamfer = "chamfer"
     }
 
     private enum PayloadCodingKeys: String, CodingKey {
@@ -600,6 +628,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         }
         if container.contains(.datumCoordinateSystem) {
             self = .datumCoordinateSystem(try Self.decodePayload(DatumCoordinateSystemFeatureData.self, forKey: .datumCoordinateSystem, from: container))
+            return
+        }
+        if container.contains(.chamfer) {
+            self = .chamfer(try Self.decodePayload(ChamferFeatureData.self, forKey: .chamfer, from: container))
             return
         }
 
@@ -660,6 +692,9 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
             try nested.encode(data, forKey: .payload)
         case .datumCoordinateSystem(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .datumCoordinateSystem)
+            try nested.encode(data, forKey: .payload)
+        case .chamfer(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .chamfer)
             try nested.encode(data, forKey: .payload)
         }
     }
@@ -837,6 +872,15 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
                 sketchFeatureId: data.sketchFeatureId,
                 regionId: data.regionId,
                 axisReference: data.axisReference
+            ))
+        case .chamfer(let data):
+            def = .chamfer(ChamferParams(
+                targetSolidId: data.targetSolidId,
+                mode: data.mode,
+                distance: data.distance,
+                distance2: data.distance2,
+                angle: data.angle,
+                edgeReferences: data.edgeReferences
             ))
         }
         return SceneObject(
@@ -1858,6 +1902,37 @@ extension Feature {
                 outputSolidId: object.id,
                 bodyOperation: .create,
                 targetBodyId: nil,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .chamfer(let params):
+            var refs: [Reference] = params.edgeReferences.map { .edge($0) }
+            refs.append(.body(params.targetSolidId, role: "targetBody"))
+            var exprs: [String: FeatureExpression] = [
+                "distance": FeatureExpression(value: params.distance)
+            ]
+            if params.mode == .twoDistances {
+                exprs["distance2"] = FeatureExpression(value: params.distance2)
+            } else if params.mode == .distanceAngle {
+                exprs["angle"] = FeatureExpression(value: params.angle)
+            }
+            self.init(
+                name: object.name,
+                operation: .chamfer(ChamferFeatureData(
+                    targetSolidId: params.targetSolidId,
+                    mode: params.mode,
+                    distance: params.distance,
+                    distance2: params.distance2,
+                    angle: params.angle,
+                    edgeReferences: params.edgeReferences
+                )),
+                inputExpressions: exprs,
+                references: refs,
+                outputSolidId: object.id,
+                bodyOperation: .cut,
+                targetBodyId: params.targetSolidId,
                 transform: object.transform,
                 isVisible: object.isVisible,
                 isLocked: object.isLocked,

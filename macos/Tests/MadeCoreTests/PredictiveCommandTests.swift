@@ -7,8 +7,13 @@ import simd
 
     @Test func testEdgeCommandAvailability() {
         let commands = PredictiveCommandProvider.availableCommands(for: .edge)
-        #expect(commands.count == 1)
-        let fillet = commands.first
+        #expect(commands.count == 2)
+        let chamfer = commands.first(where: { $0.id == .chamfer })
+        #expect(chamfer?.id == .chamfer)
+        #expect(chamfer?.title == "Chamfer")
+        #expect(chamfer?.isEnabled == true)
+        #expect(chamfer?.disabledReason == nil)
+        let fillet = commands.first(where: { $0.id == .fillet })
         #expect(fillet?.id == .fillet)
         #expect(fillet?.title == "Fillet")
         #expect(fillet?.isEnabled == false)
