@@ -275,6 +275,23 @@ struct InspectorPanelView: View {
                         .buttonStyle(.link)
                     }
                 }
+            case .revolve(let params):
+                LabeledContent("Mode", value: params.mode.rawValue.capitalized)
+                if params.mode != .full {
+                    paramField("Angle", Float(params.angle), DocumentLimits.revolveAngle, id: obj.id, key: "angle") { workspace.setParam(obj.id, "angle", $0) }
+                }
+                if params.mode == .twoDirection {
+                    paramField("Angle 2", Float(params.angle2), DocumentLimits.revolveAngle, id: obj.id, key: "angle2") { workspace.setParam(obj.id, "angle2", $0) }
+                }
+                LabeledContent("Profile Points", value: "\(params.profile.points.count)")
+                if let sketchId = params.sketchFeatureId, let sketch = workspace.document.feature(for: sketchId) {
+                    LabeledContent("Source Sketch") {
+                        Button(sketch.name) {
+                            workspace.selectFeature(sketchId)
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):

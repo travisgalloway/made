@@ -91,6 +91,7 @@ public indirect enum ShapeNode: Sendable, Codable, Equatable {
     case cone(ConeParams, slices: Int)
     case extrude(profile: SketchProfile, distance: Float, centered: Bool)
     case revolve(profile: SketchProfile, angleDegrees: Float, slices: Int)
+    case revolveSolid(RevolveParams, slices: Int)
     case translate(ShapeNode, offset: SIMD3<Float>)
     case rotate(ShapeNode, axis: SIMD3<Float>, angleDegrees: Float)
     case scale(ShapeNode, factor: SIMD3<Float>)
@@ -174,6 +175,30 @@ extension ShapeNode {
                 }
                 if !hasPositiveR && !hasNegativeR {
                     return Self.invalid("Shape tree revolve profile must have non-zero radial extent")
+                }
+            case .revolveSolid(let params, let slices):
+                if !(ShapeLimits.minSlices...ShapeLimits.maxSlices).contains(slices) {
+                    return Self.invalid("Shape tree revolve slices must be within \(ShapeLimits.minSlices)...\(ShapeLimits.maxSlices)")
+                }
+                if let err = Self.validateProfile(params.profile) {
+                    return err
+                }
+                if params.mode != .full {
+                    if !Self.isPositive(Float(params.angle)) || params.angle > 360 {
+                        return Self.invalid("Shape tree revolve angle must be within (0, 360]")
+                    }
+                    if params.mode == .twoDirection {
+                        if !Self.isPositive(Float(params.angle2)) || params.angle2 > 360 {
+                            return Self.invalid("Shape tree revolve angle2 must be within (0, 360]")
+                        }
+                    }
+                }
+                if let axisErr = ShapeEvaluator.validateRevolveAxis(
+                    profile: params.profile,
+                    axisOrigin: params.axisOrigin,
+                    axisDirection: params.axisDirection
+                ) {
+                    return Self.invalid(axisErr)
                 }
             case .translate(let child, let offset):
                 if !Self.isFiniteVec3(offset) {

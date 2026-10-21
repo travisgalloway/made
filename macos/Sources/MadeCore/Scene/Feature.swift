@@ -274,6 +274,84 @@ public struct ExtrudeFeatureData: Sendable, Codable, Equatable {
     }
 }
 
+/// Supported revolve modes for revolving sketch profiles (BL-PRT-02).
+public enum RevolveMode: String, Sendable, Codable, Equatable, CaseIterable {
+    case full
+    case angle
+    case symmetric
+    case twoDirection
+}
+
+/// Parameters defining a revolved solid in the scene graph.
+public struct RevolveParams: Sendable, Codable, Equatable {
+    public var profile: SketchProfile
+    public var mode: RevolveMode
+    public var angle: Double
+    public var angle2: Double
+    public var axisOrigin: SIMD3<Float>
+    public var axisDirection: SIMD3<Float>
+    public var sketchFeatureId: UUID?
+    public var regionId: UUID?
+    public var axisReference: Reference?
+
+    public init(
+        profile: SketchProfile,
+        mode: RevolveMode = .full,
+        angle: Double = 360.0,
+        angle2: Double = 0.0,
+        axisOrigin: SIMD3<Float> = .zero,
+        axisDirection: SIMD3<Float> = SIMD3<Float>(0, 1, 0),
+        sketchFeatureId: UUID? = nil,
+        regionId: UUID? = nil,
+        axisReference: Reference? = nil
+    ) {
+        self.profile = profile
+        self.mode = mode
+        self.angle = angle
+        self.angle2 = angle2
+        self.axisOrigin = axisOrigin
+        self.axisDirection = axisDirection
+        self.sketchFeatureId = sketchFeatureId
+        self.regionId = regionId
+        self.axisReference = axisReference
+    }
+}
+
+/// Revolve operation parameters sweeping a sketch profile around an axis in 3D.
+public struct RevolveFeatureData: Sendable, Codable, Equatable {
+    public var sketchFeatureId: UUID?
+    public var regionId: UUID?
+    public var mode: RevolveMode
+    public var angle: Double
+    public var angle2: Double
+    public var axisReference: Reference?
+    public var profile: SketchProfile?
+    public var axisOrigin: SIMD3<Float>?
+    public var axisDirection: SIMD3<Float>?
+
+    public init(
+        sketchFeatureId: UUID? = nil,
+        regionId: UUID? = nil,
+        mode: RevolveMode = .full,
+        angle: Double = 360.0,
+        angle2: Double = 0.0,
+        axisReference: Reference? = nil,
+        profile: SketchProfile? = nil,
+        axisOrigin: SIMD3<Float>? = nil,
+        axisDirection: SIMD3<Float>? = nil
+    ) {
+        self.sketchFeatureId = sketchFeatureId
+        self.regionId = regionId
+        self.mode = mode
+        self.angle = angle
+        self.angle2 = angle2
+        self.axisReference = axisReference
+        self.profile = profile
+        self.axisOrigin = axisOrigin
+        self.axisDirection = axisDirection
+    }
+}
+
 /// CSG boolean operation parameters referencing target and tool solids.
 public struct BooleanFeatureData: Sendable, Codable, Equatable {
     public var op: BooleanOp
@@ -451,6 +529,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
     case primitive(PrimitiveFeatureData)
     case sketch(SketchFeatureData)
     case extrude(ExtrudeFeatureData)
+    case revolve(RevolveFeatureData)
     case boolean(BooleanFeatureData)
     case part(PartFeatureData)
     case imported(ImportedFeatureData)
@@ -463,6 +542,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         case primitive = "primitive"
         case sketch = "sketch"
         case extrude = "extrude"
+        case revolve = "revolve"
         case boolean = "boolean"
         case part = "part"
         case imported = "imported"
@@ -488,6 +568,10 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
         }
         if container.contains(.extrude) {
             self = .extrude(try Self.decodePayload(ExtrudeFeatureData.self, forKey: .extrude, from: container))
+            return
+        }
+        if container.contains(.revolve) {
+            self = .revolve(try Self.decodePayload(RevolveFeatureData.self, forKey: .revolve, from: container))
             return
         }
         if container.contains(.boolean) {
@@ -552,6 +636,9 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
             try nested.encode(data, forKey: .payload)
         case .extrude(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .extrude)
+            try nested.encode(data, forKey: .payload)
+        case .revolve(let data):
+            var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .revolve)
             try nested.encode(data, forKey: .payload)
         case .boolean(let data):
             var nested = container.nestedContainer(keyedBy: PayloadCodingKeys.self, forKey: .boolean)
@@ -735,6 +822,21 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
                 isSymmetric: data.isSymmetric,
                 draftAngle: data.draftAngle,
                 sketchFeatureId: data.sketchFeatureId
+            ))
+        case .revolve(let data):
+            guard let profile = data.profile,
+                  let origin = data.axisOrigin,
+                  let dir = data.axisDirection else { return nil }
+            def = .revolve(RevolveParams(
+                profile: profile,
+                mode: data.mode,
+                angle: data.angle,
+                angle2: data.angle2,
+                axisOrigin: origin,
+                axisDirection: dir,
+                sketchFeatureId: data.sketchFeatureId,
+                regionId: data.regionId,
+                axisReference: data.axisReference
             ))
         }
         return SceneObject(
@@ -1719,6 +1821,40 @@ extension Feature {
                 )),
                 inputExpressions: ["distance": FeatureExpression(value: params.distance)],
                 references: params.sketchFeatureId.map { [.feature($0, role: "sketchProfile")] } ?? [],
+                outputSolidId: object.id,
+                bodyOperation: .create,
+                targetBodyId: nil,
+                transform: object.transform,
+                isVisible: object.isVisible,
+                isLocked: object.isLocked,
+                material: object.material
+            )
+        case .revolve(let params):
+            var refs: [Reference] = []
+            if let sketchId = params.sketchFeatureId {
+                refs.append(.feature(sketchId, role: "sketchProfile"))
+            }
+            if let axisRef = params.axisReference {
+                refs.append(axisRef)
+            }
+            self.init(
+                name: object.name,
+                operation: .revolve(RevolveFeatureData(
+                    sketchFeatureId: params.sketchFeatureId,
+                    regionId: params.regionId,
+                    mode: params.mode,
+                    angle: params.angle,
+                    angle2: params.angle2,
+                    axisReference: params.axisReference,
+                    profile: params.profile,
+                    axisOrigin: params.axisOrigin,
+                    axisDirection: params.axisDirection
+                )),
+                inputExpressions: [
+                    "angle": FeatureExpression(value: params.angle),
+                    "angle2": FeatureExpression(value: params.angle2)
+                ],
+                references: refs,
                 outputSolidId: object.id,
                 bodyOperation: .create,
                 targetBodyId: nil,

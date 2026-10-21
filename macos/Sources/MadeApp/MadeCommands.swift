@@ -228,6 +228,10 @@ struct SolidMenuCommands: Commands {
                 workspace.startExtrudeCommand()
             }
 
+            Button("Revolve Sketch…") {
+                workspace.startRevolveCommand()
+            }
+
             Button("New Datum Plane…") {
                 workspace.startDatumPlaneCommand()
             }

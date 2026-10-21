@@ -40,6 +40,27 @@ public enum KernelRegeneration {
                 solidId: solidId,
                 shape: .extrude(profile: profile, distance: Float(data.distance), centered: data.isSymmetric)
             )
+        case .revolve(let data):
+            guard let profile = data.profile,
+                  let solidId = feature.outputSolidId,
+                  let origin = data.axisOrigin,
+                  let dir = data.axisDirection else { return nil }
+            let params = RevolveParams(
+                profile: profile,
+                mode: data.mode,
+                angle: data.angle,
+                angle2: data.angle2,
+                axisOrigin: origin,
+                axisDirection: dir,
+                sketchFeatureId: data.sketchFeatureId,
+                regionId: data.regionId,
+                axisReference: data.axisReference
+            )
+            return .evaluateShape(
+                jobId: jobId,
+                solidId: solidId,
+                shape: .revolveSolid(params, slices: 128)
+            )
         }
     }
 
@@ -60,6 +81,12 @@ public enum KernelRegeneration {
                 jobId: jobId,
                 solidId: object.id,
                 shape: .extrude(profile: params.profile, distance: Float(params.distance), centered: params.isSymmetric)
+            )
+        case .revolve(let params):
+            return .evaluateShape(
+                jobId: jobId,
+                solidId: object.id,
+                shape: .revolveSolid(params, slices: 128)
             )
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)
@@ -454,6 +481,62 @@ public enum KernelRegeneration {
                     } catch {
                         let errorState = FeatureErrorState(
                             code: "sketch-error",
+                            message: error.localizedDescription,
+                            severity: .error
+                        )
+                        document.setFeatureError(id: feature.id, error: errorState)
+                        for dep in document.dependentFeatures(referencing: feature.id) {
+                            document.setFeatureError(
+                                id: dep.id,
+                                error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                            )
+                        }
+                        continue
+                    }
+                }
+            }
+
+            // Rebuild profile and axis from upstream entities for revolve features (BL-PRT-02)
+            if case .revolve(var revolveData) = feature.operation {
+                if let sketchId = revolveData.sketchFeatureId, let sketchFeature = document.feature(for: sketchId),
+                   case .sketch(let sketchData) = sketchFeature.operation {
+                    do {
+                        let sketchPlane = document.resolveSketchPlane(for: sketchData)
+                        let newProfile: SketchProfile
+                        if let targetRegionId = revolveData.regionId,
+                           let regions = try? SketchProfileBuilder.detectRegions(from: sketchData.entities, plane: sketchPlane),
+                           let matched = regions.first(where: { $0.id == targetRegionId }) {
+                            newProfile = matched.toProfile(plane: sketchPlane)
+                        } else {
+                            newProfile = try SketchProfileBuilder.build(from: sketchData.entities, plane: sketchPlane)
+                        }
+                        revolveData.profile = newProfile
+
+                        if let axisRef = revolveData.axisReference {
+                            if case .success(let geom) = document.resolveAxis(from: axisRef) {
+                                revolveData.axisOrigin = geom.origin
+                                revolveData.axisDirection = geom.direction
+                            }
+                        }
+
+                        if let origin = revolveData.axisOrigin, let dir = revolveData.axisDirection {
+                            if let axisErr = ShapeEvaluator.validateRevolveAxis(
+                                profile: newProfile,
+                                axisOrigin: origin,
+                                axisDirection: dir
+                            ) {
+                                throw NSError(domain: "MadeCore.Revolve", code: 1, userInfo: [NSLocalizedDescriptionKey: axisErr])
+                            }
+                        }
+
+                        feature.operation = .revolve(revolveData)
+                        _ = document.updateFeature(feature)
+                        if feature.errorState?.code == "sketch-error" || feature.errorState?.code == "revolve-error" {
+                            document.setFeatureError(id: feature.id, error: nil)
+                        }
+                    } catch {
+                        let errorState = FeatureErrorState(
+                            code: "revolve-error",
                             message: error.localizedDescription,
                             severity: .error
                         )
