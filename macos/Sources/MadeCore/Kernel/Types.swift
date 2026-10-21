@@ -336,6 +336,45 @@ public enum KernelResult<T: Sendable>: Sendable {
     }
 }
 
+public enum ChamferMode: String, Sendable, Codable, Equatable, CaseIterable {
+    case equalDistance = "equalDistance"
+    case twoDistances = "twoDistances"
+    case distanceAngle = "distanceAngle"
+
+    public var label: String {
+        switch self {
+        case .equalDistance: return "Equal Distance"
+        case .twoDistances: return "Two Distances"
+        case .distanceAngle: return "Distance-Angle"
+        }
+    }
+}
+
+public struct ChamferParams: Hashable, Equatable, Sendable, Codable {
+    public var targetSolidId: SolidId
+    public var mode: ChamferMode
+    public var distance: Double
+    public var distance2: Double
+    public var angle: Double
+    public var edgeReferences: [TopologicalReference]
+
+    public init(
+        targetSolidId: SolidId,
+        mode: ChamferMode = .equalDistance,
+        distance: Double = 1.0,
+        distance2: Double = 1.0,
+        angle: Double = 45.0,
+        edgeReferences: [TopologicalReference] = []
+    ) {
+        self.targetSolidId = targetSolidId
+        self.mode = mode
+        self.distance = distance
+        self.distance2 = distance2
+        self.angle = angle
+        self.edgeReferences = edgeReferences
+    }
+}
+
 public enum BooleanOp: String, Sendable, Codable {
     case subtract
     case union
@@ -354,6 +393,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case booleanOperation(jobId: JobId, solidId: SolidId, op: BooleanOp, solidA: SolidId, solidB: SolidId)
     case evaluateShape(jobId: JobId, solidId: SolidId, shape: ShapeNode)
     case fillet(jobId: JobId, solidId: SolidId, edgeReference: TopologicalReference, radius: Double)
+    case chamfer(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, edgeReferences: [TopologicalReference], mode: ChamferMode, distance: Double, distance2: Double, angle: Double)
     
     public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
         .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
@@ -373,6 +413,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
              .evaluateShape(let j, _, _),
              .fillet(let j, _, _, _):
             return j
+        case .chamfer(let j, _, _, _, _, _, _, _):
+            return j
         }
     }
     
@@ -389,6 +431,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
              .booleanOperation(_, let s, _, _, _),
              .evaluateShape(_, let s, _),
              .fillet(_, let s, _, _):
+            return s
+        case .chamfer(_, let s, _, _, _, _, _, _):
             return s
         }
     }

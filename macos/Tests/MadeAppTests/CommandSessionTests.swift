@@ -881,6 +881,97 @@ extension WorkspaceModelTests {
             #expect(unit == "mm²")
         }
     }
+
+    @Test @MainActor func testMakeChamferLifecycle() async {
+        let workspace = WorkspaceModel()
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-1"),
+            name: "Box 1",
+            params: BoxParams(width: 10, depth: 10, height: 10)
+        )
+        workspace.document.addFeature(boxFeat)
+        let edgeRef = TopologicalReference(
+            sourceFeatureId: boxFeat.id,
+            elementType: .edge,
+            historyPath: [HistoryStep(kind: .generated, label: "edge:top-front")]
+        )
+
+        let session = CommandSession.makeChamfer(
+            workspace: workspace,
+            targetSolidId: boxFeat.outputSolidId,
+            edgeReferences: [edgeRef]
+        )
+        #expect(session.canCommit)
+        #expect(session.choiceValue(for: "mode") == "Equal Distance")
+        #expect(session.numberValue(for: "distance") == 1.0)
+
+        session.setChoiceValue("Two Distances", for: "mode")
+        session.setNumberValue(2.0, for: "distance")
+        session.setNumberValue(3.0, for: "distance2")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        await Task.yield()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .chamfer(let params)? = added?.def {
+            #expect(params.distance == 2.0)
+            #expect(params.distance2 == 3.0)
+            #expect(params.mode == .twoDistances)
+            #expect(params.edgeReferences == [edgeRef])
+        } else {
+            Issue.record("Expected .chamfer def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakeChamferValidation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeChamfer(workspace: workspace)
+        #expect(!session.canCommit)
+
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-1"),
+            name: "Box",
+            params: BoxParams(width: 10, depth: 10, height: 10)
+        )
+        workspace.document.addFeature(boxFeat)
+        let edgeRef = TopologicalReference(sourceFeatureId: boxFeat.id, elementType: .edge, historyPath: [HistoryStep(kind: .generated, label: "edge:top-front")])
+
+        let sessionWithEdge = CommandSession.makeChamfer(workspace: workspace, targetSolidId: boxFeat.outputSolidId, edgeReferences: [edgeRef])
+        #expect(sessionWithEdge.canCommit)
+
+        sessionWithEdge.setNumberValue(-1.0, for: "distance")
+        #expect(!sessionWithEdge.canCommit)
+
+        sessionWithEdge.setNumberValue(1.0, for: "distance")
+        #expect(sessionWithEdge.canCommit)
+
+        sessionWithEdge.setChoiceValue("Two Distances", for: "mode")
+        sessionWithEdge.setNumberValue(0.0, for: "distance2")
+        #expect(!sessionWithEdge.canCommit)
+
+        sessionWithEdge.setNumberValue(1.5, for: "distance2")
+        #expect(sessionWithEdge.canCommit)
+
+        sessionWithEdge.setChoiceValue("Distance-Angle", for: "mode")
+        sessionWithEdge.setNumberValue(0.0, for: "angle")
+        #expect(!sessionWithEdge.canCommit)
+        sessionWithEdge.setNumberValue(90.0, for: "angle")
+        #expect(!sessionWithEdge.canCommit)
+        sessionWithEdge.setNumberValue(45.0, for: "angle")
+        #expect(sessionWithEdge.canCommit)
+    }
+
+    @Test @MainActor func testMakeChamferCancellation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeChamfer(workspace: workspace)
+        session.cancel()
+        #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
+    }
 }
 
 }

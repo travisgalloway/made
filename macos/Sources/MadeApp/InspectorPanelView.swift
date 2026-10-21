@@ -292,6 +292,16 @@ struct InspectorPanelView: View {
                         .buttonStyle(.link)
                     }
                 }
+            case .chamfer(let params):
+                LabeledContent("Mode", value: params.mode.label)
+                paramField("Distance", Float(params.distance), DocumentLimits.chamferDistance, id: obj.id, key: "distance") { workspace.setParam(obj.id, "distance", $0) }
+                if params.mode == .twoDistances {
+                    paramField("Distance 2", Float(params.distance2), DocumentLimits.chamferDistance, id: obj.id, key: "distance2") { workspace.setParam(obj.id, "distance2", $0) }
+                }
+                if params.mode == .distanceAngle {
+                    paramField("Angle", Float(params.angle), DocumentLimits.chamferAngle, id: obj.id, key: "angle") { workspace.setParam(obj.id, "angle", $0) }
+                }
+                LabeledContent("Edges count", value: "\(params.edgeReferences.count)")
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):

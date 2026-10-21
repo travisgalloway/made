@@ -110,7 +110,7 @@ enum OCCTEngine {
                 return try importStep(data: fileData)
             }
             throw EngineError.emptyData
-        case .boolean, .extrude, .revolve, .part:
+        case .boolean, .extrude, .revolve, .part, .chamfer:
             throw EngineError.tessellationFailed
         }
     }
@@ -293,6 +293,47 @@ enum OCCTEngine {
             throw EngineError.tessellationFailed
         }
         return filleted
+    }
+
+    /// Chamfers edges in an OCCT shape identified by persistent topological references.
+    static func chamfer(
+        shape: Shape,
+        edgeReferences: [TopologicalReference],
+        mode: ChamferMode,
+        distance: Double,
+        distance2: Double,
+        angle: Double
+    ) throws -> Shape {
+        guard let builder = ChamferBuilder(shape: shape) else {
+            throw KernelError(code: .geometryFailed, message: "Failed to initialize ChamferBuilder")
+        }
+
+        for edgeRef in edgeReferences {
+            let edge = try TopologicalResolver.resolveEdge(in: shape, reference: edgeRef)
+            if builder.contour(for: edge) != 0 {
+                continue
+            }
+            switch mode {
+            case .equalDistance:
+                builder.addEdge(edge, distance: distance)
+            case .twoDistances:
+                guard let (f1, _) = edge.adjacentFaces(in: shape) else {
+                    throw KernelError(code: .geometryFailed, message: "Chamfer failed: edge has no adjacent face")
+                }
+                builder.addEdge(edge, face: f1, distance1: distance, distance2: distance2)
+            case .distanceAngle:
+                guard let (f1, _) = edge.adjacentFaces(in: shape) else {
+                    throw KernelError(code: .geometryFailed, message: "Chamfer failed: edge has no adjacent face")
+                }
+                let angleRad = angle * .pi / 180.0
+                builder.addEdge(edge, face: f1, distance: distance, angle: angleRad)
+            }
+        }
+
+        guard let result = builder.build(), result.isValid else {
+            throw KernelError(code: .geometryFailed, message: "Chamfer failed: distance may be larger than adjacent face")
+        }
+        return result
     }
 
     /// Evaluates an exact B-Rep boolean operation (`union`, `subtract`, or `intersect`) between two OCCT shapes.

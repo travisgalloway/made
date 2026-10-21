@@ -17,9 +17,9 @@ import simd
         let edgePopover = PredictiveCommandPopoverView(workspace: model, selectedSubElement: edgeSub)
         #expect(edgePopover.badgeTitle == "Edge #0")
         let edgeCommands = edgePopover.availableCommands
-        #expect(edgeCommands.count == 1)
-        #expect(edgeCommands.first?.id == .fillet)
-        #expect(edgeCommands.first?.isEnabled == false)
+        #expect(edgeCommands.count == 2)
+        #expect(edgeCommands.contains(where: { $0.id == .chamfer && $0.isEnabled }))
+        #expect(edgeCommands.contains(where: { $0.id == .fillet && !$0.isEnabled }))
         #expect(edgeCommands.contains(where: { $0.id == .pushPull }) == false)
 
         let edgeScreenPos = model.subElementScreenPosition(for: edgeSub, viewportSize: CGSize(width: 800, height: 600))
@@ -101,6 +101,19 @@ import simd
         popover.executeCommand(pushPullCmd)
         #expect(model.activeCommand != nil)
         #expect(model.activeCommand?.title == "Push-Pull")
+        model.activeCommand = nil
+
+        // Edge selection and chamfer command execution
+        let edgeSub = SelectedSubElement(solidId: boxId, elementType: .edge, elementId: 1)
+        model.document.selectedSubElement = edgeSub
+        let edgePopover = PredictiveCommandPopoverView(workspace: model, selectedSubElement: edgeSub)
+        guard let chamferCmd = edgePopover.availableCommands.first(where: { $0.id == .chamfer }) else {
+            Issue.record("Expected Chamfer command to be present")
+            return
+        }
+        edgePopover.executeCommand(chamferCmd)
+        #expect(model.activeCommand != nil)
+        #expect(model.activeCommand?.title == "Chamfer")
 
         // Sub-element with explicit hitPoint uses hitPoint directly
         let explicitHit = SIMD3<Float>(10, 20, 30)

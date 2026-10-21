@@ -61,6 +61,18 @@ public enum KernelRegeneration {
                 solidId: solidId,
                 shape: .revolveSolid(params, slices: 128)
             )
+        case .chamfer(let data):
+            guard let solidId = feature.outputSolidId else { return nil }
+            return .chamfer(
+                jobId: jobId,
+                solidId: solidId,
+                targetSolidId: data.targetSolidId,
+                edgeReferences: data.edgeReferences,
+                mode: data.mode,
+                distance: data.distance,
+                distance2: data.distance2,
+                angle: data.angle
+            )
         }
     }
 
@@ -87,6 +99,17 @@ public enum KernelRegeneration {
                 jobId: jobId,
                 solidId: object.id,
                 shape: .revolveSolid(params, slices: 128)
+            )
+        case .chamfer(let params):
+            return .chamfer(
+                jobId: jobId,
+                solidId: object.id,
+                targetSolidId: params.targetSolidId,
+                edgeReferences: params.edgeReferences,
+                mode: params.mode,
+                distance: params.distance,
+                distance2: params.distance2,
+                angle: params.angle
             )
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)

@@ -229,6 +229,18 @@ public actor LocalKernelEngine: KernelEngine {
 
         case .fillet(let jobId, let sId, let edgeRef, let radius):
             return await fillet(solidId: sId, edgeReference: edgeRef, radius: radius, jobId: jobId)
+
+        case .chamfer(let jobId, let solidId, let targetSolidId, let edgeRefs, let mode, let distance, let distance2, let angle):
+            return await chamfer(
+                solidId: solidId,
+                targetSolidId: targetSolidId,
+                edgeReferences: edgeRefs,
+                mode: mode,
+                distance: distance,
+                distance2: distance2,
+                angle: angle,
+                jobId: jobId
+            )
         }
     }
     
@@ -278,6 +290,59 @@ public actor LocalKernelEngine: KernelEngine {
             return .failure(jobId: jobId, error: kernelError)
         } catch {
             return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Fillet failed: \(error)"))
+        }
+    }
+
+    public func chamfer(
+        solidId: SolidId,
+        targetSolidId: SolidId? = nil,
+        edgeReferences: [TopologicalReference],
+        mode: ChamferMode = .equalDistance,
+        distance: Double = 1.0,
+        distance2: Double = 1.0,
+        angle: Double = 45.0,
+        jobId: JobId? = nil
+    ) async -> KernelResult<MeshPayload> {
+        let jobId = jobId ?? JobId("chamfer-\(UUID().uuidString)")
+        guard distance > 0 else {
+            return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Chamfer distance must be positive"))
+        }
+        if mode == .twoDistances {
+            guard distance2 > 0 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Chamfer distance2 must be positive"))
+            }
+        }
+        if mode == .distanceAngle {
+            guard angle > 0 && angle < 90 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Chamfer angle must be between 0 and 90 degrees"))
+            }
+        }
+        guard !edgeReferences.isEmpty else {
+            return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Chamfer requires at least one edge reference"))
+        }
+        let targetId = targetSolidId ?? solidId
+        guard let shape = occtShapes[targetId] ?? occtShapes[solidId] else {
+            return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid '\(targetId)' not found"))
+        }
+        do {
+            let chamferedShape = try OCCTEngine.chamfer(
+                shape: shape,
+                edgeReferences: edgeReferences,
+                mode: mode,
+                distance: distance,
+                distance2: distance2,
+                angle: angle
+            )
+            guard let payload = OCCTEngine.toMeshPayload(chamferedShape) else {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate chamfered geometry"))
+            }
+            occtShapes[solidId] = chamferedShape
+            solids[solidId] = payload
+            return .success(jobId: jobId, value: payload)
+        } catch let kernelError as KernelError {
+            return .failure(jobId: jobId, error: kernelError)
+        } catch {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Chamfer failed: \(error)"))
         }
     }
 

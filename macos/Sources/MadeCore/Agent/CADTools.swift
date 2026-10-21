@@ -472,6 +472,8 @@ public final class CADToolRegistry {
                 item["params"] = ["distance": p.distance, "isSymmetric": p.isSymmetric]
             case .revolve(let p):
                 item["params"] = ["mode": p.mode.rawValue, "angle": p.angle, "angle2": p.angle2]
+            case .chamfer(let p):
+                item["params"] = ["mode": p.mode.rawValue, "distance": p.distance, "distance2": p.distance2, "angle": p.angle]
             }
             summary.append(item)
         }
@@ -580,6 +582,8 @@ public final class CADToolRegistry {
             dimStr = "with distance \(p.distance)"
         case .revolve(let p):
             dimStr = "with angle \(p.angle)"
+        case .chamfer(let p):
+            dimStr = "with distance \(p.distance)"
         default:
             dimStr = ""
         }
@@ -754,6 +758,15 @@ public final class CADToolRegistry {
                 return [("angle", Float(p.angle)), ("angle2", Float(p.angle2))]
             } else {
                 return [("angle", Float(p.angle))]
+            }
+        case .chamfer(let p):
+            switch p.mode {
+            case .equalDistance:
+                return [("distance", Float(p.distance))]
+            case .twoDistances:
+                return [("distance", Float(p.distance)), ("distance2", Float(p.distance2))]
+            case .distanceAngle:
+                return [("distance", Float(p.distance)), ("angle", Float(p.angle))]
             }
         case .imported, .boolean, .part: return nil
         }
@@ -939,6 +952,20 @@ public final class CADToolRegistry {
             resultDict["mode"] = p.mode.rawValue
             resultDict["angle"] = p.angle
             resultDict["angle2"] = p.angle2
+            await settleRecomputes(for: [id])
+            if let payload = await meshForObject(obj),
+               let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
+                resultDict["bounds"] = measurements.bounds.toDictionary()
+                resultDict["volumeMm3"] = measurements.volume
+                resultDict["surfaceAreaMm2"] = measurements.area
+            }
+
+        case .chamfer(let p):
+            resultDict["type"] = "chamfer"
+            resultDict["mode"] = p.mode.rawValue
+            resultDict["distance"] = p.distance
+            resultDict["distance2"] = p.distance2
+            resultDict["angle"] = p.angle
             await settleRecomputes(for: [id])
             if let payload = await meshForObject(obj),
                let measurements = SolidVerifier.analyzeMesh(payload, transform: obj.transform).measurements {
@@ -1376,7 +1403,7 @@ public final class CADToolRegistry {
                 diagnostic: nil
             )
 
-        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve:
+        case .box, .cylinder, .sphere, .cone, .torus, .wedge, .boolean, .extrude, .revolve, .chamfer:
             let payload = await meshForObject(obj)
             return SolidVerifier.verify(
                 object: obj,
@@ -1915,6 +1942,14 @@ public final class CADToolRegistry {
             if let axisRef = revolveData.axisReference {
                 dict["axisReference"] = axisRef.id.uuidString
             }
+        case .chamfer(let chamferData):
+            dict["type"] = "chamfer"
+            dict["mode"] = chamferData.mode.rawValue
+            dict["distance"] = chamferData.distance
+            dict["distance2"] = chamferData.distance2
+            dict["angle"] = chamferData.angle
+            dict["targetSolidId"] = chamferData.targetSolidId.rawValue
+            dict["edgeReferences"] = chamferData.edgeReferences.map { $0.id.uuidString }
         case .boolean(let boolData):
             dict["type"] = "boolean"
             dict["operation"] = boolData.op.rawValue

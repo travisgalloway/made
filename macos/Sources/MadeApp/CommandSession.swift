@@ -1386,6 +1386,217 @@ extension CommandSession {
         return session
     }
 
+    static func makeChamfer(
+        workspace: WorkspaceModel,
+        targetSolidId: SolidId? = nil,
+        edgeReferences: [TopologicalReference] = []
+    ) -> CommandSession {
+        let initialSub = workspace.document.selectedSubElement
+        let hasInitialEdge = initialSub?.elementType == .edge
+        let slotName: String?
+        if let initialSub, hasInitialEdge {
+            let baseName = workspace.document.objects.first(where: { $0.id == initialSub.solidId })?.name ?? initialSub.solidId.rawValue
+            slotName = "Edge \(initialSub.elementId) (\(baseName))"
+        } else if !edgeReferences.isEmpty {
+            slotName = "\(edgeReferences.count) edge\(edgeReferences.count == 1 ? "" : "s")"
+        } else {
+            slotName = nil
+        }
+
+        let edgeSlot = CommandSelectionSlot(
+            id: "edges",
+            label: "Edges",
+            isRequired: edgeReferences.isEmpty && !hasInitialEdge,
+            selectedObjectId: targetSolidId,
+            selectedObjectName: slotName,
+            selectedSubElement: hasInitialEdge ? initialSub : nil,
+            isActive: !hasInitialEdge && edgeReferences.isEmpty
+        )
+
+        let inputs: [CommandInput] = [
+            CommandInput(
+                id: "mode",
+                label: "Mode",
+                value: .choice("Equal Distance", options: ["Equal Distance", "Two Distances", "Distance-Angle"])
+            ),
+            CommandInput(
+                id: "distance",
+                label: "Distance",
+                value: .number(1.0, range: DocumentLimits.chamferDistance.min...DocumentLimits.chamferDistance.max, step: 0.5, unit: "mm")
+            ),
+            CommandInput(
+                id: "distance2",
+                label: "Distance 2",
+                value: .number(1.0, range: DocumentLimits.chamferDistance.min...DocumentLimits.chamferDistance.max, step: 0.5, unit: "mm")
+            ),
+            CommandInput(
+                id: "angle",
+                label: "Angle",
+                value: .number(45.0, range: DocumentLimits.chamferAngle.min...DocumentLimits.chamferAngle.max, step: 1.0, unit: "deg")
+            )
+        ]
+
+        let session = CommandSession(
+            title: "Chamfer",
+            selectionSlots: [edgeSlot],
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        func resolveEdges(session: CommandSession) -> [TopologicalReference] {
+            if let slot = session.selectionSlots.first(where: { $0.id == "edges" }),
+               let subEl = slot.selectedSubElement, subEl.elementType == .edge {
+                if let feat = workspace.document.feature(for: subEl.solidId) {
+                    let topRef: TopologicalReference
+                    if let detId = subEl.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                        topRef = existing
+                    } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "edge:\(subEl.elementId)" }) {
+                        topRef = named
+                    } else {
+                        topRef = TopologicalReference(
+                            sourceFeatureId: feat.id,
+                            elementType: .edge,
+                            historyPath: [HistoryStep(kind: .generated, label: "edge:\(subEl.elementId)")]
+                        )
+                    }
+                    return [topRef]
+                }
+            }
+            return edgeReferences
+        }
+
+        func resolveTargetId(session: CommandSession) -> SolidId? {
+            if let slot = session.selectionSlots.first(where: { $0.id == "edges" }) {
+                if let subEl = slot.selectedSubElement {
+                    return subEl.solidId
+                }
+                if let objId = slot.selectedObjectId {
+                    return objId
+                }
+            }
+            return targetSolidId ?? workspace.selectedId ?? workspace.document.objects.first?.id
+        }
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let d1 = session.numberValue(for: "distance") ?? 1.0
+            guard d1 > 0 else { return false }
+            let modeStr = session.choiceValue(for: "mode") ?? "Equal Distance"
+            if modeStr == "Two Distances" {
+                let d2 = session.numberValue(for: "distance2") ?? 1.0
+                guard d2 > 0 else { return false }
+            } else if modeStr == "Distance-Angle" {
+                let ang = session.numberValue(for: "angle") ?? 45.0
+                guard ang > 0 && ang < 90 else { return false }
+            }
+            let refs = resolveEdges(session: session)
+            return !refs.isEmpty
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let modeStr = session.choiceValue(for: "mode") ?? "Equal Distance"
+            let mode: ChamferMode
+            switch modeStr {
+            case "Two Distances": mode = .twoDistances
+            case "Distance-Angle": mode = .distanceAngle
+            default: mode = .equalDistance
+            }
+
+            let dist = session.numberValue(for: "distance") ?? 1.0
+            let dist2 = session.numberValue(for: "distance2") ?? 1.0
+            let angle = session.numberValue(for: "angle") ?? 45.0
+
+            let refs = resolveEdges(session: session)
+            guard !refs.isEmpty, let targetId = resolveTargetId(session: session) else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            Task { @MainActor in
+                let req = KernelRequest.chamfer(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    targetSolidId: targetId,
+                    edgeReferences: refs,
+                    mode: mode,
+                    distance: Double(dist),
+                    distance2: Double(dist2),
+                    angle: Double(angle)
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.9, 0.5, 0.2, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                } else {
+                    if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+        session.onParamChanged = { _, _ in
+            updatePreview()
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            let refs = resolveEdges(session: session)
+            guard !refs.isEmpty, let targetId = resolveTargetId(session: session) else { return }
+
+            let modeStr = session.choiceValue(for: "mode") ?? "Equal Distance"
+            let mode: ChamferMode
+            switch modeStr {
+            case "Two Distances": mode = .twoDistances
+            case "Distance-Angle": mode = .distanceAngle
+            default: mode = .equalDistance
+            }
+
+            let dist = session.numberValue(for: "distance") ?? 1.0
+            let dist2 = session.numberValue(for: "distance2") ?? 1.0
+            let angle = session.numberValue(for: "angle") ?? 45.0
+
+            Task { @MainActor in
+                _ = await workspace.chamferEdges(
+                    targetSolidId: targetId,
+                    edgeReferences: refs,
+                    mode: mode,
+                    distance: Double(dist),
+                    distance2: Double(dist2),
+                    angle: Double(angle)
+                )
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        return session
+    }
+
     static func makeNewSketch(workspace: WorkspaceModel) -> CommandSession {
         let defaultName = "Sketch \(workspace.document.activeFeatures.filter { if case .sketch = $0.operation { return true }; return false }.count + 1)"
         let session = CommandSession(

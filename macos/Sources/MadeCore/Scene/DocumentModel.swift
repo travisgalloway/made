@@ -20,6 +20,8 @@ public enum ObjectDef: Sendable, Equatable {
     case extrude(ExtrudeParams)
     /// A solid revolved from a 2D sketch profile about an axis (BL-PRT-02).
     case revolve(RevolveParams)
+    /// A solid with chamfered edges (BL-PRT-07).
+    case chamfer(ChamferParams)
     
     public var kind: String {
         switch self {
@@ -34,6 +36,7 @@ public enum ObjectDef: Sendable, Equatable {
         case .part: return "part"
         case .extrude: return "extrude"
         case .revolve: return "revolve"
+        case .chamfer: return "chamfer"
         }
     }
 }
@@ -81,6 +84,15 @@ extension ObjectDef {
                 return "±\(Self.formatDim(Float(p.angle / 2.0)))°"
             case .twoDirection:
                 return "\(Self.formatDim(Float(p.angle)))° / \(Self.formatDim(Float(p.angle2)))°"
+            }
+        case .chamfer(let p):
+            switch p.mode {
+            case .equalDistance:
+                return "\(Self.formatDim(Float(p.distance))) mm"
+            case .twoDistances:
+                return "\(Self.formatDim(Float(p.distance))) × \(Self.formatDim(Float(p.distance2))) mm"
+            case .distanceAngle:
+                return "\(Self.formatDim(Float(p.distance))) mm × \(Self.formatDim(Float(p.angle)))°"
             }
         }
     }
@@ -242,6 +254,9 @@ extension ObjectDef: Codable {
         case "revolve":
             let params = try container.decode(RevolveParams.self, forKey: .params)
             self = DocumentLimits.clamp(.revolve(params))
+        case "chamfer":
+            let params = try container.decode(ChamferParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.chamfer(params))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
@@ -298,6 +313,9 @@ extension ObjectDef: Codable {
             try container.encode(params, forKey: .params)
         case .revolve(let params):
             try container.encode("revolve", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .chamfer(let params):
+            try container.encode("chamfer", forKey: .kind)
             try container.encode(params, forKey: .params)
         }
     }
@@ -382,6 +400,8 @@ public enum DocumentLimits {
     public static let wedgeTopWidth = ParamRange(min: 0, max: 90)
     public static let extrudeDistance = ParamRange(min: 0.01, max: 10_000)
     public static let revolveAngle = ParamRange(min: 0.1, max: 360.0)
+    public static let chamferDistance = ParamRange(min: 0.01, max: 10_000)
+    public static let chamferAngle = ParamRange(min: 0.1, max: 89.9)
     
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
@@ -469,6 +489,14 @@ public enum DocumentLimits {
         }
     }
 
+    public static func clampChamfer(key: String, value: Float) -> Float {
+        switch key {
+        case "distance", "distance2": return chamferDistance.clamp(value)
+        case "angle": return chamferAngle.clamp(value)
+        default: return value
+        }
+    }
+
     public static func clamp(_ def: ObjectDef) -> ObjectDef {
         switch def {
         case .box(let p):
@@ -512,6 +540,14 @@ public enum DocumentLimits {
             let clampedAngle2 = revolveAngle.clamp(Float(p.angle2))
             p.angle2 = Double(clampedAngle2)
             return .revolve(p)
+        case .chamfer(var p):
+            let clampedDist = chamferDistance.clamp(Float(p.distance))
+            p.distance = Double(clampedDist)
+            let clampedDist2 = chamferDistance.clamp(Float(p.distance2))
+            p.distance2 = Double(clampedDist2)
+            let clampedAngle = chamferAngle.clamp(Float(p.angle))
+            p.angle = Double(clampedAngle)
+            return .chamfer(p)
         case .imported, .boolean:
             return def
         }
@@ -2822,6 +2858,168 @@ public final class DocumentModel {
         return revolveFeature
     }
 
+    /// Chamfers selected edges on a solid across equal-distance, two-distances, or distance-angle modes (BL-PRT-07).
+    @discardableResult
+    public func chamferEdges(
+        targetSolidId: SolidId,
+        edgeReferences: [TopologicalReference],
+        mode: ChamferMode = .equalDistance,
+        distance: Double = 1.0,
+        distance2: Double = 1.0,
+        angle: Double = 45.0,
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard distance > 0 else {
+            throw DocumentMutationError.invalidOperation("Chamfer distance must be positive")
+        }
+        if mode == .twoDistances {
+            guard distance2 > 0 else {
+                throw DocumentMutationError.invalidOperation("Chamfer distance2 must be positive")
+            }
+        }
+        if mode == .distanceAngle {
+            guard angle > 0 && angle < 90 else {
+                throw DocumentMutationError.invalidOperation("Chamfer angle must be between 0 and 90 degrees")
+            }
+        }
+        guard !edgeReferences.isEmpty else {
+            throw DocumentMutationError.invalidOperation("Chamfer requires at least one edge reference")
+        }
+        guard let targetFeature = features.first(where: { $0.outputSolidId == targetSolidId }) else {
+            throw DocumentMutationError.objectNotFound(targetSolidId)
+        }
+        guard !targetFeature.isLocked else {
+            throw DocumentMutationError.objectLocked(targetSolidId)
+        }
+
+        let clampedDist = Double(DocumentLimits.chamferDistance.clamp(Float(distance)))
+        let clampedDist2 = Double(DocumentLimits.chamferDistance.clamp(Float(distance2)))
+        let clampedAngle = Double(DocumentLimits.chamferAngle.clamp(Float(angle)))
+
+        seq += 1
+        let solidId = ObjectId("chamfer-\(seq)")
+        var exprs: [String: FeatureExpression] = [
+            "distance": FeatureExpression(value: clampedDist)
+        ]
+        if mode == .twoDistances {
+            exprs["distance2"] = FeatureExpression(value: clampedDist2)
+        } else if mode == .distanceAngle {
+            exprs["angle"] = FeatureExpression(value: clampedAngle)
+        }
+
+        var refs: [Reference] = edgeReferences.map { Reference.edge($0) }
+        refs.append(Reference.body(targetSolidId, role: "targetBody"))
+
+        let chamferFeature = Feature(
+            name: "Chamfer \(seq)",
+            operation: .chamfer(ChamferFeatureData(
+                targetSolidId: targetSolidId,
+                mode: mode,
+                distance: clampedDist,
+                distance2: clampedDist2,
+                angle: clampedAngle,
+                edgeReferences: edgeReferences
+            )),
+            inputExpressions: exprs,
+            references: refs,
+            outputSolidId: solidId,
+            bodyOperation: .cut,
+            targetBodyId: targetSolidId,
+            transform: targetFeature.transform,
+            isVisible: true,
+            isLocked: false,
+            material: targetFeature.material
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+        let origTargetVis = targetFeature.isVisible
+
+        features.insert(chamferFeature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = solidId
+        setVisibility(id: targetSolidId, isVisible: false)
+
+        let effectiveActionName = actionName ?? "Chamfer Edges"
+        registerChamferUndo(
+            id: solidId,
+            feature: chamferFeature,
+            targetSolidId: targetSolidId,
+            origTargetVis: origTargetVis,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return chamferFeature
+    }
+
+    private func registerChamferUndo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setVisibility(id: targetSolidId, isVisible: origTargetVis)
+                let res = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                guard case .success = res else { return }
+
+                target.registerChamferRedo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+    }
+
+    private func registerChamferRedo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                guard case .success = res else { return }
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.setVisibility(id: targetSolidId, isVisible: false)
+                target.registerChamferUndo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.added(id))
+            }
+        }
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -2890,6 +3088,13 @@ public final class DocumentModel {
                 if let refId = entity.reference?.referencedFeatureId {
                     result.insert(refId)
                 }
+            }
+        case .chamfer(let c):
+            if let targetFeat = self.feature(for: c.targetSolidId) {
+                result.insert(targetFeat.id)
+            }
+            for edgeRef in c.edgeReferences {
+                result.insert(edgeRef.sourceFeatureId)
             }
         case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
@@ -2977,6 +3182,13 @@ public final class DocumentModel {
             switch key {
             case "angle": return Float(data.angle)
             case "angle2": return Float(data.angle2)
+            default: return nil
+            }
+        case .chamfer(let data):
+            switch key {
+            case "distance": return Float(data.distance)
+            case "distance2": return Float(data.distance2)
+            case "angle": return Float(data.angle)
             default: return nil
             }
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
@@ -3930,6 +4142,22 @@ public final class DocumentModel {
                 clampedValue = value
             }
             feature.operation = .revolve(data)
+
+        case .chamfer(var data):
+            switch key {
+            case "distance":
+                data.distance = Double(DocumentLimits.clampChamfer(key: "distance", value: value))
+                clampedValue = Float(data.distance)
+            case "distance2":
+                data.distance2 = Double(DocumentLimits.clampChamfer(key: "distance2", value: value))
+                clampedValue = Float(data.distance2)
+            case "angle":
+                data.angle = Double(DocumentLimits.clampChamfer(key: "angle", value: value))
+                clampedValue = Float(data.angle)
+            default:
+                clampedValue = value
+            }
+            feature.operation = .chamfer(data)
 
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             clampedValue = value
