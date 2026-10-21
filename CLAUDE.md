@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/roadmap/phases.md` records what is built and what is next.
 - `docs/feature-matrix.md` and `docs/test-plan.md` track every capability by ID, with its status, issue, and tests.
 - `docs/reviews/` holds dated audit reports. `docs/parked-findings.md` holds findings with no ticket.
-- `docs/guides/` covers testing and conventions.
+- `docs/guides/` covers building from source, testing, and conventions.
 - `docs/design-system/` holds the UI tokens (`tokens.json`) and per-view guidelines. Read it before styling a view or picking a viewport color.
 - `docs/architecture/adr/` holds accepted architecture decision records (ADRs).
 

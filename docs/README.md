@@ -21,6 +21,7 @@ Then navigate based on your task:
 | Choosing colors, type, spacing, or styling a view | [design system](./design-system/README.md) |
 | Handling errors or kernel failures | [state and errors](./architecture/state-and-errors.md) |
 | Writing tests or running verification | [testing](./guides/testing.md) |
+| Building from source or modifying dependencies | [building from source](./guides/building-from-source.md) |
 | About to open a PR | [conventions](./guides/conventions.md) |
 | Picking up the next engineering milestone | [roadmap](./roadmap/phases.md) → [Phase 4](./roadmap/phase-4-cad-depth.md) |
 | Checking what is built and what is planned | [feature matrix](./feature-matrix.md) |
@@ -85,7 +86,7 @@ docs/
   architecture/           # Canonical architecture reference specifications
     adr/                  # Accepted architecture decision records
   roadmap/                # Phased delivery status and backlog migration audit
-  guides/                 # Testing and engineering conventions
+  guides/                 # Building from source, testing, and engineering conventions
   archive/web-prototype/  # Archived documentation for original web prototype
   feature-matrix.md       # Implementation status per capability
   test-plan.md            # Test coverage by type
