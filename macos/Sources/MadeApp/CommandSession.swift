@@ -3369,4 +3369,235 @@ extension CommandSession {
 
         return session
     }
+
+    public static func makeMirror(
+        workspace: WorkspaceModel,
+        targetSolidId: SolidId? = nil,
+        planeReference: Reference? = nil,
+        presetPlane: String = "XY Plane",
+        keepOriginal: Bool = true
+    ) -> CommandSession {
+        let initialId = targetSolidId ?? workspace.selectedId ?? workspace.document.selectedSubElement?.solidId ?? workspace.document.objects.first?.id
+        let initialName = initialId.flatMap { id in workspace.document.objects.first(where: { $0.id == id })?.name }
+
+        let targetSlot = CommandSelectionSlot(
+            id: "target",
+            label: "Target Solid",
+            isRequired: true,
+            selectedObjectId: initialId,
+            selectedObjectName: initialName,
+            isActive: initialId == nil
+        )
+
+        var initialPlaneSlotName: String? = nil
+        var initialPlaneObjId: ObjectId? = nil
+        if let planeReference {
+            switch planeReference.target {
+            case .feature(let featId):
+                initialPlaneObjId = ObjectId(featId.uuidString)
+                initialPlaneSlotName = workspace.document.feature(for: featId)?.name ?? "Datum Plane"
+            case .face(let topRef):
+                initialPlaneSlotName = topRef.historyPath.last?.label ?? "Planar Face"
+            default:
+                break
+            }
+        }
+
+        let isFromSelection = presetPlane == "From Selection" || planeReference != nil
+        let actualPreset = isFromSelection ? "From Selection" : presetPlane
+
+        let planeSlot = CommandSelectionSlot(
+            id: "mirrorPlane",
+            label: "Mirror Plane",
+            isRequired: actualPreset == "From Selection",
+            selectedObjectId: initialPlaneObjId,
+            selectedObjectName: initialPlaneSlotName,
+            isActive: actualPreset == "From Selection" && initialPlaneSlotName == nil
+        )
+
+        let inputs: [CommandInput] = [
+            CommandInput(
+                id: "presetPlane",
+                label: "Plane Preset",
+                value: .choice(actualPreset, options: ["XY Plane", "XZ Plane", "YZ Plane", "From Selection"])
+            ),
+            CommandInput(
+                id: "keepOriginal",
+                label: "Keep Original",
+                value: .toggle(keepOriginal)
+            )
+        ]
+
+        let session = CommandSession(
+            title: "Mirror",
+            selectionSlots: [targetSlot, planeSlot],
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        func resolveTargetId(session: CommandSession) -> SolidId? {
+            session.selectionSlots.first(where: { $0.id == "target" })?.selectedObjectId
+        }
+
+        func resolvePlane(session: CommandSession) -> (normal: SIMD3<Double>, origin: SIMD3<Double>, ref: Reference?)? {
+            let choice = session.choiceValue(for: "presetPlane") ?? "XY Plane"
+            switch choice {
+            case "XY Plane":
+                return (normal: SIMD3<Double>(0, 0, 1), origin: SIMD3<Double>(0, 0, 0), ref: nil)
+            case "XZ Plane":
+                return (normal: SIMD3<Double>(0, 1, 0), origin: SIMD3<Double>(0, 0, 0), ref: nil)
+            case "YZ Plane":
+                return (normal: SIMD3<Double>(1, 0, 0), origin: SIMD3<Double>(0, 0, 0), ref: nil)
+            case "From Selection":
+                let planeSlot = session.selectionSlots.first(where: { $0.id == "mirrorPlane" })
+                if let subEl = planeSlot?.selectedSubElement, subEl.elementType == .face {
+                    if let feat = workspace.document.feature(for: subEl.solidId) {
+                        let topRef: TopologicalReference
+                        if let detId = subEl.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                            topRef = existing
+                        } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "face:\(subEl.elementId)" }) {
+                            topRef = named
+                        } else {
+                            topRef = TopologicalReference(
+                                sourceFeatureId: feat.id,
+                                elementType: .face,
+                                historyPath: [HistoryStep(kind: .generated, label: "face:\(subEl.elementId)")]
+                            )
+                        }
+                        let ref = Reference.face(topRef)
+                        if let sketchPlane = try? DatumPlaneEvaluator.resolveBasePlane(from: ref, in: workspace.document) {
+                            return (normal: SIMD3<Double>(sketchPlane.normal), origin: SIMD3<Double>(sketchPlane.origin), ref: ref)
+                        }
+                    }
+                } else if let objId = planeSlot?.selectedObjectId {
+                    let feat = (UUID(uuidString: objId.rawValue).flatMap { workspace.document.feature(for: $0) }) ?? workspace.document.feature(for: objId)
+                    if let feat {
+                        let ref = Reference.feature(feat.id)
+                        if let sketchPlane = try? DatumPlaneEvaluator.resolveBasePlane(from: ref, in: workspace.document) {
+                            return (normal: SIMD3<Double>(sketchPlane.normal), origin: SIMD3<Double>(sketchPlane.origin), ref: ref)
+                        }
+                    }
+                }
+                if let planeReference {
+                    if let sketchPlane = try? DatumPlaneEvaluator.resolveBasePlane(from: planeReference, in: workspace.document) {
+                        return (normal: SIMD3<Double>(sketchPlane.normal), origin: SIMD3<Double>(sketchPlane.origin), ref: planeReference)
+                    }
+                }
+                return nil
+            default:
+                return (normal: SIMD3<Double>(0, 0, 1), origin: SIMD3<Double>(0, 0, 0), ref: nil)
+            }
+        }
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            guard resolveTargetId(session: session) != nil else { return false }
+            let choice = session.choiceValue(for: "presetPlane") ?? "XY Plane"
+            if choice == "From Selection" {
+                let planeSlot = session.selectionSlots.first(where: { $0.id == "mirrorPlane" })
+                let hasSelection = planeSlot?.selectedObjectId != nil || planeSlot?.selectedSubElement != nil || planeReference != nil
+                guard hasSelection else { return false }
+            }
+            guard let plane = resolvePlane(session: session) else { return false }
+            let len = simd_length(plane.normal)
+            guard !len.isNaN, len > 1e-6 else { return false }
+            return true
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            guard let targetId = resolveTargetId(session: session),
+                  let plane = resolvePlane(session: session) else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let keepOrig = session.toggleValue(for: "keepOriginal") ?? true
+
+            let params = MirrorParams(
+                targetSolidId: targetId,
+                targetType: .body,
+                planeNormal: plane.normal,
+                planeOrigin: plane.origin,
+                keepOriginal: keepOrig,
+                planeReference: plane.ref
+            )
+
+            Task { @MainActor in
+                let req = KernelRequest.mirror(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    params: params
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.2, 0.7, 0.9, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                } else {
+                    if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+        session.onParamChanged = { id, _ in
+            if id == "presetPlane" {
+                let isFromSel = session.choiceValue(for: "presetPlane") == "From Selection"
+                if let idx = session.selectionSlots.firstIndex(where: { $0.id == "mirrorPlane" }) {
+                    session.selectionSlots[idx].isRequired = isFromSel
+                    session.selectionSlots[idx].isActive = isFromSel && session.selectionSlots[idx].selectedObjectId == nil && session.selectionSlots[idx].selectedSubElement == nil
+                }
+            }
+            updatePreview()
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            guard let targetId = resolveTargetId(session: session),
+                  let plane = resolvePlane(session: session) else { return }
+
+            let keepOrig = session.toggleValue(for: "keepOriginal") ?? true
+
+            let params = MirrorParams(
+                targetSolidId: targetId,
+                targetType: .body,
+                planeNormal: plane.normal,
+                planeOrigin: plane.origin,
+                keepOriginal: keepOrig,
+                planeReference: plane.ref
+            )
+
+            Task { @MainActor in
+                _ = await workspace.mirrorBody(params: params)
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        return session
+    }
 }

@@ -162,6 +162,8 @@ struct PredictiveCommandPopoverView: View {
             workspace.startHoleCommand()
         case .pattern:
             workspace.startLinearPatternCommand()
+        case .mirror:
+            workspace.startMirrorCommand()
         case .fillet:
             break
         }

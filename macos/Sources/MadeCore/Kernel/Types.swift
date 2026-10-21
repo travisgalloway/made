@@ -563,6 +563,73 @@ public struct PatternParams: Hashable, Equatable, Sendable, Codable {
 
 public typealias PatternFeatureData = PatternParams
 
+public enum MirrorTargetType: String, Sendable, Codable, Equatable, Hashable {
+    case body
+    case feature
+    case face
+}
+
+public struct MirrorParams: Hashable, Equatable, Sendable, Codable {
+    public var targetSolidId: SolidId
+    public var targetType: MirrorTargetType
+    public var planeNormal: SIMD3<Double>
+    public var planeOrigin: SIMD3<Double>
+    public var keepOriginal: Bool
+    public var planeReference: Reference?
+
+    public var normal: [Double] {
+        get { [planeNormal.x, planeNormal.y, planeNormal.z] }
+        set {
+            if newValue.count == 3 {
+                planeNormal = SIMD3<Double>(newValue[0], newValue[1], newValue[2])
+            }
+        }
+    }
+
+    public var origin: [Double] {
+        get { [planeOrigin.x, planeOrigin.y, planeOrigin.z] }
+        set {
+            if newValue.count == 3 {
+                planeOrigin = SIMD3<Double>(newValue[0], newValue[1], newValue[2])
+            }
+        }
+    }
+
+    public init(
+        targetSolidId: SolidId = SolidId(""),
+        targetType: MirrorTargetType = .body,
+        planeNormal: SIMD3<Double> = SIMD3<Double>(0, 0, 1),
+        planeOrigin: SIMD3<Double> = SIMD3<Double>(0, 0, 0),
+        keepOriginal: Bool = true,
+        planeReference: Reference? = nil
+    ) {
+        self.targetSolidId = targetSolidId
+        self.targetType = targetType
+        self.planeNormal = planeNormal
+        self.planeOrigin = planeOrigin
+        self.keepOriginal = keepOriginal
+        self.planeReference = planeReference
+    }
+
+    public init(
+        targetSolidId: SolidId,
+        targetType: MirrorTargetType = .body,
+        planeNormal: [Double],
+        planeOrigin: [Double] = [0, 0, 0],
+        keepOriginal: Bool = true,
+        planeReference: Reference? = nil
+    ) {
+        self.targetSolidId = targetSolidId
+        self.targetType = targetType
+        self.planeNormal = planeNormal.count == 3 ? SIMD3<Double>(planeNormal[0], planeNormal[1], planeNormal[2]) : SIMD3<Double>(0, 0, 1)
+        self.planeOrigin = planeOrigin.count == 3 ? SIMD3<Double>(planeOrigin[0], planeOrigin[1], planeOrigin[2]) : SIMD3<Double>(0, 0, 0)
+        self.keepOriginal = keepOriginal
+        self.planeReference = planeReference
+    }
+}
+
+public typealias MirrorFeatureData = MirrorParams
+
 public enum BooleanOp: String, Sendable, Codable {
     case subtract
     case union
@@ -585,6 +652,7 @@ public enum KernelRequest: Sendable, Codable, Equatable {
     case shell(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, thickness: Double, removedFaceReferences: [TopologicalReference], perFaceOverrides: [FaceThicknessOverride])
     case hole(jobId: JobId, solidId: SolidId, targetSolidId: SolidId, faceReference: TopologicalReference, holeData: HoleFeatureData)
     case pattern(jobId: JobId, solidId: SolidId, params: PatternParams)
+    case mirror(jobId: JobId, solidId: SolidId, params: MirrorParams)
     
     public static func tessellate(jobId: JobId, solidId: SolidId) -> KernelRequest {
         .tessellate(jobId: jobId, solidId: solidId, tolerances: nil)
@@ -612,6 +680,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
             return j
         case .pattern(let j, _, _):
             return j
+        case .mirror(let j, _, _):
+            return j
         }
     }
     
@@ -636,6 +706,8 @@ public enum KernelRequest: Sendable, Codable, Equatable {
         case .hole(_, let s, _, _, _):
             return s
         case .pattern(_, let s, _):
+            return s
+        case .mirror(_, let s, _):
             return s
         }
     }

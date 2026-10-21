@@ -100,6 +100,13 @@ public enum KernelRegeneration {
                 solidId: solidId,
                 params: data
             )
+        case .mirror(let data):
+            guard let solidId = feature.outputSolidId else { return nil }
+            return .mirror(
+                jobId: jobId,
+                solidId: solidId,
+                params: data
+            )
         }
     }
 
@@ -157,6 +164,12 @@ public enum KernelRegeneration {
             )
         case .pattern(let params):
             return .pattern(
+                jobId: jobId,
+                solidId: object.id,
+                params: params
+            )
+        case .mirror(let params):
+            return .mirror(
                 jobId: jobId,
                 solidId: object.id,
                 params: params
@@ -625,6 +638,92 @@ public enum KernelRegeneration {
                 }
             }
 
+            // Evaluate mirror features: resolve base plane dynamically from referenced datum plane or planar face
+            if case .mirror(var mirrorData) = feature.operation {
+                let upstreamIds = document.directDependencies(of: feature)
+                let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
+                if failedParent != nil {
+                    let errorState = FeatureErrorState(
+                        code: "parent-failed",
+                        message: "parent failed",
+                        severity: .warning
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    continue
+                } else if feature.errorState?.code == "parent-failed" {
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                var planeResolved = true
+                if let planeRef = mirrorData.planeReference {
+                    do {
+                        let basePlane = try DatumPlaneEvaluator.resolveBasePlane(from: planeRef, in: document)
+                        mirrorData.planeOrigin = SIMD3<Double>(basePlane.origin)
+                        mirrorData.planeNormal = SIMD3<Double>(basePlane.normal)
+                        feature.operation = .mirror(mirrorData)
+                        _ = document.updateFeature(feature)
+                    } catch {
+                        planeResolved = false
+                        let errorState = FeatureErrorState(
+                            code: "missing-reference",
+                            message: "Missing reference: \(error.localizedDescription)",
+                            severity: .error
+                        )
+                        document.setFeatureError(id: feature.id, error: errorState)
+                        for dep in document.dependentFeatures(referencing: feature.id) {
+                            document.setFeatureError(
+                                id: dep.id,
+                                error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                            )
+                        }
+                    }
+                }
+
+                if !planeResolved {
+                    continue
+                }
+
+                if let brokenErr = ReferenceResolver.validateReferences(for: feature, in: document) {
+                    let errorState = FeatureErrorState(
+                        code: "missing-reference",
+                        message: "Reference broken: \(brokenErr.description)",
+                        severity: .error
+                    )
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                    continue
+                } else if feature.errorState?.code == "missing-reference" || feature.errorState?.code == "reference-broken" {
+                    document.setFeatureError(id: feature.id, error: nil)
+                }
+
+                guard let req = request(for: feature, jobId: JobId("regen-\(UUID().uuidString)")) else { continue }
+                let result = await client.request(req)
+                switch result {
+                case .success:
+                    if let warning = evaluateMirrorWarning(params: mirrorData, in: document) {
+                        document.setFeatureError(id: feature.id, error: warning)
+                    } else {
+                        document.setFeatureError(id: feature.id, error: nil)
+                    }
+                case .failure(_, let err):
+                    guard err.code != .cancelled else { continue }
+                    let errorState = FeatureErrorState(code: err.code.rawValue, message: err.message, severity: .error)
+                    document.setFeatureError(id: feature.id, error: errorState)
+                    for dep in document.dependentFeatures(referencing: feature.id) {
+                        document.setFeatureError(
+                            id: dep.id,
+                            error: FeatureErrorState(code: "parent-failed", message: "parent failed", severity: .warning)
+                        )
+                    }
+                }
+                continue
+            }
+
             // Check upstream parent failures
             let upstreamIds = document.directDependencies(of: feature)
             let failedParent = upstreamIds.compactMap { document.feature(for: $0) }.first { $0.errorState != nil }
@@ -794,6 +893,71 @@ public enum KernelRegeneration {
             dims = SIMD3<Double>(10, 10, 10)
         }
         return abs(dir.x) * dims.x + abs(dir.y) * dims.y + abs(dir.z) * dims.z
+    }
+
+    public static func evaluateMirrorWarning(
+        params: MirrorParams,
+        in document: DocumentModel
+    ) -> FeatureErrorState? {
+        guard let targetFeat = document.feature(for: params.targetSolidId) ?? document.features.first(where: { $0.outputSolidId == params.targetSolidId }) else {
+            return nil
+        }
+        let normalLen = simd_length(params.planeNormal)
+        guard normalLen > 1e-6 else { return nil }
+        let normal = params.planeNormal / normalLen
+        let origin = params.planeOrigin
+
+        let dims: SIMD3<Double>
+        switch targetFeat.operation {
+        case .primitive(.box(let p)):
+            dims = SIMD3<Double>(Double(p.width), Double(p.depth), Double(p.height))
+        case .primitive(.cylinder(let p)):
+            dims = SIMD3<Double>(Double(p.radius * 2), Double(p.radius * 2), Double(p.height))
+        case .primitive(.sphere(let p)):
+            dims = SIMD3<Double>(Double(p.radius * 2), Double(p.radius * 2), Double(p.radius * 2))
+        case .primitive(.cone(let p)):
+            let r = Double(max(p.bottomRadius, p.topRadius))
+            dims = SIMD3<Double>(r * 2, r * 2, Double(p.height))
+        case .primitive(.torus(let p)):
+            let r = Double(p.majorRadius + p.minorRadius)
+            dims = SIMD3<Double>(r * 2, r * 2, Double(p.minorRadius * 2))
+        case .primitive(.wedge(let p)):
+            dims = SIMD3<Double>(Double(p.width), Double(p.depth), Double(p.height))
+        case .extrude(let p):
+            dims = SIMD3<Double>(20, 20, p.distance)
+        case .hole(let p):
+            dims = SIMD3<Double>(Double(p.diameter), Double(p.diameter), p.depth)
+        default:
+            dims = SIMD3<Double>(10, 10, 10)
+        }
+
+        let center = SIMD3<Double>(targetFeat.transform.position)
+        let hx = dims.x / 2.0
+        let hy = dims.y / 2.0
+        let hz = dims.z / 2.0
+
+        var minD: Double = .infinity
+        var maxD: Double = -.infinity
+        for dx in [-hx, hx] {
+            for dy in [-hy, hy] {
+                for dz in [-hz, hz] {
+                    let pt = center + SIMD3<Double>(dx, dy, dz)
+                    let d = simd_dot(pt - origin, normal)
+                    minD = Swift.min(minD, d)
+                    maxD = Swift.max(maxD, d)
+                }
+            }
+        }
+
+        if minD < -1e-4 && maxD > 1e-4 {
+            return FeatureErrorState(
+                code: "cutting-plane-merged",
+                message: "Mirror plane cuts source body; merged via union",
+                severity: .warning
+            )
+        }
+
+        return nil
     }
 }
 

@@ -346,6 +346,10 @@ struct InspectorPanelView: View {
                 if !params.skippedIndices.isEmpty {
                     LabeledContent("Skipped", value: params.skippedIndices.map(String.init).joined(separator: ", "))
                 }
+            case .mirror(let params):
+                LabeledContent("Mirror Plane", value: mirrorPlaneDescription(for: params))
+                LabeledContent("Keep Original", value: params.keepOriginal ? "Yes" : "No")
+                LabeledContent("Target Type", value: params.targetType.rawValue.capitalized)
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):
@@ -376,6 +380,30 @@ struct InspectorPanelView: View {
             }
         } header: {
             sectionHeader("Dimensions")
+        }
+    }
+
+    private func mirrorPlaneDescription(for params: MirrorParams) -> String {
+        if let ref = params.planeReference {
+            switch ref.target {
+            case .feature(let featId):
+                return workspace.document.feature(for: featId)?.name ?? "Datum Plane"
+            case .face(let topRef):
+                return topRef.historyPath.last?.label ?? "Planar Face"
+            default:
+                return "Reference"
+            }
+        } else {
+            let n = params.planeNormal
+            if abs(n.x) > 0.9 {
+                return "YZ Plane"
+            } else if abs(n.y) > 0.9 {
+                return "XZ Plane"
+            } else if abs(n.z) > 0.9 {
+                return "XY Plane"
+            } else {
+                return "Custom Plane"
+            }
         }
     }
 
