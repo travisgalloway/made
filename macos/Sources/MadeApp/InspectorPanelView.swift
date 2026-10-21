@@ -927,9 +927,23 @@ struct InspectorPanelView: View {
                 .accessibilityLabel(label)
                 .accessibilityValue(spoken)
 
-                CommitNumberField(label: label, value: displayValue, width: 52) { userVal in
-                    onChange(InspectorUnitConversion.commitLength(userVal, unit: lengthUnit))
-                }
+                CommitNumberField(
+                    label: label,
+                    value: displayValue,
+                    width: 52,
+                    parameterResolver: { name in
+                        workspace.document.parameter(named: name)?.value
+                    },
+                    commitExpression: { userVal, expr in
+                        let committed: Float
+                        if expr != nil {
+                            committed = Float(userVal)
+                        } else {
+                            committed = Float(InspectorUnitConversion.commitLength(userVal, unit: lengthUnit))
+                        }
+                        workspace.setParam(id, key, committed, expression: expr)
+                    }
+                )
                 .accessibilityLabel(label)
                 .accessibilityValue(spoken)
                 Text(symbol).foregroundStyle(.secondary)
@@ -944,10 +958,13 @@ struct InspectorPanelView: View {
 
 struct DocumentSettingsInspectorView: View {
     @Environment(WorkspaceModel.self) private var workspace
+    @State private var parameterError: String? = nil
+    @State private var showingErrorAlert = false
 
     var body: some View {
         ScrollView {
             Form {
+                parametersSection
                 unitsSection
                 tolerancesSection
                 materialSection
@@ -955,6 +972,68 @@ struct DocumentSettingsInspectorView: View {
             .formStyle(.columns)
             .controlSize(.small)
             .padding()
+        }
+        .alert("Parameter Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(parameterError ?? "")
+        }
+    }
+
+    private var parametersSection: some View {
+        Section {
+            if workspace.document.parameters.isEmpty {
+                Text("No document parameters defined.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text("Name").font(.caption).bold().frame(width: 70, alignment: .leading)
+                        Text("Value").font(.caption).bold().frame(width: 50, alignment: .trailing)
+                        Text("Unit").font(.caption).bold().frame(width: 36, alignment: .leading)
+                        Text("Comment").font(.caption).bold().frame(maxWidth: .infinity, alignment: .leading)
+                        Spacer().frame(width: 24)
+                    }
+                    Divider()
+                    ForEach(workspace.document.parameters) { param in
+                        DocumentParameterRowView(
+                            param: param,
+                            onError: { error in
+                                parameterError = error.localizedDescription
+                                showingErrorAlert = true
+                            }
+                        )
+                    }
+                }
+            }
+
+            Button {
+                addDefaultParameter()
+            } label: {
+                Label("Add Parameter", systemImage: "plus")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        } header: {
+            sectionHeader("Parameters", isFirst: true)
+        }
+    }
+
+    private func addDefaultParameter() {
+        let existing = workspace.document.parameters.map(\.name)
+        var candidate = "param_1"
+        var counter = 1
+        while existing.contains(candidate) {
+            counter += 1
+            candidate = "param_\(counter)"
+        }
+        let newParam = DocumentParameter(name: candidate, value: 10.0, unit: "mm", comment: "")
+        do {
+            try workspace.addParameter(newParam)
+        } catch {
+            parameterError = error.localizedDescription
+            showingErrorAlert = true
         }
     }
 
@@ -1005,7 +1084,7 @@ struct DocumentSettingsInspectorView: View {
                     .fontWeight(.medium)
             }
         } header: {
-            sectionHeader("Units", isFirst: true)
+            sectionHeader("Units", isFirst: false)
         }
     }
 
@@ -1111,6 +1190,134 @@ struct DocumentSettingsInspectorView: View {
             Text(title).font(.headline)
         }
         .padding(.top, 8)
+    }
+}
+
+struct DocumentParameterRowView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let param: DocumentParameter
+    let onError: (Error) -> Void
+
+    @State private var nameDraft: String = ""
+    @State private var valueDraft: String = ""
+    @State private var unitDraft: String = ""
+    @State private var commentDraft: String = ""
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case name, value, unit, comment
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            TextField("Name", text: $nameDraft)
+                .focused($focusedField, equals: .name)
+                .frame(width: 70)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commitName)
+
+            TextField("Value", text: $valueDraft)
+                .focused($focusedField, equals: .value)
+                .frame(width: 50)
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commitValue)
+
+            TextField("Unit", text: $unitDraft)
+                .focused($focusedField, equals: .unit)
+                .frame(width: 36)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commitUnit)
+
+            TextField("Comment", text: $commentDraft)
+                .focused($focusedField, equals: .comment)
+                .frame(maxWidth: .infinity)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commitComment)
+
+            Button(role: .destructive) {
+                do {
+                    try workspace.deleteParameter(id: param.id)
+                } catch {
+                    onError(error)
+                }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Delete \(param.name)")
+        }
+        .onChange(of: focusedField) { oldField, _ in
+            switch oldField {
+            case .name: commitName()
+            case .value: commitValue()
+            case .unit: commitUnit()
+            case .comment: commitComment()
+            case nil: break
+            }
+        }
+        .onAppear {
+            syncFromParam()
+        }
+        .onChange(of: param) { _, _ in
+            syncFromParam()
+        }
+    }
+
+    private func syncFromParam() {
+        nameDraft = param.name
+        valueDraft = String(format: "%.1f", param.value)
+        unitDraft = param.unit
+        commentDraft = param.comment
+    }
+
+    private func commitName() {
+        let trimmed = nameDraft.trimmingCharacters(in: .whitespaces)
+        guard trimmed != param.name else { return }
+        do {
+            try workspace.renameParameter(id: param.id, newName: trimmed)
+        } catch {
+            nameDraft = param.name
+            onError(error)
+        }
+    }
+
+    private func commitValue() {
+        let trimmed = valueDraft.trimmingCharacters(in: .whitespaces)
+        guard let num = Double(trimmed) else {
+            valueDraft = String(format: "%.1f", param.value)
+            onError(DocumentParameterError.emptyValue)
+            return
+        }
+        guard num != param.value else { return }
+        do {
+            try workspace.updateParameter(id: param.id, value: num)
+        } catch {
+            valueDraft = String(format: "%.1f", param.value)
+            onError(error)
+        }
+    }
+
+    private func commitUnit() {
+        let trimmed = unitDraft.trimmingCharacters(in: .whitespaces)
+        guard trimmed != param.unit else { return }
+        do {
+            try workspace.updateParameter(id: param.id, unit: trimmed)
+        } catch {
+            unitDraft = param.unit
+            onError(error)
+        }
+    }
+
+    private func commitComment() {
+        let trimmed = commentDraft.trimmingCharacters(in: .whitespaces)
+        guard trimmed != param.comment else { return }
+        do {
+            try workspace.updateParameter(id: param.id, comment: trimmed)
+        } catch {
+            commentDraft = param.comment
+            onError(error)
+        }
     }
 }
 

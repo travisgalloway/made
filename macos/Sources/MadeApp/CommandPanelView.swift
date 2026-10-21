@@ -69,7 +69,14 @@ struct CommandPanelView: View {
                 Text(input.label)
                     .font(.callout)
                 Spacer()
-                CommitNumberField(label: input.label, value: Double(val), width: 64) { newVal in
+                CommitNumberField(
+                    label: input.label,
+                    value: Double(val),
+                    width: 64,
+                    parameterResolver: { name in
+                        workspace.document.parameter(named: name)?.value
+                    }
+                ) { newVal in
                     session.setNumberValue(Float(newVal), for: input.id)
                 }
                 .accessibilityLabel(input.label)

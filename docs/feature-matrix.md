@@ -56,7 +56,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - KERN-23 is Shipped. Persistent topological naming resolves references through `TopologicalResolver` (#152, ADR-D3).
 - DOC-28 is Shipped. The rollback marker has menu, Navigator, and keyboard entry points, and `cad_rollback` exposes it to agents (AGENT-33, #235).
 - DOC-29 to DOC-32 are Shipped. They cover applied sketch constraints, live inference, minimal-movement drag solving, and over-constraint diagnosis (#37, #198, #197). Driven dimensions are open (#199).
-- DOC-33 is Shipped (#553). DOC-34 is In progress. Feature suppression exists in `DocumentModel` and has no UI entry point (#176).
+- DOC-33 is Shipped (#553). DOC-34 is In progress. Feature suppression exists in `DocumentModel` and has no UI entry point (#176). DOC-35 is Shipped. Document-level parameters table with name, value, unit, comment, feature expression referencing, cascading updates, and package persistence was implemented under #174 (BL-PAR-01).
 - DSL-15 is Shipped. The `MADE_PART_FILE` environment variable and positional `.part.ts`, `.part.js`, and `.made` arguments open files at launch (#427).
 - DSL-16 is Shipped. DSL output targets the ordered feature list in `DocumentModel` as editable features with Inspector and Navigator integration (#332).
 - DSL-11 is Shipped. Multi-statement hierarchies, conditionals, and loops in `@CADShapeBuilder` with binary union tree folding were implemented under #330.
@@ -263,3 +263,4 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | AGENT-36 | (new) A person can undo and redo agent tool calls as individual attributed steps (Undo Agent: <tool name>), with compound boolean operations restoring operand visibility in one step | done | done | done | Shipped | #154 | n/a |
 | DSL-15 | (new) A person can open a part file at launch by passing a .part.ts, .part.js or .made path as a command-line argument or by setting MADE_PART_FILE | done | n/a | done | Shipped | #427 | n/a |
 | DSL-16 | (new) A person or developer can target DSL output directly to the document feature list as editable features in the GUI | done | done | done | Shipped | #332 | n/a |
+| DOC-35 | (new) A person can define named parameters (name, value, unit, comment) at the document level, reference them in numeric inputs, cascade updates to referencing feature expressions and solid geometry, rename parameters across referencing expressions, and delete parameters with reference validation (BL-PAR-01) | done | done | done | Shipped | #174 | n/a |

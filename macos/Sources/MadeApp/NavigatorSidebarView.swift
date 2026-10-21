@@ -64,6 +64,14 @@ struct NavigatorSidebarView: View {
                             }
                         }
                     }
+
+                    if !workspace.document.parameters.isEmpty {
+                        Section("Parameters") {
+                            ForEach(workspace.document.parameters) { param in
+                                NavigatorParameterRow(param: param)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.sidebar)
                 .overlay {
@@ -1002,5 +1010,25 @@ struct NavigatorDatumCoordinateSystemRow: View {
         .accessibilityAction(named: "Delete") {
             workspace.requestDeleteFeature(feature.id)
         }
+    }
+}
+
+struct NavigatorParameterRow: View {
+    let param: DocumentParameter
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "slider.horizontal.below.rectangle")
+                .foregroundStyle(.secondary)
+            Text(param.name)
+                .font(.callout)
+            Spacer()
+            Text("\(param.value, specifier: "%.1f")\(param.unit.isEmpty ? "" : " " + param.unit)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .help(param.comment.isEmpty ? "\(param.name): \(param.value) \(param.unit)" : "\(param.name) (\(param.comment))")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(param.name), \(param.value) \(param.unit)")
     }
 }

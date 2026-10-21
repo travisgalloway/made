@@ -556,6 +556,7 @@ public final class DocumentModel {
     }
     public private(set) var objects: [SceneObject] = []
     public private(set) var bodies: [Body] = []
+    public private(set) var parameters: [DocumentParameter] = []
     public private(set) var settings: DocumentSettings = DocumentSettings()
     private var seq: Int = 1
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
@@ -994,8 +995,9 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = []) {
         undoManager?.removeAllActions()
+        self.parameters = parameters
         features = newFeatures
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), newFeatures.count)
@@ -1021,8 +1023,9 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = []) {
         undoManager?.removeAllActions()
+        self.parameters = parameters
         let convertedFeatures = newObjects.map { Feature(from: $0) }
         features = convertedFeatures
         if let idx = rollbackIndex {
@@ -3226,20 +3229,248 @@ public final class DocumentModel {
         return .success(())
     }
     
+    // MARK: - Document Parameters (BL-PAR-01)
+
+    public func parameter(named name: String) -> DocumentParameter? {
+        parameters.first { $0.name == name }
+    }
+
+    public func parameter(id: UUID) -> DocumentParameter? {
+        parameters.first { $0.id == id }
+    }
+
+    public func referencingFeatures(for parameterName: String) -> [(feature: Feature, key: String)] {
+        var results: [(feature: Feature, key: String)] = []
+        for feature in features {
+            for (key, expr) in feature.inputExpressions {
+                if expr.formula == parameterName {
+                    results.append((feature, key))
+                }
+            }
+        }
+        return results
+    }
+
+    public func addParameter(
+        _ parameter: DocumentParameter,
+        at index: Int? = nil,
+        registerUndo: Bool = true
+    ) throws {
+        try DocumentParameter.validateName(parameter.name, existingNames: parameters.map(\.name))
+        guard !parameter.value.isNaN && !parameter.value.isInfinite else {
+            throw DocumentParameterError.emptyValue
+        }
+        let insertIndex = min(max(0, index ?? parameters.count), parameters.count)
+        parameters.insert(parameter, at: insertIndex)
+
+        if registerUndo {
+            let paramId = parameter.id
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = try? target.deleteParameter(id: paramId, registerUndo: true, allowReferencedOnUndo: true)
+                }
+            }
+            undoManager?.setActionName("Add Parameter")
+            undoStateVersion += 1
+        }
+    }
+
+    public func deleteParameter(
+        id: UUID,
+        registerUndo: Bool = true,
+        allowReferencedOnUndo: Bool = false
+    ) throws {
+        guard let index = parameters.firstIndex(where: { $0.id == id }) else {
+            throw DocumentParameterError.parameterNotFound(id.uuidString)
+        }
+        let param = parameters[index]
+        if !allowReferencedOnUndo {
+            let referencing = referencingFeatures(for: param.name)
+            if !referencing.isEmpty {
+                let referencingNames = referencing.map(\.feature.name).reduce(into: [String]()) { names, name in
+                    if !names.contains(name) { names.append(name) }
+                }
+                throw DocumentParameterError.parameterInUse(name: param.name, referencingFeatures: referencingNames)
+            }
+        }
+
+        parameters.remove(at: index)
+
+        if registerUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = try? target.addParameter(param, at: index, registerUndo: true)
+                }
+            }
+            undoManager?.setActionName("Delete Parameter")
+            undoStateVersion += 1
+        }
+    }
+
+    public func renameParameter(
+        id: UUID,
+        newName: String,
+        registerUndo: Bool = true
+    ) throws {
+        guard let index = parameters.firstIndex(where: { $0.id == id }) else {
+            throw DocumentParameterError.parameterNotFound(id.uuidString)
+        }
+        let oldName = parameters[index].name
+        if oldName == newName {
+            return
+        }
+        try DocumentParameter.validateName(
+            newName,
+            existingNames: parameters.map(\.name),
+            ignoringName: oldName
+        )
+
+        parameters[index].name = newName
+
+        for i in 0..<features.count {
+            var feature = features[i]
+            var updated = false
+            for (key, expr) in feature.inputExpressions {
+                if expr.formula == oldName {
+                    feature.inputExpressions[key] = FeatureExpression(formula: newName, value: expr.value)
+                    updated = true
+                }
+            }
+            if updated {
+                features[i] = feature
+            }
+        }
+
+        if registerUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = try? target.renameParameter(id: id, newName: oldName, registerUndo: true)
+                }
+            }
+            undoManager?.setActionName("Rename Parameter")
+            undoStateVersion += 1
+        }
+    }
+
     @discardableResult
-    public func setParam(id: ObjectId, key: String, value: Float, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
-        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
-            return .failure(.objectNotFound(id))
+    public func updateParameter(
+        id: UUID,
+        value: Double? = nil,
+        unit: String? = nil,
+        comment: String? = nil,
+        registerUndo: Bool = true
+    ) throws -> [ObjectId] {
+        guard let index = parameters.firstIndex(where: { $0.id == id }) else {
+            throw DocumentParameterError.parameterNotFound(id.uuidString)
         }
-        guard !features[index].isLocked else {
-            return .failure(.objectLocked(id))
+        let oldParam = parameters[index]
+        if let value {
+            guard !value.isNaN && !value.isInfinite else {
+                throw DocumentParameterError.emptyValue
+            }
         }
-        guard let oldValue = paramValue(for: id, key: key) else {
-            return .success(())
+
+        let newParam = DocumentParameter(
+            id: id,
+            name: oldParam.name,
+            value: value ?? oldParam.value,
+            unit: unit ?? oldParam.unit,
+            comment: comment ?? oldParam.comment
+        )
+        parameters[index] = newParam
+
+        let valueChanged = (value != nil && value! != oldParam.value)
+        var affectedSolidIds: [ObjectId] = []
+
+        if valueChanged {
+            let oldFeatures = features
+            let referencing = referencingFeatures(for: oldParam.name)
+            let newMagnitude = Float(newParam.value)
+
+            for ref in referencing {
+                guard let fIdx = features.firstIndex(where: { $0.id == ref.feature.id }) else { continue }
+                var feature = features[fIdx]
+                let clampedValue = applyParamValue(to: &feature, key: ref.key, value: newMagnitude)
+                feature.inputExpressions[ref.key] = FeatureExpression(formula: oldParam.name, value: Double(clampedValue))
+                features[fIdx] = feature
+                if let solidId = feature.outputSolidId, !affectedSolidIds.contains(solidId) {
+                    affectedSolidIds.append(solidId)
+                }
+            }
+            syncObjectsFromFeatures()
+
+            if registerUndo {
+                let capturedNewParam = newParam
+                let capturedNewFeatures = features
+                let capturedAffected = affectedSolidIds
+                undoManager?.registerUndo(withTarget: self) { target in
+                    MainActor.assumeIsolated {
+                        target.restoreParameter(
+                            previousParam: oldParam,
+                            previousFeatures: oldFeatures,
+                            redoParam: capturedNewParam,
+                            redoFeatures: capturedNewFeatures,
+                            affectedSolidIds: capturedAffected
+                        )
+                    }
+                }
+                undoManager?.setActionName("Update Parameter")
+                undoStateVersion += 1
+            }
+        } else if registerUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = try? target.updateParameter(
+                        id: id,
+                        value: oldParam.value,
+                        unit: oldParam.unit,
+                        comment: oldParam.comment,
+                        registerUndo: true
+                    )
+                }
+            }
+            undoManager?.setActionName("Update Parameter")
+            undoStateVersion += 1
         }
+
+        return affectedSolidIds
+    }
+
+    private func restoreParameter(
+        previousParam: DocumentParameter,
+        previousFeatures: [Feature],
+        redoParam: DocumentParameter,
+        redoFeatures: [Feature],
+        affectedSolidIds: [ObjectId]
+    ) {
+        guard let index = parameters.firstIndex(where: { $0.id == previousParam.id }) else { return }
+        parameters[index] = previousParam
+        features = previousFeatures
+        syncObjectsFromFeatures()
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.restoreParameter(
+                    previousParam: redoParam,
+                    previousFeatures: redoFeatures,
+                    redoParam: previousParam,
+                    redoFeatures: previousFeatures,
+                    affectedSolidIds: affectedSolidIds
+                )
+            }
+        }
+        undoManager?.setActionName("Update Parameter")
+        undoStateVersion += 1
+
+        for solidId in affectedSolidIds {
+            onUndoRedoMutation?(.paramChanged(solidId, key: "", value: Float(previousParam.value)))
+        }
+    }
+
+    @discardableResult
+    private func applyParamValue(to feature: inout Feature, key: String, value: Float) -> Float {
         let clampedValue: Float
-        var updatedFeature = features[index]
-        switch updatedFeature.operation {
+        switch feature.operation {
         case .primitive(.box(var params)):
             switch key {
             case "width": params.width = DocumentLimits.clampBox(key: "width", value: value)
@@ -3248,9 +3479,8 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = (key == "width" ? params.width : (key == "depth" ? params.depth : params.height))
-            updatedFeature.operation = .primitive(.box(params))
-            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
-            
+            feature.operation = .primitive(.box(params))
+
         case .primitive(.cylinder(var params)):
             switch key {
             case "radius": params.radius = DocumentLimits.clampCylinder(key: "radius", value: value)
@@ -3258,8 +3488,7 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = (key == "radius" ? params.radius : params.height)
-            updatedFeature.operation = .primitive(.cylinder(params))
-            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+            feature.operation = .primitive(.cylinder(params))
 
         case .primitive(.sphere(var params)):
             switch key {
@@ -3267,8 +3496,7 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = params.radius
-            updatedFeature.operation = .primitive(.sphere(params))
-            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+            feature.operation = .primitive(.sphere(params))
 
         case .primitive(.cone(var params)):
             switch key {
@@ -3278,8 +3506,7 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = (key == "bottomRadius" ? params.bottomRadius : (key == "topRadius" ? params.topRadius : params.height))
-            updatedFeature.operation = .primitive(.cone(params))
-            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+            feature.operation = .primitive(.cone(params))
 
         case .primitive(.torus(var params)):
             switch key {
@@ -3288,8 +3515,7 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = (key == "majorRadius" ? params.majorRadius : params.minorRadius)
-            updatedFeature.operation = .primitive(.torus(params))
-            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+            feature.operation = .primitive(.torus(params))
 
         case .primitive(.wedge(var params)):
             switch key {
@@ -3302,9 +3528,8 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = (key == "width" ? params.width : (key == "depth" ? params.depth : (key == "height" ? params.height : params.topWidth)))
-            updatedFeature.operation = .primitive(.wedge(params))
-            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
-            
+            feature.operation = .primitive(.wedge(params))
+
         case .extrude(var data):
             switch key {
             case "distance":
@@ -3312,14 +3537,41 @@ public final class DocumentModel {
             default: break
             }
             clampedValue = Float(data.distance)
-            updatedFeature.operation = .extrude(data)
-            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+            feature.operation = .extrude(data)
 
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
+            clampedValue = value
+        }
+        return clampedValue
+    }
+
+    @discardableResult
+    public func setParam(
+        id: ObjectId,
+        key: String,
+        value: Float,
+        expression: String? = nil,
+        actionName: String? = nil
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
+            return .failure(.objectNotFound(id))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(id))
+        }
+        guard let oldValue = paramValue(for: id, key: key) else {
             return .success(())
         }
+        var updatedFeature = features[index]
+        let clampedValue = applyParamValue(to: &updatedFeature, key: key, value: value)
+        if let expression {
+            updatedFeature.inputExpressions[key] = FeatureExpression(formula: expression, value: Double(clampedValue))
+        } else {
+            updatedFeature.inputExpressions[key] = FeatureExpression(value: clampedValue)
+        }
 
-        if clampedValue == oldValue {
+        let oldExpr = features[index].inputExpressions[key]
+        if clampedValue == oldValue && updatedFeature.inputExpressions[key] == oldExpr {
             return .success(())
         }
 
@@ -3331,7 +3583,7 @@ public final class DocumentModel {
         let effectiveActionName = actionName ?? "Change \(key.capitalized)"
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
-                let res = target.setParam(id: id, key: key, value: oldValue, actionName: effectiveActionName)
+                let res = target.setParam(id: id, key: key, value: oldValue, expression: oldExpr?.formula, actionName: effectiveActionName)
                 guard case .success = res else { return }
                 target.undoManager?.setActionName(effectiveActionName)
                 target.onUndoRedoMutation?(.paramChanged(id, key: key, value: oldValue))
