@@ -1597,6 +1597,405 @@ extension CommandSession {
         return session
     }
 
+    public static func makeHole(
+        workspace: WorkspaceModel,
+        targetSolidId: SolidId? = nil,
+        faceReference: TopologicalReference? = nil,
+        sketchFeatureId: UUID? = nil
+    ) -> CommandSession {
+        let initialSub = workspace.document.selectedSubElement
+        let hasInitialFace = initialSub?.elementType == .face
+        let slotName: String?
+        if let initialSub, hasInitialFace {
+            let baseName = workspace.document.objects.first(where: { $0.id == initialSub.solidId })?.name ?? initialSub.solidId.rawValue
+            slotName = "Face \(initialSub.elementId) (\(baseName))"
+        } else if let faceReference {
+            slotName = faceReference.historyPath.last?.label ?? "Face"
+        } else {
+            slotName = nil
+        }
+
+        let faceSlot = CommandSelectionSlot(
+            id: "face",
+            label: "Face",
+            isRequired: faceReference == nil && !hasInitialFace,
+            selectedObjectId: targetSolidId,
+            selectedObjectName: slotName,
+            selectedSubElement: hasInitialFace ? initialSub : nil,
+            isActive: !hasInitialFace && faceReference == nil
+        )
+
+        let sketchSlot = CommandSelectionSlot(
+            id: "sketch",
+            label: "Sketch Points",
+            isRequired: false,
+            selectedObjectId: sketchFeatureId.map { ObjectId($0.uuidString) },
+            selectedObjectName: sketchFeatureId != nil ? "Sketch" : nil,
+            isActive: false
+        )
+
+        let isoSizes = HoleStandards.isoMetricSizes.map(\.designation)
+        let uncSizes = HoleStandards.uncSizes.map(\.designation)
+        let unfSizes = HoleStandards.unfSizes.map(\.designation)
+        let allSizeOptions = ["M5"] + isoSizes.filter { $0 != "M5" } + uncSizes + unfSizes
+
+        let inputs: [CommandInput] = [
+            CommandInput(
+                id: "type",
+                label: "Type",
+                value: .choice("Simple", options: ["Simple", "Counterbore", "Countersink", "Tapped"])
+            ),
+            CommandInput(
+                id: "standard",
+                label: "Standard",
+                value: .choice("ISO Metric", options: ["ISO Metric", "UNC", "UNF", "Custom"])
+            ),
+            CommandInput(
+                id: "size",
+                label: "Size",
+                value: .choice("M5", options: allSizeOptions)
+            ),
+            CommandInput(
+                id: "termination",
+                label: "Termination",
+                value: .choice("Through All", options: ["Through All", "Blind"])
+            ),
+            CommandInput(
+                id: "diameter",
+                label: "Diameter",
+                value: .number(5.0, range: DocumentLimits.holeDiameter.min...DocumentLimits.holeDiameter.max, step: 0.5, unit: "mm")
+            ),
+            CommandInput(
+                id: "depth",
+                label: "Depth",
+                value: .number(10.0, range: DocumentLimits.holeDepth.min...DocumentLimits.holeDepth.max, step: 0.5, unit: "mm")
+            ),
+            CommandInput(
+                id: "cbDiameter",
+                label: "CB Diameter",
+                value: .number(8.5, range: DocumentLimits.holeDiameter.min...DocumentLimits.holeDiameter.max, step: 0.5, unit: "mm")
+            ),
+            CommandInput(
+                id: "cbDepth",
+                label: "CB Depth",
+                value: .number(5.0, range: DocumentLimits.holeDepth.min...DocumentLimits.holeDepth.max, step: 0.5, unit: "mm")
+            ),
+            CommandInput(
+                id: "csDiameter",
+                label: "CS Diameter",
+                value: .number(10.4, range: DocumentLimits.holeDiameter.min...DocumentLimits.holeDiameter.max, step: 0.5, unit: "mm")
+            ),
+            CommandInput(
+                id: "csAngle",
+                label: "CS Angle",
+                value: .number(90.0, range: DocumentLimits.countersinkAngle.min...DocumentLimits.countersinkAngle.max, step: 1.0, unit: "deg")
+            ),
+            CommandInput(
+                id: "threadClass",
+                label: "Thread Class",
+                value: .choice("6H", options: ["6H", "4H", "2B", "3B"])
+            )
+        ]
+
+        let session = CommandSession(
+            title: "Hole",
+            selectionSlots: [faceSlot, sketchSlot],
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        func resolveFaceRef(session: CommandSession) -> TopologicalReference? {
+            if let slot = session.selectionSlots.first(where: { $0.id == "face" }),
+               let subEl = slot.selectedSubElement, subEl.elementType == .face {
+                if let feat = workspace.document.feature(for: subEl.solidId) {
+                    if let detId = subEl.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                        return existing
+                    } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "face:\(subEl.elementId)" }) {
+                        return named
+                    } else {
+                        return TopologicalReference(
+                            sourceFeatureId: feat.id,
+                            elementType: .face,
+                            historyPath: [HistoryStep(kind: .generated, label: "face:\(subEl.elementId)")]
+                        )
+                    }
+                }
+            }
+            return faceReference
+        }
+
+        func resolveTargetId(session: CommandSession) -> SolidId? {
+            if let slot = session.selectionSlots.first(where: { $0.id == "face" }) {
+                if let subEl = slot.selectedSubElement {
+                    return subEl.solidId
+                }
+                if let objId = slot.selectedObjectId {
+                    return objId
+                }
+            }
+            return targetSolidId ?? workspace.selectedId ?? workspace.document.objects.first?.id
+        }
+
+        func resolveSketchPoints(session: CommandSession) -> [SIMD2<Double>] {
+            var points: [SIMD2<Double>] = []
+            if let slot = session.selectionSlots.first(where: { $0.id == "sketch" }),
+               let objId = slot.selectedObjectId,
+               let feat = workspace.document.features.first(where: { $0.outputSolidId == objId || $0.id.uuidString == objId.rawValue }),
+               case .sketch(let sketchData) = feat.operation {
+                for entity in sketchData.entities where entity.kind == "point" {
+                    if let pos = entity.pointPosition {
+                        points.append(pos)
+                    }
+                }
+            }
+            return points
+        }
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            guard resolveFaceRef(session: session) != nil else { return false }
+            let dia = session.numberValue(for: "diameter") ?? 5.0
+            guard dia > 0 else { return false }
+            let term = session.choiceValue(for: "termination") ?? "Through All"
+            if term == "Blind" {
+                let dep = session.numberValue(for: "depth") ?? 10.0
+                guard dep > 0 else { return false }
+            }
+            let typeStr = session.choiceValue(for: "type") ?? "Simple"
+            if typeStr == "Counterbore" {
+                let cbD = session.numberValue(for: "cbDiameter") ?? 8.5
+                let cbH = session.numberValue(for: "cbDepth") ?? 5.0
+                guard cbD > dia, cbH > 0 else { return false }
+            } else if typeStr == "Countersink" {
+                let csD = session.numberValue(for: "csDiameter") ?? 10.4
+                let csA = session.numberValue(for: "csAngle") ?? 90.0
+                guard csD > dia, csA > 0, csA < 180 else { return false }
+            }
+            let stdStr = session.choiceValue(for: "standard") ?? "ISO Metric"
+            if stdStr != "Custom" {
+                let sizeStr = session.choiceValue(for: "size") ?? "M5"
+                let std: HoleStandard = stdStr == "UNC" ? .unc : (stdStr == "UNF" ? .unf : .isoMetric)
+                guard HoleStandards.lookup(standard: std, designation: sizeStr) != nil else { return false }
+            }
+            return true
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            guard let faceRef = resolveFaceRef(session: session),
+                  let targetId = resolveTargetId(session: session) else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let typeStr = session.choiceValue(for: "type") ?? "Simple"
+            let holeType: HoleType
+            switch typeStr {
+            case "Counterbore": holeType = .counterbore
+            case "Countersink": holeType = .countersink
+            case "Tapped": holeType = .tapped
+            default: holeType = .simple
+            }
+
+            let stdStr = session.choiceValue(for: "standard") ?? "ISO Metric"
+            let standard: HoleStandard
+            switch stdStr {
+            case "UNC": standard = .unc
+            case "UNF": standard = .unf
+            case "Custom": standard = .custom
+            default: standard = .isoMetric
+            }
+
+            let sizeDesignation = standard == .custom ? nil : (session.choiceValue(for: "size") ?? "M5")
+            let isThrough = (session.choiceValue(for: "termination") ?? "Through All") == "Through All"
+            let dia = Double(session.numberValue(for: "diameter") ?? 5.0)
+            let dep = Double(session.numberValue(for: "depth") ?? 10.0)
+            let cbD = Double(session.numberValue(for: "cbDiameter") ?? 8.5)
+            let cbH = Double(session.numberValue(for: "cbDepth") ?? 5.0)
+            let csD = Double(session.numberValue(for: "csDiameter") ?? 10.4)
+            let csA = Double(session.numberValue(for: "csAngle") ?? 90.0)
+            let threadClass = session.choiceValue(for: "threadClass") ?? "6H"
+
+            let threadMeta: ThreadMetadata?
+            if holeType == .tapped {
+                let pitch: Double
+                if let sizeDesignation, let stdSize = HoleStandards.lookup(standard: standard, designation: sizeDesignation) {
+                    pitch = stdSize.pitch
+                } else {
+                    pitch = 1.0
+                }
+                threadMeta = ThreadMetadata(
+                    designation: sizeDesignation ?? "M\(dia)",
+                    pitch: pitch,
+                    threadDepth: dep,
+                    threadClass: threadClass,
+                    isRightHand: true
+                )
+            } else {
+                threadMeta = nil
+            }
+
+            let points = resolveSketchPoints(session: session)
+            let holeData = HoleFeatureData(
+                targetSolidId: targetId,
+                faceReference: faceRef,
+                sketchFeatureId: sketchFeatureId,
+                points: points,
+                holeType: holeType,
+                standard: standard,
+                sizeDesignation: sizeDesignation,
+                diameter: dia,
+                depth: dep,
+                isThrough: isThrough,
+                counterboreDiameter: cbD,
+                counterboreDepth: cbH,
+                countersinkDiameter: csD,
+                countersinkAngle: csA,
+                drillTipAngle: nil,
+                threadMetadata: threadMeta
+            )
+
+            Task { @MainActor in
+                let req = KernelRequest.hole(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    targetSolidId: targetId,
+                    faceReference: faceRef,
+                    holeData: holeData
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.9, 0.5, 0.2, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                } else {
+                    if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+        session.onParamChanged = { [weak session] inputId, _ in
+            guard let session else { return }
+            if inputId == "size" || inputId == "standard" {
+                let stdStr = session.choiceValue(for: "standard") ?? "ISO Metric"
+                let sizeStr = session.choiceValue(for: "size") ?? "M5"
+                let std: HoleStandard = stdStr == "UNC" ? .unc : (stdStr == "UNF" ? .unf : (stdStr == "Custom" ? .custom : .isoMetric))
+                if let size = HoleStandards.lookup(standard: std, designation: sizeStr) {
+                    session.setNumberValue(Float(size.normalClearanceDiameter), for: "diameter")
+                    session.setNumberValue(Float(size.counterboreDiameter), for: "cbDiameter")
+                    session.setNumberValue(Float(size.counterboreDepth), for: "cbDepth")
+                    session.setNumberValue(Float(size.countersinkDiameter), for: "csDiameter")
+                    session.setNumberValue(Float(size.countersinkAngle), for: "csAngle")
+                }
+            }
+            updatePreview()
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            guard let faceRef = resolveFaceRef(session: session),
+                  let targetId = resolveTargetId(session: session) else { return }
+
+            let typeStr = session.choiceValue(for: "type") ?? "Simple"
+            let holeType: HoleType
+            switch typeStr {
+            case "Counterbore": holeType = .counterbore
+            case "Countersink": holeType = .countersink
+            case "Tapped": holeType = .tapped
+            default: holeType = .simple
+            }
+
+            let stdStr = session.choiceValue(for: "standard") ?? "ISO Metric"
+            let standard: HoleStandard
+            switch stdStr {
+            case "UNC": standard = .unc
+            case "UNF": standard = .unf
+            case "Custom": standard = .custom
+            default: standard = .isoMetric
+            }
+
+            let sizeDesignation = standard == .custom ? nil : (session.choiceValue(for: "size") ?? "M5")
+            let isThrough = (session.choiceValue(for: "termination") ?? "Through All") == "Through All"
+            let dia = Double(session.numberValue(for: "diameter") ?? 5.0)
+            let dep = Double(session.numberValue(for: "depth") ?? 10.0)
+            let cbD = Double(session.numberValue(for: "cbDiameter") ?? 8.5)
+            let cbH = Double(session.numberValue(for: "cbDepth") ?? 5.0)
+            let csD = Double(session.numberValue(for: "csDiameter") ?? 10.4)
+            let csA = Double(session.numberValue(for: "csAngle") ?? 90.0)
+            let threadClass = session.choiceValue(for: "threadClass") ?? "6H"
+
+            let threadMeta: ThreadMetadata?
+            if holeType == .tapped {
+                let pitch: Double
+                if let sizeDesignation, let stdSize = HoleStandards.lookup(standard: standard, designation: sizeDesignation) {
+                    pitch = stdSize.pitch
+                } else {
+                    pitch = 1.0
+                }
+                threadMeta = ThreadMetadata(
+                    designation: sizeDesignation ?? "M\(dia)",
+                    pitch: pitch,
+                    threadDepth: dep,
+                    threadClass: threadClass,
+                    isRightHand: true
+                )
+            } else {
+                threadMeta = nil
+            }
+
+            let points = resolveSketchPoints(session: session)
+
+            Task { @MainActor in
+                _ = await workspace.holeBody(
+                    targetSolidId: targetId,
+                    faceReference: faceRef,
+                    sketchFeatureId: sketchFeatureId,
+                    points: points,
+                    holeType: holeType,
+                    standard: standard,
+                    sizeDesignation: sizeDesignation,
+                    diameter: dia,
+                    depth: dep,
+                    isThrough: isThrough,
+                    counterboreDiameter: cbD,
+                    counterboreDepth: cbH,
+                    countersinkDiameter: csD,
+                    countersinkAngle: csA,
+                    drillTipAngle: nil,
+                    threadMetadata: threadMeta
+                )
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        return session
+    }
+
     public static func makeShell(
         workspace: WorkspaceModel,
         targetSolidId: SolidId? = nil,

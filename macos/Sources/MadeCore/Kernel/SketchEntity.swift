@@ -120,6 +120,40 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         )
     }
 
+    public static func point(
+        id: UUID = UUID(),
+        position: SIMD2<Double>,
+        isConstruction: Bool = false,
+        reference: Reference? = nil
+    ) -> SketchEntity {
+        SketchEntity(
+            id: id,
+            kind: "point",
+            data: [
+                "x": position.x,
+                "y": position.y
+            ],
+            isConstruction: isConstruction,
+            reference: reference
+        )
+    }
+
+    public var pointPosition: SIMD2<Double>? {
+        get {
+            guard let x = data["x"], let y = data["y"] else { return nil }
+            return SIMD2<Double>(x, y)
+        }
+        set {
+            if let newValue {
+                data["x"] = newValue.x
+                data["y"] = newValue.y
+            } else {
+                data.removeValue(forKey: "x")
+                data.removeValue(forKey: "y")
+            }
+        }
+    }
+
     public var startPoint: SIMD2<Double>? {
         get {
             guard let sx = data["startX"], let sy = data["startY"] else { return nil }

@@ -308,6 +308,31 @@ struct InspectorPanelView: View {
                 if !params.perFaceOverrides.isEmpty {
                     LabeledContent("Overrides", value: "\(params.perFaceOverrides.count)")
                 }
+            case .hole(let params):
+                LabeledContent("Type", value: params.holeType.displayName)
+                LabeledContent("Standard", value: params.standard.displayName)
+                if let size = params.sizeDesignation {
+                    LabeledContent("Size", value: size)
+                }
+                paramField("Diameter", Float(params.diameter), DocumentLimits.holeDiameter, id: obj.id, key: "diameter") { workspace.setParam(obj.id, "diameter", $0) }
+                if params.isThrough {
+                    LabeledContent("Termination", value: "Through All")
+                } else {
+                    paramField("Depth", Float(params.depth), DocumentLimits.holeDepth, id: obj.id, key: "depth") { workspace.setParam(obj.id, "depth", $0) }
+                }
+                if params.holeType == .counterbore {
+                    paramField("C'Bore Dia", Float(params.counterboreDiameter), DocumentLimits.holeDiameter, id: obj.id, key: "counterboreDiameter") { workspace.setParam(obj.id, "counterboreDiameter", $0) }
+                    paramField("C'Bore Depth", Float(params.counterboreDepth), DocumentLimits.holeDepth, id: obj.id, key: "counterboreDepth") { workspace.setParam(obj.id, "counterboreDepth", $0) }
+                } else if params.holeType == .countersink {
+                    paramField("C'Sink Dia", Float(params.countersinkDiameter), DocumentLimits.holeDiameter, id: obj.id, key: "countersinkDiameter") { workspace.setParam(obj.id, "countersinkDiameter", $0) }
+                    paramField("C'Sink Angle", Float(params.countersinkAngle), DocumentLimits.countersinkAngle, id: obj.id, key: "countersinkAngle") { workspace.setParam(obj.id, "countersinkAngle", $0) }
+                }
+                if let thread = params.threadMetadata {
+                    LabeledContent("Thread", value: "\(thread.designation) (pitch: \(thread.pitch.formatted(.number.precision(.fractionLength(2))))mm)")
+                    if !thread.threadClass.isEmpty {
+                        LabeledContent("Class", value: thread.threadClass)
+                    }
+                }
             case .imported(let name, _, _):
                 LabeledContent("Imported Mesh", value: name)
             case .boolean(let op, let solidA, let solidB):

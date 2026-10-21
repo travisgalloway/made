@@ -450,7 +450,7 @@ public func computeResizedParameters(
     case .extrude(let params):
         let d = DocumentLimits.clampExtrude(key: "distance", value: Float(params.distance) * scale.z)
         return [("distance", d)]
-    case .imported, .boolean, .part, .revolve, .chamfer, .shell:
+    case .imported, .boolean, .part, .revolve, .chamfer, .shell, .hole:
         return []
     }
 }

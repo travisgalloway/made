@@ -24,7 +24,7 @@ import simd
 
     @Test func testPlanarFaceCommandAvailability() {
         let commands = PredictiveCommandProvider.availableCommands(for: .face, isPlanarFace: true)
-        #expect(commands.count == 2)
+        #expect(commands.count == 3)
         let pushPull = commands.first(where: { $0.id == .pushPull })
         #expect(pushPull?.id == .pushPull)
         #expect(pushPull?.title == "Push-Pull")
@@ -35,6 +35,11 @@ import simd
         #expect(shell?.title == "Shell")
         #expect(shell?.isEnabled == true)
         #expect(shell?.disabledReason == nil)
+        let hole = commands.first(where: { $0.id == .hole })
+        #expect(hole?.id == .hole)
+        #expect(hole?.title == "Hole")
+        #expect(hole?.isEnabled == true)
+        #expect(hole?.disabledReason == nil)
         #expect(commands.contains(where: { $0.id == .fillet }) == false)
     }
 

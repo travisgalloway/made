@@ -1096,6 +1096,37 @@ final class WorkspaceModel {
         ))
     }
 
+    func startHoleCommand() {
+        var targetSolidId: SolidId? = nil
+        var initialFaceRef: TopologicalReference? = nil
+        if let sub = document.selectedSubElement, sub.elementType == .face {
+            targetSolidId = sub.solidId
+            if let feat = document.feature(for: sub.solidId) {
+                if let detId = sub.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                    initialFaceRef = existing
+                } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "face:\(sub.elementId)" }) {
+                    initialFaceRef = named
+                } else {
+                    initialFaceRef = TopologicalReference(
+                        sourceFeatureId: feat.id,
+                        elementType: .face,
+                        historyPath: [HistoryStep(kind: .generated, label: "face:\(sub.elementId)")]
+                    )
+                }
+            }
+        } else if let selectedId {
+            targetSolidId = selectedId
+        } else if let firstObj = document.objects.first {
+            targetSolidId = firstObj.id
+        }
+
+        startCommand(CommandSession.makeHole(
+            workspace: self,
+            targetSolidId: targetSolidId,
+            faceReference: initialFaceRef
+        ))
+    }
+
     public func boundingBoxes(for solidId: SolidId) -> (axisAligned: AxisAlignedBoundingBox, oriented: OrientedBoundingBox)? {
         let candidates = viewportManager.renderer?.candidateMeshes() ?? []
         return BoundingBoxCalculator.boxes(for: solidId, in: document, candidateMeshes: candidates)
@@ -1313,6 +1344,54 @@ final class WorkspaceModel {
                 perFaceOverrides: perFaceOverrides
             )
             guard let solidId = shellFeature.outputSolidId else { return nil }
+            selectedId = solidId
+            markDocumentModified()
+            recomputeSolid(id: solidId)
+            return solidId
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func holeBody(
+        targetSolidId: SolidId,
+        faceReference: TopologicalReference,
+        sketchFeatureId: UUID? = nil,
+        points: [SIMD2<Double>] = [],
+        holeType: HoleType = .simple,
+        standard: HoleStandard = .custom,
+        sizeDesignation: String? = nil,
+        diameter: Double = 5.0,
+        depth: Double = 10.0,
+        isThrough: Bool = true,
+        counterboreDiameter: Double = 0.0,
+        counterboreDepth: Double = 0.0,
+        countersinkDiameter: Double = 0.0,
+        countersinkAngle: Double = 90.0,
+        drillTipAngle: Double? = nil,
+        threadMetadata: ThreadMetadata? = nil
+    ) async -> ObjectId? {
+        do {
+            let holeFeature = try document.holeBody(
+                targetSolidId: targetSolidId,
+                faceReference: faceReference,
+                sketchFeatureId: sketchFeatureId,
+                points: points,
+                holeType: holeType,
+                standard: standard,
+                sizeDesignation: sizeDesignation,
+                diameter: diameter,
+                depth: depth,
+                isThrough: isThrough,
+                counterboreDiameter: counterboreDiameter,
+                counterboreDepth: counterboreDepth,
+                countersinkDiameter: countersinkDiameter,
+                countersinkAngle: countersinkAngle,
+                drillTipAngle: drillTipAngle,
+                threadMetadata: threadMetadata
+            )
+            guard let solidId = holeFeature.outputSolidId else { return nil }
             selectedId = solidId
             markDocumentModified()
             recomputeSolid(id: solidId)

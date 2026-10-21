@@ -1047,6 +1047,104 @@ extension WorkspaceModelTests {
         session.cancel()
         #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
     }
+
+    @Test @MainActor func testMakeHoleLifecycle() async {
+        let workspace = WorkspaceModel()
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-hole-test"),
+            name: "Plate",
+            params: BoxParams(width: 20, depth: 20, height: 10)
+        )
+        workspace.document.addFeature(boxFeat)
+        guard let faceRef = boxFeat.generatedTopology["face:top"] else {
+            Issue.record("Missing face:top reference")
+            return
+        }
+
+        let session = CommandSession.makeHole(
+            workspace: workspace,
+            targetSolidId: boxFeat.outputSolidId,
+            faceReference: faceRef
+        )
+        #expect(session.canCommit)
+        #expect(session.numberValue(for: "diameter") == 5.0)
+
+        session.setNumberValue(6.0, for: "diameter")
+        #expect(session.canCommit)
+
+        let initialDocCount = workspace.document.objects.count
+        session.commit()
+
+        await Task.yield()
+
+        #expect(workspace.document.objects.count == initialDocCount + 1)
+        let added = workspace.document.objects.last
+        #expect(workspace.selectedId == added?.id)
+        if case .hole(let params)? = added?.def {
+            #expect(params.diameter == 6.0)
+            #expect(params.isThrough == true)
+        } else {
+            Issue.record("Expected .hole def on scene object")
+        }
+    }
+
+    @Test @MainActor func testMakeHoleValidation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeHole(workspace: workspace)
+        #expect(!session.canCommit)
+
+        let boxFeat = Feature.makeBox(
+            solidId: ObjectId("box-hole-val"),
+            name: "Box",
+            params: BoxParams(width: 20, depth: 20, height: 20)
+        )
+        workspace.document.addFeature(boxFeat)
+        guard let faceRef = boxFeat.generatedTopology["face:top"] else {
+            Issue.record("Missing face:top reference")
+            return
+        }
+
+        let sessionWithFace = CommandSession.makeHole(
+            workspace: workspace,
+            targetSolidId: boxFeat.outputSolidId,
+            faceReference: faceRef
+        )
+        #expect(sessionWithFace.canCommit)
+
+        sessionWithFace.setNumberValue(-1.0, for: "diameter")
+        #expect(!sessionWithFace.canCommit)
+
+        sessionWithFace.setNumberValue(0.0, for: "diameter")
+        #expect(!sessionWithFace.canCommit)
+
+        sessionWithFace.setNumberValue(5.0, for: "diameter")
+        #expect(sessionWithFace.canCommit)
+
+        sessionWithFace.setChoiceValue("Blind", for: "termination")
+        sessionWithFace.setNumberValue(0.0, for: "depth")
+        #expect(!sessionWithFace.canCommit)
+
+        sessionWithFace.setNumberValue(8.0, for: "depth")
+        #expect(sessionWithFace.canCommit)
+
+        sessionWithFace.setChoiceValue("Counterbore", for: "type")
+        sessionWithFace.setNumberValue(4.0, for: "cbDiameter") // cbD <= dia (5.0)
+        #expect(!sessionWithFace.canCommit)
+
+        sessionWithFace.setNumberValue(8.0, for: "cbDiameter")
+        sessionWithFace.setNumberValue(0.0, for: "cbDepth")
+        #expect(!sessionWithFace.canCommit)
+
+        sessionWithFace.setNumberValue(3.0, for: "cbDepth")
+        #expect(sessionWithFace.canCommit)
+    }
+
+    @Test @MainActor func testMakeHoleCancellation() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeHole(workspace: workspace)
+        session.cancel()
+        #expect(workspace.viewportManager.renderer?.candidateMeshes().contains(where: { $0.id == CommandSession.previewSolidId }) != true)
+    }
 }
 
 }
