@@ -98,6 +98,9 @@ struct NavigatorSidebarView: View {
                 }
                 .contextMenu(forSelectionType: ObjectId.self) { ids in
                     if let id = ids.first, let body = workspace.document.body(for: id) {
+                        Button("Edit Feature…") { workspace.startEditFeature(for: id) }
+                            .disabled(body.isLocked)
+                        Divider()
                         let obj = workspace.document.objects.first(where: { $0.id == id })
                         if let obj, case .part = obj.def {
                             Button("Convert to Features") {
@@ -423,6 +426,9 @@ private struct NavigatorRow: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            workspace.startEditFeature(for: bodyItem.id)
+        }
         .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(bodyItem.name), \(object?.def.kind ?? "Solid"), ID \(bodyItem.id.rawValue)\(object.map { ", \($0.parameterSummary)" } ?? "")\(errorState.map { ", \($0.severity == .warning ? "Warning" : "Error"): \($0.message)" } ?? "")")
