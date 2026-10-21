@@ -3277,6 +3277,7 @@ public final class DocumentModel {
         registerUndo: Bool = true
     ) throws {
         try DocumentParameter.validateName(parameter.name, existingNames: parameters.map(\.name))
+        try DocumentParameter.validateRange(min: parameter.min, max: parameter.max)
 
         var paramToInsert = parameter
         if let expr = parameter.expression, !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -3296,6 +3297,12 @@ public final class DocumentModel {
 
         guard !paramToInsert.value.isNaN && !paramToInsert.value.isInfinite else {
             throw DocumentParameterError.emptyValue
+        }
+        if let min = parameter.min, paramToInsert.value < min {
+            throw DocumentParameterError.valueOutOfRange(value: paramToInsert.value, min: parameter.min, max: parameter.max)
+        }
+        if let max = parameter.max, paramToInsert.value > max {
+            throw DocumentParameterError.valueOutOfRange(value: paramToInsert.value, min: parameter.min, max: parameter.max)
         }
         let insertIndex = min(max(0, index ?? parameters.count), parameters.count)
         parameters.insert(paramToInsert, at: insertIndex)
@@ -3417,7 +3424,10 @@ public final class DocumentModel {
         value: Double? = nil,
         unit: String? = nil,
         comment: String? = nil,
-        expression: String? = nil,
+        expression: String?? = nil,
+        min: Double?? = nil,
+        max: Double?? = nil,
+        step: Double?? = nil,
         registerUndo: Bool = true
     ) throws -> [ObjectId] {
         guard let index = parameters.firstIndex(where: { $0.id == id }) else {
@@ -3425,10 +3435,16 @@ public final class DocumentModel {
         }
         let oldParam = parameters[index]
 
+        let targetMin: Double? = (min != nil) ? min! : oldParam.min
+        let targetMax: Double? = (max != nil) ? max! : oldParam.max
+        let targetStep: Double? = (step != nil) ? step! : oldParam.step
+
+        try DocumentParameter.validateRange(min: targetMin, max: targetMax)
+
         var targetValue = value ?? oldParam.value
         var targetUnit = unit ?? oldParam.unit
         let targetComment = comment ?? oldParam.comment
-        let targetExpression = (expression != nil) ? expression : oldParam.expression
+        let targetExpression = (expression != nil) ? expression! : oldParam.expression
 
         if let expr = targetExpression, !expr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let refs = try ExpressionEvaluator.extractReferencedParameters(from: expr)
@@ -3448,13 +3464,25 @@ public final class DocumentModel {
             throw DocumentParameterError.emptyValue
         }
 
+        if value != nil || expression != nil {
+            if let tMin = targetMin, targetValue < tMin {
+                throw DocumentParameterError.valueOutOfRange(value: targetValue, min: targetMin, max: targetMax)
+            }
+            if let tMax = targetMax, targetValue > tMax {
+                throw DocumentParameterError.valueOutOfRange(value: targetValue, min: targetMin, max: targetMax)
+            }
+        }
+
         let newParam = DocumentParameter(
             id: id,
             name: oldParam.name,
             value: targetValue,
             unit: targetUnit,
             comment: targetComment,
-            expression: targetExpression
+            expression: targetExpression,
+            min: targetMin,
+            max: targetMax,
+            step: targetStep
         )
         parameters[index] = newParam
 
@@ -3529,7 +3557,10 @@ public final class DocumentModel {
                         value: oldParam.value,
                         unit: oldParam.unit,
                         comment: oldParam.comment,
-                        expression: oldParam.expression,
+                        expression: .some(oldParam.expression),
+                        min: .some(oldParam.min),
+                        max: .some(oldParam.max),
+                        step: .some(oldParam.step),
                         registerUndo: true
                     )
                 }

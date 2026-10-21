@@ -2972,8 +2972,26 @@ final class WorkspaceModel {
         markDocumentModified()
     }
 
-    func updateParameter(id: UUID, value: Double? = nil, unit: String? = nil, comment: String? = nil) throws {
-        let affected = try document.updateParameter(id: id, value: value, unit: unit, comment: comment)
+    func updateParameter(
+        id: UUID,
+        value: Double? = nil,
+        unit: String? = nil,
+        comment: String? = nil,
+        expression: String?? = nil,
+        min: Double?? = nil,
+        max: Double?? = nil,
+        step: Double?? = nil
+    ) throws {
+        let affected = try document.updateParameter(
+            id: id,
+            value: value,
+            unit: unit,
+            comment: comment,
+            expression: expression,
+            min: min,
+            max: max,
+            step: step
+        )
         markDocumentModified()
         for solidId in affected {
             recomputeSolid(id: solidId)

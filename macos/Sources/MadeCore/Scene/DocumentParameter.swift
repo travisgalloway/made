@@ -8,6 +8,9 @@ public struct DocumentParameter: Identifiable, Sendable, Codable, Equatable {
     public var unit: String
     public var comment: String
     public var expression: String?
+    public var min: Double?
+    public var max: Double?
+    public var step: Double?
 
     public init(
         id: UUID = UUID(),
@@ -15,7 +18,10 @@ public struct DocumentParameter: Identifiable, Sendable, Codable, Equatable {
         value: Double,
         unit: String = "",
         comment: String = "",
-        expression: String? = nil
+        expression: String? = nil,
+        min: Double? = nil,
+        max: Double? = nil,
+        step: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -23,10 +29,13 @@ public struct DocumentParameter: Identifiable, Sendable, Codable, Equatable {
         self.unit = unit
         self.comment = comment
         self.expression = expression
+        self.min = min
+        self.max = max
+        self.step = step
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, value, unit, comment, expression
+        case id, name, value, unit, comment, expression, min, max, step
     }
 
     public init(from decoder: Decoder) throws {
@@ -37,6 +46,9 @@ public struct DocumentParameter: Identifiable, Sendable, Codable, Equatable {
         self.unit = try container.decodeIfPresent(String.self, forKey: .unit) ?? ""
         self.comment = try container.decodeIfPresent(String.self, forKey: .comment) ?? ""
         self.expression = try container.decodeIfPresent(String.self, forKey: .expression)
+        self.min = try container.decodeIfPresent(Double.self, forKey: .min)
+        self.max = try container.decodeIfPresent(Double.self, forKey: .max)
+        self.step = try container.decodeIfPresent(Double.self, forKey: .step)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -47,6 +59,9 @@ public struct DocumentParameter: Identifiable, Sendable, Codable, Equatable {
         try container.encode(unit, forKey: .unit)
         try container.encode(comment, forKey: .comment)
         try container.encodeIfPresent(expression, forKey: .expression)
+        try container.encodeIfPresent(min, forKey: .min)
+        try container.encodeIfPresent(max, forKey: .max)
+        try container.encodeIfPresent(step, forKey: .step)
     }
 
     /// Reserved unit symbols that cannot be used as parameter identifiers.
@@ -88,6 +103,37 @@ public struct DocumentParameter: Identifiable, Sendable, Codable, Equatable {
             }
         }
     }
+
+    /// Validates that minimum does not exceed maximum when both bounds are present.
+    public static func validateRange(min: Double?, max: Double?) throws {
+        if let min, let max, min > max {
+            throw DocumentParameterError.invalidRange(min: min, max: max)
+        }
+    }
+
+    /// Returns true when value violates configured min or max bounds.
+    public var isOutOfRange: Bool {
+        if let min, value < min {
+            return true
+        }
+        if let max, value > max {
+            return true
+        }
+        return false
+    }
+
+    /// Formatted diagnostic message matching CommitFieldError when value violates range bounds.
+    public var rangeErrorMessage: String? {
+        guard isOutOfRange else { return nil }
+        if let min, let max {
+            return "Value must be between \(min) and \(max)."
+        } else if let min {
+            return "Value must be at least \(min)."
+        } else if let max {
+            return "Value must be at most \(max)."
+        }
+        return "Value is out of range."
+    }
 }
 
 /// Errors thrown during document parameter mutations and validation.
@@ -99,6 +145,8 @@ public enum DocumentParameterError: Error, Equatable, LocalizedError, Sendable {
     case parameterNotFound(String)
     case parameterInUse(name: String, referencingFeatures: [String])
     case referenceCycle([String])
+    case invalidRange(min: Double, max: Double)
+    case valueOutOfRange(value: Double, min: Double?, max: Double?)
 
     public var errorDescription: String? {
         switch self {
@@ -116,6 +164,17 @@ public enum DocumentParameterError: Error, Equatable, LocalizedError, Sendable {
             return "Cannot delete parameter '\(name)' because it is referenced by: \(referencingFeatures.joined(separator: ", "))."
         case .referenceCycle(let cycle):
             return "Circular reference detected: \(cycle.joined(separator: " -> "))."
+        case .invalidRange(let min, let max):
+            return "Minimum value (\(min)) cannot be greater than maximum value (\(max))."
+        case .valueOutOfRange(let value, let min, let max):
+            if let min, let max {
+                return "Value \(value) is out of range. Value must be between \(min) and \(max)."
+            } else if let min {
+                return "Value \(value) is out of range. Value must be at least \(min)."
+            } else if let max {
+                return "Value \(value) is out of range. Value must be at most \(max)."
+            }
+            return "Value \(value) is out of range."
         }
     }
 }
