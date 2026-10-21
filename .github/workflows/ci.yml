@@ -41,10 +41,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: macos/.build
-          key: spm-v8-${{ runner.os }}-swift-${{ hashFiles('macos/Package.resolved') }}
+          key: spm-v9-${{ runner.os }}-swift-${{ hashFiles('macos/Package.resolved') }}
           restore-keys: |
-            spm-v8-${{ runner.os }}-swift-
-            spm-v8-${{ runner.os }}-
+            spm-v9-${{ runner.os }}-swift-
+
+      - name: Purge stale build metadata
+        run: rm -rf .build/out/Intermediates.noindex/XCBuildData macos/.build/out/Intermediates.noindex/XCBuildData
 
       # Swift Build compiles Shaders.metal into default.metallib; the native build system only copies it.
       - name: Build
@@ -73,10 +75,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: macos/.build
-          key: spm-v8-${{ runner.os }}-ui-${{ hashFiles('macos/Package.resolved') }}
+          key: spm-v9-${{ runner.os }}-ui-${{ hashFiles('macos/Package.resolved') }}
           restore-keys: |
-            spm-v8-${{ runner.os }}-ui-
-            spm-v8-${{ runner.os }}-
+            spm-v9-${{ runner.os }}-ui-
+
+      - name: Purge stale build metadata
+        run: rm -rf .build/out/Intermediates.noindex/XCBuildData macos/.build/out/Intermediates.noindex/XCBuildData
 
       - name: Run panel UI tests
         run: make test-ui
