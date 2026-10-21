@@ -54,7 +54,8 @@ let package = Package(
             dependencies: ["MadeCore"],
             path: "Tests/MadeCoreTests",
             resources: [
-                .copy("Fixtures")
+                .copy("Fixtures"),
+                .copy("Resources")
             ]
         ),
         .testTarget(

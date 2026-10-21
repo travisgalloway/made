@@ -12,6 +12,12 @@ enum OCCTEngine {
         case tessellationFailed
     }
 
+    enum ExchangeFormat: String, Sendable, CaseIterable, Codable {
+        case step
+        case iges
+        case stl
+    }
+
     /// Imports a STEP file from raw binary data into an OCCT B-Rep Shape, scaling to millimeters.
     ///
     /// Writes the data to a temporary file, invokes OCCT's STEP reader with system unit scaling (defaulting
@@ -26,15 +32,97 @@ enum OCCTEngine {
         defer {
             try? FileManager.default.removeItem(at: tempURL)
         }
+        return try importStep(from: tempURL, unitInMeters: unitInMeters)
+    }
 
+    /// Imports a STEP file from a file URL into an OCCT B-Rep Shape, scaling to millimeters.
+    static func importStep(from url: URL, unitInMeters: Double = 0.001) throws -> Shape {
         do {
-            return try Shape.loadSTEP(from: tempURL, unitInMeters: unitInMeters)
+            return try Shape.loadSTEP(from: url, unitInMeters: unitInMeters)
         } catch {
             do {
-                return try Shape.loadRobust(fromPath: tempURL.path)
+                return try Shape.loadRobust(fromPath: url.path)
             } catch {
                 throw EngineError.parseFailed("Failed to parse STEP geometry: \(error)")
             }
+        }
+    }
+
+    /// Imports an IGES file from raw binary data into an OCCT B-Rep Shape.
+    static func importIges(data: Data) throws -> Shape {
+        guard !data.isEmpty else {
+            throw EngineError.emptyData
+        }
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".iges")
+        try data.write(to: tempURL)
+        defer {
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+        return try importIges(from: tempURL)
+    }
+
+    /// Imports an IGES file from a file URL into an OCCT B-Rep Shape.
+    static func importIges(from url: URL) throws -> Shape {
+        do {
+            return try Shape.loadIGES(from: url)
+        } catch {
+            do {
+                return try Shape.loadIGESRobust(from: url)
+            } catch {
+                throw EngineError.parseFailed("Failed to parse IGES geometry: \(error)")
+            }
+        }
+    }
+
+    /// Imports an STL file from raw binary or ASCII data into an OCCT B-Rep Shape.
+    static func importStl(data: Data) throws -> Shape {
+        guard !data.isEmpty else {
+            throw EngineError.emptyData
+        }
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".stl")
+        try data.write(to: tempURL)
+        defer {
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+        return try importStl(from: tempURL)
+    }
+
+    /// Imports an STL file from a file URL into an OCCT B-Rep Shape.
+    static func importStl(from url: URL) throws -> Shape {
+        do {
+            return try Shape.loadSTL(from: url)
+        } catch {
+            do {
+                return try Shape.loadSTLRobust(from: url)
+            } catch {
+                throw EngineError.parseFailed("Failed to parse STL geometry: \(error)")
+            }
+        }
+    }
+
+    /// Imports a model from raw data for the specified exchange format into an OCCT B-Rep Shape.
+    static func importShape(data: Data, format: ExchangeFormat, unitInMeters: Double = 0.001) throws -> Shape {
+        switch format {
+        case .step:
+            return try importStep(data: data, unitInMeters: unitInMeters)
+        case .iges:
+            return try importIges(data: data)
+        case .stl:
+            return try importStl(data: data)
+        }
+    }
+
+    /// Imports a model from a file URL for the specified exchange format into an OCCT B-Rep Shape.
+    static func importShape(from url: URL, format: ExchangeFormat, unitInMeters: Double = 0.001) throws -> Shape {
+        switch format {
+        case .step:
+            return try importStep(from: url, unitInMeters: unitInMeters)
+        case .iges:
+            return try importIges(from: url)
+        case .stl:
+            return try importStl(from: url)
         }
     }
 
@@ -442,12 +530,17 @@ enum OCCTEngine {
         }
     }
 
-    static func measureShape(data: Data) throws -> (volume: Double, min: SIMD3<Double>, max: SIMD3<Double>) {
-        let shape = try importStep(data: data)
-        guard let vol = shape.volume, let bb = shape.boundingBox else {
+    static func measureShape(_ shape: Shape) throws -> (volume: Double, min: SIMD3<Double>, max: SIMD3<Double>) {
+        let vol = shape.volume ?? shape.sewn()?.volume
+        guard let vol, let bb = shape.boundingBox else {
             throw EngineError.tessellationFailed
         }
         return (vol, bb.min, bb.max)
+    }
+
+    static func measureShape(data: Data, format: ExchangeFormat = .step, unitInMeters: Double = 0.001) throws -> (volume: Double, min: SIMD3<Double>, max: SIMD3<Double>) {
+        let shape = try importShape(data: data, format: format, unitInMeters: unitInMeters)
+        return try measureShape(shape)
     }
 
     static func solidCount(data: Data) throws -> Int {
