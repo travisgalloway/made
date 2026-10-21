@@ -110,7 +110,7 @@ enum OCCTEngine {
                 return try importStep(data: fileData)
             }
             throw EngineError.emptyData
-        case .boolean, .extrude, .revolve, .part, .chamfer:
+        case .boolean, .extrude, .revolve, .part, .chamfer, .shell:
             throw EngineError.tessellationFailed
         }
     }
@@ -332,6 +332,73 @@ enum OCCTEngine {
 
         guard let result = builder.build(), result.isValid else {
             throw KernelError(code: .geometryFailed, message: "Chamfer failed: distance may be larger than adjacent face")
+        }
+        return result
+    }
+
+    /// Hollows an OCCT shape to uniform wall thickness with optional removed open faces and per-face thickness overrides.
+    static func shell(
+        shape: Shape,
+        thickness: Double,
+        removedFaceReferences: [TopologicalReference],
+        perFaceOverrides: [FaceThicknessOverride]
+    ) throws -> Shape {
+        guard thickness > 0 else {
+            throw KernelError(code: .invalidParams, message: "Shell thickness must be greater than zero")
+        }
+        guard let bbox = shape.boundingBox else {
+            throw KernelError(code: .geometryFailed, message: "Failed to compute bounding box for shell")
+        }
+        let minDimension = min(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y, bbox.max.z - bbox.min.z)
+        guard thickness <= minDimension / 2.0 else {
+            throw KernelError(
+                code: .geometryFailed,
+                message: "Shell thickness \(thickness) exceeds half of smallest dimension (\(minDimension / 2.0))"
+            )
+        }
+        for override in perFaceOverrides {
+            guard override.thickness > 0 else {
+                throw KernelError(code: .invalidParams, message: "Face thickness override must be greater than zero")
+            }
+            guard override.thickness <= minDimension / 2.0 else {
+                throw KernelError(
+                    code: .geometryFailed,
+                    message: "Shell override thickness \(override.thickness) exceeds half of smallest dimension (\(minDimension / 2.0))"
+                )
+            }
+        }
+
+        var openFaces: [Face] = []
+        for ref in removedFaceReferences {
+            let face = try TopologicalResolver.resolveFace(in: shape, reference: ref)
+            guard face.isPlanar else {
+                throw KernelError(code: .geometryFailed, message: "Removed face must be planar for shell operation")
+            }
+            openFaces.append(face)
+        }
+
+        let shelled: Shape?
+        if !openFaces.isEmpty {
+            shelled = shape.shelled(thickness: -abs(thickness), openFaces: openFaces)
+        } else if !perFaceOverrides.isEmpty {
+            var overridesMap: [Int: Double] = [:]
+            for override in perFaceOverrides {
+                let face = try TopologicalResolver.resolveFace(in: shape, reference: override.faceReference)
+                overridesMap[face.index] = -abs(override.thickness)
+            }
+            if let inner = shape.offsetPerFace(defaultOffset: -abs(thickness), faceOffsets: overridesMap) {
+                shelled = shape.subtracting(inner)
+            } else {
+                shelled = nil
+            }
+        } else {
+            shelled = shape.shelled(thickness: -abs(thickness))
+                ?? shape.offset(by: -abs(thickness), joinType: .intersection).flatMap { shape.subtracting($0) }
+                ?? shape.offset(by: -abs(thickness)).flatMap { shape.subtracting($0) }
+        }
+
+        guard let result = shelled, result.isValid else {
+            throw KernelError(code: .geometryFailed, message: "Shell operation failed to produce a valid shape")
         }
         return result
     }

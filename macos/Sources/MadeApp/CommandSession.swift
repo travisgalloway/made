@@ -1597,6 +1597,181 @@ extension CommandSession {
         return session
     }
 
+    public static func makeShell(
+        workspace: WorkspaceModel,
+        targetSolidId: SolidId? = nil,
+        removedFaceReferences: [TopologicalReference] = [],
+        initialThickness: Double = 1.0
+    ) -> CommandSession {
+        let initialSub = workspace.document.selectedSubElement
+        let hasInitialFace = initialSub?.elementType == .face
+        let slotName: String?
+        if let initialSub, hasInitialFace {
+            let baseName = workspace.document.objects.first(where: { $0.id == initialSub.solidId })?.name ?? initialSub.solidId.rawValue
+            slotName = "Face \(initialSub.elementId) (\(baseName))"
+        } else if !removedFaceReferences.isEmpty {
+            slotName = "\(removedFaceReferences.count) face\(removedFaceReferences.count == 1 ? "" : "s")"
+        } else {
+            slotName = nil
+        }
+
+        let faceSlot = CommandSelectionSlot(
+            id: "faces",
+            label: "Open Faces",
+            isRequired: false,
+            selectedObjectId: targetSolidId,
+            selectedObjectName: slotName,
+            selectedSubElement: hasInitialFace ? initialSub : nil,
+            isActive: false
+        )
+
+        let inputs: [CommandInput] = [
+            CommandInput(
+                id: "thickness",
+                label: "Thickness",
+                value: .number(
+                    Float(initialThickness),
+                    range: DocumentLimits.shellThickness.min...DocumentLimits.shellThickness.max,
+                    step: 0.5,
+                    unit: "mm"
+                )
+            )
+        ]
+
+        let session = CommandSession(
+            title: "Shell",
+            selectionSlots: [faceSlot],
+            inputs: inputs,
+            isPreviewEnabled: true
+        )
+
+        func resolveFaces(session: CommandSession) -> [TopologicalReference] {
+            if let slot = session.selectionSlots.first(where: { $0.id == "faces" }),
+               let subEl = slot.selectedSubElement, subEl.elementType == .face {
+                if let feat = workspace.document.feature(for: subEl.solidId) {
+                    let topRef: TopologicalReference
+                    if let detId = subEl.deterministicId, let existing = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                        topRef = existing
+                    } else if let named = feat.generatedTopology.values.first(where: { $0.historyPath.last?.label == "face:\(subEl.elementId)" }) {
+                        topRef = named
+                    } else {
+                        topRef = TopologicalReference(
+                            sourceFeatureId: feat.id,
+                            elementType: .face,
+                            historyPath: [HistoryStep(kind: .generated, label: "face:\(subEl.elementId)")]
+                        )
+                    }
+                    return [topRef]
+                }
+            }
+            return removedFaceReferences
+        }
+
+        func resolveTargetId(session: CommandSession) -> SolidId? {
+            if let slot = session.selectionSlots.first(where: { $0.id == "faces" }) {
+                if let subEl = slot.selectedSubElement {
+                    return subEl.solidId
+                }
+                if let objId = slot.selectedObjectId {
+                    return objId
+                }
+            }
+            return targetSolidId
+        }
+
+        session.customValidation = { [weak session] in
+            guard let session else { return false }
+            let t = session.numberValue(for: "thickness") ?? 1.0
+            guard t > 0 else { return false }
+            guard resolveTargetId(session: session) != nil else { return false }
+            return true
+        }
+
+        let updatePreview: @MainActor () -> Void = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            guard session.isPreviewEnabled else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let thick = session.numberValue(for: "thickness") ?? 1.0
+            guard thick > 0 else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            guard let targetId = resolveTargetId(session: session) else {
+                _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+                workspace.invalidateViewport(.interaction)
+                return
+            }
+
+            let refs = resolveFaces(session: session)
+
+            Task { @MainActor in
+                let req = KernelRequest.shell(
+                    jobId: JobId("preview-\(UUID().uuidString)"),
+                    solidId: Self.previewSolidId,
+                    targetSolidId: targetId,
+                    thickness: Double(thick),
+                    removedFaceReferences: refs,
+                    perFaceOverrides: []
+                )
+                let result = await workspace.kernelClient.request(req)
+                if case .success(_, let payload) = result, !payload.isEmpty {
+                    let previewColor = SIMD4<Float>(0.9, 0.5, 0.2, 0.75)
+                    _ = workspace.viewportManager.renderer?.installMesh(
+                        payload,
+                        for: Self.previewSolidId,
+                        transform: .identity,
+                        color: previewColor,
+                        isHidden: false
+                    )
+                    workspace.invalidateViewport(.interaction)
+                } else {
+                    if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                        workspace.invalidateViewport(.interaction)
+                    }
+                }
+            }
+        }
+
+        session.onPreviewUpdate = updatePreview
+        session.onParamChanged = { _, _ in
+            updatePreview()
+        }
+
+        session.onCommit = { [weak workspace, weak session] in
+            guard let workspace, let session else { return }
+            _ = workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId)
+            workspace.invalidateViewport(.interaction)
+
+            guard let targetId = resolveTargetId(session: session) else { return }
+            let refs = resolveFaces(session: session)
+            let thick = session.numberValue(for: "thickness") ?? 1.0
+
+            Task { @MainActor in
+                _ = await workspace.shellBody(
+                    targetSolidId: targetId,
+                    thickness: Double(thick),
+                    removedFaceReferences: refs,
+                    perFaceOverrides: []
+                )
+            }
+        }
+
+        session.onCancel = { [weak workspace] in
+            guard let workspace else { return }
+            if workspace.viewportManager.renderer?.removeMesh(for: Self.previewSolidId) == true {
+                workspace.invalidateViewport(.interaction)
+            }
+        }
+
+        return session
+    }
+
     static func makeNewSketch(workspace: WorkspaceModel) -> CommandSession {
         let defaultName = "Sketch \(workspace.document.activeFeatures.filter { if case .sketch = $0.operation { return true }; return false }.count + 1)"
         let session = CommandSession(

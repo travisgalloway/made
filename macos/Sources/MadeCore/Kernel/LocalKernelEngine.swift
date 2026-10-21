@@ -241,6 +241,16 @@ public actor LocalKernelEngine: KernelEngine {
                 angle: angle,
                 jobId: jobId
             )
+
+        case .shell(let jobId, let solidId, let targetSolidId, let thickness, let removedFaceRefs, let perFaceOverrides):
+            return await shell(
+                solidId: solidId,
+                targetSolidId: targetSolidId,
+                thickness: thickness,
+                removedFaceReferences: removedFaceRefs,
+                perFaceOverrides: perFaceOverrides,
+                jobId: jobId
+            )
         }
     }
     
@@ -343,6 +353,47 @@ public actor LocalKernelEngine: KernelEngine {
             return .failure(jobId: jobId, error: kernelError)
         } catch {
             return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Chamfer failed: \(error)"))
+        }
+    }
+
+    public func shell(
+        solidId: SolidId,
+        targetSolidId: SolidId? = nil,
+        thickness: Double,
+        removedFaceReferences: [TopologicalReference],
+        perFaceOverrides: [FaceThicknessOverride] = [],
+        jobId: JobId? = nil
+    ) async -> KernelResult<MeshPayload> {
+        let jobId = jobId ?? JobId("shell-\(UUID().uuidString)")
+        guard thickness > 0 else {
+            return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Shell thickness must be greater than zero"))
+        }
+        for override in perFaceOverrides {
+            guard override.thickness > 0 else {
+                return .failure(jobId: jobId, error: KernelError(code: .invalidParams, message: "Face thickness override must be greater than zero"))
+            }
+        }
+        let targetId = targetSolidId ?? solidId
+        guard let shape = occtShapes[targetId] ?? occtShapes[solidId] else {
+            return .failure(jobId: jobId, error: KernelError(code: .unknownSolid, message: "Solid '\(targetId)' not found"))
+        }
+        do {
+            let shelledShape = try OCCTEngine.shell(
+                shape: shape,
+                thickness: thickness,
+                removedFaceReferences: removedFaceReferences,
+                perFaceOverrides: perFaceOverrides
+            )
+            guard let payload = OCCTEngine.toMeshPayload(shelledShape) else {
+                return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Failed to tessellate shelled geometry"))
+            }
+            occtShapes[solidId] = shelledShape
+            solids[solidId] = payload
+            return .success(jobId: jobId, value: payload)
+        } catch let kernelError as KernelError {
+            return .failure(jobId: jobId, error: kernelError)
+        } catch {
+            return .failure(jobId: jobId, error: KernelError(code: .geometryFailed, message: "Shell failed: \(error)"))
         }
     }
 

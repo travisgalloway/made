@@ -223,6 +223,11 @@ struct SolidMenuCommands: Commands {
             }
             .disabled(workspace.document.objects.isEmpty)
 
+            Button("Shell…") {
+                workspace.startShellCommand()
+            }
+            .disabled(workspace.document.objects.isEmpty)
+
             Divider()
 
             Button("New Ground Sketch") {

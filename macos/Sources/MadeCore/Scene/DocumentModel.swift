@@ -22,6 +22,8 @@ public enum ObjectDef: Sendable, Equatable {
     case revolve(RevolveParams)
     /// A solid with chamfered edges (BL-PRT-07).
     case chamfer(ChamferParams)
+    /// A solid shelled to uniform wall thickness (BL-PRT-08).
+    case shell(ShellParams)
     
     public var kind: String {
         switch self {
@@ -37,6 +39,7 @@ public enum ObjectDef: Sendable, Equatable {
         case .extrude: return "extrude"
         case .revolve: return "revolve"
         case .chamfer: return "chamfer"
+        case .shell: return "shell"
         }
     }
 }
@@ -94,6 +97,8 @@ extension ObjectDef {
             case .distanceAngle:
                 return "\(Self.formatDim(Float(p.distance))) mm × \(Self.formatDim(Float(p.angle)))°"
             }
+        case .shell(let p):
+            return "\(Self.formatDim(Float(p.thickness))) mm"
         }
     }
 
@@ -257,6 +262,9 @@ extension ObjectDef: Codable {
         case "chamfer":
             let params = try container.decode(ChamferParams.self, forKey: .params)
             self = DocumentLimits.clamp(.chamfer(params))
+        case "shell":
+            let params = try container.decode(ShellParams.self, forKey: .params)
+            self = DocumentLimits.clamp(.shell(params))
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ObjectDef kind: '\(kind)'")
@@ -316,6 +324,9 @@ extension ObjectDef: Codable {
             try container.encode(params, forKey: .params)
         case .chamfer(let params):
             try container.encode("chamfer", forKey: .kind)
+            try container.encode(params, forKey: .params)
+        case .shell(let params):
+            try container.encode("shell", forKey: .kind)
             try container.encode(params, forKey: .params)
         }
     }
@@ -402,6 +413,7 @@ public enum DocumentLimits {
     public static let revolveAngle = ParamRange(min: 0.1, max: 360.0)
     public static let chamferDistance = ParamRange(min: 0.01, max: 10_000)
     public static let chamferAngle = ParamRange(min: 0.1, max: 89.9)
+    public static let shellThickness = ParamRange(min: 0.01, max: 10_000)
     
     /// World position bound per axis in mm, enforced on agent tool arguments.
     public static let position = ParamRange(min: -10_000, max: 10_000)
@@ -497,6 +509,13 @@ public enum DocumentLimits {
         }
     }
 
+    public static func clampShell(key: String, value: Float) -> Float {
+        switch key {
+        case "thickness": return shellThickness.clamp(value)
+        default: return value
+        }
+    }
+
     public static func clamp(_ def: ObjectDef) -> ObjectDef {
         switch def {
         case .box(let p):
@@ -548,6 +567,13 @@ public enum DocumentLimits {
             let clampedAngle = chamferAngle.clamp(Float(p.angle))
             p.angle = Double(clampedAngle)
             return .chamfer(p)
+        case .shell(var p):
+            let clampedThickness = shellThickness.clamp(Float(p.thickness))
+            p.thickness = Double(clampedThickness)
+            for i in p.perFaceOverrides.indices {
+                p.perFaceOverrides[i].thickness = Double(shellThickness.clamp(Float(p.perFaceOverrides[i].thickness)))
+            }
+            return .shell(p)
         case .imported, .boolean:
             return def
         }
@@ -3020,6 +3046,155 @@ public final class DocumentModel {
         }
     }
 
+    /// Hollows a solid body to uniform wall thickness with optional removed open faces and per-face thickness overrides (BL-PRT-08).
+    @discardableResult
+    public func shellBody(
+        targetSolidId: SolidId,
+        thickness: Double = 1.0,
+        removedFaceReferences: [TopologicalReference] = [],
+        perFaceOverrides: [FaceThicknessOverride] = [],
+        actionName: String? = nil
+    ) throws -> Feature {
+        guard thickness > 0 else {
+            throw DocumentMutationError.invalidOperation("Shell thickness must be positive")
+        }
+        for override in perFaceOverrides {
+            guard override.thickness > 0 else {
+                throw DocumentMutationError.invalidOperation("Shell face thickness override must be positive")
+            }
+        }
+        guard let targetFeature = features.first(where: { $0.outputSolidId == targetSolidId }) else {
+            throw DocumentMutationError.objectNotFound(targetSolidId)
+        }
+        guard !targetFeature.isLocked else {
+            throw DocumentMutationError.objectLocked(targetSolidId)
+        }
+
+        let clampedThickness = Double(DocumentLimits.shellThickness.clamp(Float(thickness)))
+        let clampedOverrides = perFaceOverrides.map {
+            FaceThicknessOverride(faceReference: $0.faceReference, thickness: Double(DocumentLimits.shellThickness.clamp(Float($0.thickness))))
+        }
+
+        seq += 1
+        let solidId = ObjectId("shell-\(seq)")
+        let exprs: [String: FeatureExpression] = [
+            "thickness": FeatureExpression(value: clampedThickness)
+        ]
+
+        var refs: [Reference] = removedFaceReferences.map { Reference.face($0) }
+        for override in clampedOverrides {
+            refs.append(Reference.face(override.faceReference))
+        }
+        refs.append(Reference.body(targetSolidId, role: "targetBody"))
+
+        let shellFeature = Feature(
+            name: "Shell \(seq)",
+            operation: .shell(ShellFeatureData(
+                targetSolidId: targetSolidId,
+                thickness: clampedThickness,
+                removedFaceReferences: removedFaceReferences,
+                perFaceOverrides: clampedOverrides
+            )),
+            inputExpressions: exprs,
+            references: refs,
+            outputSolidId: solidId,
+            bodyOperation: .cut,
+            targetBodyId: targetSolidId,
+            transform: targetFeature.transform,
+            isVisible: true,
+            isLocked: false,
+            material: targetFeature.material
+        )
+
+        let insertIndex = effectiveRollbackIndex
+        let previousRollback = rollbackIndex
+        let origTargetVis = targetFeature.isVisible
+
+        features.insert(shellFeature, at: insertIndex)
+        if previousRollback != nil {
+            rollbackIndex = insertIndex + 1
+        }
+        selectedId = solidId
+        setVisibility(id: targetSolidId, isVisible: false)
+
+        let effectiveActionName = actionName ?? "Shell Body"
+        registerShellUndo(
+            id: solidId,
+            feature: shellFeature,
+            targetSolidId: targetSolidId,
+            origTargetVis: origTargetVis,
+            previousRollback: previousRollback,
+            insertIndex: insertIndex,
+            actionName: effectiveActionName
+        )
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+        return shellFeature
+    }
+
+    private func registerShellUndo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setVisibility(id: targetSolidId, isVisible: origTargetVis)
+                let res = target.removeFeature(id: feature.id, registerUndo: false)
+                target.rollbackIndex = previousRollback
+                guard case .success = res else { return }
+
+                target.registerShellRedo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.removed(id))
+            }
+        }
+    }
+
+    private func registerShellRedo(
+        id: ObjectId,
+        feature: Feature,
+        targetSolidId: SolidId,
+        origTargetVis: Bool,
+        previousRollback: Int?,
+        insertIndex: Int,
+        actionName: String
+    ) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                let res = target.insertFeature(feature, at: insertIndex, registerUndo: false)
+                guard case .success = res else { return }
+                if previousRollback != nil {
+                    target.rollbackIndex = insertIndex + 1
+                }
+                target.setVisibility(id: targetSolidId, isVisible: false)
+                target.registerShellUndo(
+                    id: id,
+                    feature: feature,
+                    targetSolidId: targetSolidId,
+                    origTargetVis: origTargetVis,
+                    previousRollback: previousRollback,
+                    insertIndex: insertIndex,
+                    actionName: actionName
+                )
+                target.undoManager?.setActionName(actionName)
+                target.onUndoRedoMutation?(.added(id))
+            }
+        }
+    }
+
     // MARK: - Reference Resolution (BL-FND-02, BL-FND-03)
 
     /// Resolves an input reference in the context of this document.
@@ -3095,6 +3270,16 @@ public final class DocumentModel {
             }
             for edgeRef in c.edgeReferences {
                 result.insert(edgeRef.sourceFeatureId)
+            }
+        case .shell(let s):
+            if let targetFeat = self.feature(for: s.targetSolidId) {
+                result.insert(targetFeat.id)
+            }
+            for faceRef in s.removedFaceReferences {
+                result.insert(faceRef.sourceFeatureId)
+            }
+            for override in s.perFaceOverrides {
+                result.insert(override.faceReference.sourceFeatureId)
             }
         case .primitive, .part, .imported, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             break
@@ -3189,6 +3374,11 @@ public final class DocumentModel {
             case "distance": return Float(data.distance)
             case "distance2": return Float(data.distance2)
             case "angle": return Float(data.angle)
+            default: return nil
+            }
+        case .shell(let data):
+            switch key {
+            case "thickness": return Float(data.thickness)
             default: return nil
             }
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
@@ -4158,6 +4348,16 @@ public final class DocumentModel {
                 clampedValue = value
             }
             feature.operation = .chamfer(data)
+
+        case .shell(var data):
+            switch key {
+            case "thickness":
+                data.thickness = Double(DocumentLimits.clampShell(key: "thickness", value: value))
+                clampedValue = Float(data.thickness)
+            default:
+                clampedValue = value
+            }
+            feature.operation = .shell(data)
 
         case .imported, .boolean, .part, .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
             clampedValue = value
