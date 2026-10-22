@@ -46,6 +46,36 @@ struct NavigatorSidebarView: View {
 
                     if workspace.document.documentType == .assembly || !workspace.document.assemblyConstraints.isEmpty {
                         Section {
+                            if let result = workspace.lastAssemblySolverResult {
+                                switch result.status {
+                                case .overConstrained(let conflicting):
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                                        Text("Over-constrained (\(conflicting.count) conflicting)").font(.caption2).foregroundStyle(.red)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 2)
+                                    .accessibilityIdentifier("navigator-assembly-overconstrained-banner")
+                                case .redundant(let redundant):
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                                        Text("Redundant mates (\(redundant.count))").font(.caption2).foregroundStyle(.orange)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 2)
+                                    .accessibilityIdentifier("navigator-assembly-redundant-banner")
+                                case .failedToConverge:
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+                                        Text("Solve failed").font(.caption2).foregroundStyle(.red)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 2)
+                                    .accessibilityIdentifier("navigator-assembly-failed-banner")
+                                case .converged:
+                                    EmptyView()
+                                }
+                            }
                             ForEach(filteredConstraints) { constraint in
                                 NavigatorConstraintRow(constraint: constraint)
                             }
@@ -643,6 +673,7 @@ private struct NavigatorComponentRow: View {
 
     var body: some View {
         let isSelected = workspace.document.isSelected(solidId: component.solidId)
+        let dof = workspace.remainingAssemblyDOF(for: component.id)
 
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: "square.3.layers.3d")
@@ -675,6 +706,17 @@ private struct NavigatorComponentRow: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.orange.opacity(0.15))
                             )
+                    } else {
+                        Text("\(dof) DOF")
+                            .font(.caption2)
+                            .foregroundStyle(dof == 0 ? .green : .secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(dof == 0 ? Color.green.opacity(0.12) : Color.secondary.opacity(0.12))
+                            )
+                            .accessibilityIdentifier("navigator-component-dof-badge-\(component.id.uuidString)")
                     }
                 }
 
@@ -746,7 +788,8 @@ private struct NavigatorComponentRow: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(component.name), Component\(component.isGrounded ? ", Grounded" : ""), ID \(component.solidId.rawValue), \(referenceDescription)")
+        .accessibilityLabel("\(component.name), Component\(component.isGrounded ? ", Grounded" : ", \(dof) degrees of freedom"), ID \(component.solidId.rawValue), \(referenceDescription)")
+        .accessibilityValue(component.isGrounded ? "Grounded" : "\(dof) DOF")
         .accessibilityIdentifier("navigator-component-\(component.solidId.rawValue)")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityAction(named: component.isGrounded ? "Float Component" : "Ground Component") {
@@ -782,10 +825,12 @@ struct NavigatorConstraintRow: View {
 
     var body: some View {
         let isSelected = workspace.selectedAssemblyConstraintId == constraint.id
+        let isConflicting = workspace.isAssemblyConstraintConflicting(constraint.id)
+        let isRedundant = workspace.isAssemblyConstraintRedundant(constraint.id)
 
         HStack(alignment: .center, spacing: 8) {
             Image(systemName: constraint.kind.systemImageName)
-                .foregroundStyle(constraint.isSuppressed ? Color.secondary : (constraint.kind.isJoint ? Color.purple : Color.blue))
+                .foregroundStyle(isConflicting ? Color.red : (constraint.isSuppressed ? Color.secondary : (constraint.kind.isJoint ? Color.purple : Color.blue)))
                 .frame(width: 16)
                 .help(constraint.kind.displayName)
 
@@ -817,6 +862,36 @@ struct NavigatorConstraintRow: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.orange.opacity(0.12))
                             )
+                    }
+
+                    if isConflicting {
+                        HStack(spacing: 2) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text("Conflict")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.red.opacity(0.15))
+                        )
+                        .accessibilityIdentifier("navigator-constraint-conflict-badge-\(constraint.id.uuidString)")
+                    } else if isRedundant {
+                        HStack(spacing: 2) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                            Text("Redundant")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.orange.opacity(0.15))
+                        )
+                        .accessibilityIdentifier("navigator-constraint-redundant-badge-\(constraint.id.uuidString)")
                     }
                 }
             }
@@ -853,7 +928,7 @@ struct NavigatorConstraintRow: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(constraint.name), \(constraint.kind.displayName)\(constraint.isSuppressed ? ", Suppressed" : "")")
+        .accessibilityLabel("\(constraint.name), \(constraint.kind.displayName)\(constraint.isSuppressed ? ", Suppressed" : "")\(isConflicting ? ", Conflict" : "")\(isRedundant ? ", Redundant" : "")")
         .accessibilityIdentifier("navigator-constraint-\(constraint.id.uuidString)")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityAction(named: constraint.isSuppressed ? "Unsuppress Constraint" : "Suppress Constraint") {

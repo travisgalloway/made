@@ -31,6 +31,48 @@ final class WorkspaceModel {
         return document.assemblyConstraints.first(where: { $0.id == id })
     }
 
+    public private(set) var lastAssemblySolverResult: AssemblySolverResult?
+
+    public var conflictingAssemblyConstraintIds: Set<UUID> {
+        guard let result = lastAssemblySolverResult else { return [] }
+        return Set(result.status.conflictingConstraints)
+    }
+
+    public var redundantAssemblyConstraintIds: Set<UUID> {
+        guard let result = lastAssemblySolverResult else { return [] }
+        return Set(result.status.redundantConstraints)
+    }
+
+    public func isAssemblyConstraintConflicting(_ id: UUID) -> Bool {
+        conflictingAssemblyConstraintIds.contains(id)
+    }
+
+    public func isAssemblyConstraintRedundant(_ id: UUID) -> Bool {
+        redundantAssemblyConstraintIds.contains(id)
+    }
+
+    public func remainingAssemblyDOF(for componentId: UUID) -> Int {
+        if let comp = document.componentInstances.first(where: { $0.id == componentId }), comp.isGrounded {
+            return 0
+        }
+        if let cached = lastAssemblySolverResult?.instanceDOF[componentId] {
+            return cached
+        }
+        let dof = document.computeAssemblyDOF()
+        return dof.instanceDOF[componentId] ?? 6
+    }
+
+    public var totalAssemblyDOF: Int {
+        if let cached = lastAssemblySolverResult?.totalDOF {
+            return cached
+        }
+        return document.computeAssemblyDOF().totalDOF
+    }
+
+    public func clearAssemblySolverDiagnostics() {
+        lastAssemblySolverResult = nil
+    }
+
     public func selectAssemblyConstraint(_ id: UUID?) {
         selectedAssemblyConstraintId = id
         if id != nil {
@@ -4001,6 +4043,7 @@ final class WorkspaceModel {
     public func setComponentInstanceGrounded(id: UUID, isGrounded: Bool) -> Bool {
         let result = document.setComponentInstanceGrounded(id: id, isGrounded: isGrounded)
         guard case .success = result else { return false }
+        clearAssemblySolverDiagnostics()
         markDocumentModified()
         invalidateViewport(.model)
         log(.info, "Assembly", "\(isGrounded ? "Grounded" : "Floated") component instance \(id)")
@@ -4031,6 +4074,7 @@ final class WorkspaceModel {
         if selectedId == solidId {
             selectedId = nil
         }
+        clearAssemblySolverDiagnostics()
         markDocumentModified()
         if let renderer = viewportManager.renderer {
             _ = SolidMeshApplier.remove(id: solidId, from: renderer)
@@ -4132,6 +4176,7 @@ final class WorkspaceModel {
         let result = document.addAssemblyConstraint(constraint)
         guard case .success = result else { return false }
         selectedAssemblyConstraintId = constraint.id
+        clearAssemblySolverDiagnostics()
         markDocumentModified()
         invalidateViewport(.model)
         log(.info, "Assembly", "Added assembly constraint '\(constraint.name)' (\(constraint.kind.displayName))")
@@ -4145,6 +4190,7 @@ final class WorkspaceModel {
         if selectedAssemblyConstraintId == id {
             selectedAssemblyConstraintId = nil
         }
+        clearAssemblySolverDiagnostics()
         markDocumentModified()
         invalidateViewport(.model)
         log(.info, "Assembly", "Removed assembly constraint \(id)")
@@ -4155,6 +4201,7 @@ final class WorkspaceModel {
     public func updateAssemblyConstraint(_ constraint: AssemblyConstraint) -> Bool {
         let result = document.updateAssemblyConstraint(constraint)
         guard case .success = result else { return false }
+        clearAssemblySolverDiagnostics()
         markDocumentModified()
         invalidateViewport(.model)
         log(.info, "Assembly", "Updated assembly constraint '\(constraint.name)'")
@@ -4172,6 +4219,7 @@ final class WorkspaceModel {
     @discardableResult
     public func solveAssemblyConstraints() -> AssemblySolverResult {
         let result = document.solveAssemblyConstraints()
+        lastAssemblySolverResult = result
         if result.status.isConverged {
             markDocumentModified()
             if let renderer = viewportManager.renderer {

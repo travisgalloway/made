@@ -447,4 +447,33 @@ import simd
         #expect(solveUnsuppressed.status.isConverged)
         #expect(solveUnsuppressed.totalDOF == 1)
     }
+
+    @Test func testDocumentModelAssemblyDOFQueries() {
+        let doc = DocumentModel(documentType: .assembly)
+        let base = ComponentInstance(name: "Base", reference: .internalPart(name: "BasePart"), transform: .identity, isGrounded: true)
+        let part = ComponentInstance(name: "Part", reference: .internalPart(name: "Part"), transform: Transform(position: SIMD3<Float>(10, 0, 0)), isGrounded: false)
+        _ = doc.addComponentInstance(base)
+        _ = doc.addComponentInstance(part)
+
+        let system = doc.assemblyConstraintSystem()
+        #expect(system.instances.count == 2)
+        #expect(system.constraints.isEmpty)
+
+        let initialDOF = doc.computeAssemblyDOF()
+        #expect(initialDOF.totalDOF == 6)
+        #expect(initialDOF.instanceDOF[base.id] == 0)
+        #expect(initialDOF.instanceDOF[part.id] == 6)
+
+        let mate = AssemblyConstraint(
+            kind: .coincident,
+            firstFeature: AssemblyFeature(componentInstanceId: base.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: part.id, origin: .zero)
+        )
+        _ = doc.addAssemblyConstraint(mate)
+
+        let matedDOF = doc.computeAssemblyDOF()
+        #expect(matedDOF.totalDOF == 3)
+        #expect(matedDOF.instanceDOF[base.id] == 0)
+        #expect(matedDOF.instanceDOF[part.id] == 3)
+    }
 }

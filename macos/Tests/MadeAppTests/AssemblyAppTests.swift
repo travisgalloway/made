@@ -415,4 +415,149 @@ import simd
         ws.redo()
         #expect(ws.document.assemblyConstraints.isEmpty)
     }
+
+    @Test func testWorkspaceRemainingAssemblyDOFAndGroundedStatus() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        // Empty assembly has 0 total DOF
+        #expect(ws.totalAssemblyDOF == 0)
+
+        let base = ws.addComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "BasePart"),
+            transform: .identity,
+            isGrounded: true
+        )
+        // Base component is grounded
+        #expect(base.isGrounded)
+        #expect(ws.remainingAssemblyDOF(for: base.id) == 0)
+        #expect(ws.totalAssemblyDOF == 0)
+
+        // Add a second, floating component
+        let arm = ws.addComponentInstance(
+            name: "Arm",
+            reference: .internalPart(name: "ArmPart"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        #expect(!arm.isGrounded)
+        // Free component with no mates has 6 DOF
+        #expect(ws.remainingAssemblyDOF(for: arm.id) == 6)
+        #expect(ws.totalAssemblyDOF == 6)
+
+        // Add a revolute joint between Base and Arm
+        let joint = ws.addDefaultAssemblyConstraint(kind: .revolute)
+        #expect(joint != nil)
+
+        // Solve assembly; revolute joint leaves 1 free rotational DOF
+        let solveResult = ws.solveAssemblyConstraints()
+        #expect(solveResult.status.isConverged)
+        #expect(ws.lastAssemblySolverResult != nil)
+        #expect(ws.remainingAssemblyDOF(for: base.id) == 0)
+        #expect(ws.remainingAssemblyDOF(for: arm.id) == 1)
+        #expect(ws.totalAssemblyDOF == 1)
+
+        // Float base -> both are free, diagnostics invalidated
+        _ = ws.setComponentInstanceGrounded(id: base.id, isGrounded: false)
+        #expect(ws.lastAssemblySolverResult == nil)
+        #expect(ws.remainingAssemblyDOF(for: base.id) > 0)
+    }
+
+    @Test func testWorkspaceAssemblySolverConflictDiagnosis() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let base = ws.addComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "BasePart"),
+            transform: .identity
+        )
+        let block = ws.addComponentInstance(
+            name: "Block",
+            reference: .internalPart(name: "BlockPart"),
+            transform: Transform(position: SIMD3<Float>(5, 0, 0))
+        )
+        _ = ws.setComponentInstanceGrounded(id: base.id, isGrounded: true)
+        _ = ws.setComponentInstanceGrounded(id: block.id, isGrounded: false)
+
+        let fBase = AssemblyFeature(componentInstanceId: base.id, origin: .zero)
+        let fBlock = AssemblyFeature(componentInstanceId: block.id, origin: .zero)
+
+        // Two conflicting distance constraints: distance = 10 vs distance = 30
+        let mate1 = AssemblyConstraint(kind: .distance, firstFeature: fBase, secondFeature: fBlock, value: 10.0)
+        let mate2 = AssemblyConstraint(kind: .distance, firstFeature: fBase, secondFeature: fBlock, value: 30.0)
+
+        #expect(ws.addAssemblyConstraint(mate1))
+        #expect(ws.addAssemblyConstraint(mate2))
+
+        let solveResult = ws.solveAssemblyConstraints()
+        #expect(!solveResult.status.isConverged)
+        #expect(solveResult.status.isOverConstrained)
+        #expect(!solveResult.status.isRedundant)
+        #expect(ws.lastAssemblySolverResult?.status.isOverConstrained == true)
+        #expect(!ws.conflictingAssemblyConstraintIds.isEmpty)
+        #expect(ws.isAssemblyConstraintConflicting(mate1.id) || ws.isAssemblyConstraintConflicting(mate2.id))
+        #expect(!ws.isAssemblyConstraintRedundant(mate1.id))
+
+        // Check summaryText
+        #expect(solveResult.status.summaryText.contains("Over-constrained"))
+
+        // Removing the conflicting mate clears the solver diagnostic
+        #expect(ws.removeAssemblyConstraint(id: mate2.id))
+        #expect(ws.lastAssemblySolverResult == nil)
+        #expect(ws.conflictingAssemblyConstraintIds.isEmpty)
+        #expect(!ws.isAssemblyConstraintConflicting(mate1.id))
+
+        // Re-solve converges cleanly
+        let reSolve = ws.solveAssemblyConstraints()
+        #expect(reSolve.status.isConverged)
+        #expect(ws.conflictingAssemblyConstraintIds.isEmpty)
+    }
+
+    @Test func testWorkspaceAssemblySolverRedundantDiagnosis() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let base = ws.addComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "BasePart"),
+            transform: .identity
+        )
+        let arm = ws.addComponentInstance(
+            name: "Arm",
+            reference: .internalPart(name: "ArmPart"),
+            transform: Transform(position: SIMD3<Float>(5, 0, 0))
+        )
+        _ = ws.setComponentInstanceGrounded(id: base.id, isGrounded: true)
+        _ = ws.setComponentInstanceGrounded(id: arm.id, isGrounded: false)
+
+        let fBase = AssemblyFeature(componentInstanceId: base.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        let fArm = AssemblyFeature(componentInstanceId: arm.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+
+        // Two identical parallel mates
+        let mate1 = AssemblyConstraint(kind: .parallel, firstFeature: fBase, secondFeature: fArm)
+        let mate2 = AssemblyConstraint(kind: .parallel, firstFeature: fBase, secondFeature: fArm)
+
+        #expect(ws.addAssemblyConstraint(mate1))
+        #expect(ws.addAssemblyConstraint(mate2))
+
+        let solveResult = ws.solveAssemblyConstraints()
+        #expect(solveResult.status.isConverged)
+        #expect(solveResult.status.isRedundant)
+        #expect(!solveResult.status.isOverConstrained)
+        #expect(ws.lastAssemblySolverResult?.status.isRedundant == true)
+        #expect(!ws.redundantAssemblyConstraintIds.isEmpty)
+        #expect(ws.isAssemblyConstraintRedundant(mate1.id) || ws.isAssemblyConstraintRedundant(mate2.id))
+        #expect(!ws.isAssemblyConstraintConflicting(mate1.id))
+
+        // Check summaryText
+        #expect(solveResult.status.summaryText.contains("Redundant"))
+
+        // Modifying the redundant mate clears solver diagnostics
+        var updatedMate2 = mate2
+        updatedMate2.name = "Modified Parallel"
+        #expect(ws.updateAssemblyConstraint(updatedMate2))
+        #expect(ws.lastAssemblySolverResult == nil)
+        #expect(ws.redundantAssemblyConstraintIds.isEmpty)
+    }
 }
