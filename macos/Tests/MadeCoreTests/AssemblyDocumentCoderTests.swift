@@ -351,5 +351,126 @@ import simd
         #expect(targetDoc.componentInstances.first?.childInstances.count == 1)
         #expect(targetDoc.objects.contains(where: { $0.id == child.solidId }))
     }
+
+    // MARK: - Component Patterns & Mirrors Serialization Tests (BL-ASM-08, #169)
+
+    @Test func testDocumentPatternsAndMirrorsSerializationRoundTrip() throws {
+        let sourceInstance = ComponentInstance(
+            name: "Flange Bolt",
+            reference: .internalPart(name: "Bolt"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        let replica1 = ComponentInstance(
+            name: "Flange Bolt (Pattern 2)",
+            reference: .internalPart(name: "Bolt"),
+            transform: Transform(position: SIMD3<Float>(0, 10, 0))
+        )
+        let replica2 = ComponentInstance(
+            name: "Flange Bolt (Mirrored)",
+            reference: .internalPart(name: "Bolt"),
+            transform: Transform(position: SIMD3<Float>(-10, 0, 0))
+        )
+
+        let pattern = ComponentPattern(
+            name: "Circular Flange Pattern",
+            sourceInstanceId: sourceInstance.id,
+            replicaInstanceIds: [replica1.id],
+            params: AssemblyPatternParams(
+                sourceInstanceId: sourceInstance.id,
+                patternType: .circular,
+                count: 2,
+                totalAngle: 180.0
+            )
+        )
+        let mirror = ComponentMirror(
+            name: "Flange Mirror",
+            sourceInstanceId: sourceInstance.id,
+            replicaInstanceIds: [replica2.id],
+            params: AssemblyMirrorParams(
+                sourceInstanceId: sourceInstance.id,
+                planeNormal: SIMD3<Float>(1, 0, 0),
+                planeOrigin: .zero
+            )
+        )
+
+        let doc = DocumentModel(
+            documentType: .assembly,
+            componentInstances: [sourceInstance, replica1, replica2],
+            componentPatterns: [pattern],
+            componentMirrors: [mirror]
+        )
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let decoded = try DocumentModelCoder.decode(from: encoded)
+
+        #expect(decoded.componentPatterns?.count == 1)
+        #expect(decoded.componentPatterns?.first?.name == "Circular Flange Pattern")
+        #expect(decoded.componentPatterns?.first?.replicaInstanceIds == [replica1.id])
+        #expect(decoded.componentMirrors?.count == 1)
+        #expect(decoded.componentMirrors?.first?.name == "Flange Mirror")
+        #expect(decoded.componentMirrors?.first?.replicaInstanceIds == [replica2.id])
+    }
+
+    @Test func testDecodeIntoDocumentModelRestoresPatternsAndMirrors() throws {
+        let sourceInstance = ComponentInstance(
+            name: "Column",
+            reference: .internalPart(name: "ColumnPart")
+        )
+        let pattern = ComponentPattern(
+            name: "Linear Column Pattern",
+            sourceInstanceId: sourceInstance.id,
+            replicaInstanceIds: [],
+            params: AssemblyPatternParams(
+                sourceInstanceId: sourceInstance.id,
+                count: 1
+            )
+        )
+
+        let sourceDoc = DocumentModel(
+            documentType: .assembly,
+            componentInstances: [sourceInstance],
+            componentPatterns: [pattern]
+        )
+
+        let encoded = try DocumentModelCoder.encode(document: sourceDoc)
+
+        let targetDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: targetDoc, from: encoded)
+
+        #expect(targetDoc.documentType == .assembly)
+        #expect(targetDoc.componentPatterns.count == 1)
+        #expect(targetDoc.componentPatterns.first?.name == "Linear Column Pattern")
+        #expect(targetDoc.componentMirrors.isEmpty)
+    }
+
+    @Test func testLegacyDocumentWithoutPatternsDecodesSafely() throws {
+        let legacyAssemblyJSON = """
+        {
+          "schemaVersion": 2,
+          "documentType": "assembly",
+          "componentInstances": [
+            {
+              "id": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+              "name": "LegacyPart",
+              "reference": {
+                "type": "internalPart",
+                "name": "PartA"
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: legacyAssemblyJSON)
+        #expect(decoded.componentPatterns == nil)
+        #expect(decoded.componentMirrors == nil)
+
+        let targetDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: targetDoc, from: legacyAssemblyJSON)
+        #expect(targetDoc.componentPatterns.isEmpty)
+        #expect(targetDoc.componentMirrors.isEmpty)
+        #expect(targetDoc.componentInstances.first?.patternId == nil)
+        #expect(targetDoc.componentInstances.first?.mirrorId == nil)
+    }
 }
 

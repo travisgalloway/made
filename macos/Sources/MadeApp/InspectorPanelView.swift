@@ -1218,6 +1218,12 @@ struct InspectorComponentInstanceView: View {
             if component.isSubassembly {
                 subassemblySection
             }
+            if component.patternId != nil || workspace.document.componentPatterns.contains(where: { $0.sourceInstanceId == component.id }) {
+                patternSection
+            }
+            if component.mirrorId != nil || workspace.document.componentMirrors.contains(where: { $0.sourceInstanceId == component.id }) {
+                mirrorSection
+            }
             referenceSection
             transformSection
                 .disabled(component.isLocked || component.isGrounded)
@@ -1248,6 +1254,67 @@ struct InspectorComponentInstanceView: View {
                 .accessibilityIdentifier("inspector-subassembly-constraint-count")
         } header: {
             sectionHeader("Subassembly Configuration")
+        }
+    }
+
+    @ViewBuilder
+    private var patternSection: some View {
+        let activePattern = component.patternId.flatMap { patId in
+            workspace.document.componentPatterns.first(where: { $0.id == patId })
+        } ?? workspace.document.componentPatterns.first(where: { $0.sourceInstanceId == component.id })
+
+        if let pattern = activePattern {
+            Section {
+                LabeledContent("Pattern Name", value: pattern.name)
+                LabeledContent("Type", value: pattern.params.patternType.rawValue.capitalized)
+                LabeledContent("Count", value: "\(pattern.params.count)")
+                if pattern.params.patternType == .linear {
+                    let lengthUnit = workspace.document.settings.units.lengthUnit
+                    LabeledContent("Spacing", value: "\(pattern.params.linearSpacing) \(lengthUnit.symbol)")
+                    LabeledContent("Symmetric", value: pattern.params.isSymmetric ? "Yes" : "No")
+                } else if pattern.params.patternType == .circular {
+                    let angleUnit = workspace.document.settings.units.angleUnit
+                    LabeledContent("Total Angle", value: "\(pattern.params.totalAngle) \(angleUnit.symbol)")
+                    LabeledContent("Full Circle", value: pattern.params.isFullCircle ? "Yes" : "No")
+                } else if pattern.params.patternType == .featureDriven {
+                    if let fId = pattern.params.featurePatternId,
+                       let feat = workspace.document.features.first(where: { $0.id == fId }) {
+                        LabeledContent("Driver Feature", value: feat.name)
+                    }
+                }
+                if let src = workspace.document.findComponentInstance(id: pattern.sourceInstanceId) {
+                    LabeledContent("Source Component", value: src.name)
+                }
+                LabeledContent("Replicas", value: "\(pattern.replicaInstanceIds.count)")
+                Button("Remove Pattern", role: .destructive) {
+                    _ = workspace.removeComponentPattern(id: pattern.id)
+                }
+            } header: {
+                sectionHeader("Component Pattern")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mirrorSection: some View {
+        let activeMirror = component.mirrorId.flatMap { mirId in
+            workspace.document.componentMirrors.first(where: { $0.id == mirId })
+        } ?? workspace.document.componentMirrors.first(where: { $0.sourceInstanceId == component.id })
+
+        if let mirror = activeMirror {
+            Section {
+                LabeledContent("Mirror Name", value: mirror.name)
+                LabeledContent("Mode", value: mirror.params.mirrorMode == .symmetricReorient ? "Symmetric Reorient" : "Opposite Hand")
+                LabeledContent("Plane Normal", value: String(format: "(%.2f, %.2f, %.2f)", mirror.params.planeNormal.x, mirror.params.planeNormal.y, mirror.params.planeNormal.z))
+                if let src = workspace.document.findComponentInstance(id: mirror.sourceInstanceId) {
+                    LabeledContent("Source Component", value: src.name)
+                }
+                Button("Remove Mirror", role: .destructive) {
+                    _ = workspace.removeComponentMirror(id: mirror.id)
+                }
+            } header: {
+                sectionHeader("Component Mirror")
+            }
         }
     }
 

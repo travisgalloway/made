@@ -76,6 +76,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
     public var subassemblyBehavior: SubassemblyBehavior
     public var childInstances: [ComponentInstance]
     public var childConstraints: [AssemblyConstraint]
+    public var patternId: UUID?
+    public var mirrorId: UUID?
 
     public var isFixed: Bool {
         get { isGrounded }
@@ -102,7 +104,9 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         material: MaterialAttributes = MaterialAttributes(),
         subassemblyBehavior: SubassemblyBehavior = .rigid,
         childInstances: [ComponentInstance] = [],
-        childConstraints: [AssemblyConstraint] = []
+        childConstraints: [AssemblyConstraint] = [],
+        patternId: UUID? = nil,
+        mirrorId: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -115,6 +119,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         self.subassemblyBehavior = subassemblyBehavior
         self.childInstances = childInstances
         self.childConstraints = childConstraints
+        self.patternId = patternId
+        self.mirrorId = mirrorId
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -129,6 +135,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         case subassemblyBehavior
         case childInstances
         case childConstraints
+        case patternId
+        case mirrorId
     }
 
     public init(from decoder: Decoder) throws {
@@ -144,6 +152,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         self.subassemblyBehavior = try container.decodeIfPresent(SubassemblyBehavior.self, forKey: .subassemblyBehavior) ?? .rigid
         self.childInstances = try container.decodeIfPresent([ComponentInstance].self, forKey: .childInstances) ?? []
         self.childConstraints = try container.decodeIfPresent([AssemblyConstraint].self, forKey: .childConstraints) ?? []
+        self.patternId = try container.decodeIfPresent(UUID.self, forKey: .patternId)
+        self.mirrorId = try container.decodeIfPresent(UUID.self, forKey: .mirrorId)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -159,6 +169,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         try container.encode(subassemblyBehavior, forKey: .subassemblyBehavior)
         try container.encode(childInstances, forKey: .childInstances)
         try container.encode(childConstraints, forKey: .childConstraints)
+        try container.encodeIfPresent(patternId, forKey: .patternId)
+        try container.encodeIfPresent(mirrorId, forKey: .mirrorId)
     }
 
     public func toSceneObject() -> SceneObject {

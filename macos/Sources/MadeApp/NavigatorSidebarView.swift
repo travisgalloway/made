@@ -710,62 +710,7 @@ private struct NavigatorComponentRow: View {
                             .font(.body)
                             .lineLimit(1)
 
-                        if component.isSubassembly {
-                            Text("Subassembly")
-                                .font(.caption2)
-                                .foregroundStyle(.purple)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color.purple.opacity(0.12))
-                                )
-                                .accessibilityIdentifier("navigator-subassembly-badge-\(component.id.uuidString)")
-
-                            Text(component.subassemblyBehavior == .flexible ? "Flexible" : "Rigid")
-                                .font(.caption2)
-                                .foregroundStyle(component.subassemblyBehavior == .flexible ? .indigo : .secondary)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(component.subassemblyBehavior == .flexible ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.12))
-                                )
-                                .accessibilityIdentifier("navigator-subassembly-behavior-badge-\(component.id.uuidString)")
-                        } else {
-                            Text("Component")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color.secondary.opacity(0.12))
-                                )
-                        }
-
-                        if component.isGrounded {
-                            Text("Grounded")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color.orange.opacity(0.15))
-                                )
-                        } else {
-                            Text("\(dof) DOF")
-                                .font(.caption2)
-                                .foregroundStyle(dof == 0 ? .green : .secondary)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .fill(dof == 0 ? Color.green.opacity(0.12) : Color.secondary.opacity(0.12))
-                                )
-                                .accessibilityIdentifier("navigator-component-dof-badge-\(component.id.uuidString)")
-                        }
+                        badges(dof: dof)
                     }
 
                     HStack(spacing: 6) {
@@ -819,30 +764,7 @@ private struct NavigatorComponentRow: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .contextMenu {
-                if component.isSubassembly {
-                    Button(component.subassemblyBehavior == .flexible ? "Make Subassembly Rigid" : "Make Subassembly Flexible") {
-                        workspace.toggleSubassemblyBehavior(id: component.id)
-                    }
-                    Button("Dissolve Subassembly") {
-                        workspace.dissolveSubassembly(id: component.id)
-                    }
-                    Divider()
-                }
-                Button(component.isGrounded ? "Float Component" : "Ground Component") {
-                    workspace.toggleComponentInstanceGrounded(id: component.id)
-                }
-                Button(component.isVisible ? "Hide Component" : "Show Component") {
-                    workspace.toggleBodyVisibility(component.solidId)
-                }
-                Button(component.isLocked ? "Unlock Component" : "Lock Component") {
-                    workspace.toggleBodyLocked(component.solidId)
-                }
-                Divider()
-                Button(role: .destructive) {
-                    workspace.removeComponentInstance(id: component.id)
-                } label: {
-                    Text(component.isSubassembly ? "Remove Subassembly" : "Remove Component")
-                }
+                componentContextMenu
             }
 
             if component.isSubassembly && isExpanded {
@@ -886,6 +808,183 @@ private struct NavigatorComponentRow: View {
             }
         case .subassembly(let name):
             return "Subassembly: \(name)"
+        }
+    }
+
+    @ViewBuilder
+    private func badges(dof: Int) -> some View {
+        if component.isSubassembly {
+            subassemblyBadges
+        } else {
+            componentBadge
+        }
+        groundedOrDOFBadge(dof: dof)
+        patternAndMirrorBadges
+    }
+
+    @ViewBuilder
+    private var subassemblyBadges: some View {
+        Text("Subassembly")
+            .font(.caption2)
+            .foregroundStyle(.purple)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.purple.opacity(0.12))
+            )
+            .accessibilityIdentifier("navigator-subassembly-badge-\(component.id.uuidString)")
+
+        Text(component.subassemblyBehavior == .flexible ? "Flexible" : "Rigid")
+            .font(.caption2)
+            .foregroundStyle(component.subassemblyBehavior == .flexible ? .indigo : .secondary)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(component.subassemblyBehavior == .flexible ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.12))
+            )
+            .accessibilityIdentifier("navigator-subassembly-behavior-badge-\(component.id.uuidString)")
+    }
+
+    @ViewBuilder
+    private var componentBadge: some View {
+        Text("Component")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.secondary.opacity(0.12))
+            )
+    }
+
+    @ViewBuilder
+    private func groundedOrDOFBadge(dof: Int) -> some View {
+        if component.isGrounded {
+            Text("Grounded")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.orange.opacity(0.15))
+                )
+        } else {
+            Text("\(dof) DOF")
+                .font(.caption2)
+                .foregroundStyle(dof == 0 ? .green : .secondary)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(dof == 0 ? Color.green.opacity(0.12) : Color.secondary.opacity(0.12))
+                )
+                .accessibilityIdentifier("navigator-component-dof-badge-\(component.id.uuidString)")
+        }
+    }
+
+    @ViewBuilder
+    private var patternAndMirrorBadges: some View {
+        if component.patternId != nil {
+            Text("Pattern")
+                .font(.caption2)
+                .foregroundStyle(.cyan)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.cyan.opacity(0.15))
+                )
+                .accessibilityIdentifier("navigator-component-pattern-badge-\(component.id.uuidString)")
+        }
+
+        if component.mirrorId != nil {
+            Text("Mirrored")
+                .font(.caption2)
+                .foregroundStyle(.teal)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.teal.opacity(0.15))
+                )
+                .accessibilityIdentifier("navigator-component-mirror-badge-\(component.id.uuidString)")
+        }
+    }
+
+    @ViewBuilder
+    private var componentContextMenu: some View {
+        subassemblyContextGroup
+        componentStateContextGroup
+        patternAndMirrorContextGroup
+        deleteContextGroup
+    }
+
+    @ViewBuilder
+    private var subassemblyContextGroup: some View {
+        if component.isSubassembly {
+            Button(component.subassemblyBehavior == .flexible ? "Make Subassembly Rigid" : "Make Subassembly Flexible") {
+                workspace.toggleSubassemblyBehavior(id: component.id)
+            }
+            Button("Dissolve Subassembly") {
+                workspace.dissolveSubassembly(id: component.id)
+            }
+            Divider()
+        }
+    }
+
+    @ViewBuilder
+    private var componentStateContextGroup: some View {
+        Button(component.isGrounded ? "Float Component" : "Ground Component") {
+            workspace.toggleComponentInstanceGrounded(id: component.id)
+        }
+        Button(component.isVisible ? "Hide Component" : "Show Component") {
+            workspace.toggleBodyVisibility(component.solidId)
+        }
+        Button(component.isLocked ? "Unlock Component" : "Lock Component") {
+            workspace.toggleBodyLocked(component.solidId)
+        }
+        Divider()
+    }
+
+    @ViewBuilder
+    private var patternAndMirrorContextGroup: some View {
+        Menu("Pattern Component") {
+            Button("Linear Pattern…") {
+                _ = workspace.patternComponentLinear(id: component.id)
+            }
+            Button("Circular Pattern…") {
+                _ = workspace.patternComponentCircular(id: component.id)
+            }
+            Button("Pattern by Part Feature…") {
+                _ = workspace.patternComponentByFeaturePattern(id: component.id)
+            }
+        }
+        Button("Mirror Component…") {
+            _ = workspace.mirrorComponent(id: component.id)
+        }
+        if let pId = component.patternId {
+            Button("Remove Pattern") {
+                _ = workspace.removeComponentPattern(id: pId)
+            }
+        }
+        if let mId = component.mirrorId {
+            Button("Remove Mirror") {
+                _ = workspace.removeComponentMirror(id: mId)
+            }
+        }
+        Divider()
+    }
+
+    @ViewBuilder
+    private var deleteContextGroup: some View {
+        Button(role: .destructive) {
+            workspace.removeComponentInstance(id: component.id)
+        } label: {
+            Text(component.isSubassembly ? "Remove Subassembly" : "Remove Component")
         }
     }
 }

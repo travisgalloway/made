@@ -69,6 +69,54 @@ public struct Transform: Sendable, Equatable, Codable {
         let invPos = invRot.act(-position) * invScale
         return Transform(position: invPos, rotation: invRot, scale: invScale)
     }
+
+    /// Computes a step transform for a linear pattern along a direction vector.
+    public static func linearStepTransform(direction: SIMD3<Float>, spacing: Float, index: Int) -> Transform {
+        guard simd_length_squared(direction) > 1e-12 else {
+            return .identity
+        }
+        let normDir = simd_normalize(direction)
+        return Transform(position: normDir * (spacing * Float(index)))
+    }
+
+    /// Computes a step transform for a circular pattern around an axis.
+    public static func circularStepTransform(axisOrigin: SIMD3<Float>, axisDirection: SIMD3<Float>, angleRadians: Float) -> Transform {
+        guard simd_length_squared(axisDirection) > 1e-12 else {
+            return .identity
+        }
+        let normAxis = simd_normalize(axisDirection)
+        let quat = simd_quatf(angle: angleRadians, axis: normAxis)
+        let pos = axisOrigin - quat.act(axisOrigin)
+        return Transform(position: pos, rotation: quat)
+    }
+
+    /// Computes the mirrored transform across a plane specified by origin and normal.
+    public func mirrored(
+        planeOrigin: SIMD3<Float>,
+        planeNormal: SIMD3<Float>,
+        mode: ComponentMirrorMode = .symmetricReorient
+    ) -> Transform {
+        guard simd_length_squared(planeNormal) > 1e-12 else {
+            return self
+        }
+        let n = simd_normalize(planeNormal)
+        let newPos = position - 2.0 * simd_dot(position - planeOrigin, n) * n
+
+        switch mode {
+        case .symmetricReorient:
+            let rotMat = simd_float3x3(rotation)
+            let c0 = 2.0 * n * simd_dot(n, rotMat.columns.0) - rotMat.columns.0
+            let c1 = 2.0 * n * simd_dot(n, rotMat.columns.1) - rotMat.columns.1
+            let c2 = 2.0 * n * simd_dot(n, rotMat.columns.2) - rotMat.columns.2
+            let reflectedRotMat = simd_float3x3(columns: (c0, c1, c2))
+            let newRot = simd_quatf(reflectedRotMat)
+            return Transform(position: newPos, rotation: simd_normalize(newRot), scale: scale)
+
+        case .oppositeHand:
+            let newScale = SIMD3<Float>(scale.x, scale.y, -scale.z)
+            return Transform(position: newPos, rotation: rotation, scale: newScale)
+        }
+    }
 }
 
 extension simd_quatf: @retroactive Codable {

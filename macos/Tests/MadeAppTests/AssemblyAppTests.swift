@@ -700,5 +700,152 @@ import simd
         ws.undo()
         #expect(ws.document.componentInstances.first?.subassemblyBehavior == .rigid)
     }
+
+    @Test func testWorkspacePatternSelectedComponentLinear() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let instance = ws.addComponentInstance(
+            name: "Bracket",
+            reference: .internalPart(name: "BracketPart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        ws.selectedId = instance.solidId
+        ws.document.undoManager?.removeAllActions()
+
+        let pattern = ws.patternSelectedComponentLinear(
+            count: 3,
+            spacing: 25.0,
+            direction: SIMD3<Float>(1, 0, 0)
+        )
+
+        #expect(pattern != nil)
+        #expect(ws.document.componentPatterns.count == 1)
+        #expect(ws.document.componentInstances.count == 3)
+        #expect(ws.isDocumentModified)
+
+        // Undo pattern creation
+        ws.undo()
+        #expect(ws.document.componentPatterns.isEmpty)
+        #expect(ws.document.componentInstances.count == 1)
+
+        // Redo pattern creation
+        ws.redo()
+        #expect(ws.document.componentPatterns.count == 1)
+        #expect(ws.document.componentInstances.count == 3)
+    }
+
+    @Test func testWorkspacePatternSelectedComponentCircular() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let instance = ws.addComponentInstance(
+            name: "Bolt",
+            reference: .internalPart(name: "BoltPart"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        ws.selectedId = instance.solidId
+        ws.document.undoManager?.removeAllActions()
+
+        let pattern = ws.patternSelectedComponentCircular(
+            count: 4,
+            totalAngle: 360.0,
+            isFullCircle: true,
+            axisOrigin: .zero,
+            axisDirection: SIMD3<Float>(0, 0, 1)
+        )
+
+        #expect(pattern != nil)
+        #expect(pattern?.params.patternType == .circular)
+        #expect(ws.document.componentPatterns.count == 1)
+        #expect(ws.document.componentInstances.count == 4)
+
+        ws.undo()
+        #expect(ws.document.componentPatterns.isEmpty)
+        #expect(ws.document.componentInstances.count == 1)
+    }
+
+    @Test func testWorkspaceMirrorSelectedComponent() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let instance = ws.addComponentInstance(
+            name: "Wing Left",
+            reference: .internalPart(name: "WingPart"),
+            transform: Transform(position: SIMD3<Float>(-20, 10, 0))
+        )
+        ws.selectedId = instance.solidId
+        ws.document.undoManager?.removeAllActions()
+
+        let mirror = ws.mirrorSelectedComponent(
+            planeNormal: SIMD3<Float>(1, 0, 0),
+            planeOrigin: .zero,
+            keepOriginal: true,
+            mode: .symmetricReorient
+        )
+
+        #expect(mirror != nil)
+        #expect(ws.document.componentMirrors.count == 1)
+        #expect(ws.document.componentInstances.count == 2)
+        let replica = ws.document.componentInstances.first(where: { $0.id != instance.id })
+        #expect(replica?.mirrorId == mirror?.id)
+        #expect(replica?.name == "Wing Left (Mirrored)")
+
+        ws.undo()
+        #expect(ws.document.componentMirrors.isEmpty)
+        #expect(ws.document.componentInstances.count == 1)
+
+        ws.redo()
+        #expect(ws.document.componentMirrors.count == 1)
+        #expect(ws.document.componentInstances.count == 2)
+    }
+
+    @Test func testWorkspaceRemoveComponentPatternAndMirror() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let instance = ws.addComponentInstance(
+            name: "Part",
+            reference: .internalPart(name: "Part1"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        ws.selectedId = instance.solidId
+        ws.document.undoManager?.removeAllActions()
+        ws.document.undoManager?.groupsByEvent = false
+
+        ws.document.undoManager?.beginUndoGrouping()
+        let pattern = ws.patternSelectedComponentLinear(count: 3, spacing: 10)
+        ws.document.undoManager?.endUndoGrouping()
+        #expect(pattern != nil)
+        #expect(ws.document.componentInstances.count == 3)
+
+        ws.document.undoManager?.beginUndoGrouping()
+        let patternRemoved = ws.removeComponentPattern(id: pattern!.id)
+        ws.document.undoManager?.endUndoGrouping()
+        #expect(patternRemoved)
+        #expect(ws.document.componentPatterns.isEmpty)
+        #expect(ws.document.componentInstances.count == 1)
+
+        ws.undo()
+        #expect(ws.document.componentPatterns.count == 1)
+        #expect(ws.document.componentInstances.count == 3)
+
+        // Mirror test
+        ws.selectedId = instance.solidId
+        ws.document.undoManager?.beginUndoGrouping()
+        let mirror = ws.mirrorSelectedComponent()
+        ws.document.undoManager?.endUndoGrouping()
+        #expect(mirror != nil)
+
+        ws.document.undoManager?.beginUndoGrouping()
+        let mirrorRemoved = ws.removeComponentMirror(id: mirror!.id)
+        ws.document.undoManager?.endUndoGrouping()
+        #expect(mirrorRemoved)
+        #expect(ws.document.componentMirrors.isEmpty)
+
+        ws.undo()
+        #expect(ws.document.componentMirrors.count == 1)
+    }
 }
+
 
