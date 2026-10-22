@@ -62,7 +62,9 @@ struct InspectorPanelView: View {
     private var properties: some View {
         if workspace.document.documentType == .drawing {
             ScrollView {
-                if let selectedAnnotation = workspace.selectedDrawingAnnotation {
+                if let selectedBOM = workspace.selectedDrawingBOMTable {
+                    DrawingBOMTableInspectorView(table: selectedBOM)
+                } else if let selectedAnnotation = workspace.selectedDrawingAnnotation {
                     DrawingAnnotationInspectorView(annotation: selectedAnnotation)
                 } else if let selectedView = workspace.selectedDrawingView, let activeSheet = workspace.document.activeSheet {
                     DrawingViewInspectorView(view: selectedView, sheet: activeSheet)
@@ -4030,6 +4032,8 @@ struct DrawingAnnotationInspectorView: View {
 
             holeSpecificationSection
 
+            balloonSpecificationSection
+
             Section {
                 Button("Delete Annotation", role: .destructive) {
                     _ = workspace.removeDrawingAnnotation(id: annotation.id)
@@ -4297,6 +4301,192 @@ struct DrawingAnnotationInspectorView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var balloonSpecificationSection: some View {
+        if case .balloon(let data) = annotation.data {
+            Section("Balloon Callout") {
+                Picker("Shape", selection: Binding(
+                    get: { data.shape },
+                    set: { newShape in
+                        var updated = annotation
+                        var d = data
+                        d.shape = newShape
+                        updated.data = .balloon(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                )) {
+                    ForEach(BalloonShape.allCases, id: \.self) { shape in
+                        Text(shape.displayName).tag(shape)
+                    }
+                }
+                .accessibilityIdentifier("inspector-balloon-shape-picker")
+
+                TextField("Item Number", text: Binding(
+                    get: { data.itemNumber },
+                    set: { newNum in
+                        var updated = annotation
+                        var d = data
+                        d.itemNumber = newNum
+                        updated.data = .balloon(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-balloon-item-number-field")
+
+                Stepper("Quantity: \(data.quantity)", value: Binding(
+                    get: { data.quantity },
+                    set: { newQty in
+                        var updated = annotation
+                        var d = data
+                        d.quantity = max(1, newQty)
+                        updated.data = .balloon(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ), in: 1...999)
+
+                Toggle("Show Quantity", isOn: Binding(
+                    get: { data.showQuantity },
+                    set: { showQty in
+                        var updated = annotation
+                        var d = data
+                        d.showQuantity = showQty
+                        updated.data = .balloon(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+
+                TextField("Text Override", text: Binding(
+                    get: { data.textOverride ?? "" },
+                    set: { newText in
+                        var updated = annotation
+                        var d = data
+                        d.textOverride = newText.isEmpty ? nil : newText
+                        updated.data = .balloon(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+
+                if !workspace.document.componentInstances.isEmpty {
+                    Picker("Linked Component", selection: Binding(
+                        get: { data.componentInstanceId },
+                        set: { newCompId in
+                            var updated = annotation
+                            var d = data
+                            d.componentInstanceId = newCompId
+                            if let compId = newCompId,
+                               let comp = workspace.document.componentInstances.first(where: { $0.id == compId }) {
+                                d.componentName = comp.name
+                            }
+                            updated.data = .balloon(d)
+                            _ = workspace.updateDrawingAnnotation(updated)
+                        }
+                    )) {
+                        Text("None").tag(UUID?.none)
+                        ForEach(workspace.document.componentInstances) { comp in
+                            Text(comp.name).tag(UUID?.some(comp.id))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Inspector panel view for configuring a Bill of Materials table placed on a drawing sheet (BL-DRW-08, #215).
+struct DrawingBOMTableInspectorView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let table: DrawingBOMTable
+
+    var body: some View {
+        Form {
+            Section("Table Details") {
+                TextField("Title", text: Binding(
+                    get: { table.title },
+                    set: { newTitle in
+                        var updated = table
+                        updated.title = newTitle
+                        _ = workspace.updateBOMTable(updated)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-bom-table-title-field")
+
+                Toggle("Show Title", isOn: Binding(
+                    get: { table.showTitle },
+                    set: { newShow in
+                        var updated = table
+                        updated.showTitle = newShow
+                        _ = workspace.updateBOMTable(updated)
+                    }
+                ))
+
+                Picker("Structure", selection: Binding(
+                    get: { table.structure },
+                    set: { newStruct in
+                        var updated = table
+                        updated.structure = newStruct
+                        _ = workspace.updateBOMTable(updated)
+                    }
+                )) {
+                    ForEach(BOMStructure.allCases, id: \.self) { s in
+                        Text(s.displayName).tag(s)
+                    }
+                }
+                .accessibilityIdentifier("inspector-bom-table-structure-picker")
+
+                Stepper("Row Height: \(Int(table.rowHeightMM)) mm", value: Binding(
+                    get: { Int(table.rowHeightMM) },
+                    set: { newHeight in
+                        var updated = table
+                        updated.rowHeightMM = max(4.0, Double(newHeight))
+                        _ = workspace.updateBOMTable(updated)
+                    }
+                ), in: 4...25)
+
+                Stepper("Font Size: \(Int(table.fontSizePt)) pt", value: Binding(
+                    get: { Int(table.fontSizePt) },
+                    set: { newSize in
+                        var updated = table
+                        updated.fontSizePt = max(6.0, Double(newSize))
+                        _ = workspace.updateBOMTable(updated)
+                    }
+                ), in: 6...18)
+            }
+
+            Section("Columns") {
+                ForEach(DrawingBOMColumn.allCases) { col in
+                    let isEnabled = table.columns.contains(col)
+                    Toggle(col.displayName, isOn: Binding(
+                        get: { isEnabled },
+                        set: { enable in
+                            var updated = table
+                            if enable && !updated.columns.contains(col) {
+                                updated.columns.append(col)
+                            } else if !enable && updated.columns.contains(col) {
+                                updated.columns.removeAll(where: { $0 == col })
+                                if updated.columns.isEmpty {
+                                    updated.columns = [.itemNumber]
+                                }
+                            }
+                            _ = workspace.updateBOMTable(updated)
+                        }
+                    ))
+                }
+            }
+
+            Section {
+                Button("Delete BOM Table", role: .destructive) {
+                    _ = workspace.removeBOMTable(id: table.id)
+                }
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("inspector-bom-table-delete-button")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+        .accessibilityIdentifier("drawing-bom-table-inspector-view")
     }
 }
 

@@ -13,6 +13,7 @@ public enum DrawingAnnotationKind: String, Sendable, Codable, CaseIterable {
     case centerMark
     case centerline
     case holeCallout
+    case balloon
 
     public var displayName: String {
         switch self {
@@ -36,6 +37,8 @@ public enum DrawingAnnotationKind: String, Sendable, Codable, CaseIterable {
             return "Centerline"
         case .holeCallout:
             return "Hole Callout"
+        case .balloon:
+            return "Balloon"
         }
     }
 }
@@ -599,6 +602,108 @@ public enum HoleCalloutFormatter {
     }
 }
 
+/// Bubble geometry shapes supported for drawing balloon annotations (BL-DRW-08, #215).
+public enum BalloonShape: String, Sendable, Codable, CaseIterable {
+    case circular
+    case splitCircular
+    case box
+    case hexagon
+    case none
+
+    public var displayName: String {
+        switch self {
+        case .circular: return "Circular"
+        case .splitCircular: return "Split Circular"
+        case .box: return "Box"
+        case .hexagon: return "Hexagon"
+        case .none: return "None (Text Only)"
+        }
+    }
+}
+
+/// Payload data for balloon callouts linked to assembly components or parts (BL-DRW-08, #215).
+public struct BalloonAnnotationData: Sendable, Codable, Equatable {
+    /// Attachment point pointing to the component geometry (view coordinates or sheet mm).
+    public var anchorPointMM: SIMD2<Double>
+    /// Center of the balloon callout bubble (view coordinates or sheet mm).
+    public var balloonCenterMM: SIMD2<Double>
+    /// Diameter or bounding size of the balloon callout in millimeters.
+    public var sizeMM: Double
+    /// Shape style of the balloon callout bubble.
+    public var shape: BalloonShape
+    /// Item number resolved from BOM or assigned sequentially.
+    public var itemNumber: String
+    /// Quantity count (e.g. 1 or count from BOM).
+    public var quantity: Int
+    /// Whether to display quantity in split bubble or suffix.
+    public var showQuantity: Bool
+    /// Optional manual text override taking precedence over itemNumber.
+    public var textOverride: String?
+    /// UUID of the linked component instance in the assembly document model.
+    public var componentInstanceId: UUID?
+    /// Cached component name for display or fallback reference.
+    public var componentName: String?
+
+    public init(
+        anchorPointMM: SIMD2<Double>,
+        balloonCenterMM: SIMD2<Double>,
+        sizeMM: Double = 10.0,
+        shape: BalloonShape = .circular,
+        itemNumber: String = "1",
+        quantity: Int = 1,
+        showQuantity: Bool = false,
+        textOverride: String? = nil,
+        componentInstanceId: UUID? = nil,
+        componentName: String? = nil
+    ) {
+        self.anchorPointMM = anchorPointMM
+        self.balloonCenterMM = balloonCenterMM
+        self.sizeMM = max(5.0, sizeMM)
+        self.shape = shape
+        self.itemNumber = itemNumber
+        self.quantity = max(1, quantity)
+        self.showQuantity = showQuantity
+        self.textOverride = textOverride
+        self.componentInstanceId = componentInstanceId
+        self.componentName = componentName
+    }
+
+    /// Formatted primary text string (override or itemNumber).
+    public var formattedText: String {
+        if let textOverride, !textOverride.isEmpty {
+            return textOverride
+        }
+        return itemNumber
+    }
+
+    /// Formatted secondary quantity text.
+    public var formattedQuantityText: String {
+        "\(quantity)"
+    }
+
+    /// Computes the intersection point on the outer boundary of the balloon shape where the leader line terminates.
+    /// Handles degenerate coincident points safely by applying a minimum offset.
+    public func boundaryContactPointMM() -> SIMD2<Double> {
+        Self.boundaryContactPointMM(centerMM: balloonCenterMM, anchorMM: anchorPointMM, sizeMM: sizeMM)
+    }
+
+    public static func boundaryContactPointMM(
+        centerMM: SIMD2<Double>,
+        anchorMM: SIMD2<Double>,
+        sizeMM: Double
+    ) -> SIMD2<Double> {
+        let radius = max(2.5, sizeMM * 0.5)
+        let delta = anchorMM - centerMM
+        let dist = hypot(delta.x, delta.y)
+        if dist < 1e-6 {
+            // Degenerate case: anchor and center coincide; return point offset along default axis to prevent NaN
+            return SIMD2<Double>(centerMM.x - radius, centerMM.y)
+        }
+        let dir = delta / dist
+        return centerMM + (dir * radius)
+    }
+}
+
 /// Codable payload container for drawing annotations.
 public enum DrawingAnnotationData: Sendable, Codable, Equatable {
     case linear(LinearDimensionData)
@@ -611,6 +716,7 @@ public enum DrawingAnnotationData: Sendable, Codable, Equatable {
     case centerMark(CenterMarkData)
     case centerline(CenterlineData)
     case holeCallout(HoleCalloutAnnotationData)
+    case balloon(BalloonAnnotationData)
 
     public var kind: DrawingAnnotationKind {
         switch self {
@@ -634,6 +740,8 @@ public enum DrawingAnnotationData: Sendable, Codable, Equatable {
             return .centerline
         case .holeCallout:
             return .holeCallout
+        case .balloon:
+            return .balloon
         }
     }
 }

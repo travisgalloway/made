@@ -86,10 +86,64 @@ public struct BillOfMaterials: Sendable, Codable, Equatable {
         self.customPropertyKeys = customPropertyKeys
     }
 
-    /// Generates a Bill of Materials from an assembly document model.
+    /// Generates a Bill of Materials from an assembly or part document model.
     @MainActor
     public static func generate(from document: DocumentModel, structure: BOMStructure) -> BillOfMaterials {
-        generate(from: document.componentInstances, structure: structure)
+        if !document.componentInstances.isEmpty {
+            return generate(from: document.componentInstances, structure: structure)
+        }
+
+        // Multi-body part drawings: synthesize BOM items from document objects
+        let visibleObjects = document.objects.filter { $0.isVisible }
+        let objectsToInclude = visibleObjects.isEmpty ? document.objects : visibleObjects
+        guard !objectsToInclude.isEmpty else {
+            return BillOfMaterials(structure: structure, items: [], customPropertyKeys: [])
+        }
+
+        var items: [BOMItem] = []
+        for (index, obj) in objectsToInclude.enumerated() {
+            let partNumber = obj.metadata.property(forKey: CustomPropertyKey.partNumber)
+                ?? obj.metadata.property(forKey: "partNumber")
+                ?? ""
+            let description = obj.metadata.property(forKey: CustomPropertyKey.description)
+                ?? obj.metadata.property(forKey: "description")
+                ?? ""
+            let revision = obj.metadata.property(forKey: CustomPropertyKey.revision)
+                ?? obj.metadata.property(forKey: "revision")
+                ?? ""
+            let vendor = obj.metadata.property(forKey: CustomPropertyKey.vendor)
+                ?? obj.metadata.property(forKey: "vendor")
+                ?? ""
+            let material = obj.metadata.property(forKey: "material")
+                ?? obj.metadata.property(forKey: "Material")
+                ?? ""
+
+            var custom: [String: String] = [:]
+            for (k, v) in obj.metadata {
+                let trimmedKey = k.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedKey.isEmpty else { continue }
+                if !standardPropertyNames.contains(trimmedKey.lowercased()) {
+                    custom[trimmedKey] = v
+                }
+            }
+
+            items.append(BOMItem(
+                itemNumber: "\(index + 1)",
+                level: 1,
+                name: obj.name,
+                partNumber: partNumber,
+                description: description,
+                revision: revision,
+                vendor: vendor,
+                material: material,
+                quantity: 1,
+                isSubassembly: false,
+                customProperties: custom
+            ))
+        }
+
+        let customKeys = Array(Set(items.flatMap { $0.customProperties.keys })).sorted()
+        return BillOfMaterials(structure: structure, items: items, customPropertyKeys: customKeys)
     }
 
     /// Generates a Bill of Materials from an array of root component instances.

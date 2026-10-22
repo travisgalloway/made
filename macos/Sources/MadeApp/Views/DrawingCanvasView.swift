@@ -85,6 +85,11 @@ struct DrawingCanvasView: View {
                 drawingAnnotationItem(annotation: annotation, sheet: sheet, fitScale: fitScale)
             }
 
+            // Placed drawing BOM tables (BL-DRW-08)
+            ForEach(sheet.bomTables) { table in
+                drawingBOMTableItem(table: table, sheet: sheet, fitScale: fitScale)
+            }
+
             // Zone reference marks (1-4 on top & bottom, A-D on left & right)
             zoneMarks(
                 paperWidth: paperWidth,
@@ -143,6 +148,13 @@ struct DrawingCanvasView: View {
                 Button("Leader") {
                     _ = workspace.addLeader(arrowPoint: SIMD2(60.0, 60.0), elbowPoint: SIMD2(90.0, 80.0), text: "SHEET NOTE")
                 }
+                Button("Balloon") {
+                    _ = workspace.addBalloonAnnotation(anchorPoint: SIMD2(60.0, 60.0), balloonCenter: SIMD2(90.0, 80.0))
+                }
+            }
+            Divider()
+            Button("Add BOM Table") {
+                _ = workspace.addBOMTable()
             }
         }
     }
@@ -364,6 +376,12 @@ struct DrawingCanvasView: View {
                 } else {
                     _ = workspace.addHoleCallout(viewId: view.id, anchor: SIMD2(10.0, 0.0), elbow: SIMD2(25.0, 15.0), holeData: HoleCalloutAnnotationData(anchorPointMM: SIMD2(10.0, 0.0), elbowPointMM: SIMD2(25.0, 15.0)))
                 }
+            }
+            Button("Balloon") {
+                _ = workspace.addBalloonAnnotation(viewId: view.id, anchorPoint: SIMD2(0.0, 0.0), balloonCenter: SIMD2(25.0, 25.0))
+            }
+            Button("Auto-Balloon View") {
+                _ = workspace.autoBalloon(viewId: view.id)
             }
         }
         Divider()
@@ -830,6 +848,9 @@ struct DrawingCanvasView: View {
 
             case .holeCallout(let data):
                 renderHoleCallout(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .balloon(let data):
+                renderBalloon(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
             }
         }
         .contentShape(Rectangle())
@@ -1279,5 +1300,276 @@ struct DrawingCanvasView: View {
                 .foregroundStyle(strokeColor)
                 .position(textPos)
         }
+    }
+
+    // MARK: - BOM Table and Balloon Rendering (BL-DRW-08, #215)
+
+    @ViewBuilder
+    private func drawingBOMTableItem(table: DrawingBOMTable, sheet: DrawingSheet, fitScale: Double) -> some View {
+        let isSelected = workspace.selectedDrawingBOMTableId == table.id
+        let strokeColor = isSelected ? Color.accentColor : Color.black
+        let lineWidth: CGFloat = isSelected ? 1.5 : 1.0
+        let dragOffset = dragTranslations[table.id] ?? .zero
+        let originX = (table.positionMM.x * fitScale) + dragOffset.width
+        let originY = (table.positionMM.y * fitScale) + dragOffset.height
+        let rowHeight = table.rowHeightMM * fitScale
+        let totalWidth = table.totalWidthMM * fitScale
+        let items = table.resolvedItems(from: workspace.document)
+        let totalHeight = table.totalHeightMM(rowCount: items.count) * fitScale
+
+        VStack(spacing: 0) {
+            if table.showTitle {
+                Text(table.title)
+                    .font(.system(size: CGFloat(table.fontSizePt), weight: .bold))
+                    .frame(width: totalWidth, height: rowHeight)
+                    .background(Color.white)
+                    .overlay(
+                        Rectangle()
+                            .frame(height: 1)
+                            .foregroundColor(Color.black),
+                        alignment: .bottom
+                    )
+            }
+
+            // Header row
+            HStack(spacing: 0) {
+                ForEach(Array(table.columns.enumerated()), id: \.offset) { idx, col in
+                    let colWidth = table.width(for: col) * fitScale
+                    Text(col.displayName)
+                        .font(.system(size: CGFloat(table.fontSizePt), weight: .semibold))
+                        .frame(width: colWidth, height: rowHeight)
+                        .clipped()
+                        .overlay(
+                            Rectangle()
+                                .frame(width: idx < table.columns.count - 1 ? 1 : 0)
+                                .foregroundColor(Color.black),
+                            alignment: .trailing
+                        )
+                }
+            }
+            .frame(width: totalWidth, height: rowHeight)
+            .background(Color.gray.opacity(0.12))
+            .overlay(
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(Color.black),
+                alignment: .bottom
+            )
+
+            // Data rows
+            ForEach(Array(items.enumerated()), id: \.offset) { rIdx, item in
+                HStack(spacing: 0) {
+                    ForEach(Array(table.columns.enumerated()), id: \.offset) { cIdx, col in
+                        let colWidth = table.width(for: col) * fitScale
+                        Text(col.value(for: item))
+                            .font(.system(size: CGFloat(table.fontSizePt), weight: .regular))
+                            .frame(width: colWidth, height: rowHeight)
+                            .clipped()
+                            .overlay(
+                                Rectangle()
+                                    .frame(width: cIdx < table.columns.count - 1 ? 1 : 0)
+                                    .foregroundColor(Color.black),
+                                alignment: .trailing
+                            )
+                    }
+                }
+                .frame(width: totalWidth, height: rowHeight)
+                .background(Color.white)
+                .overlay(
+                    Rectangle()
+                        .frame(height: rIdx < items.count - 1 ? 1 : 0)
+                        .foregroundColor(Color.gray.opacity(0.4)),
+                    alignment: .bottom
+                )
+            }
+        }
+        .frame(width: totalWidth, height: totalHeight)
+        .overlay(
+            Rectangle()
+                .stroke(strokeColor, lineWidth: lineWidth)
+        )
+        .position(x: originX + totalWidth / 2.0, y: originY + totalHeight / 2.0)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectDrawingBOMTable(table.id)
+        }
+        .gesture(
+            DragGesture()
+                .onChanged { gesture in
+                    dragTranslations[table.id] = gesture.translation
+                    if workspace.selectedDrawingBOMTableId != table.id {
+                        workspace.selectDrawingBOMTable(table.id)
+                    }
+                }
+                .onEnded { gesture in
+                    let translation = gesture.translation
+                    dragTranslations.removeValue(forKey: table.id)
+                    let deltaXMM = translation.width / fitScale
+                    let deltaYMM = translation.height / fitScale
+                    let targetX = max(0.0, min(sheet.dimensionsMM.width - 20.0, table.positionMM.x + deltaXMM))
+                    let targetY = max(0.0, min(sheet.dimensionsMM.height - 20.0, table.positionMM.y + deltaYMM))
+                    var updated = table
+                    updated.positionMM = SIMD2<Double>(targetX, targetY)
+                    _ = workspace.updateBOMTable(updated)
+                }
+        )
+        .contextMenu {
+            Button("Delete BOM Table", role: .destructive) {
+                _ = workspace.removeBOMTable(id: table.id)
+            }
+        }
+        .accessibilityIdentifier("drawing-bom-table-\(table.id.uuidString)")
+    }
+
+    @ViewBuilder
+    private func renderBalloon(
+        data: BalloonAnnotationData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let dragOffset = dragTranslations[annotation.id] ?? .zero
+        let anchorPt = toCanvasPoint(data.anchorPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let rawCenter = toCanvasPoint(data.balloonCenterMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let centerPt = CGPoint(x: rawCenter.x + dragOffset.width, y: rawCenter.y + dragOffset.height)
+        let bubbleRadiusPt = max(8.0, (data.sizeMM * scale) / 2.0)
+
+        let dx = anchorPt.x - centerPt.x
+        let dy = anchorPt.y - centerPt.y
+        let dist = hypot(dx, dy)
+        let contactPt: CGPoint = (dist < 1e-4)
+            ? CGPoint(x: centerPt.x - bubbleRadiusPt, y: centerPt.y)
+            : CGPoint(x: centerPt.x + (dx / dist) * bubbleRadiusPt, y: centerPt.y + (dy / dist) * bubbleRadiusPt)
+        let angle: Double = (dist < 1e-4) ? 0.0 : atan2(dy, dx)
+
+        ZStack {
+            // Leader line
+            Path { path in
+                path.move(to: contactPt)
+                path.addLine(to: anchorPt)
+            }
+            .stroke(strokeColor, lineWidth: lineWidth)
+
+            // Arrowhead at anchor
+            Path { path in
+                appendArrowhead(to: &path, tip: anchorPt, angle: angle + .pi)
+            }
+            .fill(strokeColor)
+
+            // Bubble shape & text
+            Group {
+                switch data.shape {
+                case .circular:
+                    Circle()
+                        .fill(Color.white)
+                        .overlay(Circle().stroke(strokeColor, lineWidth: lineWidth))
+                        .frame(width: bubbleRadiusPt * 2, height: bubbleRadiusPt * 2)
+                        .overlay(
+                            Text(data.formattedText)
+                                .font(.system(size: CGFloat(bubbleRadiusPt * 0.9), weight: .semibold))
+                                .foregroundStyle(strokeColor)
+                        )
+
+                case .splitCircular:
+                    Circle()
+                        .fill(Color.white)
+                        .overlay(
+                            ZStack {
+                                Circle().stroke(strokeColor, lineWidth: lineWidth)
+                                Path { path in
+                                    path.move(to: CGPoint(x: 0, y: bubbleRadiusPt))
+                                    path.addLine(to: CGPoint(x: bubbleRadiusPt * 2, y: bubbleRadiusPt))
+                                }
+                                .stroke(strokeColor, lineWidth: lineWidth)
+                                VStack(spacing: 0) {
+                                    Text(data.formattedText)
+                                        .font(.system(size: CGFloat(bubbleRadiusPt * 0.65), weight: .semibold))
+                                        .foregroundStyle(strokeColor)
+                                        .frame(height: bubbleRadiusPt)
+                                    Text(data.formattedQuantityText)
+                                        .font(.system(size: CGFloat(bubbleRadiusPt * 0.65), weight: .regular))
+                                        .foregroundStyle(strokeColor)
+                                        .frame(height: bubbleRadiusPt)
+                                }
+                            }
+                        )
+                        .frame(width: bubbleRadiusPt * 2, height: bubbleRadiusPt * 2)
+
+                case .box:
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white)
+                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(strokeColor, lineWidth: lineWidth))
+                        .frame(width: bubbleRadiusPt * 2, height: bubbleRadiusPt * 2)
+                        .overlay(
+                            Text(data.showQuantity ? "\(data.formattedText) (\(data.formattedQuantityText))" : data.formattedText)
+                                .font(.system(size: CGFloat(bubbleRadiusPt * 0.8), weight: .semibold))
+                                .foregroundStyle(strokeColor)
+                        )
+
+                case .hexagon:
+                    hexagonPath(radius: bubbleRadiusPt)
+                        .fill(Color.white)
+                        .overlay(hexagonPath(radius: bubbleRadiusPt).stroke(strokeColor, lineWidth: lineWidth))
+                        .frame(width: bubbleRadiusPt * 2, height: bubbleRadiusPt * 2)
+                        .overlay(
+                            Text(data.formattedText)
+                                .font(.system(size: CGFloat(bubbleRadiusPt * 0.8), weight: .semibold))
+                                .foregroundStyle(strokeColor)
+                        )
+
+                case .none:
+                    Text(data.showQuantity ? "\(data.formattedText) (\(data.formattedQuantityText))" : data.formattedText)
+                        .font(.system(size: CGFloat(bubbleRadiusPt * 0.9), weight: .semibold))
+                        .foregroundStyle(strokeColor)
+                        .padding(2)
+                        .background(Color.white)
+                }
+            }
+            .position(centerPt)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture()
+                    .onChanged { gesture in
+                        dragTranslations[annotation.id] = gesture.translation
+                        if workspace.selectedDrawingAnnotationId != annotation.id {
+                            workspace.selectDrawingAnnotation(annotation.id)
+                        }
+                    }
+                    .onEnded { gesture in
+                        let translation = gesture.translation
+                        dragTranslations.removeValue(forKey: annotation.id)
+                        let isViewAttached = annotation.viewId != nil
+                        let deltaXMM = translation.width / scale
+                        let deltaYMM = isViewAttached ? (-translation.height / scale) : (translation.height / scale)
+                        var updated = annotation
+                        if case .balloon(var bData) = annotation.data {
+                            bData.balloonCenterMM += SIMD2<Double>(deltaXMM, deltaYMM)
+                            updated.data = .balloon(bData)
+                            _ = workspace.updateDrawingAnnotation(updated)
+                        }
+                    }
+            )
+        }
+    }
+
+    private func hexagonPath(radius: CGFloat) -> Path {
+        var path = Path()
+        for i in 0..<6 {
+            let angle = (Double(i) * .pi / 3.0) - (.pi / 6.0)
+            let pt = CGPoint(
+                x: radius + cos(angle) * radius,
+                y: radius + sin(angle) * radius
+            )
+            if i == 0 {
+                path.move(to: pt)
+            } else {
+                path.addLine(to: pt)
+            }
+        }
+        path.closeSubpath()
+        return path
     }
 }
