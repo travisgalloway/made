@@ -9,6 +9,7 @@ public enum ReferenceTarget: Sendable, Equatable, Hashable {
     case face(TopologicalReference)
     case edge(TopologicalReference)
     case vertex(TopologicalReference)
+    case component(UUID)
 }
 
 extension ReferenceTarget: Codable {
@@ -18,6 +19,7 @@ extension ReferenceTarget: Codable {
         case entityId
         case solidId
         case topologicalReference
+        case componentId
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +45,9 @@ extension ReferenceTarget: Codable {
         case "vertex":
             let ref = try container.decode(TopologicalReference.self, forKey: .topologicalReference)
             self = .vertex(ref)
+        case "component":
+            let id = try container.decode(UUID.self, forKey: .componentId)
+            self = .component(id)
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown ReferenceTarget type: '\(type)'")
@@ -72,6 +77,9 @@ extension ReferenceTarget: Codable {
         case .vertex(let ref):
             try container.encode("vertex", forKey: .type)
             try container.encode(ref, forKey: .topologicalReference)
+        case .component(let id):
+            try container.encode("component", forKey: .type)
+            try container.encode(id, forKey: .componentId)
         }
     }
 }
@@ -107,6 +115,9 @@ public struct Reference: Identifiable, Sendable, Codable, Equatable, Hashable {
         case .vertex(let topRef):
             hasher.update(data: Data("vertex".utf8))
             hasher.update(data: Data(topRef.id.uuidString.utf8))
+        case .component(let compId):
+            hasher.update(data: Data("component".utf8))
+            hasher.update(data: Data(compId.uuidString.utf8))
         }
         let digest = hasher.finalize()
         var bytes = Array(digest.prefix(16))
@@ -184,6 +195,10 @@ public struct Reference: Identifiable, Sendable, Codable, Equatable, Hashable {
         Reference(role: role, target: .vertex(ref))
     }
 
+    public static func component(_ id: UUID, role: String? = nil) -> Reference {
+        Reference(role: role, target: .component(id))
+    }
+
     // MARK: - Primary Feature Accessor
 
     /// Extracts the primary feature UUID if directly identifiable from the reference target.
@@ -193,7 +208,7 @@ public struct Reference: Identifiable, Sendable, Codable, Equatable, Hashable {
             return id
         case .sketchEntity(let featureId, _):
             return featureId
-        case .body:
+        case .body, .component:
             return nil
         case .face(let topRef), .edge(let topRef), .vertex(let topRef):
             return topRef.sourceFeatureId

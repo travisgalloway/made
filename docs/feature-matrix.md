@@ -4,7 +4,7 @@ Date: 2026-10-17
 Scope: macos/ (Swift 6 package, targets MadeCore, MadeApp, and MadeKernelService)
 Audit run: 20261017-112015
 
-Table 1 lists 191 capabilities with their implementation status. The matrix shows 159 Shipped, 22 In progress, 5 Planned, and 5 Deprecated rows.
+Table 1 lists 192 capabilities with their implementation status. The matrix shows 160 Shipped, 22 In progress, 5 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -72,6 +72,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - XCH-1 is Shipped. Binary STL export with user-configurable tessellation tolerance, unit conversion, streaming 64 KB chunk buffers, and partial write cleanup was implemented under #266 (BL-XCH-05).
 - XCH-2 is Shipped. Multi-object 3MF export with units, body colors from basematerials, tessellation tolerance selection, and open boundary edge warnings was implemented under #405 (BL-XCH-06).
 - XCH-3 is Shipped. Reference STEP, IGES, and STL test corpus with manifest-driven bounds, volume, tolerance verification, unit normalization, and expected failure tracking under CI was implemented under #411 (BL-XCH-14).
+- ASM-1 is Shipped. Foundational assembly document type supporting part and assembly document distinction, component instances with internal part or external document references, 3D transform positioning with Euler angles, package serialization round-trip, File > New Assembly (⌥⌘N), Navigator Components outline, and Inspector transform editing with undo and redo was implemented under #161 (BL-ASM-01).
 
 Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
 
@@ -295,4 +296,5 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | XCH-1 | (new) A person can export visible scene bodies to binary STL with configurable tessellation tolerance and unit selection via File > Export > STL and Solid > Export STL (BL-XCH-05) | done | done | done | Shipped | #266 | n/a |
 | XCH-2 | (new) A person can export visible scene bodies to multi-object 3MF with units, body colors from basematerials, and tessellation tolerance selection via File > Export > 3MF… and Solid > Export 3MF… (BL-XCH-06) | done | done | done | Shipped | #405 | n/a |
 | XCH-3 | (new) A maintainer can run a reference STEP, IGES, and STL corpus in CI with manifest-driven bounds, volume, tolerance verification, unit scaling, and expected failure tracking (BL-XCH-14) | n/a | done | done | Shipped | #411 | n/a |
+| ASM-1 | (new) A person can create and edit assembly documents with component instances referencing internal parts or external documents, position instances via 3D transforms with Euler angles, inspect and edit components in Navigator and Inspector panels, and persist assembly packages with backwards compatibility (BL-ASM-01) | done | done | done | Shipped | #161 | n/a |
 

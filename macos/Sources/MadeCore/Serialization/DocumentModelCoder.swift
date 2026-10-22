@@ -12,6 +12,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var bodies: [Body]?
     public var selection: [Reference]?
     public var parameters: [DocumentParameter]?
+    public var documentType: DocumentType?
+    public var componentInstances: [ComponentInstance]?
 
     public init(
         schemaVersion: Int = DocumentData.currentSchemaVersion,
@@ -21,18 +23,23 @@ public struct DocumentData: Codable, Sendable, Equatable {
         rollbackIndex: Int? = nil,
         bodies: [Body]? = nil,
         selection: [Reference]? = nil,
-        parameters: [DocumentParameter]? = nil
+        parameters: [DocumentParameter]? = nil,
+        documentType: DocumentType? = nil,
+        componentInstances: [ComponentInstance]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.rollbackIndex = rollbackIndex
         self.parameters = parameters
+        self.documentType = documentType
+        self.componentInstances = componentInstances
+        let projectedCompObjects: [SceneObject] = (componentInstances ?? []).map { $0.toSceneObject() }
         if let features {
             self.features = features
             let effectiveIndex = rollbackIndex ?? features.count
             let clampedIndex = max(0, min(effectiveIndex, features.count))
             let active = Array(features.prefix(clampedIndex)).compactMap { $0.toSceneObject() }
-            self.objects = active
-            self.bodies = bodies ?? active.map { Body(from: $0) }
+            self.objects = active + projectedCompObjects
+            self.bodies = bodies ?? self.objects.map { Body(from: $0) }
         } else if let objects {
             let clamped = objects.map { obj in
                 var copy = obj
@@ -44,15 +51,15 @@ public struct DocumentData: Codable, Sendable, Equatable {
             self.bodies = bodies ?? clamped.map { Body(from: $0) }
         } else {
             self.features = []
-            self.objects = []
-            self.bodies = bodies ?? []
+            self.objects = projectedCompObjects
+            self.bodies = bodies ?? projectedCompObjects.map { Body(from: $0) }
         }
         self.selectedId = selectedId
         self.selection = selection
     }
 
-    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters)
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -64,12 +71,18 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case bodies
         case selection
         case parameters
+        case documentType
+        case componentInstances
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         self.rollbackIndex = try container.decodeIfPresent(Int.self, forKey: .rollbackIndex)
+        self.documentType = try container.decodeIfPresent(DocumentType.self, forKey: .documentType)
+        let decodedInstances = try container.decodeIfPresent([ComponentInstance].self, forKey: .componentInstances)
+        self.componentInstances = decodedInstances
+        let projectedCompObjects: [SceneObject] = (decodedInstances ?? []).map { $0.toSceneObject() }
         let decodedFeatures = try container.decodeIfPresent([Feature].self, forKey: .features)
         let rawObjects = try container.decodeIfPresent([SceneObject].self, forKey: .objects)
         let rawBodies = try container.decodeIfPresent([Body].self, forKey: .bodies)
@@ -79,7 +92,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
             let effectiveIndex = rollbackIndex ?? decodedFeatures.count
             let clampedIndex = max(0, min(effectiveIndex, decodedFeatures.count))
             let activeFeatures = Array(decodedFeatures.prefix(clampedIndex))
-            let derivedObjects = activeFeatures.compactMap { $0.toSceneObject() }
+            let derivedObjects = activeFeatures.compactMap { $0.toSceneObject() } + projectedCompObjects
             let derivedBodies = derivedObjects.map { Body(from: $0) }
 
             if let rawObjects {
@@ -116,9 +129,15 @@ public struct DocumentData: Codable, Sendable, Equatable {
                 copy.def = DocumentLimits.clamp(obj.def)
                 return copy
             }
-            self.objects = clampedRawObjects
-            self.features = clampedRawObjects.map { Feature(from: $0) }
-            self.bodies = rawBodies ?? clampedRawObjects.map { Body(from: $0) }
+            if clampedRawObjects.isEmpty && !projectedCompObjects.isEmpty {
+                self.objects = projectedCompObjects
+                self.features = []
+                self.bodies = rawBodies ?? projectedCompObjects.map { Body(from: $0) }
+            } else {
+                self.objects = clampedRawObjects
+                self.features = clampedRawObjects.map { Feature(from: $0) }
+                self.bodies = rawBodies ?? clampedRawObjects.map { Body(from: $0) }
+            }
         }
 
         self.selectedId = try container.decodeIfPresent(ObjectId.self, forKey: .selectedId)
@@ -138,6 +157,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encodeIfPresent(rollbackIndex, forKey: .rollbackIndex)
         try container.encodeIfPresent(selection, forKey: .selection)
         try container.encodeIfPresent(parameters, forKey: .parameters)
+        try container.encodeIfPresent(documentType, forKey: .documentType)
+        try container.encodeIfPresent(componentInstances, forKey: .componentInstances)
     }
 
     private static func sceneObjectsMatch(_ a: [SceneObject], _ b: [SceneObject]) -> Bool {
@@ -236,7 +257,9 @@ public enum DocumentModelCoder {
             rollbackIndex: document.rollbackIndex,
             bodies: document.bodies,
             selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString },
-            parameters: document.parameters
+            parameters: document.parameters,
+            documentType: document.documentType,
+            componentInstances: document.componentInstances
         )
         return try encode(docData, packageURL: packageURL)
     }
@@ -254,10 +277,28 @@ public enum DocumentModelCoder {
                 return nil
             }
         }()
+        let docType = docData.documentType ?? .part
+        let instances = docData.componentInstances ?? []
         if let features = docData.features {
-            document.reset(with: features, selection: restoredSelection, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex, parameters: docData.parameters ?? [])
+            document.reset(
+                with: features,
+                selection: restoredSelection,
+                selectedId: docData.selectedId,
+                rollbackIndex: docData.rollbackIndex,
+                parameters: docData.parameters ?? [],
+                documentType: docType,
+                componentInstances: instances
+            )
         } else {
-            document.reset(with: docData.objects, selection: restoredSelection, selectedId: docData.selectedId, rollbackIndex: docData.rollbackIndex, parameters: docData.parameters ?? [])
+            document.reset(
+                with: docData.objects,
+                selection: restoredSelection,
+                selectedId: docData.selectedId,
+                rollbackIndex: docData.rollbackIndex,
+                parameters: docData.parameters ?? [],
+                documentType: docType,
+                componentInstances: instances
+            )
         }
     }
 }

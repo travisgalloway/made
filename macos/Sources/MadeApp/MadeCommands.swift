@@ -11,6 +11,11 @@ struct FileMenuCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.newDocumentShortcutKey, modifiers: WorkspaceModel.newDocumentShortcutModifiers)
 
+            Button("New Assembly") {
+                workspace.newAssemblyDocument()
+            }
+            .keyboardShortcut(WorkspaceModel.newAssemblyShortcutKey, modifiers: WorkspaceModel.newAssemblyShortcutModifiers)
+
             Button("Open Document…") {
                 workspace.promptOpenDocument()
             }

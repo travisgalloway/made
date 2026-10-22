@@ -820,6 +820,8 @@ public final class DocumentModel {
     public private(set) var parameters: [DocumentParameter] = []
     public private(set) var parameterGraph = ParameterDependencyGraph()
     public private(set) var settings: DocumentSettings = DocumentSettings()
+    public private(set) var documentType: DocumentType = .part
+    public private(set) var componentInstances: [ComponentInstance] = []
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
@@ -915,6 +917,10 @@ public final class DocumentModel {
                     if let solidId = feature(for: featId)?.outputSolidId {
                         ids.insert(solidId)
                     }
+                case .component(let compId):
+                    if let comp = componentInstances.first(where: { $0.id == compId }) {
+                        ids.insert(comp.solidId)
+                    }
                 default:
                     break
                 }
@@ -963,6 +969,8 @@ public final class DocumentModel {
                     return feature(for: featId)?.outputSolidId == current
                 case .face(let topRef), .edge(let topRef), .vertex(let topRef):
                     return feature(for: topRef.sourceFeatureId)?.outputSolidId == current
+                case .component(let compId):
+                    return SolidId("component-\(compId.uuidString)") == current
                 default:
                     return false
                 }
@@ -993,8 +1001,15 @@ public final class DocumentModel {
         }
 
         for ref in selection {
-            if case .body(let solidId) = ref.target {
+            switch ref.target {
+            case .body(let solidId):
                 return solidId
+            case .component(let compId):
+                if let comp = componentInstances.first(where: { $0.id == compId }) {
+                    return comp.solidId
+                }
+            default:
+                break
             }
         }
         return nil
@@ -1059,6 +1074,8 @@ public final class DocumentModel {
                 return sId == solidId
             case .feature(let fId):
                 return feature(for: fId)?.outputSolidId == solidId
+            case .component(let compId):
+                return SolidId("component-\(compId.uuidString)") == solidId
             default:
                 return false
             }
@@ -1087,6 +1104,8 @@ public final class DocumentModel {
                 return sId == solidId
             case .feature(let fId):
                 return feature(for: fId)?.outputSolidId == solidId
+            case .component(let compId):
+                return SolidId("component-\(compId.uuidString)") == solidId
             default:
                 return false
             }
@@ -1129,6 +1148,8 @@ public final class DocumentModel {
                 if let feat = feature(for: topRef.sourceFeatureId), !result.contains(where: { $0.id == feat.id }) {
                     result.append(feat)
                 }
+            case .component:
+                break
             }
         }
         return result
@@ -1145,6 +1166,11 @@ public final class DocumentModel {
                 }
             case .feature(let featId):
                 if let solidId = feature(for: featId)?.outputSolidId, let b = body(for: solidId), !result.contains(where: { $0.id == b.id }) {
+                    result.append(b)
+                }
+            case .component(let compId):
+                let solidId = SolidId("component-\(compId.uuidString)")
+                if let b = body(for: solidId), !result.contains(where: { $0.id == b.id }) {
                     result.append(b)
                 }
             default:
@@ -1170,6 +1196,8 @@ public final class DocumentModel {
                     return objects.contains(where: { $0.id == solidId })
                 case .face(let feat, _), .edge(let feat, _), .vertex(let feat, _):
                     return isFeatureActive(id: feat.id) && !feat.isSuppressed
+                case .component(let comp):
+                    return comp.isVisible && componentInstances.contains(where: { $0.id == comp.id })
                 }
             case .failure:
                 return false
@@ -1205,8 +1233,23 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], settings: DocumentSettings = DocumentSettings()) {
+        self.features = []
+        self.rollbackIndex = nil
+        self.documentType = documentType
+        self.componentInstances = componentInstances
+        self.settings = settings
+        self._selection = []
+        self._selectedId = nil
+        syncObjectsFromFeatures()
+        self.seq = 1
+        setupUndoObservers()
+    }
+
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = []) {
         self.features = features
+        self.documentType = documentType
+        self.componentInstances = componentInstances
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
             self.rollbackIndex = (clamped >= features.count) ? nil : clamped
@@ -1258,8 +1301,10 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = []) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = []) {
         undoManager?.removeAllActions()
+        self.documentType = documentType
+        self.componentInstances = componentInstances
         self.parameters = parameters
         rebuildParameterGraph()
         features = newFeatures
@@ -1279,7 +1324,7 @@ public final class DocumentModel {
         } else if let selectedId {
             self.selectedId = selectedId
         } else {
-            self.selectedId = activeFeatures.compactMap(\.outputSolidId).first
+            self.selectedId = activeFeatures.compactMap(\.outputSolidId).first ?? componentInstances.first?.solidId
         }
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
@@ -1287,8 +1332,10 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = []) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = []) {
         undoManager?.removeAllActions()
+        self.documentType = documentType
+        self.componentInstances = componentInstances
         self.parameters = parameters
         rebuildParameterGraph()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
@@ -1309,7 +1356,7 @@ public final class DocumentModel {
         } else if let selectedId {
             self.selectedId = selectedId
         } else {
-            self.selectedId = activeFeatures.compactMap(\.outputSolidId).first
+            self.selectedId = activeFeatures.compactMap(\.outputSolidId).first ?? componentInstances.first?.solidId
         }
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
@@ -1430,6 +1477,33 @@ public final class DocumentModel {
                     currentObjects.append(obj)
                 }
             }
+        }
+
+        for instance in componentInstances {
+            let def: ObjectDef
+            switch instance.reference {
+            case .internalPart(let name, let bodyId):
+                if let bodyId, let matchingObj = currentObjects.first(where: { $0.id == bodyId }) {
+                    def = matchingObj.def
+                } else if let matchingObj = currentObjects.first(where: { $0.name == name }) {
+                    def = matchingObj.def
+                } else {
+                    def = .imported(name: name, sourceURL: nil, data: nil, isLinked: false)
+                }
+            case .externalDocument(let url, let partName):
+                let displayName = partName ?? url.deletingPathExtension().lastPathComponent
+                def = .imported(name: displayName, sourceURL: url, data: nil, isLinked: true)
+            }
+            let obj = SceneObject(
+                id: instance.solidId,
+                name: instance.name,
+                def: def,
+                transform: instance.transform,
+                isVisible: instance.isVisible,
+                isLocked: instance.isLocked,
+                material: instance.material
+            )
+            currentObjects.append(obj)
         }
 
         objects = currentObjects
@@ -5126,6 +5200,9 @@ public final class DocumentModel {
 
     @discardableResult
     public func removeObject(id: ObjectId, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            return removeComponentInstance(id: componentInstances[compIndex].id, actionName: actionName, registerUndo: registerUndo)
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
@@ -5811,6 +5888,30 @@ public final class DocumentModel {
     
     @discardableResult
     public func setTransform(id: ObjectId, transform: Transform, actionName: String? = nil) -> Result<Void, DocumentMutationError> {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            guard !componentInstances[compIndex].isLocked else {
+                return .failure(.objectLocked(id))
+            }
+            let oldTransform = componentInstances[compIndex].transform
+            guard oldTransform != transform else {
+                return .success(())
+            }
+            componentInstances[compIndex].transform = transform
+            syncObjectsFromFeatures()
+
+            let effectiveActionName = actionName ?? "Move Component"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    let res = target.setTransform(id: id, transform: oldTransform, actionName: effectiveActionName)
+                    guard case .success = res else { return }
+                    target.undoManager?.setActionName(effectiveActionName)
+                    target.onUndoRedoMutation?(.transformChanged(id, transform: oldTransform))
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+            undoStateVersion += 1
+            return .success(())
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
@@ -5838,6 +5939,15 @@ public final class DocumentModel {
     }
     
     public func setName(id: ObjectId, name: String) {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            guard !componentInstances[compIndex].isLocked else { return }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            guard componentInstances[compIndex].name != trimmed else { return }
+            componentInstances[compIndex].name = trimmed
+            syncObjectsFromFeatures()
+            return
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
         guard !features[index].isLocked else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5847,17 +5957,35 @@ public final class DocumentModel {
     }
     
     public func setVisibility(id: ObjectId, isVisible: Bool) {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            componentInstances[compIndex].isVisible = isVisible
+            syncObjectsFromFeatures()
+            return
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
         features[index].isVisible = isVisible
     }
     
     public func setLocked(id: ObjectId, isLocked: Bool) {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            componentInstances[compIndex].isLocked = isLocked
+            syncObjectsFromFeatures()
+            return
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
         features[index].isLocked = isLocked
     }
     
     @discardableResult
     public func setMaterial(id: ObjectId, material: MaterialAttributes) -> Result<Void, DocumentMutationError> {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            guard !componentInstances[compIndex].isLocked else {
+                return .failure(.objectLocked(id))
+            }
+            componentInstances[compIndex].material = material
+            syncObjectsFromFeatures()
+            return .success(())
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
@@ -5871,6 +5999,20 @@ public final class DocumentModel {
     // MARK: - Body Mutators (BL-FND-12)
 
     public func setBodyVisibility(id: BodyId, isVisible: Bool) {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            let oldVisible = componentInstances[compIndex].isVisible
+            guard oldVisible != isVisible else { return }
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setBodyVisibility(id: id, isVisible: oldVisible)
+                    target.undoManager?.setActionName(oldVisible ? "Show Component" : "Hide Component")
+                }
+            }
+            undoManager?.setActionName(isVisible ? "Show Component" : "Hide Component")
+            undoStateVersion += 1
+            setVisibility(id: id, isVisible: isVisible)
+            return
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
         let oldVisible = features[index].isVisible
         guard oldVisible != isVisible else { return }
@@ -5886,6 +6028,23 @@ public final class DocumentModel {
     }
 
     public func setBodyName(id: BodyId, name: String) {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            guard !componentInstances[compIndex].isLocked else { return }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            let oldName = componentInstances[compIndex].name
+            guard oldName != trimmed else { return }
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setBodyName(id: id, name: oldName)
+                    target.undoManager?.setActionName("Rename Component")
+                }
+            }
+            undoManager?.setActionName("Rename Component")
+            undoStateVersion += 1
+            setName(id: id, name: trimmed)
+            return
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
         guard !features[index].isLocked else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5905,6 +6064,24 @@ public final class DocumentModel {
 
     @discardableResult
     public func setBodyMaterial(id: BodyId, material: MaterialAttributes) -> Result<Void, DocumentMutationError> {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            guard !componentInstances[compIndex].isLocked else {
+                return .failure(.objectLocked(id))
+            }
+            let oldMaterial = componentInstances[compIndex].material
+            guard oldMaterial != material else {
+                return .success(())
+            }
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setBodyMaterial(id: id, material: oldMaterial)
+                    target.undoManager?.setActionName("Change Component Material")
+                }
+            }
+            undoManager?.setActionName("Change Component Material")
+            undoStateVersion += 1
+            return setMaterial(id: id, material: material)
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else {
             return .failure(.objectNotFound(id))
         }
@@ -5940,6 +6117,20 @@ public final class DocumentModel {
     }
 
     public func setBodyLocked(id: BodyId, isLocked: Bool) {
+        if let compIndex = componentInstances.firstIndex(where: { $0.solidId == id }) {
+            let oldLocked = componentInstances[compIndex].isLocked
+            guard oldLocked != isLocked else { return }
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setBodyLocked(id: id, isLocked: oldLocked)
+                    target.undoManager?.setActionName(oldLocked ? "Lock Component" : "Unlock Component")
+                }
+            }
+            undoManager?.setActionName(isLocked ? "Lock Component" : "Unlock Component")
+            undoStateVersion += 1
+            setLocked(id: id, isLocked: isLocked)
+            return
+        }
         guard let index = features.firstIndex(where: { $0.outputSolidId == id }) else { return }
         let oldLocked = features[index].isLocked
         guard oldLocked != isLocked else { return }
@@ -5952,6 +6143,124 @@ public final class DocumentModel {
         undoManager?.setActionName(isLocked ? "Lock Body" : "Unlock Body")
         undoStateVersion += 1
         setLocked(id: id, isLocked: isLocked)
+    }
+
+    // MARK: - Assembly Component Mutations (BL-ASM-01)
+
+    @discardableResult
+    public func addComponentInstance(_ instance: ComponentInstance, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        componentInstances.append(instance)
+        syncObjectsFromFeatures()
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Component"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeComponentInstance(id: instance.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                    target.onUndoRedoMutation?(.removed(instance.solidId))
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeComponentInstance(id: UUID, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        guard let index = componentInstances.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
+        }
+        let instance = componentInstances[index]
+        componentInstances.remove(at: index)
+        if selectedId == instance.solidId {
+            selectedId = nil
+        }
+        pruneInvalidSelection()
+        syncObjectsFromFeatures()
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Component"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addComponentInstance(instance, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                    target.onUndoRedoMutation?(.added(instance.solidId))
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateComponentInstanceTransform(id: UUID, transform: Transform, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        guard let index = componentInstances.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
+        }
+        guard !componentInstances[index].isLocked else {
+            return .failure(.objectLocked(componentInstances[index].solidId))
+        }
+        let oldTransform = componentInstances[index].transform
+        guard oldTransform != transform else {
+            return .success(())
+        }
+        componentInstances[index].transform = transform
+        syncObjectsFromFeatures()
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Move Component"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateComponentInstanceTransform(id: id, transform: oldTransform, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                    target.onUndoRedoMutation?(.transformChanged(SolidId("component-\(id.uuidString)"), transform: oldTransform))
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateComponentInstance(_ instance: ComponentInstance, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        guard let index = componentInstances.firstIndex(where: { $0.id == instance.id }) else {
+            return .failure(.objectNotFound(instance.solidId))
+        }
+        let old = componentInstances[index]
+        guard old != instance else { return .success(()) }
+        componentInstances[index] = instance
+        syncObjectsFromFeatures()
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Component"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateComponentInstance(old, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    public func setDocumentType(_ type: DocumentType, actionName: String? = nil, registerUndo: Bool = true) {
+        guard documentType != type else { return }
+        let oldType = documentType
+        documentType = type
+        syncObjectsFromFeatures()
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Change Document Type"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setDocumentType(oldType, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
     }
 
     /// Returns all direct dependent objects of `rootId` (BL-FND-03).

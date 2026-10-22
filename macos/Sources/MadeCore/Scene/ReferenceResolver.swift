@@ -14,6 +14,7 @@ public enum ReferenceResolutionError: Error, Sendable, Codable, Equatable, Custo
     case topologicalElementMissing(TopologicalReference)
     case typeMismatch(expected: String, actual: String)
     case missingTargetBody(featureId: UUID, operation: BodyOperation)
+    case componentNotFound(UUID)
 
     public var description: String {
         switch self {
@@ -41,6 +42,8 @@ public enum ReferenceResolutionError: Error, Sendable, Codable, Equatable, Custo
             return "Reference type mismatch: expected \(expected) but got \(actual)"
         case .missingTargetBody(let featureId, let operation):
             return "Feature '\(featureId)' with operation '\(operation.rawValue)' must specify a targetBodyId"
+        case .componentNotFound(let id):
+            return "Component instance '\(id.uuidString)' not found in assembly"
         }
     }
 }
@@ -53,6 +56,7 @@ public enum ResolvedTarget: Sendable, Equatable {
     case face(sourceFeature: Feature, reference: TopologicalReference)
     case edge(sourceFeature: Feature, reference: TopologicalReference)
     case vertex(sourceFeature: Feature, reference: TopologicalReference)
+    case component(ComponentInstance)
 }
 
 /// Resolved pair of a reference query and its target entity.
@@ -171,6 +175,13 @@ public enum ReferenceResolver {
             }
             return resolveTopology(reference: reference, topRef: topRef, referencingFeature: referencingFeature, refIndex: refIndex, in: document) { sourceFeature in
                 .vertex(sourceFeature: sourceFeature, reference: topRef)
+            }
+
+        case .component(let componentId):
+            if let comp = document.componentInstances.first(where: { $0.id == componentId }) {
+                return .success(ResolvedReference(reference: reference, target: .component(comp)))
+            } else {
+                return .failure(.componentNotFound(componentId))
             }
         }
     }
