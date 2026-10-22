@@ -840,6 +840,7 @@ public final class DocumentModel {
     private var activeInteractiveParamEdit: (id: ObjectId, key: String, initialValue: Float)?
     public private(set) var activeInteractiveSketchDrag: (featureId: UUID, initialEntities: [SketchEntity])?
     public private(set) var activeAssemblyDragInitialTransforms: [UUID: Transform]?
+    private var activeAssemblyDragInitialInstances: [ComponentInstance]?
     @ObservationIgnored private var undoObservers: [NSObjectProtocol] = []
 
     public var isRolledBack: Bool { rollbackIndex != nil }
@@ -1195,11 +1196,11 @@ public final class DocumentModel {
                     if let feat {
                         return isFeatureActive(id: feat.id) && !feat.isSuppressed
                     }
-                    return objects.contains(where: { $0.id == solidId })
+                    return objects.contains(where: { $0.id == solidId }) || findComponentInstance(solidId: solidId) != nil
                 case .face(let feat, _), .edge(let feat, _), .vertex(let feat, _):
                     return isFeatureActive(id: feat.id) && !feat.isSuppressed
                 case .component(let comp):
-                    return comp.isVisible && componentInstances.contains(where: { $0.id == comp.id })
+                    return comp.isVisible && findComponentInstance(id: comp.id) != nil
                 }
             case .failure:
                 return false
@@ -1208,7 +1209,7 @@ public final class DocumentModel {
         if validSelection != _selection {
             selection = validSelection
         }
-        if let selId = _selectedId, !objects.contains(where: { $0.id == selId }) {
+        if let selId = _selectedId, !objects.contains(where: { $0.id == selId }) && findComponentInstance(solidId: selId) == nil {
             selectedId = nil
         }
     }
@@ -1335,6 +1336,7 @@ public final class DocumentModel {
         activeInteractiveParamEdit = nil
         activeInteractiveSketchDrag = nil
         activeAssemblyDragInitialTransforms = nil
+        activeAssemblyDragInitialInstances = nil
         undoStateVersion += 1
     }
 
@@ -1369,6 +1371,7 @@ public final class DocumentModel {
         activeInteractiveParamEdit = nil
         activeInteractiveSketchDrag = nil
         activeAssemblyDragInitialTransforms = nil
+        activeAssemblyDragInitialInstances = nil
         undoStateVersion += 1
     }
 
@@ -1487,31 +1490,44 @@ public final class DocumentModel {
             }
         }
 
-        for instance in componentInstances {
-            let def: ObjectDef
-            switch instance.reference {
-            case .internalPart(let name, let bodyId):
-                if let bodyId, let matchingObj = currentObjects.first(where: { $0.id == bodyId }) {
-                    def = matchingObj.def
-                } else if let matchingObj = currentObjects.first(where: { $0.name == name }) {
-                    def = matchingObj.def
-                } else {
+        func appendSceneObjects(for instance: ComponentInstance, parentTransform: Transform) {
+            let worldTransform = parentTransform * instance.transform
+            if instance.childInstances.isEmpty {
+                let def: ObjectDef
+                switch instance.reference {
+                case .internalPart(let name, let bodyId):
+                    if let bodyId, let matchingObj = currentObjects.first(where: { $0.id == bodyId }) {
+                        def = matchingObj.def
+                    } else if let matchingObj = currentObjects.first(where: { $0.name == name }) {
+                        def = matchingObj.def
+                    } else {
+                        def = .imported(name: name, sourceURL: nil, data: nil, isLinked: false)
+                    }
+                case .externalDocument(let url, let partName):
+                    let displayName = partName ?? url.deletingPathExtension().lastPathComponent
+                    def = .imported(name: displayName, sourceURL: url, data: nil, isLinked: true)
+                case .subassembly(let name):
                     def = .imported(name: name, sourceURL: nil, data: nil, isLinked: false)
                 }
-            case .externalDocument(let url, let partName):
-                let displayName = partName ?? url.deletingPathExtension().lastPathComponent
-                def = .imported(name: displayName, sourceURL: url, data: nil, isLinked: true)
+                let obj = SceneObject(
+                    id: instance.solidId,
+                    name: instance.name,
+                    def: def,
+                    transform: worldTransform,
+                    isVisible: instance.isVisible,
+                    isLocked: instance.isLocked || instance.isGrounded,
+                    material: instance.material
+                )
+                currentObjects.append(obj)
+            } else {
+                for child in instance.childInstances {
+                    appendSceneObjects(for: child, parentTransform: worldTransform)
+                }
             }
-            let obj = SceneObject(
-                id: instance.solidId,
-                name: instance.name,
-                def: def,
-                transform: instance.transform,
-                isVisible: instance.isVisible,
-                isLocked: instance.isLocked || instance.isGrounded,
-                material: instance.material
-            )
-            currentObjects.append(obj)
+        }
+
+        for instance in componentInstances {
+            appendSceneObjects(for: instance, parentTransform: .identity)
         }
 
         objects = currentObjects
@@ -6176,78 +6192,401 @@ public final class DocumentModel {
 
     @discardableResult
     public func removeComponentInstance(id: UUID, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
-        guard let index = componentInstances.firstIndex(where: { $0.id == id }) else {
-            return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
-        }
-        let instance = componentInstances[index]
-        componentInstances.remove(at: index)
-        if selectedId == instance.solidId {
-            selectedId = nil
-        }
-        pruneInvalidSelection()
-        syncObjectsFromFeatures()
-        if registerUndo {
-            let effectiveActionName = actionName ?? "Remove Component"
-            undoManager?.registerUndo(withTarget: self) { target in
-                MainActor.assumeIsolated {
-                    _ = target.addComponentInstance(instance, actionName: effectiveActionName, registerUndo: true)
-                    target.undoManager?.setActionName(effectiveActionName)
-                    target.onUndoRedoMutation?(.added(instance.solidId))
-                }
+        if let index = componentInstances.firstIndex(where: { $0.id == id }) {
+            let instance = componentInstances[index]
+            componentInstances.remove(at: index)
+            if selectedId == instance.solidId {
+                selectedId = nil
             }
-            undoManager?.setActionName(effectiveActionName)
+            pruneInvalidSelection()
+            syncObjectsFromFeatures()
+            if registerUndo {
+                let effectiveActionName = actionName ?? "Remove Component"
+                undoManager?.registerUndo(withTarget: self) { target in
+                    MainActor.assumeIsolated {
+                        _ = target.addComponentInstance(instance, actionName: effectiveActionName, registerUndo: true)
+                        target.undoManager?.setActionName(effectiveActionName)
+                        target.onUndoRedoMutation?(.removed(instance.solidId))
+                    }
+                }
+                undoManager?.setActionName(effectiveActionName)
+            }
+            undoStateVersion += 1
+            return .success(())
         }
-        undoStateVersion += 1
-        return .success(())
+
+        // Check if inside a subassembly
+        for subIdx in 0..<componentInstances.count {
+            if let childIdx = componentInstances[subIdx].childInstances.firstIndex(where: { $0.id == id }) {
+                let child = componentInstances[subIdx].childInstances[childIdx]
+                componentInstances[subIdx].childInstances.remove(at: childIdx)
+                if selectedId == child.solidId {
+                    selectedId = nil
+                }
+                pruneInvalidSelection()
+                syncObjectsFromFeatures()
+                if registerUndo {
+                    let effectiveActionName = actionName ?? "Remove Component"
+                    undoManager?.registerUndo(withTarget: self) { target in
+                        MainActor.assumeIsolated {
+                            if let sIdx = target.componentInstances.firstIndex(where: { $0.id == target.componentInstances[subIdx].id }) {
+                                target.componentInstances[sIdx].childInstances.insert(child, at: childIdx)
+                                target.syncObjectsFromFeatures()
+                                target.undoStateVersion += 1
+                                target.undoManager?.setActionName(effectiveActionName)
+                            }
+                        }
+                    }
+                    undoManager?.setActionName(effectiveActionName)
+                }
+                undoStateVersion += 1
+                return .success(())
+            }
+        }
+
+        return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
     }
 
     @discardableResult
     public func updateComponentInstanceTransform(id: UUID, transform: Transform, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
-        guard let index = componentInstances.firstIndex(where: { $0.id == id }) else {
-            return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
-        }
-        guard !componentInstances[index].isLocked else {
-            return .failure(.objectLocked(componentInstances[index].solidId))
-        }
-        guard !componentInstances[index].isGrounded else {
-            return .failure(.invalidOperation("Component '\(componentInstances[index].name)' is grounded and cannot be moved"))
-        }
-        let oldTransform = componentInstances[index].transform
-        guard oldTransform != transform else {
+        if let index = componentInstances.firstIndex(where: { $0.id == id }) {
+            guard !componentInstances[index].isLocked else {
+                return .failure(.objectLocked(componentInstances[index].solidId))
+            }
+            guard !componentInstances[index].isGrounded else {
+                return .failure(.invalidOperation("Component '\(componentInstances[index].name)' is grounded and cannot be moved"))
+            }
+            let oldTransform = componentInstances[index].transform
+            guard oldTransform != transform else {
+                return .success(())
+            }
+            componentInstances[index].transform = transform
+            syncObjectsFromFeatures()
+            if registerUndo {
+                let effectiveActionName = actionName ?? "Move Component"
+                undoManager?.registerUndo(withTarget: self) { target in
+                    MainActor.assumeIsolated {
+                        _ = target.updateComponentInstanceTransform(id: id, transform: oldTransform, actionName: effectiveActionName, registerUndo: true)
+                        target.undoManager?.setActionName(effectiveActionName)
+                        target.onUndoRedoMutation?(.transformChanged(SolidId("component-\(id.uuidString)"), transform: oldTransform))
+                    }
+                }
+                undoManager?.setActionName(effectiveActionName)
+            }
+            undoStateVersion += 1
             return .success(())
         }
-        componentInstances[index].transform = transform
-        syncObjectsFromFeatures()
-        if registerUndo {
-            let effectiveActionName = actionName ?? "Move Component"
-            undoManager?.registerUndo(withTarget: self) { target in
-                MainActor.assumeIsolated {
-                    _ = target.updateComponentInstanceTransform(id: id, transform: oldTransform, actionName: effectiveActionName, registerUndo: true)
-                    target.undoManager?.setActionName(effectiveActionName)
-                    target.onUndoRedoMutation?(.transformChanged(SolidId("component-\(id.uuidString)"), transform: oldTransform))
+
+        // Child in subassembly
+        for subIdx in 0..<componentInstances.count {
+            if let childIdx = componentInstances[subIdx].childInstances.firstIndex(where: { $0.id == id }) {
+                guard !componentInstances[subIdx].childInstances[childIdx].isLocked else {
+                    return .failure(.objectLocked(componentInstances[subIdx].childInstances[childIdx].solidId))
                 }
+                guard !componentInstances[subIdx].childInstances[childIdx].isGrounded else {
+                    return .failure(.invalidOperation("Component '\(componentInstances[subIdx].childInstances[childIdx].name)' is grounded and cannot be moved"))
+                }
+                let oldTransform = componentInstances[subIdx].childInstances[childIdx].transform
+                guard oldTransform != transform else { return .success(()) }
+                componentInstances[subIdx].childInstances[childIdx].transform = transform
+                syncObjectsFromFeatures()
+                if registerUndo {
+                    let effectiveActionName = actionName ?? "Move Component"
+                    undoManager?.registerUndo(withTarget: self) { target in
+                        MainActor.assumeIsolated {
+                            _ = target.updateComponentInstanceTransform(id: id, transform: oldTransform, actionName: effectiveActionName, registerUndo: true)
+                            target.undoManager?.setActionName(effectiveActionName)
+                            target.onUndoRedoMutation?(.transformChanged(SolidId("component-\(id.uuidString)"), transform: oldTransform))
+                        }
+                    }
+                    undoManager?.setActionName(effectiveActionName)
+                }
+                undoStateVersion += 1
+                return .success(())
             }
-            undoManager?.setActionName(effectiveActionName)
         }
-        undoStateVersion += 1
-        return .success(())
+
+        return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
     }
 
     @discardableResult
     public func updateComponentInstance(_ instance: ComponentInstance, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
-        guard let index = componentInstances.firstIndex(where: { $0.id == instance.id }) else {
-            return .failure(.objectNotFound(instance.solidId))
+        if let index = componentInstances.firstIndex(where: { $0.id == instance.id }) {
+            let old = componentInstances[index]
+            guard old != instance else { return .success(()) }
+            componentInstances[index] = instance
+            syncObjectsFromFeatures()
+            if registerUndo {
+                let effectiveActionName = actionName ?? "Update Component"
+                undoManager?.registerUndo(withTarget: self) { target in
+                    MainActor.assumeIsolated {
+                        _ = target.updateComponentInstance(old, actionName: effectiveActionName, registerUndo: true)
+                        target.undoManager?.setActionName(effectiveActionName)
+                    }
+                }
+                undoManager?.setActionName(effectiveActionName)
+            }
+            undoStateVersion += 1
+            return .success(())
         }
-        let old = componentInstances[index]
-        guard old != instance else { return .success(()) }
-        componentInstances[index] = instance
+
+        for subIdx in 0..<componentInstances.count {
+            if let childIdx = componentInstances[subIdx].childInstances.firstIndex(where: { $0.id == instance.id }) {
+                let old = componentInstances[subIdx].childInstances[childIdx]
+                guard old != instance else { return .success(()) }
+                componentInstances[subIdx].childInstances[childIdx] = instance
+                syncObjectsFromFeatures()
+                if registerUndo {
+                    let effectiveActionName = actionName ?? "Update Component"
+                    undoManager?.registerUndo(withTarget: self) { target in
+                        MainActor.assumeIsolated {
+                            _ = target.updateComponentInstance(old, actionName: effectiveActionName, registerUndo: true)
+                            target.undoManager?.setActionName(effectiveActionName)
+                        }
+                    }
+                    undoManager?.setActionName(effectiveActionName)
+                }
+                undoStateVersion += 1
+                return .success(())
+            }
+        }
+
+        return .failure(.objectNotFound(instance.solidId))
+    }
+
+    @discardableResult
+    public func setComponentInstanceGrounded(id: UUID, isGrounded: Bool, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        if let compIndex = componentInstances.firstIndex(where: { $0.id == id }) {
+            let oldGrounded = componentInstances[compIndex].isGrounded
+            guard oldGrounded != isGrounded else { return .success(()) }
+            componentInstances[compIndex].isGrounded = isGrounded
+            syncObjectsFromFeatures()
+            if registerUndo {
+                let effectiveActionName = actionName ?? (isGrounded ? "Ground Component" : "Float Component")
+                undoManager?.registerUndo(withTarget: self) { target in
+                    MainActor.assumeIsolated {
+                        _ = target.setComponentInstanceGrounded(id: id, isGrounded: oldGrounded, actionName: effectiveActionName, registerUndo: true)
+                        target.undoManager?.setActionName(effectiveActionName)
+                    }
+                }
+                undoManager?.setActionName(effectiveActionName)
+            }
+            undoStateVersion += 1
+            return .success(())
+        }
+
+        for subIdx in 0..<componentInstances.count {
+            if let childIdx = componentInstances[subIdx].childInstances.firstIndex(where: { $0.id == id }) {
+                let oldGrounded = componentInstances[subIdx].childInstances[childIdx].isGrounded
+                guard oldGrounded != isGrounded else { return .success(()) }
+                componentInstances[subIdx].childInstances[childIdx].isGrounded = isGrounded
+                syncObjectsFromFeatures()
+                if registerUndo {
+                    let effectiveActionName = actionName ?? (isGrounded ? "Ground Component" : "Float Component")
+                    undoManager?.registerUndo(withTarget: self) { target in
+                        MainActor.assumeIsolated {
+                            _ = target.setComponentInstanceGrounded(id: id, isGrounded: oldGrounded, actionName: effectiveActionName, registerUndo: true)
+                            target.undoManager?.setActionName(effectiveActionName)
+                        }
+                    }
+                    undoManager?.setActionName(effectiveActionName)
+                }
+                undoStateVersion += 1
+                return .success(())
+            }
+        }
+
+        return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
+    }
+
+    // MARK: - Component Lookups & Hierarchy (BL-ASM-07, #168)
+
+    /// Finds a component instance anywhere in the assembly hierarchy by UUID.
+    public func findComponentInstance(id: UUID) -> ComponentInstance? {
+        for instance in componentInstances {
+            if let found = instance.findComponent(id: id) {
+                return found.instance
+            }
+        }
+        return nil
+    }
+
+    /// Finds a component instance anywhere in the assembly hierarchy by SolidId.
+    public func findComponentInstance(solidId: SolidId) -> ComponentInstance? {
+        for instance in componentInstances {
+            if let found = instance.findComponent(solidId: solidId) {
+                return found.instance
+            }
+        }
+        return nil
+    }
+
+    /// Recursively returns all component instances in the document.
+    public var allComponentInstances: [ComponentInstance] {
+        componentInstances.flatMap { $0.allComponentInstances(recursive: true, includeSelf: true) }
+    }
+
+    // MARK: - Subassembly Mutations (BL-ASM-07, #168)
+
+    @discardableResult
+    public func groupAsSubassembly(
+        instanceIds: [UUID],
+        name: String = "Subassembly",
+        id: UUID = UUID(),
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<ComponentInstance, DocumentMutationError> {
+        guard !instanceIds.isEmpty else {
+            return .failure(.invalidOperation("No component instances specified for subassembly"))
+        }
+        let matchingIndices = instanceIds.compactMap { id in
+            componentInstances.firstIndex(where: { $0.id == id })
+        }
+        guard matchingIndices.count == instanceIds.count else {
+            return .failure(.invalidOperation("One or more component instances not found at the top level"))
+        }
+
+        let selectedInstances = matchingIndices.map { componentInstances[$0] }
+        let rootTransform = selectedInstances[0].transform
+        let isGrounded = selectedInstances.contains(where: { $0.isGrounded })
+
+        var children: [ComponentInstance] = []
+        for inst in selectedInstances {
+            var child = inst
+            child.transform = rootTransform.inverse * inst.transform
+            children.append(child)
+        }
+
+        let idSet = Set(instanceIds)
+        var internalConstraints: [AssemblyConstraint] = []
+        var remainingConstraints: [AssemblyConstraint] = []
+        for constraint in assemblyConstraints {
+            let firstInSub = constraint.firstFeature.componentInstanceId.map { idSet.contains($0) } ?? false
+            let secondInSub = constraint.secondFeature.componentInstanceId.map { idSet.contains($0) } ?? false
+            if firstInSub && secondInSub {
+                internalConstraints.append(constraint)
+            } else {
+                remainingConstraints.append(constraint)
+            }
+        }
+
+        let subassembly = ComponentInstance(
+            id: id,
+            name: name,
+            reference: .subassembly(name: name),
+            transform: rootTransform,
+            isGrounded: isGrounded,
+            subassemblyBehavior: .rigid,
+            childInstances: children,
+            childConstraints: internalConstraints
+        )
+
+        let removeSet = Set(instanceIds)
+        var newInstances: [ComponentInstance] = []
+        var inserted = false
+        for inst in componentInstances {
+            if removeSet.contains(inst.id) {
+                if !inserted {
+                    newInstances.append(subassembly)
+                    inserted = true
+                }
+            } else {
+                newInstances.append(inst)
+            }
+        }
+
+        let oldInstances = componentInstances
+        let oldConstraints = assemblyConstraints
+        let oldSelectedId = selectedId
+
+        componentInstances = newInstances
+        assemblyConstraints = remainingConstraints
         syncObjectsFromFeatures()
+        selectedId = subassembly.solidId
+        pruneInvalidSelection()
+
         if registerUndo {
-            let effectiveActionName = actionName ?? "Update Component"
+            let effectiveActionName = actionName ?? "Group as Subassembly"
             undoManager?.registerUndo(withTarget: self) { target in
                 MainActor.assumeIsolated {
-                    _ = target.updateComponentInstance(old, actionName: effectiveActionName, registerUndo: true)
+                    target.componentInstances = oldInstances
+                    target.assemblyConstraints = oldConstraints
+                    target.selectedId = oldSelectedId
+                    target.syncObjectsFromFeatures()
+                    target.undoStateVersion += 1
                     target.undoManager?.setActionName(effectiveActionName)
+                    target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                        MainActor.assumeIsolated {
+                            _ = redoTarget.groupAsSubassembly(
+                                instanceIds: instanceIds,
+                                name: name,
+                                id: subassembly.id,
+                                actionName: effectiveActionName,
+                                registerUndo: true
+                            )
+                        }
+                    }
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(subassembly)
+    }
+
+    @discardableResult
+    public func dissolveSubassembly(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = componentInstances.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
+        }
+        let sub = componentInstances[index]
+        guard sub.isSubassembly else {
+            return .failure(.invalidOperation("Component '\(sub.name)' is not a subassembly"))
+        }
+
+        var promotedChildren: [ComponentInstance] = []
+        for (childIdx, child) in sub.childInstances.enumerated() {
+            var promoted = child
+            promoted.transform = sub.transform * child.transform
+            if sub.isGrounded && childIdx == 0 && !sub.childInstances.contains(where: { $0.isGrounded }) {
+                promoted.isGrounded = true
+            }
+            promotedChildren.append(promoted)
+        }
+
+        let oldInstances = componentInstances
+        let oldConstraints = assemblyConstraints
+        let oldSelectedId = selectedId
+
+        componentInstances.remove(at: index)
+        componentInstances.insert(contentsOf: promotedChildren, at: index)
+        assemblyConstraints.append(contentsOf: sub.childConstraints)
+        syncObjectsFromFeatures()
+
+        if selectedId == sub.solidId {
+            selectedId = promotedChildren.first?.solidId
+        }
+        pruneInvalidSelection()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Dissolve Subassembly"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.componentInstances = oldInstances
+                    target.assemblyConstraints = oldConstraints
+                    target.selectedId = oldSelectedId
+                    target.syncObjectsFromFeatures()
+                    target.undoStateVersion += 1
+                    target.undoManager?.setActionName(effectiveActionName)
+                    target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                        MainActor.assumeIsolated {
+                            _ = redoTarget.dissolveSubassembly(id: id, actionName: effectiveActionName, registerUndo: true)
+                        }
+                    }
                 }
             }
             undoManager?.setActionName(effectiveActionName)
@@ -6257,19 +6596,26 @@ public final class DocumentModel {
     }
 
     @discardableResult
-    public func setComponentInstanceGrounded(id: UUID, isGrounded: Bool, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
-        guard let compIndex = componentInstances.firstIndex(where: { $0.id == id }) else {
+    public func setSubassemblyBehavior(
+        id: UUID,
+        behavior: SubassemblyBehavior,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = componentInstances.firstIndex(where: { $0.id == id }) else {
             return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
         }
-        let oldGrounded = componentInstances[compIndex].isGrounded
-        guard oldGrounded != isGrounded else { return .success(()) }
-        componentInstances[compIndex].isGrounded = isGrounded
-        syncObjectsFromFeatures()
+        guard componentInstances[index].isSubassembly else {
+            return .failure(.invalidOperation("Component '\(componentInstances[index].name)' is not a subassembly"))
+        }
+        let oldBehavior = componentInstances[index].subassemblyBehavior
+        guard oldBehavior != behavior else { return .success(()) }
+        componentInstances[index].subassemblyBehavior = behavior
         if registerUndo {
-            let effectiveActionName = actionName ?? (isGrounded ? "Ground Component" : "Float Component")
+            let effectiveActionName = actionName ?? (behavior == .flexible ? "Make Subassembly Flexible" : "Make Subassembly Rigid")
             undoManager?.registerUndo(withTarget: self) { target in
                 MainActor.assumeIsolated {
-                    _ = target.setComponentInstanceGrounded(id: id, isGrounded: oldGrounded, actionName: effectiveActionName, registerUndo: true)
+                    _ = target.setSubassemblyBehavior(id: id, behavior: oldBehavior, actionName: effectiveActionName, registerUndo: true)
                     target.undoManager?.setActionName(effectiveActionName)
                 }
             }
@@ -6369,6 +6715,45 @@ public final class DocumentModel {
         AssemblyConstraintSolver.computeSystemDOF(system: assemblyConstraintSystem())
     }
 
+    private func updateTransforms(
+        from solvedTransforms: [UUID: Transform],
+        in instances: inout [ComponentInstance],
+        parentTransform: Transform = .identity
+    ) -> [UUID: Transform] {
+        var oldMap: [UUID: Transform] = [:]
+        for i in 0..<instances.count {
+            if !instances[i].isSubassembly {
+                if let newWorld = solvedTransforms[instances[i].id], !instances[i].isGrounded {
+                    let newLocal = parentTransform.inverse * newWorld
+                    if instances[i].transform != newLocal {
+                        oldMap[instances[i].id] = instances[i].transform
+                        instances[i].transform = newLocal
+                    }
+                }
+            } else if instances[i].subassemblyBehavior == .rigid {
+                if let newWorld = solvedTransforms[instances[i].id], !instances[i].isGrounded {
+                    let newLocal = parentTransform.inverse * newWorld
+                    if instances[i].transform != newLocal {
+                        oldMap[instances[i].id] = instances[i].transform
+                        instances[i].transform = newLocal
+                    }
+                }
+            } else {
+                if let newWorld = solvedTransforms[instances[i].id], !instances[i].isGrounded {
+                    let newLocal = parentTransform.inverse * newWorld
+                    if instances[i].transform != newLocal {
+                        oldMap[instances[i].id] = instances[i].transform
+                        instances[i].transform = newLocal
+                    }
+                }
+                let currentSubWorld = parentTransform * instances[i].transform
+                let childOld = updateTransforms(from: solvedTransforms, in: &instances[i].childInstances, parentTransform: currentSubWorld)
+                oldMap.merge(childOld) { current, _ in current }
+            }
+        }
+        return oldMap
+    }
+
     @discardableResult
     public func solveAssemblyConstraints(dragTarget: AssemblyDragTarget? = nil, actionName: String? = nil, registerUndo: Bool = true) -> AssemblySolverResult {
         let system = assemblyConstraintSystem()
@@ -6377,38 +6762,23 @@ public final class DocumentModel {
             return result
         }
 
-        var oldTransforms: [UUID: Transform] = [:]
-        for (id, newTransform) in result.solvedTransforms {
-            if let idx = componentInstances.firstIndex(where: { $0.id == id }), !componentInstances[idx].isGrounded {
-                if componentInstances[idx].transform != newTransform {
-                    oldTransforms[id] = componentInstances[idx].transform
-                    componentInstances[idx].transform = newTransform
-                }
-            }
-        }
+        let oldInstances = componentInstances
+        let oldTransforms = updateTransforms(from: result.solvedTransforms, in: &componentInstances)
 
         if !oldTransforms.isEmpty {
             syncObjectsFromFeatures()
             if registerUndo && activeAssemblyDragInitialTransforms == nil {
                 let effectiveActionName = actionName ?? "Solve Assembly Constraints"
-                let newTransforms = result.solvedTransforms.filter { oldTransforms[$0.key] != nil }
+                let newInstances = componentInstances
                 undoManager?.registerUndo(withTarget: self) { target in
                     MainActor.assumeIsolated {
-                        for (id, oldTransform) in oldTransforms {
-                            if let idx = target.componentInstances.firstIndex(where: { $0.id == id }), !target.componentInstances[idx].isGrounded {
-                                target.componentInstances[idx].transform = oldTransform
-                            }
-                        }
+                        target.componentInstances = oldInstances
                         target.syncObjectsFromFeatures()
                         target.undoStateVersion += 1
                         target.undoManager?.setActionName(effectiveActionName)
                         target.undoManager?.registerUndo(withTarget: target) { redoTarget in
                             MainActor.assumeIsolated {
-                                for (id, newTransform) in newTransforms {
-                                    if let idx = redoTarget.componentInstances.firstIndex(where: { $0.id == id }), !redoTarget.componentInstances[idx].isGrounded {
-                                        redoTarget.componentInstances[idx].transform = newTransform
-                                    }
-                                }
+                                redoTarget.componentInstances = newInstances
                                 redoTarget.syncObjectsFromFeatures()
                                 redoTarget.undoStateVersion += 1
                                 redoTarget.undoManager?.setActionName(effectiveActionName)
@@ -6427,53 +6797,36 @@ public final class DocumentModel {
     // MARK: - Interactive Assembly Drag Sessions (BL-ASM-06)
 
     public func beginInteractiveAssemblyDrag(instanceId: UUID) {
-        guard componentInstances.contains(where: { $0.id == instanceId && !$0.isGrounded && !$0.isLocked }) else {
+        guard let comp = findComponentInstance(id: instanceId), !comp.isGrounded && !comp.isLocked else {
             return
         }
         var initialMap: [UUID: Transform] = [:]
-        for inst in componentInstances {
+        for inst in allComponentInstances {
             initialMap[inst.id] = inst.transform
         }
         activeAssemblyDragInitialTransforms = initialMap
+        activeAssemblyDragInitialInstances = componentInstances
     }
 
     public func endInteractiveAssemblyDrag(instanceId: UUID, actionName: String? = nil) {
-        guard let initialTransforms = activeAssemblyDragInitialTransforms else {
-            activeAssemblyDragInitialTransforms = nil
-            return
-        }
+        let initialInstances = activeAssemblyDragInitialInstances
+        activeAssemblyDragInitialInstances = nil
         activeAssemblyDragInitialTransforms = nil
 
-        var changedOldTransforms: [UUID: Transform] = [:]
-        var changedNewTransforms: [UUID: Transform] = [:]
+        guard let initialInstances, initialInstances != componentInstances else { return }
 
-        for inst in componentInstances where !inst.isGrounded {
-            if let oldT = initialTransforms[inst.id], oldT != inst.transform {
-                changedOldTransforms[inst.id] = oldT
-                changedNewTransforms[inst.id] = inst.transform
-            }
-        }
-
-        guard !changedOldTransforms.isEmpty else { return }
-
+        let oldInstances = initialInstances
+        let newInstances = componentInstances
         let effectiveActionName = actionName ?? "Drag Component"
         undoManager?.registerUndo(withTarget: self) { target in
             MainActor.assumeIsolated {
-                for (id, oldTransform) in changedOldTransforms {
-                    if let idx = target.componentInstances.firstIndex(where: { $0.id == id }), !target.componentInstances[idx].isGrounded {
-                        target.componentInstances[idx].transform = oldTransform
-                    }
-                }
+                target.componentInstances = oldInstances
                 target.syncObjectsFromFeatures()
                 target.undoStateVersion += 1
                 target.undoManager?.setActionName(effectiveActionName)
                 target.undoManager?.registerUndo(withTarget: target) { redoTarget in
                     MainActor.assumeIsolated {
-                        for (id, newTransform) in changedNewTransforms {
-                            if let idx = redoTarget.componentInstances.firstIndex(where: { $0.id == id }), !redoTarget.componentInstances[idx].isGrounded {
-                                redoTarget.componentInstances[idx].transform = newTransform
-                            }
-                        }
+                        redoTarget.componentInstances = newInstances
                         redoTarget.syncObjectsFromFeatures()
                         redoTarget.undoStateVersion += 1
                         redoTarget.undoManager?.setActionName(effectiveActionName)
@@ -6486,25 +6839,14 @@ public final class DocumentModel {
     }
 
     public func cancelInteractiveAssemblyDrag() {
-        guard let initialTransforms = activeAssemblyDragInitialTransforms else {
-            activeAssemblyDragInitialTransforms = nil
-            return
-        }
+        let initialInstances = activeAssemblyDragInitialInstances
+        activeAssemblyDragInitialInstances = nil
         activeAssemblyDragInitialTransforms = nil
 
-        var changed = false
-        for (id, oldTransform) in initialTransforms {
-            if let idx = componentInstances.firstIndex(where: { $0.id == id }), !componentInstances[idx].isGrounded {
-                if componentInstances[idx].transform != oldTransform {
-                    componentInstances[idx].transform = oldTransform
-                    changed = true
-                }
-            }
-        }
-        if changed {
-            syncObjectsFromFeatures()
-            undoStateVersion += 1
-        }
+        guard let initialInstances, initialInstances != componentInstances else { return }
+        componentInstances = initialInstances
+        syncObjectsFromFeatures()
+        undoStateVersion += 1
     }
 
     /// Returns all direct dependent objects of `rootId` (BL-FND-03).

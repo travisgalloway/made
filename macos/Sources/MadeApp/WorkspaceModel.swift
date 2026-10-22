@@ -52,7 +52,7 @@ final class WorkspaceModel {
     }
 
     public func remainingAssemblyDOF(for componentId: UUID) -> Int {
-        if let comp = document.componentInstances.first(where: { $0.id == componentId }), comp.isGrounded {
+        if let comp = document.findComponentInstance(id: componentId), comp.isGrounded {
             return 0
         }
         if let cached = lastAssemblySolverResult?.instanceDOF[componentId] {
@@ -686,7 +686,7 @@ final class WorkspaceModel {
 
     public var selectedComponentInstance: ComponentInstance? {
         guard let selectedId else { return nil }
-        return document.componentInstances.first(where: { $0.solidId == selectedId })
+        return document.findComponentInstance(solidId: selectedId)
     }
 
     var selectedFeature: Feature? {
@@ -4099,11 +4099,107 @@ final class WorkspaceModel {
     }
 
     func setComponentInstanceName(id: UUID, name: String) {
-        guard let comp = document.componentInstances.first(where: { $0.id == id }) else { return }
+        guard let comp = document.findComponentInstance(id: id) else { return }
         var copy = comp
         copy.name = name
         _ = document.updateComponentInstance(copy)
         markDocumentModified()
+    }
+
+    // MARK: - Subassemblies (BL-ASM-07, #168)
+
+    public var canGroupSelectedAsSubassembly: Bool {
+        let selectedComps = selectedComponentInstanceIds
+        return selectedComps.count >= 2 || (selectedComps.count == 1 && selectedComponentInstance?.isSubassembly == true)
+    }
+
+    public var selectedComponentInstanceIds: [UUID] {
+        var ids: [UUID] = []
+        for sel in selectedIds {
+            if let comp = document.findComponentInstance(solidId: sel) {
+                ids.append(comp.id)
+            }
+        }
+        if ids.isEmpty, let selected = selectedComponentInstance {
+            ids.append(selected.id)
+        }
+        return ids
+    }
+
+    @discardableResult
+    public func groupAsSubassembly(instanceIds: [UUID], name: String? = nil) -> ComponentInstance? {
+        let subName = name ?? "Subassembly \(document.componentInstances.filter { $0.isSubassembly }.count + 1)"
+        let result = document.groupAsSubassembly(instanceIds: instanceIds, name: subName)
+        switch result {
+        case .success(let sub):
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Grouped \(instanceIds.count) components into subassembly '\(subName)'")
+            return sub
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to group components into subassembly: \(err)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    public func groupSelectedAsSubassembly(name: String? = nil) -> ComponentInstance? {
+        let ids = selectedComponentInstanceIds
+        guard ids.count >= 2 else {
+            log(.warning, "Assembly", "At least two components must be selected to group as a subassembly")
+            return nil
+        }
+        return groupAsSubassembly(instanceIds: ids, name: name)
+    }
+
+    @discardableResult
+    public func dissolveSubassembly(id: UUID) -> Bool {
+        let result = document.dissolveSubassembly(id: id)
+        switch result {
+        case .success:
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Dissolved subassembly \(id)")
+            return true
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to dissolve subassembly: \(err)")
+            return false
+        }
+    }
+
+    @discardableResult
+    public func dissolveSelectedSubassembly() -> Bool {
+        guard let selected = selectedComponentInstance, selected.isSubassembly else {
+            return false
+        }
+        return dissolveSubassembly(id: selected.id)
+    }
+
+    @discardableResult
+    public func setSubassemblyBehavior(id: UUID, behavior: SubassemblyBehavior) -> Bool {
+        let result = document.setSubassemblyBehavior(id: id, behavior: behavior)
+        switch result {
+        case .success:
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Set subassembly \(id) behavior to \(behavior.rawValue)")
+            return true
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to set subassembly behavior: \(err)")
+            return false
+        }
+    }
+
+    @discardableResult
+    public func toggleSubassemblyBehavior(id: UUID) -> Bool {
+        guard let sub = document.findComponentInstance(id: id), sub.isSubassembly else {
+            return false
+        }
+        let nextBehavior: SubassemblyBehavior = sub.subassemblyBehavior == .rigid ? .flexible : .rigid
+        return setSubassemblyBehavior(id: id, behavior: nextBehavior)
     }
 
     // MARK: - Component Insertion (BL-ASM-02)

@@ -551,4 +551,165 @@ import simd
         #expect(doc.componentInstances.first?.transform.position == SIMD3<Float>(5, 10, 15))
         #expect(!undoManager.canUndo)
     }
+
+    // MARK: - Subassemblies (BL-ASM-07)
+
+    @Test func testGroupAsSubassemblyAndUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let base = ComponentInstance(name: "Base", reference: .internalPart(name: "BasePart"), transform: .identity, isGrounded: true)
+        let partA = ComponentInstance(name: "PartA", reference: .internalPart(name: "PartA"), transform: Transform(position: SIMD3<Float>(10, 0, 0)))
+        let partB = ComponentInstance(name: "PartB", reference: .internalPart(name: "PartB"), transform: Transform(position: SIMD3<Float>(20, 0, 0)))
+
+        _ = doc.addComponentInstance(base)
+        _ = doc.addComponentInstance(partA)
+        _ = doc.addComponentInstance(partB)
+
+        // Internal constraint between A and B
+        let internalMate = AssemblyConstraint(
+            name: "A to B",
+            kind: .distance,
+            firstFeature: AssemblyFeature(componentInstanceId: partA.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: partB.id, origin: .zero),
+            value: 10.0
+        )
+        // External constraint between Base and A
+        let externalMate = AssemblyConstraint(
+            name: "Base to A",
+            kind: .coincident,
+            firstFeature: AssemblyFeature(componentInstanceId: base.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: partA.id, origin: .zero)
+        )
+        _ = doc.addAssemblyConstraint(internalMate)
+        _ = doc.addAssemblyConstraint(externalMate)
+
+        undoManager.removeAllActions()
+
+        // Group A and B into subassembly
+        let groupResult = doc.groupAsSubassembly(instanceIds: [partA.id, partB.id], name: "SubAB")
+        guard case .success(let subassembly) = groupResult else {
+            Issue.record("Failed to group as subassembly")
+            return
+        }
+
+        #expect(doc.componentInstances.count == 2) // Base + SubAB
+        #expect(doc.componentInstances.contains(where: { $0.id == subassembly.id }))
+        #expect(subassembly.isSubassembly)
+        #expect(subassembly.childInstances.count == 2)
+        #expect(subassembly.childConstraints.count == 1)
+        #expect(subassembly.childConstraints.first?.name == "A to B")
+        #expect(doc.assemblyConstraints.count == 1) // Base to A remains in parent
+        #expect(doc.assemblyConstraints.first?.name == "Base to A")
+
+        // Undo grouping
+        undoManager.undo()
+        #expect(doc.componentInstances.count == 3)
+        #expect(doc.componentInstances.contains(where: { $0.id == partA.id }))
+        #expect(doc.componentInstances.contains(where: { $0.id == partB.id }))
+        #expect(doc.assemblyConstraints.count == 2)
+
+        // Redo grouping
+        undoManager.redo()
+        #expect(doc.componentInstances.count == 2)
+        #expect(doc.componentInstances.contains(where: { $0.id == subassembly.id }))
+        #expect(doc.assemblyConstraints.count == 1)
+    }
+
+    @Test func testDissolveSubassemblyAndUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let child1 = ComponentInstance(name: "Child1", reference: .internalPart(name: "P1"), transform: Transform(position: SIMD3<Float>(5, 0, 0)))
+        let child2 = ComponentInstance(name: "Child2", reference: .internalPart(name: "P2"), transform: Transform(position: SIMD3<Float>(15, 0, 0)))
+        let mate = AssemblyConstraint(
+            kind: .concentric,
+            firstFeature: AssemblyFeature(componentInstanceId: child1.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: child2.id, origin: .zero)
+        )
+        let sub = ComponentInstance(
+            name: "Sub",
+            reference: .subassembly(name: "Sub"),
+            transform: Transform(position: SIMD3<Float>(100, 0, 0)),
+            subassemblyBehavior: .rigid,
+            childInstances: [child1, child2],
+            childConstraints: [mate]
+        )
+
+        _ = doc.addComponentInstance(sub)
+        undoManager.removeAllActions()
+
+        let dissolveResult = doc.dissolveSubassembly(id: sub.id)
+        guard case .success = dissolveResult else {
+            Issue.record("Failed to dissolve subassembly")
+            return
+        }
+
+        #expect(doc.componentInstances.count == 2)
+        #expect(!doc.componentInstances.contains(where: { $0.id == sub.id }))
+        #expect(doc.assemblyConstraints.count == 1)
+
+        // World transform of child1: (100, 0, 0) + (5, 0, 0) = (105, 0, 0)
+        let dissolvedChild1 = doc.componentInstances.first(where: { $0.id == child1.id })
+        #expect(dissolvedChild1 != nil)
+        #expect(abs((dissolvedChild1?.transform.position.x ?? 0) - 105) < 1e-3)
+
+        // Undo dissolve
+        undoManager.undo()
+        #expect(doc.componentInstances.count == 1)
+        #expect(doc.componentInstances.first?.id == sub.id)
+        #expect(doc.assemblyConstraints.isEmpty)
+
+        // Redo dissolve
+        undoManager.redo()
+        #expect(doc.componentInstances.count == 2)
+        #expect(doc.assemblyConstraints.count == 1)
+    }
+
+    @Test func testSetSubassemblyBehaviorAndUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let child = ComponentInstance(name: "Child", reference: .internalPart(name: "P"))
+        let sub = ComponentInstance(
+            name: "Sub",
+            reference: .subassembly(name: "Sub"),
+            subassemblyBehavior: .rigid,
+            childInstances: [child]
+        )
+        _ = doc.addComponentInstance(sub)
+        undoManager.removeAllActions()
+
+        let setResult = doc.setSubassemblyBehavior(id: sub.id, behavior: .flexible)
+        guard case .success = setResult else {
+            Issue.record("Failed to set subassembly behavior")
+            return
+        }
+
+        #expect(doc.componentInstances.first?.subassemblyBehavior == .flexible)
+
+        undoManager.undo()
+        #expect(doc.componentInstances.first?.subassemblyBehavior == .rigid)
+
+        undoManager.redo()
+        #expect(doc.componentInstances.first?.subassemblyBehavior == .flexible)
+    }
+
+    @Test func testRecursiveComponentLookupInDocument() {
+        let leaf = ComponentInstance(name: "LeafPart", reference: .internalPart(name: "Leaf"))
+        let sub = ComponentInstance(
+            name: "ParentSub",
+            reference: .subassembly(name: "ParentSub"),
+            childInstances: [leaf]
+        )
+        let doc = DocumentModel(documentType: .assembly, componentInstances: [sub])
+
+        #expect(doc.findComponentInstance(id: leaf.id)?.name == "LeafPart")
+        #expect(doc.findComponentInstance(solidId: leaf.solidId)?.name == "LeafPart")
+        #expect(doc.allComponentInstances.count == 2)
+    }
 }
+

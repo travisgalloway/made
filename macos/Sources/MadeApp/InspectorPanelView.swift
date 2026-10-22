@@ -166,7 +166,7 @@ struct InspectorPanelView: View {
 
     private var selectedComponentInstance: ComponentInstance? {
         guard let selectedId = workspace.selectedId else { return nil }
-        return workspace.document.componentInstances.first(where: { $0.solidId == selectedId })
+        return workspace.document.findComponentInstance(solidId: selectedId)
     }
 
     private var hasAnySketches: Bool {
@@ -1215,6 +1215,9 @@ struct InspectorComponentInstanceView: View {
     var body: some View {
         Form {
             identitySection
+            if component.isSubassembly {
+                subassemblySection
+            }
             referenceSection
             transformSection
                 .disabled(component.isLocked || component.isGrounded)
@@ -1224,6 +1227,28 @@ struct InspectorComponentInstanceView: View {
         .formStyle(.columns)
         .controlSize(.small)
         .padding()
+    }
+
+    private var subassemblySection: some View {
+        Section {
+            Picker("Behavior", selection: Binding(
+                get: { component.subassemblyBehavior },
+                set: { workspace.setSubassemblyBehavior(id: component.id, behavior: $0) }
+            )) {
+                Text("Rigid").tag(SubassemblyBehavior.rigid)
+                Text("Flexible").tag(SubassemblyBehavior.flexible)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("inspector-subassembly-behavior-picker")
+
+            LabeledContent("Child Components", value: "\(component.childInstances.count)")
+                .accessibilityIdentifier("inspector-subassembly-child-count")
+
+            LabeledContent("Internal Constraints", value: "\(component.childConstraints.count)")
+                .accessibilityIdentifier("inspector-subassembly-constraint-count")
+        } header: {
+            sectionHeader("Subassembly Configuration")
+        }
     }
 
     private var identitySection: some View {
@@ -1282,6 +1307,9 @@ struct InspectorComponentInstanceView: View {
                 if let partName {
                     LabeledContent("Part", value: partName)
                 }
+            case .subassembly(let name):
+                LabeledContent("Source", value: "Subassembly")
+                LabeledContent("Subassembly Name", value: name)
             }
         } header: {
             sectionHeader("Reference")

@@ -15,7 +15,200 @@ public struct AssemblyConstraintSolver: Sendable {
     // MARK: - Public API
 
     /// Solves the given 3D assembly constraint system, updating transforms of free component instances.
+    /// Handles both rigid and flexible subassemblies with hierarchical kinematic expansion (BL-ASM-07, #168).
     public static func solve(system: AssemblyConstraintSystem, dragTarget: AssemblyDragTarget? = nil) -> AssemblySolverResult {
+        let expanded = expandSystem(system, dragTarget: dragTarget)
+        let flatSystem = AssemblyConstraintSystem(instances: expanded.instances, constraints: expanded.constraints)
+        let flatResult = solveFlat(system: flatSystem, dragTarget: expanded.dragTarget)
+        return mapBackResult(flatResult: flatResult, expandedSystem: expanded, originalInstances: system.instances)
+    }
+
+    /// Evaluates total and per-instance degrees of freedom for an assembly constraint system.
+    public static func computeSystemDOF(system: AssemblyConstraintSystem) -> (totalDOF: Int, instanceDOF: [UUID: Int]) {
+        let expanded = expandSystem(system, dragTarget: nil)
+        let flatSystem = AssemblyConstraintSystem(instances: expanded.instances, constraints: expanded.constraints)
+        let flatDOF = computeSystemDOFFlat(system: flatSystem)
+
+        var finalInstanceDOF: [UUID: Int] = flatDOF.instanceDOF
+        for (_, descendants) in expanded.rigidDescendants {
+            for desc in descendants {
+                finalInstanceDOF[desc.id] = 0
+            }
+        }
+        for (subId, flex) in expanded.flexibleSubassemblies {
+            let childDOFSum = flex.childIds.compactMap { finalInstanceDOF[$0] }.reduce(0, +)
+            finalInstanceDOF[subId] = childDOFSum
+        }
+
+        return (totalDOF: flatDOF.totalDOF, instanceDOF: finalInstanceDOF)
+    }
+
+    // MARK: - Subassembly System Expansion (BL-ASM-07, #168)
+
+    private struct ExpandedAssemblySystem {
+        var instances: [ComponentInstance]
+        var constraints: [AssemblyConstraint]
+        var dragTarget: AssemblyDragTarget?
+        var rigidDescendants: [UUID: [(id: UUID, relativeTransform: Transform)]]
+        var flexibleSubassemblies: [UUID: (worldTransform: Transform, childIds: [UUID])]
+    }
+
+    private static func expandSystem(
+        _ system: AssemblyConstraintSystem,
+        dragTarget: AssemblyDragTarget? = nil
+    ) -> ExpandedAssemblySystem {
+        var expandedInstances: [ComponentInstance] = []
+        var promotedConstraints: [AssemblyConstraint] = system.constraints
+        var rigidDescendants: [UUID: [(id: UUID, relativeTransform: Transform)]] = [:]
+        var flexibleSubassemblies: [UUID: (worldTransform: Transform, childIds: [UUID])] = [:]
+        var featureMapping: [UUID: (expandedId: UUID, relativeTransform: Transform, worldTransform: Transform)] = [:]
+
+        func processInstance(_ inst: ComponentInstance, parentTransform: Transform, parentGrounded: Bool) {
+            let worldTransform = parentTransform * inst.transform
+            let isGrounded = parentGrounded || inst.isGrounded
+
+            if !inst.isSubassembly {
+                var rep = inst
+                rep.transform = worldTransform
+                rep.isGrounded = isGrounded
+                expandedInstances.append(rep)
+                featureMapping[inst.id] = (expandedId: inst.id, relativeTransform: .identity, worldTransform: worldTransform)
+            } else if inst.subassemblyBehavior == .rigid {
+                var rep = inst
+                rep.transform = worldTransform
+                rep.isGrounded = isGrounded
+                expandedInstances.append(rep)
+                featureMapping[inst.id] = (expandedId: inst.id, relativeTransform: .identity, worldTransform: worldTransform)
+
+                func collectRigidDescendants(_ parent: ComponentInstance, accumulatedRelative: Transform) {
+                    for child in parent.childInstances {
+                        let relT = accumulatedRelative * child.transform
+                        let childWorld = worldTransform * relT
+                        rigidDescendants[inst.id, default: []].append((id: child.id, relativeTransform: relT))
+                        featureMapping[child.id] = (expandedId: inst.id, relativeTransform: relT, worldTransform: childWorld)
+                        collectRigidDescendants(child, accumulatedRelative: relT)
+                    }
+                }
+                collectRigidDescendants(inst, accumulatedRelative: .identity)
+            } else {
+                flexibleSubassemblies[inst.id] = (worldTransform: worldTransform, childIds: inst.childInstances.map(\.id))
+                featureMapping[inst.id] = (expandedId: inst.id, relativeTransform: .identity, worldTransform: worldTransform)
+                promotedConstraints.append(contentsOf: inst.childConstraints)
+
+                let hasGroundedChild = inst.childInstances.contains(where: { $0.isGrounded })
+                for (idx, child) in inst.childInstances.enumerated() {
+                    let childGrounded = isGrounded && (!hasGroundedChild ? idx == 0 : child.isGrounded)
+                    processInstance(child, parentTransform: worldTransform, parentGrounded: childGrounded)
+                }
+            }
+        }
+
+        for inst in system.instances {
+            processInstance(inst, parentTransform: .identity, parentGrounded: false)
+        }
+
+        var finalConstraints: [AssemblyConstraint] = []
+        for constraint in promotedConstraints {
+            var c = constraint
+            var keep = true
+
+            if let f1Id = c.firstFeature.componentInstanceId {
+                if let mapping1 = featureMapping[f1Id] {
+                    c.firstFeature.componentInstanceId = mapping1.expandedId
+                    if mapping1.relativeTransform != .identity {
+                        let rel = mapping1.relativeTransform
+                        c.firstFeature.localOrigin = rel.transformPoint(c.firstFeature.localOrigin)
+                        c.firstFeature.localAxis = safeNormalize(rel.rotation.act(c.firstFeature.localAxis), fallback: SIMD3<Float>(0, 0, 1))
+                        c.firstFeature.localSecondaryAxis = safeNormalize(rel.rotation.act(c.firstFeature.localSecondaryAxis), fallback: SIMD3<Float>(1, 0, 0))
+                    }
+                }
+            }
+
+            if let f2Id = c.secondFeature.componentInstanceId {
+                if let mapping2 = featureMapping[f2Id] {
+                    c.secondFeature.componentInstanceId = mapping2.expandedId
+                    if mapping2.relativeTransform != .identity {
+                        let rel = mapping2.relativeTransform
+                        c.secondFeature.localOrigin = rel.transformPoint(c.secondFeature.localOrigin)
+                        c.secondFeature.localAxis = safeNormalize(rel.rotation.act(c.secondFeature.localAxis), fallback: SIMD3<Float>(0, 0, 1))
+                        c.secondFeature.localSecondaryAxis = safeNormalize(rel.rotation.act(c.secondFeature.localSecondaryAxis), fallback: SIMD3<Float>(1, 0, 0))
+                    }
+                }
+            }
+
+            if let f1Id = c.firstFeature.componentInstanceId, let f2Id = c.secondFeature.componentInstanceId, f1Id == f2Id {
+                keep = false
+            }
+
+            if keep {
+                finalConstraints.append(c)
+            }
+        }
+
+        var effectiveDragTarget: AssemblyDragTarget? = nil
+        if let drag = dragTarget {
+            if let mapping = featureMapping[drag.instanceId] {
+                if mapping.expandedId == drag.instanceId {
+                    effectiveDragTarget = drag
+                } else {
+                    let currentChildWorld = mapping.worldTransform
+                    var targetChildWorld = currentChildWorld
+                    if let pos = drag.targetPosition { targetChildWorld.position = pos }
+                    if let rot = drag.targetRotation { targetChildWorld.rotation = rot }
+                    let targetExpandedWorld = targetChildWorld * mapping.relativeTransform.inverse
+                    effectiveDragTarget = AssemblyDragTarget(
+                        instanceId: mapping.expandedId,
+                        targetPosition: targetExpandedWorld.position,
+                        targetRotation: targetExpandedWorld.rotation,
+                        weight: drag.weight
+                    )
+                }
+            }
+        }
+
+        return ExpandedAssemblySystem(
+            instances: expandedInstances,
+            constraints: finalConstraints,
+            dragTarget: effectiveDragTarget,
+            rigidDescendants: rigidDescendants,
+            flexibleSubassemblies: flexibleSubassemblies
+        )
+    }
+
+    private static func mapBackResult(
+        flatResult: AssemblySolverResult,
+        expandedSystem: ExpandedAssemblySystem,
+        originalInstances: [ComponentInstance]
+    ) -> AssemblySolverResult {
+        var finalSolvedTransforms: [UUID: Transform] = flatResult.solvedTransforms
+        var finalInstanceDOF: [UUID: Int] = flatResult.instanceDOF
+
+        for (subId, descendants) in expandedSystem.rigidDescendants {
+            guard let subWorld = flatResult.solvedTransforms[subId] else { continue }
+            for desc in descendants {
+                finalSolvedTransforms[desc.id] = subWorld * desc.relativeTransform
+                finalInstanceDOF[desc.id] = 0
+            }
+        }
+
+        for (subId, flex) in expandedSystem.flexibleSubassemblies {
+            finalSolvedTransforms[subId] = flex.worldTransform
+            let childDOFSum = flex.childIds.compactMap { finalInstanceDOF[$0] }.reduce(0, +)
+            finalInstanceDOF[subId] = childDOFSum
+        }
+
+        return AssemblySolverResult(
+            status: flatResult.status,
+            solvedTransforms: finalSolvedTransforms,
+            totalDOF: flatResult.totalDOF,
+            instanceDOF: finalInstanceDOF,
+            message: flatResult.message
+        )
+    }
+
+    // MARK: - Flat System Solve
+
+    private static func solveFlat(system: AssemblyConstraintSystem, dragTarget: AssemblyDragTarget? = nil) -> AssemblySolverResult {
         let activeConstraints = system.constraints.filter { !$0.isSuppressed }
         let freeInstances = system.instances.filter { !$0.isGrounded }
         let groundedInstances = system.instances.filter { $0.isGrounded }
@@ -174,8 +367,7 @@ public struct AssemblyConstraintSolver: Sendable {
         }
     }
 
-    /// Evaluates total and per-instance degrees of freedom for an assembly constraint system.
-    public static func computeSystemDOF(system: AssemblyConstraintSystem) -> (totalDOF: Int, instanceDOF: [UUID: Int]) {
+    private static func computeSystemDOFFlat(system: AssemblyConstraintSystem) -> (totalDOF: Int, instanceDOF: [UUID: Int]) {
         let activeConstraints = system.constraints.filter { !$0.isSuppressed }
         let freeInstances = system.instances.filter { !$0.isGrounded }
         let groundedInstances = system.instances.filter { $0.isGrounded }

@@ -52,7 +52,7 @@ import simd
         case .internalPart(let name, let bodyId):
             #expect(name == "Bracket")
             #expect(bodyId == SolidId("box-1"))
-        case .externalDocument:
+        case .externalDocument, .subassembly:
             Issue.record("Expected internalPart")
         }
 
@@ -62,7 +62,7 @@ import simd
         case .externalDocument(let url, let partName):
             #expect(url == fileURL)
             #expect(partName == "Base")
-        case .internalPart:
+        case .internalPart, .subassembly:
             Issue.record("Expected externalDocument")
         }
     }
@@ -163,4 +163,155 @@ import simd
         let lockedSceneObject = lockedInstance.toSceneObject()
         #expect(lockedSceneObject.isLocked == true)
     }
+
+    // MARK: - Subassemblies (BL-ASM-07)
+
+    @Test func testSubassemblyReferenceAndBehavior() {
+        let subRef = ComponentReference.subassembly(name: "Gearbox")
+        if case .subassembly(let name) = subRef {
+            #expect(name == "Gearbox")
+        } else {
+            Issue.record("Expected .subassembly reference")
+        }
+
+        #expect(SubassemblyBehavior.allCases == [.rigid, .flexible])
+        #expect(SubassemblyBehavior.rigid.rawValue == "rigid")
+        #expect(SubassemblyBehavior.flexible.rawValue == "flexible")
+    }
+
+    @Test func testSubassemblyInitializationAndDefaults() {
+        let child1 = ComponentInstance(name: "Gear1", reference: .internalPart(name: "Part1"))
+        let child2 = ComponentInstance(name: "Gear2", reference: .internalPart(name: "Part2"))
+        let mate = AssemblyConstraint(
+            kind: .concentric,
+            firstFeature: AssemblyFeature(componentInstanceId: child1.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: child2.id, origin: .zero)
+        )
+
+        let subassembly = ComponentInstance(
+            name: "Drive Train",
+            reference: .subassembly(name: "Drive Train"),
+            subassemblyBehavior: .flexible,
+            childInstances: [child1, child2],
+            childConstraints: [mate]
+        )
+
+        #expect(subassembly.isSubassembly == true)
+        #expect(subassembly.subassemblyBehavior == .flexible)
+        #expect(subassembly.childInstances.count == 2)
+        #expect(subassembly.childConstraints.count == 1)
+        #expect(child1.isSubassembly == false)
+    }
+
+    @Test func testRecursiveSceneObjectProjection() {
+        let child1 = ComponentInstance(
+            name: "Child 1",
+            reference: .internalPart(name: "Part1"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        let child2 = ComponentInstance(
+            name: "Child 2",
+            reference: .internalPart(name: "Part2"),
+            transform: Transform(position: SIMD3<Float>(0, 20, 0))
+        )
+
+        let subassembly = ComponentInstance(
+            name: "Subassembly",
+            reference: .subassembly(name: "Sub"),
+            transform: Transform(position: SIMD3<Float>(5, 5, 0)),
+            childInstances: [child1, child2]
+        )
+
+        let projected = subassembly.toSceneObjects()
+        #expect(projected.count == 2)
+
+        let obj1 = projected.first(where: { $0.id == child1.solidId })
+        let obj2 = projected.first(where: { $0.id == child2.solidId })
+        #expect(obj1 != nil)
+        #expect(obj2 != nil)
+
+        // Child 1 world position: (5, 5, 0) + (10, 0, 0) = (15, 5, 0)
+        #expect(abs((obj1?.transform.position.x ?? 0) - 15) < 1e-3)
+        #expect(abs((obj1?.transform.position.y ?? 0) - 5) < 1e-3)
+
+        // Child 2 world position: (5, 5, 0) + (0, 20, 0) = (5, 25, 0)
+        #expect(abs((obj2?.transform.position.x ?? 0) - 5) < 1e-3)
+        #expect(abs((obj2?.transform.position.y ?? 0) - 25) < 1e-3)
+    }
+
+    @Test func testRecursiveLookups() {
+        let leaf = ComponentInstance(name: "Leaf", reference: .internalPart(name: "LeafPart"))
+        let innerSub = ComponentInstance(
+            name: "InnerSub",
+            reference: .subassembly(name: "Inner"),
+            childInstances: [leaf]
+        )
+        let outerSub = ComponentInstance(
+            name: "OuterSub",
+            reference: .subassembly(name: "Outer"),
+            childInstances: [innerSub]
+        )
+
+        let allInstances = outerSub.allComponentInstances(recursive: true, includeSelf: true)
+        #expect(allInstances.count == 3)
+
+        let foundLeaf = outerSub.findComponent(id: leaf.id)
+        #expect(foundLeaf != nil)
+        #expect(foundLeaf?.instance.id == leaf.id)
+        #expect(foundLeaf?.parentId == innerSub.id)
+
+        let foundBySolid = outerSub.findComponent(solidId: leaf.solidId)
+        #expect(foundBySolid != nil)
+        #expect(foundBySolid?.instance.id == leaf.id)
+    }
+
+    @Test func testSubassemblyCodableRoundTrip() throws {
+        let child = ComponentInstance(
+            name: "Motor",
+            reference: .internalPart(name: "MotorPart"),
+            transform: Transform(position: SIMD3<Float>(1, 2, 3))
+        )
+        let sub = ComponentInstance(
+            name: "Actuator",
+            reference: .subassembly(name: "Actuator"),
+            subassemblyBehavior: .flexible,
+            childInstances: [child]
+        )
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(sub)
+
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(ComponentInstance.self, from: data)
+
+        #expect(decoded.name == "Actuator")
+        #expect(decoded.isSubassembly == true)
+        #expect(decoded.subassemblyBehavior == .flexible)
+        #expect(decoded.childInstances.count == 1)
+        #expect(decoded.childInstances.first?.name == "Motor")
+        #expect(decoded.childInstances.first?.transform.position == SIMD3<Float>(1, 2, 3))
+    }
+
+    @Test func testLegacyComponentInstanceDecodingDefaultsSubassemblyFields() throws {
+        let json = """
+        {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "Legacy Part",
+            "reference": {
+                "type": "internalPart",
+                "name": "LegacyBody"
+            },
+            "isVisible": true,
+            "isLocked": false
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(ComponentInstance.self, from: data)
+
+        #expect(decoded.subassemblyBehavior == .rigid)
+        #expect(decoded.childInstances.isEmpty)
+        #expect(decoded.childConstraints.isEmpty)
+        #expect(decoded.isSubassembly == false)
+    }
 }
+
