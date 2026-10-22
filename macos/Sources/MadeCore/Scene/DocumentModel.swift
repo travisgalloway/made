@@ -835,6 +835,14 @@ public final class DocumentModel {
     public private(set) var componentMirrors: [ComponentMirror] = []
     public private(set) var explodedViews: [ExplodedView] = []
     public private(set) var activeExplodedViewId: UUID? = nil
+    public private(set) var sheets: [DrawingSheet] = []
+    public private(set) var activeSheetId: UUID? = nil
+    public var activeSheet: DrawingSheet? {
+        if let activeSheetId, let sheet = sheets.first(where: { $0.id == activeSheetId }) {
+            return sheet
+        }
+        return sheets.first
+    }
     public private(set) var metadata: [String: String] = [:]
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
@@ -1250,7 +1258,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
@@ -1260,6 +1268,14 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        if documentType == .drawing && sheets.isEmpty {
+            let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
+            self.sheets = [defaultSheet]
+            self.activeSheetId = defaultSheet.id
+        } else {
+            self.sheets = sheets
+            self.activeSheetId = activeSheetId ?? sheets.first?.id
+        }
         self.settings = settings
         self.metadata = metadata
         self._selection = []
@@ -1269,7 +1285,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, metadata: [String: String] = [:]) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1278,6 +1294,14 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        if documentType == .drawing && sheets.isEmpty {
+            let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
+            self.sheets = [defaultSheet]
+            self.activeSheetId = defaultSheet.id
+        } else {
+            self.sheets = sheets
+            self.activeSheetId = activeSheetId ?? sheets.first?.id
+        }
         self.metadata = metadata
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
@@ -1303,9 +1327,11 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, metadata: [String: String] = [:]) {
+    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
         let convertedFeatures = objects.map { Feature(from: $0) }
         self.features = convertedFeatures
+        self.sheets = sheets
+        self.activeSheetId = activeSheetId ?? sheets.first?.id
         self.metadata = metadata
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), convertedFeatures.count)
@@ -1331,7 +1357,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, metadata: [String: String] = [:]) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1340,6 +1366,14 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        if documentType == .drawing && sheets.isEmpty {
+            let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
+            self.sheets = [defaultSheet]
+            self.activeSheetId = defaultSheet.id
+        } else {
+            self.sheets = sheets
+            self.activeSheetId = activeSheetId ?? sheets.first?.id
+        }
         self.parameters = parameters
         self.metadata = metadata
         rebuildParameterGraph()
@@ -1370,7 +1404,7 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, metadata: [String: String] = [:]) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1379,6 +1413,14 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        if documentType == .drawing && sheets.isEmpty {
+            let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
+            self.sheets = [defaultSheet]
+            self.activeSheetId = defaultSheet.id
+        } else {
+            self.sheets = sheets
+            self.activeSheetId = activeSheetId ?? sheets.first?.id
+        }
         self.parameters = parameters
         self.metadata = metadata
         rebuildParameterGraph()
@@ -7791,6 +7833,201 @@ public final class DocumentModel {
         }
         undoStateVersion += 1
         return .success(())
+    }
+
+    // MARK: - Drawing Sheet Mutators (BL-DRW-01, #208)
+
+    @discardableResult
+    public func addSheet(
+        _ sheet: DrawingSheet? = nil,
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> DrawingSheet {
+        let newSheet = sheet ?? DrawingSheet(
+            name: "Sheet \(sheets.count + 1)",
+            size: .isoA3,
+            orientation: .landscape
+        )
+        let insertionIndex = min(max(0, index ?? sheets.count), sheets.count)
+        sheets.insert(newSheet, at: insertionIndex)
+        let oldActiveId = activeSheetId
+        activeSheetId = newSheet.id
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Sheet"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSheet(id: newSheet.id, actionName: effectiveActionName, registerUndo: true)
+                    target.activeSheetId = oldActiveId
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return newSheet
+    }
+
+    @discardableResult
+    public func removeSheet(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        guard sheets.count > 1 else { return false }
+        guard let index = sheets.firstIndex(where: { $0.id == id }) else { return false }
+        let removedSheet = sheets.remove(at: index)
+        let oldActiveId = activeSheetId
+        if activeSheetId == id {
+            let fallbackIndex = min(index, sheets.count - 1)
+            activeSheetId = sheets[fallbackIndex].id
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Delete Sheet"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addSheet(removedSheet, at: index, actionName: effectiveActionName, registerUndo: true)
+                    target.activeSheetId = oldActiveId
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    @discardableResult
+    public func updateSheet(
+        _ sheet: DrawingSheet,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        guard let index = sheets.firstIndex(where: { $0.id == sheet.id }) else { return false }
+        let oldSheet = sheets[index]
+        guard oldSheet != sheet else { return true }
+        sheets[index] = sheet
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Sheet"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSheet(oldSheet, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    public func setActiveSheetId(
+        _ id: UUID?,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) {
+        if let id {
+            guard sheets.contains(where: { $0.id == id }) else { return }
+        }
+        let oldActiveId = activeSheetId
+        guard oldActiveId != id else { return }
+        activeSheetId = id
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Select Sheet"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setActiveSheetId(oldActiveId, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+    }
+
+    @discardableResult
+    public func duplicateSheet(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> DrawingSheet? {
+        guard let index = sheets.firstIndex(where: { $0.id == id }) else { return nil }
+        let original = sheets[index]
+        let duplicated = DrawingSheet(
+            id: UUID(),
+            name: "\(original.name) Copy",
+            size: original.size,
+            orientation: original.orientation,
+            scale: original.scale,
+            titleBlockTemplate: original.titleBlockTemplate,
+            customProperties: original.customProperties
+        )
+        let insertionIndex = index + 1
+        return addSheet(duplicated, at: insertionIndex, actionName: actionName ?? "Duplicate Sheet", registerUndo: registerUndo)
+    }
+
+    public func reorderSheets(
+        _ newSheets: [DrawingSheet],
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) {
+        guard newSheets.count == sheets.count else { return }
+        let oldSheets = sheets
+        guard oldSheets != newSheets else { return }
+        sheets = newSheets
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Reorder Sheets"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.reorderSheets(oldSheets, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+    }
+
+    @discardableResult
+    public func setSheetProperty(
+        sheetId: UUID,
+        key: String,
+        value: String?,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return false }
+        guard let index = sheets.firstIndex(where: { $0.id == sheetId }) else { return false }
+        let oldSheet = sheets[index]
+        var updatedSheet = oldSheet
+        updatedSheet.setProperty(key: trimmedKey, value: value)
+        guard updatedSheet != oldSheet else { return true }
+        sheets[index] = updatedSheet
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Edit Sheet Property"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setSheetProperty(
+                        sheetId: sheetId,
+                        key: trimmedKey,
+                        value: oldSheet.property(forKey: trimmedKey),
+                        actionName: effectiveActionName,
+                        registerUndo: true
+                    )
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
     }
 }
 

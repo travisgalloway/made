@@ -60,7 +60,15 @@ struct InspectorPanelView: View {
 
     @ViewBuilder
     private var properties: some View {
-        if workspace.document.selection.count > 1 {
+        if workspace.document.documentType == .drawing {
+            ScrollView {
+                if let activeSheet = workspace.document.activeSheet {
+                    DrawingSheetInspectorView(sheet: activeSheet)
+                } else {
+                    ContentUnavailableView("No Drawing Sheet", systemImage: "doc.text")
+                }
+            }
+        } else if workspace.document.selection.count > 1 {
             multiSelectionView
         } else if let view = workspace.selectedExplodedView {
             ScrollView {
@@ -3351,4 +3359,160 @@ struct InspectorSketchRegionRow: View {
         }
     }
 }
+
+/// Inspector view for drawing sheet setup and title block properties (BL-DRW-01, #208).
+struct DrawingSheetInspectorView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let sheet: DrawingSheet
+
+    var body: some View {
+        Form {
+            Section("Sheet Setup") {
+                TextField("Sheet Name", text: Binding(
+                    get: { sheet.name },
+                    set: { newName in
+                        var copy = sheet
+                        copy.name = newName
+                        _ = workspace.updateSheet(copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-sheet-name-field")
+
+                Picker("Size", selection: Binding(
+                    get: {
+                        if case .custom = sheet.size {
+                            return "custom"
+                        }
+                        return sheet.size.displayName
+                    },
+                    set: { selectedKey in
+                        var copy = sheet
+                        if selectedKey == "custom" {
+                            copy.size = .custom(width: 420, height: 297)
+                        } else if let matching = DrawingSheetSize.standardSizes.first(where: { $0.displayName == selectedKey }) {
+                            copy.size = matching
+                        }
+                        _ = workspace.updateSheet(copy)
+                    }
+                )) {
+                    ForEach(DrawingSheetSize.standardSizes, id: \.displayName) { standardSize in
+                        Text(standardSize.displayName).tag(standardSize.displayName)
+                    }
+                    Text("Custom…").tag("custom")
+                }
+                .accessibilityIdentifier("inspector-sheet-size-picker")
+
+                if case .custom(let w, let h) = sheet.size {
+                    HStack {
+                        TextField("Width (mm)", value: Binding(
+                            get: { w },
+                            set: { newW in
+                                var copy = sheet
+                                copy.size = .custom(width: newW, height: h)
+                                _ = workspace.updateSheet(copy)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+
+                        TextField("Height (mm)", value: Binding(
+                            get: { h },
+                            set: { newH in
+                                var copy = sheet
+                                copy.size = .custom(width: w, height: newH)
+                                _ = workspace.updateSheet(copy)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                Picker("Orientation", selection: Binding(
+                    get: { sheet.orientation },
+                    set: { newOrientation in
+                        var copy = sheet
+                        copy.orientation = newOrientation
+                        _ = workspace.updateSheet(copy)
+                    }
+                )) {
+                    ForEach(DrawingSheetOrientation.allCases, id: \.self) { orient in
+                        Text(orient.displayName).tag(orient)
+                    }
+                }
+                .accessibilityIdentifier("inspector-sheet-orientation-picker")
+
+                TextField("Scale", text: Binding(
+                    get: { sheet.scale },
+                    set: { newScale in
+                        var copy = sheet
+                        copy.scale = newScale
+                        _ = workspace.updateSheet(copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-sheet-scale-field")
+
+                Picker("Title Block", selection: Binding(
+                    get: { sheet.titleBlockTemplate },
+                    set: { newTemplate in
+                        var copy = sheet
+                        copy.titleBlockTemplate = newTemplate
+                        _ = workspace.updateSheet(copy)
+                    }
+                )) {
+                    ForEach(TitleBlockTemplate.allCases, id: \.self) { template in
+                        Text(template.displayName).tag(template)
+                    }
+                }
+                .accessibilityIdentifier("inspector-sheet-template-picker")
+            }
+
+            Section("Title Block Properties") {
+                let metadata = workspace.document.metadata
+
+                TextField("Title", text: Binding(
+                    get: { metadata[CustomPropertyKey.description] ?? metadata["title"] ?? "" },
+                    set: {
+                        workspace.setDocumentProperty(key: CustomPropertyKey.description, value: $0)
+                        workspace.setDocumentProperty(key: "title", value: $0)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-title-block-title-field")
+
+                TextField("Part Number", text: Binding(
+                    get: { metadata[CustomPropertyKey.partNumber] ?? "" },
+                    set: { workspace.setDocumentProperty(key: CustomPropertyKey.partNumber, value: $0) }
+                ))
+                .accessibilityIdentifier("inspector-title-block-part-number-field")
+
+                TextField("Revision", text: Binding(
+                    get: { metadata[CustomPropertyKey.revision] ?? "" },
+                    set: { workspace.setDocumentProperty(key: CustomPropertyKey.revision, value: $0) }
+                ))
+                .accessibilityIdentifier("inspector-title-block-revision-field")
+
+                TextField("Vendor / Company", text: Binding(
+                    get: { metadata[CustomPropertyKey.vendor] ?? "" },
+                    set: { workspace.setDocumentProperty(key: CustomPropertyKey.vendor, value: $0) }
+                ))
+                .accessibilityIdentifier("inspector-title-block-vendor-field")
+
+                TextField("Author", text: Binding(
+                    get: { metadata["author"] ?? "" },
+                    set: { workspace.setDocumentProperty(key: "author", value: $0) }
+                ))
+                .accessibilityIdentifier("inspector-title-block-author-field")
+
+                TextField("Date", text: Binding(
+                    get: { metadata["date"] ?? "" },
+                    set: { workspace.setDocumentProperty(key: "date", value: $0) }
+                ))
+                .accessibilityIdentifier("inspector-title-block-date-field")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+        .accessibilityIdentifier("drawing-sheet-inspector-view")
+    }
+}
+
 

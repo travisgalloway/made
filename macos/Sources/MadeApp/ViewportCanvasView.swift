@@ -14,39 +14,65 @@ struct ViewportCanvasView: View {
 
     private var header: some View {
         HStack {
-            HStack(spacing: 4) {
-                Label("Scene", systemImage: "cube")
-                    .fontWeight(.semibold)
-                Image(systemName: "chevron.right")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                Text(workspace.document.objects.isEmpty ? "Empty Scene" : (workspace.selectedObject?.name ?? "No Selection"))
-            }
-            .font(.callout)
-            Spacer()
-            if workspace.viewportManager.state == .ready {
-                Picker("Display Mode", selection: Binding(
-                    get: { workspace.displayMode },
-                    set: { workspace.setDisplayMode($0) }
-                )) {
-                    ForEach(DisplayMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+            if workspace.document.documentType == .drawing {
+                HStack(spacing: 4) {
+                    Label("Drawing", systemImage: "doc.richtext")
+                        .fontWeight(.semibold)
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                    Text(workspace.document.activeSheet?.name ?? "No Sheet")
+                }
+                .font(.callout)
+                Spacer()
+                if let sheet = workspace.document.activeSheet {
+                    HStack(spacing: 8) {
+                        Text("\(sheet.size.displayName) · \(sheet.orientation.displayName)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Scale: \(sheet.scale)")
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
                 }
-                .pickerStyle(.menu)
-                .controlSize(.small)
+            } else {
+                HStack(spacing: 4) {
+                    Label("Scene", systemImage: "cube")
+                        .fontWeight(.semibold)
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                    Text(workspace.document.objects.isEmpty ? "Empty Scene" : (workspace.selectedObject?.name ?? "No Selection"))
+                }
+                .font(.callout)
+                Spacer()
+                if workspace.viewportManager.state == .ready {
+                    Picker("Display Mode", selection: Binding(
+                        get: { workspace.displayMode },
+                        set: { workspace.setDisplayMode($0) }
+                    )) {
+                        ForEach(DisplayMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
 
-                Picker("Projection", selection: Binding(
-                    get: { workspace.projectionMode },
-                    set: { workspace.setProjectionMode($0) }
-                )) {
-                    ForEach(CameraProjection.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+                    Picker("Projection", selection: Binding(
+                        get: { workspace.projectionMode },
+                        set: { workspace.setProjectionMode($0) }
+                    )) {
+                        ForEach(CameraProjection.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .frame(width: 170)
                 }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .frame(width: 170)
             }
         }
         .padding(.horizontal, 10)
@@ -58,8 +84,11 @@ struct ViewportCanvasView: View {
     private var canvas: some View {
         @Bindable var workspace = workspace
 
-        switch workspace.viewportManager.state {
-        case .ready:
+        if workspace.document.documentType == .drawing {
+            DrawingCanvasView()
+        } else {
+            switch workspace.viewportManager.state {
+            case .ready:
             if let renderer = workspace.viewportManager.renderer {
                 ZStack(alignment: .topTrailing) {
                     ZStack(alignment: .topLeading) {
@@ -226,6 +255,7 @@ struct ViewportCanvasView: View {
             ContentUnavailableView("Metal Unavailable", systemImage: "exclamationmark.triangle", description: Text(reason.description))
         }
     }
+}
 }
 
 private struct ComponentPlacementHUDOverlayView: View {
