@@ -150,8 +150,21 @@ struct ViewportCanvasView: View {
                             },
                             onDismissRadialMenu: {
                                 workspace.dismissRadialMenu()
+                            },
+                            pendingPlacement: workspace.pendingComponentPlacement,
+                            onPlacePendingComponent: { targetPoint in
+                                _ = workspace.placePendingComponent(at: targetPoint)
+                            },
+                            onCancelPendingPlacement: {
+                                workspace.cancelPendingPlacement()
                             }
                         )
+
+                        if let pending = workspace.pendingComponentPlacement {
+                            ComponentPlacementHUDOverlayView(pending: pending) {
+                                workspace.cancelPendingPlacement()
+                            }
+                        }
 
                         if let snap = workspace.activeSnapResult, snap.screenPoint != nil {
                             SnapOverlayView(snap: snap)
@@ -190,6 +203,9 @@ struct ViewportCanvasView: View {
                         .padding(.top, 16)
                         .padding(.trailing, 16)
                 }
+                .sheet(isPresented: $workspace.isShowingBodyPickerForInsertion) {
+                    ComponentBodyPickerSheet()
+                }
             }
         case .initializing:
             ProgressView("Initializing Metal 4…")
@@ -197,5 +213,94 @@ struct ViewportCanvasView: View {
         case .unavailable(let reason):
             ContentUnavailableView("Metal Unavailable", systemImage: "exclamationmark.triangle", description: Text(reason.description))
         }
+    }
+}
+
+private struct ComponentPlacementHUDOverlayView: View {
+    let pending: PendingComponentPlacement
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack {
+            HStack(spacing: 12) {
+                Image(systemName: "square.3.layers.3d.down.right")
+                    .foregroundStyle(.blue)
+                    .imageScale(.medium)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Placing: \(pending.name)")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+
+                    Text("Click in viewport to place • Esc to cancel")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.separator, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
+            .padding(.top, 16)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct ComponentBodyPickerSheet: View {
+    @Environment(WorkspaceModel.self) private var workspace
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Insert Component from Document")
+                .font(.headline)
+            Text("Select a body to insert as a component instance:")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            List(workspace.document.bodies) { body in
+                HStack {
+                    Image(systemName: "cube")
+                        .foregroundStyle(.blue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(body.name)
+                            .font(.body)
+                        Text(body.id.rawValue)
+                            .font(.caption)
+                            .monospaced()
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Insert") {
+                        workspace.insertComponentFromInternalBody(body)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+                .padding(.vertical, 4)
+            }
+            .listStyle(.inset(alternatesRowBackgrounds: true))
+            .frame(minHeight: 180, maxHeight: 300)
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    workspace.isShowingBodyPickerForInsertion = false
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420, minHeight: 280)
     }
 }

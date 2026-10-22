@@ -206,6 +206,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var isRadialMenuOpen: Bool
     var onOpenRadialMenu: ((CGPoint, ObjectId?) -> Void)?
     var onDismissRadialMenu: (() -> Void)?
+    var pendingPlacement: PendingComponentPlacement?
+    var onPlacePendingComponent: ((SIMD3<Float>) -> Void)?
+    var onCancelPendingPlacement: (() -> Void)?
     
     public init(
         document: DocumentModel,
@@ -248,7 +251,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)? = nil,
         isRadialMenuOpen: Bool = false,
         onOpenRadialMenu: ((CGPoint, ObjectId?) -> Void)? = nil,
-        onDismissRadialMenu: (() -> Void)? = nil
+        onDismissRadialMenu: (() -> Void)? = nil,
+        pendingPlacement: PendingComponentPlacement? = nil,
+        onPlacePendingComponent: ((SIMD3<Float>) -> Void)? = nil,
+        onCancelPendingPlacement: (() -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -291,6 +297,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.isRadialMenuOpen = isRadialMenuOpen
         self.onOpenRadialMenu = onOpenRadialMenu
         self.onDismissRadialMenu = onDismissRadialMenu
+        self.pendingPlacement = pendingPlacement
+        self.onPlacePendingComponent = onPlacePendingComponent
+        self.onCancelPendingPlacement = onCancelPendingPlacement
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -842,6 +851,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         func handleKeyDown(with event: NSEvent) -> Bool {
             if event.keyCode == 53 { // Esc
+                if parent.pendingPlacement != nil {
+                    parent.onCancelPendingPlacement?()
+                    return true
+                }
                 if let drag = widgetlessDragState {
                     _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
                     widgetlessDragState = nil
@@ -1351,6 +1364,27 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 invalidate(reason: .interaction)
             }
             
+            if parent.pendingPlacement != nil {
+                if button == .left {
+                    guard let view = mtkView else { return }
+                    let loc = view.convert(event.locationInWindow, from: nil)
+                    let ray = unprojectCursorRay(at: loc, in: view)
+                    let targetPoint = ComponentPlacementSolver.resolvePlacementPoint(
+                        ray: ray,
+                        candidateMeshes: parent.renderer.candidateMeshes()
+                    )
+                    parent.onPlacePendingComponent?(targetPoint)
+                    pointerRouter.arbiter.reset()
+                    invalidate(reason: .interaction)
+                    return
+                } else if button == .right {
+                    parent.onCancelPendingPlacement?()
+                    pointerRouter.arbiter.reset()
+                    invalidate(reason: .interaction)
+                    return
+                }
+            }
+
             if button == .left && parent.tool == .trim {
                 guard let view = mtkView else { return }
                 let loc = view.convert(event.locationInWindow, from: nil)

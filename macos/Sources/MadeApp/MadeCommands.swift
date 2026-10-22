@@ -593,3 +593,20 @@ struct ToolsMenuCommands: Commands {
         }
     }
 }
+
+struct AssemblyMenuCommands: Commands {
+    var workspace: WorkspaceModel
+
+    var body: some Commands {
+        CommandMenu("Assembly") {
+            Button("Insert Component from File…") {
+                workspace.promptInsertComponentFromFile()
+            }
+            .keyboardShortcut("i", modifiers: [.option, .command])
+
+            Button("Insert Component from Document…") {
+                workspace.promptInsertComponentFromDocument()
+            }
+        }
+    }
+}
