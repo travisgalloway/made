@@ -335,4 +335,84 @@ import simd
         #expect(link?.isGrounded == false)
         #expect(link?.isFixed == false)
     }
+
+    @Test func testWorkspaceAssemblyShortcuts() {
+        #expect(WorkspaceModel.solveAssemblyShortcutKey == "s")
+        #expect(WorkspaceModel.solveAssemblyShortcutModifiers == [.option, .command])
+    }
+
+    @Test func testWorkspaceAssemblyConstraintMutatorsAndSolve() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let base = ws.addComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "BasePart"),
+            transform: .identity
+        )
+        let arm = ws.addComponentInstance(
+            name: "Arm",
+            reference: .internalPart(name: "ArmPart"),
+            transform: Transform(position: SIMD3<Float>(10, 20, 30))
+        )
+        _ = ws.setComponentInstanceGrounded(id: base.id, isGrounded: true)
+        _ = ws.setComponentInstanceGrounded(id: arm.id, isGrounded: false)
+
+        // Add revolute joint via workspace helper
+        let joint = ws.addDefaultAssemblyConstraint(kind: .revolute)
+        #expect(joint != nil)
+        #expect(ws.document.assemblyConstraints.count == 1)
+        #expect(ws.selectedAssemblyConstraintId == joint?.id)
+        #expect(ws.selectedAssemblyConstraint?.kind == .revolute)
+
+        // Clear selection and select by ID
+        ws.selectAssemblyConstraint(nil)
+        #expect(ws.selectedAssemblyConstraintId == nil)
+        ws.selectAssemblyConstraint(joint?.id)
+        #expect(ws.selectedAssemblyConstraintId == joint?.id)
+
+        // Suppress and unsuppress
+        guard let jointId = joint?.id else {
+            Issue.record("Missing joint ID")
+            return
+        }
+
+        let toggled = ws.toggleAssemblyConstraintSuppressed(id: jointId)
+        #expect(toggled)
+        #expect(ws.document.assemblyConstraints.first?.isSuppressed == true)
+
+        let toggledBack = ws.toggleAssemblyConstraintSuppressed(id: jointId)
+        #expect(toggledBack)
+        #expect(ws.document.assemblyConstraints.first?.isSuppressed == false)
+
+        // Solve assembly
+        let solveResult = ws.solveAssemblyConstraints()
+        #expect(solveResult.status.isConverged)
+
+        // Update joint
+        if var current = ws.selectedAssemblyConstraint {
+            current.name = "Custom Hinge"
+            current.value = 45.0
+            let updated = ws.updateAssemblyConstraint(current)
+            #expect(updated)
+            #expect(ws.document.assemblyConstraints.first?.name == "Custom Hinge")
+            #expect(ws.document.assemblyConstraints.first?.value == 45.0)
+        }
+
+        // Remove joint
+        ws.document.undoManager?.removeAllActions()
+        let removed = ws.removeAssemblyConstraint(id: jointId)
+        #expect(removed)
+        #expect(ws.document.assemblyConstraints.isEmpty)
+        #expect(ws.selectedAssemblyConstraintId == nil)
+
+        // Undo removal
+        ws.undo()
+        #expect(ws.document.assemblyConstraints.count == 1)
+        #expect(ws.document.assemblyConstraints.first?.id == jointId)
+
+        // Redo removal
+        ws.redo()
+        #expect(ws.document.assemblyConstraints.isEmpty)
+    }
 }

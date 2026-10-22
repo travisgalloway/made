@@ -193,4 +193,77 @@ import simd
         try DocumentModelCoder.decode(into: targetDoc, from: legacyDocJSON)
         #expect(targetDoc.assemblyConstraints.isEmpty)
     }
+
+    @Test func testAllConstraintAndJointKindsRoundTrip() throws {
+        let instanceA = ComponentInstance(name: "A", reference: .internalPart(name: "PartA"))
+        let instanceB = ComponentInstance(name: "B", reference: .internalPart(name: "PartB"))
+
+        let allConstraints = AssemblyConstraintKind.allCases.map { kind in
+            AssemblyConstraint(
+                name: kind.displayName,
+                kind: kind,
+                firstFeature: AssemblyFeature(componentInstanceId: instanceA.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1)),
+                secondFeature: AssemblyFeature(componentInstanceId: instanceB.id, origin: SIMD3<Float>(0, 0, 10), axis: SIMD3<Float>(0, 0, 1)),
+                value: kind.isJoint ? 5.0 : 10.0
+            )
+        }
+
+        #expect(allConstraints.count == 14)
+
+        let doc = DocumentModel(
+            documentType: .assembly,
+            componentInstances: [instanceA, instanceB],
+            assemblyConstraints: allConstraints
+        )
+
+        let data = try DocumentModelCoder.encode(document: doc)
+        let decodedDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: decodedDoc, from: data)
+
+        #expect(decodedDoc.assemblyConstraints.count == 14)
+        for (original, decoded) in zip(allConstraints, decodedDoc.assemblyConstraints) {
+            #expect(decoded.kind == original.kind)
+            #expect(decoded.name == original.name)
+            #expect(decoded.value == original.value)
+            #expect(decoded.firstFeature.componentInstanceId == original.firstFeature.componentInstanceId)
+            #expect(decoded.secondFeature.componentInstanceId == original.secondFeature.componentInstanceId)
+        }
+    }
+
+    @Test func testLegacyAndAliasJointKindDecoding() throws {
+        let legacyJSON = """
+        [
+            {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "name": "Pin Slot Joint",
+                "kind": "pin_slot",
+                "firstFeature": { "localOrigin": [0, 0, 0], "localAxis": [0, 0, 1], "localSecondaryAxis": [1, 0, 0], "hasExplicitAxis": true },
+                "secondFeature": { "localOrigin": [0, 0, 0], "localAxis": [0, 0, 1], "localSecondaryAxis": [1, 0, 0], "hasExplicitAxis": true },
+                "isSuppressed": false
+            },
+            {
+                "id": "22222222-2222-2222-2222-222222222222",
+                "name": "Pin Slot Hyphen",
+                "kind": "pin-slot",
+                "firstFeature": { "localOrigin": [0, 0, 0], "localAxis": [0, 0, 1], "localSecondaryAxis": [1, 0, 0], "hasExplicitAxis": true },
+                "secondFeature": { "localOrigin": [0, 0, 0], "localAxis": [0, 0, 1], "localSecondaryAxis": [1, 0, 0], "hasExplicitAxis": true },
+                "isSuppressed": false
+            },
+            {
+                "id": "33333333-3333-3333-3333-333333333333",
+                "name": "Rigid Joint",
+                "kind": "rigid",
+                "firstFeature": { "localOrigin": [0, 0, 0], "localAxis": [0, 0, 1], "localSecondaryAxis": [1, 0, 0], "hasExplicitAxis": true },
+                "secondFeature": { "localOrigin": [0, 0, 0], "localAxis": [0, 0, 1], "localSecondaryAxis": [1, 0, 0], "hasExplicitAxis": true },
+                "isSuppressed": false
+            }
+        ]
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode([AssemblyConstraint].self, from: legacyJSON)
+        #expect(decoded.count == 3)
+        #expect(decoded[0].kind == .pinSlot)
+        #expect(decoded[1].kind == .pinSlot)
+        #expect(decoded[2].kind == .fastened)
+    }
 }

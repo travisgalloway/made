@@ -3,6 +3,7 @@ import simd
 
 /// The geometric kind of assembly constraint or mate between 3D rigid bodies (ADR-D4, #164).
 public enum AssemblyConstraintKind: String, Sendable, Codable, CaseIterable {
+    // Mates
     /// Aligns two feature origins to coincide (3 translational constraints).
     case coincident
     /// Aligns two feature axes to be collinear (2 angular + 2 lateral position constraints = 4 constraints; leaves 1 axial translation and 1 axial rotation).
@@ -15,8 +16,130 @@ public enum AssemblyConstraintKind: String, Sendable, Codable, CaseIterable {
     case perpendicular
     /// Constrains the angle between two orientation axes to a specified angle theta (1 angular constraint).
     case angle
+    /// Constrains two features to be tangent (e.g. cylinder-to-plane, point/sphere-to-plane).
+    case tangent
     /// Locks two features rigidly in relative position and orientation (6 constraints: 3 translation, 3 rotation).
     case fastened
+
+    // Kinematic Joints
+    /// Constrains 5 DOFs, leaving 1 rotational DOF free around primary axis.
+    case revolute
+    /// Prismatic joint constraining 5 DOFs, leaving 1 translational DOF free along primary axis.
+    case slider
+    /// Constrains 4 DOFs, leaving 1 axial translation and 1 axial rotation free along primary axis.
+    case cylindrical
+    /// Constrains 4 DOFs, leaving 1 translation along slot axis and 1 rotation around pin axis free.
+    case pinSlot
+    /// Constrains 3 DOFs, leaving 2 planar translations and 1 normal rotation free.
+    case planar
+    /// Spherical joint constraining 3 translation DOFs, leaving 3 rotational DOFs free.
+    case ball
+
+    /// Indicates whether this constraint kind represents a kinematic joint.
+    public var isJoint: Bool {
+        switch self {
+        case .fastened, .revolute, .slider, .cylindrical, .pinSlot, .planar, .ball:
+            return true
+        case .coincident, .concentric, .distance, .parallel, .perpendicular, .angle, .tangent:
+            return false
+        }
+    }
+
+    /// Nominal number of free degrees of freedom left unconstrained for a single pair of bodies.
+    public var nominalFreeDOFs: Int {
+        switch self {
+        case .fastened: return 0
+        case .revolute, .slider: return 1
+        case .cylindrical, .pinSlot: return 2
+        case .planar, .ball, .coincident: return 3
+        case .concentric: return 2
+        case .parallel: return 4
+        case .perpendicular, .angle, .tangent, .distance: return 5
+        }
+    }
+
+    /// Convenience alias for `nominalFreeDOFs`.
+    public var freeDOFs: Int {
+        nominalFreeDOFs
+    }
+
+    /// Human-readable display title.
+    public var displayName: String {
+        switch self {
+        case .coincident: return "Coincident"
+        case .concentric: return "Concentric"
+        case .distance: return "Distance"
+        case .parallel: return "Parallel"
+        case .perpendicular: return "Perpendicular"
+        case .angle: return "Angle"
+        case .tangent: return "Tangent"
+        case .fastened: return "Fastened"
+        case .revolute: return "Revolute"
+        case .slider: return "Slider"
+        case .cylindrical: return "Cylindrical"
+        case .pinSlot: return "Pin-Slot"
+        case .planar: return "Planar"
+        case .ball: return "Ball"
+        }
+    }
+
+    /// SF Symbol icon name representing this constraint or joint.
+    public var systemImageName: String {
+        switch self {
+        case .coincident: return "target"
+        case .concentric: return "circle.circle"
+        case .distance: return "arrow.left.and.right"
+        case .parallel: return "equal"
+        case .perpendicular: return "angle"
+        case .angle: return "compass.drawing"
+        case .tangent: return "circle.and.line.horizontal"
+        case .fastened: return "lock.fill"
+        case .revolute: return "arrow.triangle.2.circlepath"
+        case .slider: return "arrow.left.and.right.square"
+        case .cylindrical: return "cylinder.split.1x2"
+        case .pinSlot: return "capsule"
+        case .planar: return "square.2.layers.3d"
+        case .ball: return "globe"
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        let normalized = raw.lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        switch normalized {
+        case "coincident": self = .coincident
+        case "concentric": self = .concentric
+        case "distance": self = .distance
+        case "parallel": self = .parallel
+        case "perpendicular": self = .perpendicular
+        case "angle": self = .angle
+        case "tangent": self = .tangent
+        case "fastened", "rigid": self = .fastened
+        case "revolute": self = .revolute
+        case "slider": self = .slider
+        case "cylindrical": self = .cylindrical
+        case "pinslot": self = .pinSlot
+        case "planar": self = .planar
+        case "ball", "spherical": self = .ball
+        default:
+            if let standard = AssemblyConstraintKind(rawValue: raw) {
+                self = standard
+            } else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Unknown assembly constraint kind: '\(raw)'"
+                )
+            }
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 /// A reference feature on a 3D component instance or assembly ground coordinate frame (ADR-D4, #164).
@@ -113,12 +236,22 @@ public struct AssemblyConstraint: Identifiable, Sendable, Codable, Equatable {
         isSuppressed: Bool = false
     ) {
         self.id = id
-        self.name = name ?? kind.rawValue.capitalized
+        self.name = name ?? kind.displayName
         self.kind = kind
         self.firstFeature = firstFeature
         self.secondFeature = secondFeature
         self.value = value
         self.isSuppressed = isSuppressed
+    }
+
+    /// Whether this constraint represents a kinematic joint.
+    public var isJoint: Bool {
+        kind.isJoint
+    }
+
+    /// Theoretical free degrees of freedom allowed by this constraint or joint.
+    public var freeDOFs: Int {
+        kind.freeDOFs
     }
 }
 

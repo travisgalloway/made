@@ -24,11 +24,28 @@ final class WorkspaceModel {
     let partRuntime = PartRuntime()
     let viewportManager = ViewportStateManager()
 
+    public var selectedAssemblyConstraintId: UUID? = nil
+
+    public var selectedAssemblyConstraint: AssemblyConstraint? {
+        guard let id = selectedAssemblyConstraintId else { return nil }
+        return document.assemblyConstraints.first(where: { $0.id == id })
+    }
+
+    public func selectAssemblyConstraint(_ id: UUID?) {
+        selectedAssemblyConstraintId = id
+        if id != nil {
+            selectedId = nil
+        }
+    }
+
     var selectedId: ObjectId? {
         get { document.selectedId }
         set {
             if radialMenuState != nil {
                 radialMenuState = nil
+            }
+            if newValue != nil {
+                selectedAssemblyConstraintId = nil
             }
             if document.selectedId != newValue {
                 document.selectedId = newValue
@@ -46,6 +63,9 @@ final class WorkspaceModel {
             if radialMenuState != nil {
                 radialMenuState = nil
             }
+            if !newValue.isEmpty {
+                selectedAssemblyConstraintId = nil
+            }
             if document.selectedIds != newValue {
                 document.selectedIds = newValue
                 syncViewportSelection()
@@ -57,6 +77,7 @@ final class WorkspaceModel {
         if radialMenuState != nil {
             radialMenuState = nil
         }
+        selectedAssemblyConstraintId = nil
         document.clearSelection()
         syncViewportSelection()
     }
@@ -4104,6 +4125,96 @@ final class WorkspaceModel {
         isShowingBodyPickerForInsertion = false
     }
 
+    // MARK: - Assembly Constraints & Joints (BL-ASM-04, #165)
+
+    @discardableResult
+    public func addAssemblyConstraint(_ constraint: AssemblyConstraint) -> Bool {
+        let result = document.addAssemblyConstraint(constraint)
+        guard case .success = result else { return false }
+        selectedAssemblyConstraintId = constraint.id
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Added assembly constraint '\(constraint.name)' (\(constraint.kind.displayName))")
+        return true
+    }
+
+    @discardableResult
+    public func removeAssemblyConstraint(id: UUID) -> Bool {
+        let result = document.removeAssemblyConstraint(id: id)
+        guard case .success = result else { return false }
+        if selectedAssemblyConstraintId == id {
+            selectedAssemblyConstraintId = nil
+        }
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Removed assembly constraint \(id)")
+        return true
+    }
+
+    @discardableResult
+    public func updateAssemblyConstraint(_ constraint: AssemblyConstraint) -> Bool {
+        let result = document.updateAssemblyConstraint(constraint)
+        guard case .success = result else { return false }
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Updated assembly constraint '\(constraint.name)'")
+        return true
+    }
+
+    @discardableResult
+    public func toggleAssemblyConstraintSuppressed(id: UUID) -> Bool {
+        guard let constraint = document.assemblyConstraints.first(where: { $0.id == id }) else { return false }
+        var updated = constraint
+        updated.isSuppressed.toggle()
+        return updateAssemblyConstraint(updated)
+    }
+
+    @discardableResult
+    public func solveAssemblyConstraints() -> AssemblySolverResult {
+        let result = document.solveAssemblyConstraints()
+        if result.status.isConverged {
+            markDocumentModified()
+            if let renderer = viewportManager.renderer {
+                for (id, _) in result.solvedTransforms {
+                    let solidId = SolidId("component-\(id.uuidString)")
+                    _ = SolidMeshApplier.applyTransform(to: solidId, document: document, sink: renderer)
+                }
+            }
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Solved assembly constraints successfully (total DOF: \(result.totalDOF))")
+        } else {
+            log(.warning, "Assembly", "Assembly solve status: \(result.status)")
+        }
+        return result
+    }
+
+    @discardableResult
+    public func addDefaultAssemblyConstraint(kind: AssemblyConstraintKind) -> AssemblyConstraint? {
+        guard !document.componentInstances.isEmpty else { return nil }
+        let firstComp = selectedComponentInstance ?? document.componentInstances[0]
+        let secondComp = document.componentInstances.first(where: { $0.id != firstComp.id })
+
+        let f1 = AssemblyFeature(
+            componentInstanceId: firstComp.id,
+            origin: .zero,
+            axis: SIMD3<Float>(0, 0, 1)
+        )
+        let f2 = AssemblyFeature(
+            componentInstanceId: secondComp?.id,
+            origin: .zero,
+            axis: SIMD3<Float>(0, 0, 1)
+        )
+        let constraint = AssemblyConstraint(
+            kind: kind,
+            firstFeature: f1,
+            secondFeature: f2
+        )
+        if addAssemblyConstraint(constraint) {
+            return constraint
+        }
+        return nil
+    }
+
     // MARK: - Document Settings (BL-FND-11)
 
     func setDocumentSettings(_ newSettings: DocumentSettings) {
@@ -4403,8 +4514,14 @@ final class WorkspaceModel {
             recomputeSolid(id: obj.id)
         }
         for obj in document.objects {
-            if let old = oldObjects.first(where: { $0.id == obj.id }), old.def != obj.def {
-                recomputeSolid(id: obj.id)
+            if let old = oldObjects.first(where: { $0.id == obj.id }) {
+                if old.def != obj.def {
+                    recomputeSolid(id: obj.id)
+                } else if old.transform != obj.transform {
+                    if let renderer = viewportManager.renderer {
+                        _ = SolidMeshApplier.applyTransform(to: obj.id, document: document, sink: renderer)
+                    }
+                }
             }
         }
         if let sketch = selectedSketchFeature {
@@ -4432,8 +4549,14 @@ final class WorkspaceModel {
             recomputeSolid(id: obj.id)
         }
         for obj in document.objects {
-            if let old = oldObjects.first(where: { $0.id == obj.id }), old.def != obj.def {
-                recomputeSolid(id: obj.id)
+            if let old = oldObjects.first(where: { $0.id == obj.id }) {
+                if old.def != obj.def {
+                    recomputeSolid(id: obj.id)
+                } else if old.transform != obj.transform {
+                    if let renderer = viewportManager.renderer {
+                        _ = SolidMeshApplier.applyTransform(to: obj.id, document: document, sink: renderer)
+                    }
+                }
             }
         }
         if let sketch = selectedSketchFeature {
@@ -4805,6 +4928,9 @@ final class WorkspaceModel {
 
     static let newAssemblyShortcutKey: KeyEquivalent = "n"
     static let newAssemblyShortcutModifiers: EventModifiers = [.command, .option]
+
+    static let solveAssemblyShortcutKey: KeyEquivalent = "s"
+    static let solveAssemblyShortcutModifiers: EventModifiers = [.command, .option]
 
     static let openDocumentShortcutKey: KeyEquivalent = "o"
     static let openDocumentShortcutModifiers: EventModifiers = [.command]

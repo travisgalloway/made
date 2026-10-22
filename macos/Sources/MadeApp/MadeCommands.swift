@@ -610,6 +610,64 @@ struct AssemblyMenuCommands: Commands {
 
             Divider()
 
+            Button("Solve Assembly") {
+                _ = workspace.solveAssemblyConstraints()
+            }
+            .keyboardShortcut(WorkspaceModel.solveAssemblyShortcutKey, modifiers: WorkspaceModel.solveAssemblyShortcutModifiers)
+            .disabled(workspace.document.documentType != .assembly && workspace.document.assemblyConstraints.isEmpty)
+
+            Menu("Add Joint") {
+                Button("Fastened Joint") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .fastened)
+                }
+                Button("Revolute Joint") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .revolute)
+                }
+                Button("Slider Joint") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .slider)
+                }
+                Button("Cylindrical Joint") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .cylindrical)
+                }
+                Button("Pin-Slot Joint") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .pinSlot)
+                }
+                Button("Planar Joint") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .planar)
+                }
+                Button("Ball Joint") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .ball)
+                }
+            }
+            .disabled(workspace.document.componentInstances.isEmpty)
+
+            Menu("Add Mate") {
+                Button("Coincident Mate") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .coincident)
+                }
+                Button("Concentric Mate") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .concentric)
+                }
+                Button("Distance Mate") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .distance)
+                }
+                Button("Parallel Mate") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .parallel)
+                }
+                Button("Perpendicular Mate") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .perpendicular)
+                }
+                Button("Angle Mate") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .angle)
+                }
+                Button("Tangent Mate") {
+                    _ = workspace.addDefaultAssemblyConstraint(kind: .tangent)
+                }
+            }
+            .disabled(workspace.document.componentInstances.isEmpty)
+
+            Divider()
+
             let selected = workspace.selectedComponentInstance
             Button(selected?.isGrounded == true ? "Float Component" : "Ground Component") {
                 if let selected {

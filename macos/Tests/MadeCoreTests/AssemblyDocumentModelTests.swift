@@ -399,4 +399,52 @@ import simd
         let redoneSlider = doc.componentInstances.first(where: { $0.id == slider.id })
         #expect(abs(redoneSlider!.transform.position.x) < 1e-3)
     }
+
+    @Test func testJointConstraintSuppressionAndModificationWithUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let base = ComponentInstance(name: "Base", reference: .internalPart(name: "BasePart"), transform: .identity, isGrounded: true)
+        let arm = ComponentInstance(name: "Arm", reference: .internalPart(name: "ArmPart"), transform: Transform(position: SIMD3<Float>(10, 20, 30)), isGrounded: false)
+        _ = doc.addComponentInstance(base)
+        _ = doc.addComponentInstance(arm)
+
+        let joint = AssemblyConstraint(
+            name: "Hinge",
+            kind: .revolute,
+            firstFeature: AssemblyFeature(componentInstanceId: base.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1)),
+            secondFeature: AssemblyFeature(componentInstanceId: arm.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        )
+        _ = doc.addAssemblyConstraint(joint)
+        #expect(doc.assemblyConstraints.count == 1)
+        #expect(doc.assemblyConstraints.first?.isJoint == true)
+        #expect(doc.assemblyConstraints.first?.isSuppressed == false)
+        undoManager.removeAllActions()
+
+        // Toggle suppressed
+        var toggled = joint
+        toggled.isSuppressed = true
+        _ = doc.updateAssemblyConstraint(toggled)
+        #expect(doc.assemblyConstraints.first?.isSuppressed == true)
+
+        undoManager.undo()
+        #expect(doc.assemblyConstraints.first?.isSuppressed == false)
+
+        undoManager.redo()
+        #expect(doc.assemblyConstraints.first?.isSuppressed == true)
+
+        // With suppressed joint, solve leaves arm free (6 DOF)
+        let solveSuppressed = doc.solveAssemblyConstraints()
+        #expect(solveSuppressed.totalDOF == 6)
+
+        // Unsuppress joint
+        undoManager.undo()
+        #expect(doc.assemblyConstraints.first?.isSuppressed == false)
+
+        // With unsuppressed revolute joint, solve leaves arm with 1 DOF (rotation about Z)
+        let solveUnsuppressed = doc.solveAssemblyConstraints()
+        #expect(solveUnsuppressed.status.isConverged)
+        #expect(solveUnsuppressed.totalDOF == 1)
+    }
 }
