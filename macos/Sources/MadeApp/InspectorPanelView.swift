@@ -3485,6 +3485,197 @@ struct DrawingSheetInspectorView: View {
                 .accessibilityIdentifier("inspector-sheet-projection-picker")
             }
 
+            Section("Drafting Standards") {
+                Picker("Standard", selection: Binding(
+                    get: { sheet.draftingStandards.standard },
+                    set: { newStandard in
+                        var copy = sheet
+                        switch newStandard {
+                        case .iso:
+                            copy.draftingStandards = .iso
+                        case .ansi:
+                            copy.draftingStandards = .ansi
+                        case .custom:
+                            copy.draftingStandards.standard = .custom
+                        }
+                        _ = workspace.updateSheet(copy)
+                    }
+                )) {
+                    ForEach(DrawingStandard.allCases, id: \.self) { standard in
+                        Text(standard.displayName).tag(standard)
+                    }
+                }
+                .accessibilityIdentifier("inspector-sheet-drafting-standard-picker")
+
+                HStack {
+                    Button("Apply ISO Defaults") {
+                        var copy = sheet
+                        copy.draftingStandards = .iso
+                        _ = workspace.updateSheet(copy)
+                    }
+                    .accessibilityIdentifier("inspector-sheet-apply-iso-defaults-button")
+
+                    Button("Apply ANSI Defaults") {
+                        var copy = sheet
+                        copy.draftingStandards = .ansi
+                        _ = workspace.updateSheet(copy)
+                    }
+                    .accessibilityIdentifier("inspector-sheet-apply-ansi-defaults-button")
+                }
+
+                DisclosureGroup("Arrow Defaults") {
+                    Picker("Style", selection: Binding(
+                        get: { sheet.draftingStandards.arrows.style },
+                        set: { newStyle in
+                            var copy = sheet
+                            copy.draftingStandards.arrows.style = newStyle
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    )) {
+                        ForEach(ArrowheadStyle.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-sheet-arrow-style-picker")
+
+                    TextField("Length (mm)", value: Binding(
+                        get: { sheet.draftingStandards.arrows.lengthMM },
+                        set: { newLen in
+                            var copy = sheet
+                            copy.draftingStandards.arrows.lengthMM = newLen
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("inspector-sheet-arrow-length-field")
+
+                    TextField("Width (mm)", value: Binding(
+                        get: { sheet.draftingStandards.arrows.widthMM },
+                        set: { newWidth in
+                            var copy = sheet
+                            copy.draftingStandards.arrows.widthMM = newWidth
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("inspector-sheet-arrow-width-field")
+                }
+
+                DisclosureGroup("Text Defaults") {
+                    Picker("Placement", selection: Binding(
+                        get: { sheet.draftingStandards.text.placement },
+                        set: { newPlace in
+                            var copy = sheet
+                            copy.draftingStandards.text.placement = newPlace
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    )) {
+                        ForEach(DimensionTextPlacement.allCases, id: \.self) { place in
+                            Text(place.displayName).tag(place)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-sheet-text-placement-picker")
+
+                    Picker("Decimal Separator", selection: Binding(
+                        get: { sheet.draftingStandards.text.decimalSeparator },
+                        set: { newSep in
+                            var copy = sheet
+                            copy.draftingStandards.text.decimalSeparator = newSep
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    )) {
+                        ForEach(DecimalSeparator.allCases, id: \.self) { sep in
+                            Text(sep.displayName).tag(sep)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-sheet-decimal-separator-picker")
+
+                    Picker("Trailing Zeros", selection: Binding(
+                        get: { sheet.draftingStandards.text.trailingZeros },
+                        set: { newTZ in
+                            var copy = sheet
+                            copy.draftingStandards.text.trailingZeros = newTZ
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    )) {
+                        ForEach(TrailingZeroDisplay.allCases, id: \.self) { tz in
+                            Text(tz.displayName).tag(tz)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-sheet-trailing-zeros-picker")
+
+                    TextField("Text Height (mm)", value: Binding(
+                        get: { sheet.draftingStandards.text.textHeightMM },
+                        set: { newH in
+                            var copy = sheet
+                            copy.draftingStandards.text.textHeightMM = newH
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("inspector-sheet-text-height-field")
+                }
+
+                DisclosureGroup("Tolerance Defaults") {
+                    Picker("Default Type", selection: Binding(
+                        get: { sheet.draftingStandards.tolerances.defaultType },
+                        set: { newType in
+                            var copy = sheet
+                            copy.draftingStandards.tolerances.defaultType = newType
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    )) {
+                        ForEach(DraftingToleranceType.allCases, id: \.self) { tolType in
+                            Text(tolType.displayName).tag(tolType)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-sheet-tolerance-default-type-picker")
+
+                    TextField("Linear Tolerance (mm)", value: Binding(
+                        get: { sheet.draftingStandards.tolerances.linearToleranceMM },
+                        set: { newTol in
+                            var copy = sheet
+                            copy.draftingStandards.tolerances.linearToleranceMM = newTol
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("inspector-sheet-linear-tolerance-field")
+
+                    TextField("Angular Tolerance (°)", value: Binding(
+                        get: { sheet.draftingStandards.tolerances.angularToleranceDeg },
+                        set: { newAng in
+                            var copy = sheet
+                            copy.draftingStandards.tolerances.angularToleranceDeg = newAng
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("inspector-sheet-angular-tolerance-field")
+
+                    Stepper("Default Precision: \(sheet.draftingStandards.tolerances.precision)", value: Binding(
+                        get: { sheet.draftingStandards.tolerances.precision },
+                        set: { newPrec in
+                            var copy = sheet
+                            copy.draftingStandards.tolerances.precision = newPrec
+                            copy.draftingStandards.standard = .custom
+                            _ = workspace.updateSheet(copy)
+                        }
+                    ), in: 0...6)
+                    .accessibilityIdentifier("inspector-sheet-tolerance-precision-stepper")
+                }
+            }
+
             Section("Views (\(sheet.views.count))") {
                 Menu("Add Base View…") {
                     Button("Front") { _ = workspace.addBaseView(standardView: .front) }
@@ -4030,6 +4221,8 @@ struct DrawingAnnotationInspectorView: View {
 
             measurementSection
 
+            toleranceSection
+
             holeSpecificationSection
 
             balloonSpecificationSection
@@ -4390,6 +4583,151 @@ struct DrawingAnnotationInspectorView: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var toleranceSection: some View {
+        if let currentTolerance = extractTolerance() {
+            Section("Tolerance") {
+                let activeSheet = workspace.document.activeSheet
+                let activeStandards = activeSheet?.draftingStandards ?? .iso
+
+                Picker("Type", selection: Binding(
+                    get: { currentTolerance.type },
+                    set: { newType in
+                        var tol = currentTolerance
+                        tol.type = newType
+                        if newType == .symmetrical && tol.upperValue == 0 {
+                            tol.upperValue = activeStandards.tolerances.linearToleranceMM
+                            tol.lowerValue = -activeStandards.tolerances.linearToleranceMM
+                        } else if newType == .deviation && tol.upperValue == 0 && tol.lowerValue == 0 {
+                            tol.upperValue = activeStandards.tolerances.upperDeviationMM
+                            tol.lowerValue = activeStandards.tolerances.lowerDeviationMM
+                        }
+                        updateTolerance(tol)
+                    }
+                )) {
+                    ForEach(DraftingToleranceType.allCases, id: \.self) { tType in
+                        Text(tType.displayName).tag(tType)
+                    }
+                }
+                .accessibilityIdentifier("inspector-annotation-tolerance-type-picker")
+
+                if currentTolerance.type == .symmetrical {
+                    TextField("Tolerance (±)", value: Binding(
+                        get: { abs(currentTolerance.upperValue) },
+                        set: { newVal in
+                            var tol = currentTolerance
+                            tol.upperValue = abs(newVal)
+                            tol.lowerValue = -abs(newVal)
+                            updateTolerance(tol)
+                        }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("inspector-annotation-tolerance-symmetrical-field")
+                } else if currentTolerance.type == .deviation || currentTolerance.type == .limits {
+                    HStack {
+                        TextField("Upper (+)", value: Binding(
+                            get: { currentTolerance.upperValue },
+                            set: { newVal in
+                                var tol = currentTolerance
+                                tol.upperValue = newVal
+                                updateTolerance(tol)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("inspector-annotation-tolerance-upper-field")
+
+                        TextField("Lower (-)", value: Binding(
+                            get: { currentTolerance.lowerValue },
+                            set: { newVal in
+                                var tol = currentTolerance
+                                tol.lowerValue = newVal
+                                updateTolerance(tol)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("inspector-annotation-tolerance-lower-field")
+                    }
+                }
+
+                if currentTolerance.type != .none {
+                    Stepper("Precision Override: \(currentTolerance.precision.map { String($0) } ?? "Default")", value: Binding(
+                        get: { currentTolerance.precision ?? 2 },
+                        set: { newPrec in
+                            var tol = currentTolerance
+                            tol.precision = max(0, min(6, newPrec))
+                            updateTolerance(tol)
+                        }
+                    ), in: 0...6)
+                    .accessibilityIdentifier("inspector-annotation-tolerance-precision-stepper")
+                }
+
+                LabeledContent("Preview") {
+                    Text(previewText(using: activeStandards))
+                        .fontWeight(.medium)
+                }
+                .accessibilityIdentifier("inspector-annotation-tolerance-preview-label")
+            }
+        }
+    }
+
+    private func extractTolerance() -> DimensionTolerance? {
+        switch annotation.data {
+        case .linear(let d):
+            return d.tolerance ?? DimensionTolerance(type: .none)
+        case .angular(let d):
+            return d.tolerance ?? DimensionTolerance(type: .none)
+        case .radial(let d):
+            return d.tolerance ?? DimensionTolerance(type: .none)
+        case .ordinate(let d):
+            return d.tolerance ?? DimensionTolerance(type: .none)
+        case .baseline(let d):
+            return d.tolerance ?? DimensionTolerance(type: .none)
+        default:
+            return nil
+        }
+    }
+
+    private func updateTolerance(_ tolerance: DimensionTolerance) {
+        var updated = annotation
+        switch annotation.data {
+        case .linear(var d):
+            d.tolerance = tolerance.type == .none && tolerance.precision == nil ? nil : tolerance
+            updated.data = .linear(d)
+        case .angular(var d):
+            d.tolerance = tolerance.type == .none && tolerance.precision == nil ? nil : tolerance
+            updated.data = .angular(d)
+        case .radial(var d):
+            d.tolerance = tolerance.type == .none && tolerance.precision == nil ? nil : tolerance
+            updated.data = .radial(d)
+        case .ordinate(var d):
+            d.tolerance = tolerance.type == .none && tolerance.precision == nil ? nil : tolerance
+            updated.data = .ordinate(d)
+        case .baseline(var d):
+            d.tolerance = tolerance.type == .none && tolerance.precision == nil ? nil : tolerance
+            updated.data = .baseline(d)
+        default:
+            return
+        }
+        _ = workspace.updateDrawingAnnotation(updated)
+    }
+
+    private func previewText(using standards: DraftingStandardSettings) -> String {
+        switch annotation.data {
+        case .linear(let d):
+            return d.formattedText(using: standards)
+        case .angular(let d):
+            return d.formattedText(using: standards)
+        case .radial(let d):
+            return d.formattedText(using: standards)
+        case .ordinate(let d):
+            return d.formattedText(using: standards)
+        case .baseline(let d):
+            return d.formattedText(forTargetIndex: 0, using: standards)
+        default:
+            return ""
         }
     }
 }

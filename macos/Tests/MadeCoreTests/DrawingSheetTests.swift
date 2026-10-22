@@ -277,4 +277,54 @@ import Foundation
         doc.undoManager?.redo()
         #expect(doc.sheets[0].property(forKey: "CheckedBy") == "Lead QA")
     }
+
+    // MARK: - Drafting Standards Settings Tests (BL-DRW-10, #217)
+
+    @Test func testSheetDraftingStandardsInitialization() {
+        let isoSheet = DrawingSheet(name: "ISO Sheet", size: .isoA3)
+        #expect(isoSheet.draftingStandards.standard == .iso)
+        #expect(isoSheet.draftingStandards == .iso)
+
+        let ansiSheet = DrawingSheet(name: "ANSI Sheet", size: .ansiB)
+        #expect(ansiSheet.draftingStandards.standard == .ansi)
+        #expect(ansiSheet.draftingStandards == .ansi)
+
+        let customSheet = DrawingSheet(name: "Custom Sheet", size: .custom(width: 400, height: 300))
+        #expect(customSheet.draftingStandards.standard == .iso)
+    }
+
+    @Test func testSheetDraftingStandardsBackwardCompatibility() throws {
+        let legacyJSON = """
+        {
+            "id": "\(UUID().uuidString)",
+            "name": "Legacy ANSI Sheet",
+            "size": "ansiA",
+            "orientation": "landscape",
+            "scale": "1:1",
+            "titleBlockTemplate": "ansiStandard"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(DrawingSheet.self, from: legacyJSON)
+        #expect(decoded.size == .ansiA)
+        #expect(decoded.draftingStandards.standard == .ansi)
+        #expect(decoded.draftingStandards == .ansi)
+
+        let legacyISOJSON = """
+        {
+            "id": "\(UUID().uuidString)",
+            "name": "Legacy ISO Sheet",
+            "size": "isoA4",
+            "orientation": "portrait",
+            "scale": "1:1",
+            "titleBlockTemplate": "isoStandard"
+        }
+        """.data(using: .utf8)!
+
+        let decodedISO = try decoder.decode(DrawingSheet.self, from: legacyISOJSON)
+        #expect(decodedISO.size == .isoA4)
+        #expect(decodedISO.draftingStandards.standard == .iso)
+        #expect(decodedISO.draftingStandards == .iso)
+    }
 }

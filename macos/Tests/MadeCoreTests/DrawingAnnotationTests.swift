@@ -672,4 +672,59 @@ import simd
         doc.undoManager?.undo()
         #expect(doc.sheets.first?.annotations.first?.isDangling == false)
     }
+
+    // MARK: - Dimension Tolerance Tests (BL-DRW-10, #217)
+
+    @Test func testDimensionToleranceCreationAndFormatting() {
+        var linear = LinearDimensionData(
+            startPointMM: SIMD2(0.0, 0.0),
+            endPointMM: SIMD2(100.0, 0.0),
+            precision: 2,
+            tolerance: DimensionTolerance(symmetrical: 0.05, precision: 2)
+        )
+        #expect(linear.formattedText == "100.00 ±0.05")
+        #expect(linear.formattedText(using: .ansi) == "100.00 ±0.05")
+        #expect(linear.formattedText(using: .iso) == "100 ±0,05")
+
+        linear.textOverride = "100 TYP"
+        #expect(linear.formattedText(using: .iso) == "100 TYP")
+
+        let angular = AngularDimensionData(
+            vertexMM: SIMD2(0.0, 0.0),
+            startPointMM: SIMD2(10.0, 0.0),
+            endPointMM: SIMD2(0.0, 10.0),
+            precision: 1,
+            tolerance: DimensionTolerance(type: .deviation, upperValue: 0.5, lowerValue: -0.2, precision: 1)
+        )
+        #expect(angular.formattedText(using: .ansi) == "90.0 +0.5/-0.2°")
+        #expect(angular.formattedText(using: .iso) == "90 +0,5/-0,2°")
+
+        let radial = RadialDimensionData(
+            centerMM: SIMD2(0.0, 0.0),
+            arcPointMM: SIMD2(25.0, 0.0),
+            isDiameter: false,
+            precision: 2,
+            tolerance: DimensionTolerance(type: .basic)
+        )
+        #expect(radial.formattedText(using: .ansi) == "R[25.00]")
+        #expect(radial.formattedText(using: .iso) == "R[25]")
+
+        let ordinate = OrdinateDimensionData(
+            datumOriginMM: SIMD2(0.0, 0.0),
+            locationMM: SIMD2(50.0, 0.0),
+            precision: 2,
+            tolerance: DimensionTolerance(type: .limits, upperValue: 0.1, lowerValue: -0.1, precision: 2)
+        )
+        #expect(ordinate.formattedText(using: .ansi) == "50.10 - 49.90")
+        #expect(ordinate.formattedText(using: .iso) == "50,1 - 49,9")
+
+        let baseline = BaselineDimensionData(
+            basePointMM: SIMD2(0.0, 0.0),
+            targetPointsMM: [SIMD2(40.0, 0.0)],
+            precision: 2,
+            tolerance: DimensionTolerance(symmetrical: 0.2, precision: 2)
+        )
+        #expect(baseline.formattedText(forTargetIndex: 0, using: .ansi) == "40.00 ±0.20")
+        #expect(baseline.formattedText(forTargetIndex: 0, using: .iso) == "40 ±0,2")
+    }
 }
