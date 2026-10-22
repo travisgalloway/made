@@ -607,6 +607,16 @@ struct AssemblyMenuCommands: Commands {
             Button("Insert Component from Document…") {
                 workspace.promptInsertComponentFromDocument()
             }
+
+            Divider()
+
+            let selected = workspace.selectedComponentInstance
+            Button(selected?.isGrounded == true ? "Float Component" : "Ground Component") {
+                if let selected {
+                    workspace.toggleComponentInstanceGrounded(id: selected.id)
+                }
+            }
+            .disabled(selected == nil)
         }
     }
 }

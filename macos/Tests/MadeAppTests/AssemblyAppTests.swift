@@ -237,4 +237,102 @@ import simd
         #expect(inst2.transform.position == SIMD3<Float>(50, 100, 0))
         #expect(ws.document.componentInstances.count == 2)
     }
+
+    @Test func testFirstPlacedComponentGroundedByDefaultAndSubsequentFloat() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let ref = ComponentReference.internalPart(name: "BasePart")
+
+        ws.beginInsertComponent(name: "Base", reference: ref)
+        let first = ws.placePendingComponent(at: SIMD3<Float>(0, 0, 0))
+        #expect(first != nil)
+        #expect(first?.isGrounded == true)
+        #expect(ws.document.componentInstances.first?.isGrounded == true)
+
+        ws.beginInsertComponent(name: "Arm", reference: ref)
+        let second = ws.placePendingComponent(at: SIMD3<Float>(10, 20, 0))
+        #expect(second != nil)
+        #expect(second?.isGrounded == false)
+        #expect(ws.document.componentInstances.last?.isGrounded == false)
+    }
+
+    @Test func testWorkspaceGroundAndFloatOperations() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let ref = ComponentReference.internalPart(name: "ChassisPart")
+        ws.beginInsertComponent(name: "Chassis", reference: ref)
+        let first = ws.placePendingComponent(at: SIMD3<Float>(0, 0, 0))
+        guard let first else {
+            Issue.record("Failed to place component")
+            return
+        }
+
+        #expect(first.isGrounded == true)
+
+        let moveGrounded = ws.updateComponentInstanceTransform(id: first.id, transform: Transform(position: SIMD3<Float>(5, 5, 5)))
+        #expect(!moveGrounded)
+        #expect(ws.document.componentInstances.first?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        let toggled = ws.toggleComponentInstanceGrounded(id: first.id)
+        #expect(toggled)
+        #expect(ws.document.componentInstances.first?.isGrounded == false)
+
+        let moveFloated = ws.updateComponentInstanceTransform(id: first.id, transform: Transform(position: SIMD3<Float>(5, 5, 5)))
+        #expect(moveFloated)
+        #expect(ws.document.componentInstances.first?.transform.position == SIMD3<Float>(5, 5, 5))
+
+        ws.document.undoManager?.removeAllActions()
+
+        let groundedAgain = ws.setComponentInstanceGrounded(id: first.id, isGrounded: true)
+        #expect(groundedAgain)
+        #expect(ws.document.componentInstances.first?.isGrounded == true)
+
+        ws.undo()
+        #expect(ws.document.componentInstances.first?.isGrounded == false)
+
+        ws.redo()
+        #expect(ws.document.componentInstances.first?.isGrounded == true)
+    }
+
+    @Test func testPackageSaveAndReopenPreservesGroundedState() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("GroundedAssemblyTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("GroundedAssembly.made")
+
+        let ws1 = WorkspaceModel()
+        ws1.newAssemblyDocument()
+
+        _ = ws1.addComponentInstance(
+            name: "Anchor",
+            reference: .internalPart(name: "AnchorPart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0)),
+            isGrounded: true
+        )
+        _ = ws1.addComponentInstance(
+            name: "FloatingLink",
+            reference: .internalPart(name: "LinkPart"),
+            transform: Transform(position: SIMD3<Float>(20, 0, 0)),
+            isGrounded: false
+        )
+
+        let saved = ws1.saveDocument(to: packageURL)
+        #expect(saved)
+
+        let ws2 = WorkspaceModel()
+        let opened = ws2.openDocument(at: packageURL)
+        #expect(opened)
+        #expect(ws2.document.componentInstances.count == 2)
+
+        let anchor = ws2.document.componentInstances.first(where: { $0.name == "Anchor" })
+        #expect(anchor?.isGrounded == true)
+        #expect(anchor?.isFixed == true)
+
+        let link = ws2.document.componentInstances.first(where: { $0.name == "FloatingLink" })
+        #expect(link?.isGrounded == false)
+        #expect(link?.isFixed == false)
+    }
 }

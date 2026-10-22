@@ -621,6 +621,11 @@ final class WorkspaceModel {
         return document.body(for: selectedId)
     }
 
+    public var selectedComponentInstance: ComponentInstance? {
+        guard let selectedId else { return nil }
+        return document.componentInstances.first(where: { $0.solidId == selectedId })
+    }
+
     var selectedFeature: Feature? {
         if let selectedId {
             if let feat = document.feature(for: selectedId) {
@@ -3947,13 +3952,15 @@ final class WorkspaceModel {
         name: String,
         reference: ComponentReference,
         transform: Transform = .identity,
-        material: MaterialAttributes? = nil
+        material: MaterialAttributes? = nil,
+        isGrounded: Bool = false
     ) -> ComponentInstance {
         let instance = ComponentInstance(
             id: UUID(),
             name: name,
             reference: reference,
             transform: transform,
+            isGrounded: isGrounded,
             material: material ?? document.settings.defaultMaterial
         )
         return addComponentInstance(instance)
@@ -3967,6 +3974,32 @@ final class WorkspaceModel {
         invalidateViewport(.model)
         log(.info, "Assembly", "Added component instance '\(instance.name)'")
         return instance
+    }
+
+    @discardableResult
+    public func setComponentInstanceGrounded(id: UUID, isGrounded: Bool) -> Bool {
+        let result = document.setComponentInstanceGrounded(id: id, isGrounded: isGrounded)
+        guard case .success = result else { return false }
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "Assembly", "\(isGrounded ? "Grounded" : "Floated") component instance \(id)")
+        return true
+    }
+
+    @discardableResult
+    public func toggleComponentInstanceGrounded(id: UUID) -> Bool {
+        guard let comp = document.componentInstances.first(where: { $0.id == id }) else { return false }
+        return setComponentInstanceGrounded(id: id, isGrounded: !comp.isGrounded)
+    }
+
+    @discardableResult
+    public func setComponentInstanceFixed(id: UUID, isFixed: Bool) -> Bool {
+        setComponentInstanceGrounded(id: id, isGrounded: isFixed)
+    }
+
+    @discardableResult
+    public func toggleComponentInstanceFixed(id: UUID) -> Bool {
+        toggleComponentInstanceGrounded(id: id)
     }
 
     @discardableResult
@@ -4018,10 +4051,12 @@ final class WorkspaceModel {
     @discardableResult
     public func placePendingComponent(at position: SIMD3<Float>) -> ComponentInstance? {
         guard let pending = pendingComponentPlacement else { return nil }
+        let shouldGround = document.componentInstances.isEmpty
         let instance = ComponentInstance(
             name: pending.name,
             reference: pending.reference,
             transform: Transform(position: position),
+            isGrounded: shouldGround,
             material: pending.material ?? document.settings.defaultMaterial
         )
         addComponentInstance(instance)

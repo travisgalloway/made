@@ -632,6 +632,18 @@ private struct NavigatorComponentRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if component.isGrounded {
+                        Text("Grounded")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.orange.opacity(0.15))
+                            )
+                    }
                 }
 
                 HStack(spacing: 6) {
@@ -654,6 +666,14 @@ private struct NavigatorComponentRow: View {
             Spacer(minLength: 4)
 
             Group {
+                if isHovered || component.isGrounded {
+                    Button(component.isGrounded ? "Float Component" : "Ground Component",
+                           systemImage: component.isGrounded ? "pin.fill" : "pin") {
+                        workspace.toggleComponentInstanceGrounded(id: component.id)
+                    }
+                    .foregroundStyle(component.isGrounded ? .orange : .secondary)
+                    .help(component.isGrounded ? "Float Component" : "Ground Component")
+                }
                 if isHovered || !component.isVisible {
                     Button(component.isVisible ? "Hide Component" : "Show Component",
                            systemImage: component.isVisible ? "eye" : "eye.slash") {
@@ -676,10 +696,30 @@ private struct NavigatorComponentRow: View {
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+        .contextMenu {
+            Button(component.isGrounded ? "Float Component" : "Ground Component") {
+                workspace.toggleComponentInstanceGrounded(id: component.id)
+            }
+            Button(component.isVisible ? "Hide Component" : "Show Component") {
+                workspace.toggleBodyVisibility(component.solidId)
+            }
+            Button(component.isLocked ? "Unlock Component" : "Lock Component") {
+                workspace.toggleBodyLocked(component.solidId)
+            }
+            Divider()
+            Button(role: .destructive) {
+                workspace.removeComponentInstance(id: component.id)
+            } label: {
+                Text("Remove Component")
+            }
+        }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(component.name), Component, ID \(component.solidId.rawValue), \(referenceDescription)")
+        .accessibilityLabel("\(component.name), Component\(component.isGrounded ? ", Grounded" : ""), ID \(component.solidId.rawValue), \(referenceDescription)")
         .accessibilityIdentifier("navigator-component-\(component.solidId.rawValue)")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityAction(named: component.isGrounded ? "Float Component" : "Ground Component") {
+            workspace.toggleComponentInstanceGrounded(id: component.id)
+        }
         .accessibilityAction(named: component.isVisible ? "Hide Component" : "Show Component") {
             workspace.toggleBodyVisibility(component.solidId)
         }

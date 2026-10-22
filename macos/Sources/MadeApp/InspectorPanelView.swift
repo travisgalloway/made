@@ -1213,7 +1213,7 @@ struct InspectorComponentInstanceView: View {
             identitySection
             referenceSection
             transformSection
-                .disabled(component.isLocked)
+                .disabled(component.isLocked || component.isGrounded)
         }
         .formStyle(.columns)
         .controlSize(.small)
@@ -1237,6 +1237,12 @@ struct InspectorComponentInstanceView: View {
                 get: { component.isLocked },
                 set: { workspace.setBodyLocked(id: component.solidId, isLocked: $0) }
             ))
+
+            Toggle("Grounded", isOn: Binding(
+                get: { component.isGrounded },
+                set: { workspace.setComponentInstanceGrounded(id: component.id, isGrounded: $0) }
+            ))
+            .help("Anchors component coordinate frame to assembly origin")
 
             LabeledContent("ID") {
                 Text(component.solidId.rawValue)
