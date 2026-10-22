@@ -461,7 +461,7 @@ public final class CADToolRegistry {
                 item["params"] = ["majorRadius": p.majorRadius, "minorRadius": p.minorRadius]
             case .wedge(let p):
                 item["params"] = ["width": p.width, "depth": p.depth, "height": p.height, "topWidth": p.topWidth]
-            case .imported(let name, _, _):
+            case .imported(let name, _, _, _, _, _):
                 item["importedName"] = name
             case .boolean(let op, let solidA, let solidB):
                 item["operation"] = op.rawValue
@@ -1098,7 +1098,7 @@ public final class CADToolRegistry {
                 resultDict["surfaceAreaMm2"] = measurements.area
             }
             
-        case .imported(let name, _, _):
+        case .imported(let name, _, _, _, _, _):
             resultDict["type"] = "imported"
             resultDict["name"] = name
             await settleRecomputes(for: [id])

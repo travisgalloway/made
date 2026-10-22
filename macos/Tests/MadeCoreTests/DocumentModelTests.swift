@@ -167,7 +167,7 @@ import simd
     @Test func testAddObjectPassesImportedThrough() {
         let doc = DocumentModel()
         let id = doc.addObject(def: .imported(name: "x"))
-        if case .imported(let name, _, _) = doc.paramsFor(id: id) {
+        if case .imported(let name, _, _, _, _, _) = doc.paramsFor(id: id) {
             #expect(name == "x")
         } else {
             Issue.record("Expected imported def")
@@ -212,7 +212,7 @@ import simd
         let doc = DocumentModel()
         let id = doc.addObject(def: .imported(name: "x"))
         doc.setParam(id: id, key: "width", value: 50)
-        if case .imported(let name, _, _) = doc.paramsFor(id: id) {
+        if case .imported(let name, _, _, _, _, _) = doc.paramsFor(id: id) {
             #expect(name == "x")
         } else {
             Issue.record("Expected imported def")
@@ -340,7 +340,7 @@ import simd
         // Setting param on imported mesh is a no-op
         let importedId = doc.addObject(def: .imported(name: "bracket.step"))
         doc.setParam(id: importedId, key: "width", value: 55.0)
-        if case .imported(let name, _, _) = doc.paramsFor(id: importedId) {
+        if case .imported(let name, _, _, _, _, _) = doc.paramsFor(id: importedId) {
             #expect(name == "bracket.step")
         } else {
             Issue.record("Expected imported definition unchanged")
@@ -1075,7 +1075,7 @@ import simd
             Issue.record("Missing restored imported object")
             return
         }
-        if case .imported(let name, let url, _) = restoredImp.def {
+        if case .imported(let name, let url, _, _, _, _) = restoredImp.def {
             #expect(name == "bracket.step")
             #expect(url?.lastPathComponent == "bracket.step")
         } else {

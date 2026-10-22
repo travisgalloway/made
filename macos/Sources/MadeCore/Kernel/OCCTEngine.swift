@@ -192,11 +192,18 @@ enum OCCTEngine {
                 throw EngineError.tessellationFailed
             }
             return shape
-        case .imported(_, let sourceURL, let data):
+        case .imported(_, let sourceURL, let data, _, _, _):
             if let data {
                 return try importStep(data: data)
-            } else if let sourceURL, let fileData = try? Data(contentsOf: sourceURL) {
-                return try importStep(data: fileData)
+            } else if let sourceURL {
+                if sourceURL.pathExtension.lowercased() == "made" || (try? FileWrapper(url: sourceURL, options: []).isDirectory) == true {
+                    if let pkg = try? MadePackage(directoryURL: sourceURL),
+                       let stepData = try? exportStep(objects: pkg.documentData.objects) {
+                        return try importStep(data: stepData)
+                    }
+                } else if let fileData = try? Data(contentsOf: sourceURL) {
+                    return try importStep(data: fileData)
+                }
             }
             throw EngineError.emptyData
         case .boolean, .extrude, .revolve, .part, .chamfer, .shell, .hole, .pattern, .mirror:

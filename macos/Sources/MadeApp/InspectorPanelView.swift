@@ -350,8 +350,79 @@ struct InspectorPanelView: View {
                 LabeledContent("Mirror Plane", value: mirrorPlaneDescription(for: params))
                 LabeledContent("Keep Original", value: params.keepOriginal ? "Yes" : "No")
                 LabeledContent("Target Type", value: params.targetType.rawValue.capitalized)
-            case .imported(let name, _, _):
-                LabeledContent("Imported Mesh", value: name)
+            case .imported(let name, let sourceURL, _, let isLinked, let lastModifiedDate, _):
+                let isDirectoryPackage = sourceURL?.pathExtension.lowercased() == "made"
+                let kindDescription = isLinked ? (isDirectoryPackage ? "Linked .made" : "Linked STEP") : "Embedded Asset"
+                LabeledContent("Reference", value: kindDescription)
+                LabeledContent("Imported Mesh", value: name.isEmpty ? "Imported mesh" : name)
+
+                if isLinked {
+                    let status = workspace.linkStatus(for: obj.id)
+                    LabeledContent("Status") {
+                        HStack(spacing: 4) {
+                            switch status {
+                            case .upToDate:
+                                Text("Up to Date")
+                                    .font(.caption2)
+                                    .foregroundStyle(.green)
+                            case .outOfDate:
+                                Text("Out of Date")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(Capsule().fill(Color.orange))
+                            case .missingFile:
+                                Text("Missing")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(Capsule().fill(Color.red))
+                            }
+                        }
+                    }
+
+                    if let sourceURL {
+                        LabeledContent("External Path") {
+                            Text(sourceURL.lastPathComponent)
+                                .font(.caption2)
+                                .monospaced()
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(sourceURL.path)
+                        }
+                    }
+
+                    if let lastModifiedDate {
+                        LabeledContent("Last Modified") {
+                            Text(lastModifiedDate.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        Button("Update Link") {
+                            Task {
+                                _ = await workspace.updateLinkedReference(obj.id)
+                            }
+                        }
+                        .disabled(status == .missingFile)
+
+                        Button("Embed in Document") {
+                            workspace.embedLinkedReference(obj.id)
+                        }
+                    }
+                    .controlSize(.small)
+                } else {
+                    Button("Link to External File…") {
+                        workspace.promptRelinkReference(obj.id)
+                    }
+                    .controlSize(.small)
+                }
             case .boolean(let op, let solidA, let solidB):
                 LabeledContent("Boolean", value: "\(op.rawValue)(\(solidA.rawValue), \(solidB.rawValue))")
             case .part(let url, _):

@@ -186,7 +186,7 @@ public enum KernelRegeneration {
             )
         case .boolean(let op, let solidA, let solidB):
             return .booleanOperation(jobId: jobId, solidId: object.id, op: op, solidA: solidA, solidB: solidB)
-        case .imported(_, let sourceURL, let data):
+        case .imported(_, let sourceURL, let data, _, _, _):
             if let data {
                 return .importStep(jobId: jobId, solidId: object.id, data: data)
             } else if let sourceURL, FileManager.default.fileExists(atPath: sourceURL.path), let fileData = try? Data(contentsOf: sourceURL) {

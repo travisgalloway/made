@@ -340,6 +340,7 @@ final class WorkspaceModel {
     var isMCPServerRunning = false
     private(set) var mcpServerError: String? = nil
     let mcpPort: UInt16 = 9820
+    var externalLinkCheckVersion: Int = 0
 
     // Defaults Keys
     public static let commandPanelPlacementDefaultsKey = "com.made.commandPanelPlacement"
@@ -892,6 +893,15 @@ final class WorkspaceModel {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.clearRecoverySnapshot()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshLinkedReferenceStatuses()
             }
         }
     }
@@ -2412,14 +2422,18 @@ final class WorkspaceModel {
         }
 
         for obj in document.objects {
-            if case .imported(let name, let sourceURL, let data) = obj.def {
-                try collectAsset(name: name, sourceURL: sourceURL, data: data)
+            if case .imported(let name, let sourceURL, let data, let isLinked, _, _) = obj.def {
+                if !isLinked {
+                    try collectAsset(name: name, sourceURL: sourceURL, data: data)
+                }
             }
         }
 
         for feature in document.features {
             if case .imported(let imp) = feature.operation {
-                try collectAsset(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
+                if !imp.isLinked {
+                    try collectAsset(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
+                }
             }
         }
 
@@ -2902,6 +2916,38 @@ final class WorkspaceModel {
         }
     }
 
+    func promptLinkExternalFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Link External File"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [.madeDocument, .package, .folder, .data]
+        if let t1 = UTType(filenameExtension: "step") { contentTypes.append(t1) }
+        if let t2 = UTType(filenameExtension: "stp") { contentTypes.append(t2) }
+        panel.allowedContentTypes = contentTypes
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await linkExternalFile(at: url)
+        }
+    }
+
+    func promptRelinkReference(_ id: ObjectId) {
+        let panel = NSOpenPanel()
+        panel.title = "Relink External Reference"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [.madeDocument, .package, .folder, .data]
+        if let t1 = UTType(filenameExtension: "step") { contentTypes.append(t1) }
+        if let t2 = UTType(filenameExtension: "stp") { contentTypes.append(t2) }
+        panel.allowedContentTypes = contentTypes
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await relinkReference(id, to: url)
+        }
+    }
+
     func promptExportStepFile(selectedOnly: Bool = false) {
         let panel = NSSavePanel()
         panel.title = selectedOnly ? "Export STEP Solid" : "Export STEP"
@@ -3108,6 +3154,338 @@ final class WorkspaceModel {
             log(.info, "Kernel", "Imported STEP file \(url.lastPathComponent) (\(id.rawValue))")
             return id
         }
+    }
+
+    @discardableResult
+    func linkExternalFile(at url: URL) async -> ObjectId? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            log(.error, "Kernel", "External file not found: \(url.path)")
+            pendingImportError = ImportErrorInfo(fileURL: url, errorCode: "not-found", reason: "File does not exist at path: \(url.path)")
+            isShowingImportErrorAlert = true
+            return nil
+        }
+
+        let isDirectoryPackage = url.pathExtension.lowercased() == "made" || (try? FileWrapper(url: url, options: []).isDirectory) == true
+        let data: Data
+        if isDirectoryPackage {
+            do {
+                let pkg = try MadePackage(directoryURL: url)
+                let exportResult = await kernelClient.exportStep(objects: pkg.documentData.objects)
+                switch exportResult {
+                case .success(_, let stepData):
+                    data = stepData
+                case .failure(_, let error):
+                    log(.error, "Kernel", "Failed to export compound STEP from .made package: \(error.message)")
+                    pendingImportError = ImportErrorInfo(fileURL: url, errorCode: error.code.rawValue, reason: error.message)
+                    isShowingImportErrorAlert = true
+                    return nil
+                }
+            } catch {
+                log(.error, "Kernel", "Failed to load .made package: \(error.localizedDescription)")
+                pendingImportError = ImportErrorInfo(fileURL: url, errorCode: "package-read-failed", reason: error.localizedDescription)
+                isShowingImportErrorAlert = true
+                return nil
+            }
+        } else {
+            do {
+                data = try Data(contentsOf: url)
+            } catch {
+                log(.error, "Kernel", "Failed to read external file: \(error.localizedDescription)")
+                pendingImportError = ImportErrorInfo(fileURL: url, errorCode: "read-failed", reason: error.localizedDescription)
+                isShowingImportErrorAlert = true
+                return nil
+            }
+        }
+
+        guard !data.isEmpty else {
+            log(.error, "Kernel", "External file is empty")
+            pendingImportError = ImportErrorInfo(fileURL: url, errorCode: "empty-file", reason: "External file is empty")
+            isShowingImportErrorAlert = true
+            return nil
+        }
+
+        let modDate = ExternalReferenceDescriptor.modificationDate(of: url)
+        let checksum = ExternalReferenceDescriptor.computeChecksum(of: url)
+        let id = document.reserveId(for: .imported(name: url.lastPathComponent, sourceURL: url, data: nil, isLinked: true, lastModifiedDate: modDate, fileChecksum: checksum))
+
+        let result = await kernelClient.request(.importStep(jobId: JobId("link-\(UUID().uuidString)"), solidId: id, data: data))
+        switch result {
+        case .failure(_, let error):
+            log(.error, "Kernel", "Failed to link external file: \(error.message)")
+            pendingImportError = ImportErrorInfo(fileURL: url, errorCode: error.code.rawValue, reason: error.message)
+            isShowingImportErrorAlert = true
+            return nil
+        case .success:
+            pendingImportError = nil
+            isShowingImportErrorAlert = false
+            document.addObject(id, def: .imported(
+                name: url.lastPathComponent,
+                sourceURL: url,
+                data: nil,
+                isLinked: true,
+                lastModifiedDate: modDate,
+                fileChecksum: checksum
+            ))
+            selectedId = id
+            markDocumentModified()
+            if let renderer = viewportManager.renderer,
+               SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) {
+                invalidateViewport(.model)
+            }
+            refreshLinkedReferenceStatuses()
+            log(.info, "Kernel", "Linked external file \(url.lastPathComponent) (\(id.rawValue))")
+            return id
+        }
+    }
+
+    @discardableResult
+    func updateLinkedReference(_ id: ObjectId) async -> Bool {
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return false }
+        guard case .imported(let name, let sourceURL, _, let isLinked, _, _) = obj.def,
+              isLinked, let sourceURL else {
+            return false
+        }
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            log(.error, "Kernel", "Cannot update reference: external file not found at \(sourceURL.path)")
+            refreshLinkedReferenceStatuses()
+            return false
+        }
+
+        let isDirectoryPackage = sourceURL.pathExtension.lowercased() == "made" || (try? FileWrapper(url: sourceURL, options: []).isDirectory) == true
+        let data: Data
+        if isDirectoryPackage {
+            do {
+                let pkg = try MadePackage(directoryURL: sourceURL)
+                let exportResult = await kernelClient.exportStep(objects: pkg.documentData.objects)
+                switch exportResult {
+                case .success(_, let stepData):
+                    data = stepData
+                case .failure(_, let error):
+                    log(.error, "Kernel", "Failed to re-export compound STEP for update: \(error.message)")
+                    return false
+                }
+            } catch {
+                log(.error, "Kernel", "Failed to reload .made package for update: \(error.localizedDescription)")
+                return false
+            }
+        } else {
+            guard let fileData = try? Data(contentsOf: sourceURL), !fileData.isEmpty else {
+                log(.error, "Kernel", "Failed to read external file for update: \(sourceURL.path)")
+                return false
+            }
+            data = fileData
+        }
+
+        let result = await kernelClient.request(.importStep(jobId: JobId("update-\(UUID().uuidString)"), solidId: id, data: data))
+        switch result {
+        case .failure(_, let error):
+            log(.error, "Kernel", "Failed to update linked reference: \(error.message)")
+            return false
+        case .success:
+            let modDate = ExternalReferenceDescriptor.modificationDate(of: sourceURL)
+            let checksum = ExternalReferenceDescriptor.computeChecksum(of: sourceURL)
+
+            if var feat = document.feature(for: id) {
+                feat.operation = .imported(ImportedFeatureData(
+                    name: name,
+                    sourceURL: sourceURL,
+                    data: nil,
+                    isLinked: true,
+                    lastModifiedDate: modDate,
+                    fileChecksum: checksum
+                ))
+                _ = document.updateFeature(feat)
+            }
+
+            markDocumentModified()
+            if let renderer = viewportManager.renderer,
+               SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) {
+                invalidateViewport(.model)
+            }
+            refreshLinkedReferenceStatuses()
+            log(.info, "Kernel", "Updated linked reference \(sourceURL.lastPathComponent) (\(id.rawValue))")
+            return true
+        }
+    }
+
+    func embedLinkedReference(_ id: ObjectId) {
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return }
+        guard case .imported(let name, let sourceURL, _, let isLinked, _, _) = obj.def,
+              isLinked, let sourceURL else {
+            return
+        }
+
+        let isDirectoryPackage = sourceURL.pathExtension.lowercased() == "made" || (try? FileWrapper(url: sourceURL, options: []).isDirectory) == true
+        if isDirectoryPackage {
+            Task {
+                await embedLinkedReferenceAsync(id)
+            }
+            return
+        }
+
+        guard let embeddedData = try? Data(contentsOf: sourceURL), !embeddedData.isEmpty else {
+            log(.error, "Kernel", "Cannot embed reference: failed to read source file at \(sourceURL.path)")
+            return
+        }
+
+        let assetFilename = (sourceURL.lastPathComponent.isEmpty == false ? sourceURL.lastPathComponent : name)
+        let assetNameWithExt = (assetFilename.hasSuffix(".step") || assetFilename.hasSuffix(".stp")) ? assetFilename : "\(assetFilename).step"
+        let assetURL = URL(fileURLWithPath: "assets/\(assetNameWithExt)")
+
+        if var feat = document.feature(for: id) {
+            feat.operation = .imported(ImportedFeatureData(
+                name: name,
+                sourceURL: assetURL,
+                data: embeddedData,
+                isLinked: false,
+                lastModifiedDate: nil,
+                fileChecksum: nil
+            ))
+            _ = document.updateFeature(feat)
+        }
+
+        markDocumentModified()
+        refreshLinkedReferenceStatuses()
+        log(.info, "Kernel", "Converted linked reference to embedded asset (\(id.rawValue))")
+    }
+
+    @discardableResult
+    func embedLinkedReferenceAsync(_ id: ObjectId) async -> Bool {
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return false }
+        guard case .imported(let name, let sourceURL, _, let isLinked, _, _) = obj.def,
+              isLinked, let sourceURL else {
+            return false
+        }
+
+        let isDirectoryPackage = sourceURL.pathExtension.lowercased() == "made" || (try? FileWrapper(url: sourceURL, options: []).isDirectory) == true
+        let data: Data
+        if isDirectoryPackage {
+            guard let pkg = try? MadePackage(directoryURL: sourceURL) else {
+                log(.error, "Kernel", "Failed to load .made package to embed: \(sourceURL.path)")
+                return false
+            }
+            let res = await kernelClient.exportStep(objects: pkg.documentData.objects)
+            guard case .success(_, let stepData) = res else {
+                log(.error, "Kernel", "Failed to export compound STEP to embed: \(sourceURL.path)")
+                return false
+            }
+            data = stepData
+        } else {
+            guard let fileData = try? Data(contentsOf: sourceURL), !fileData.isEmpty else {
+                log(.error, "Kernel", "Failed to read external file to embed: \(sourceURL.path)")
+                return false
+            }
+            data = fileData
+        }
+
+        let assetFilename = (sourceURL.lastPathComponent.isEmpty == false ? sourceURL.lastPathComponent : name)
+        let assetNameWithExt = (assetFilename.hasSuffix(".step") || assetFilename.hasSuffix(".stp")) ? assetFilename : "\(assetFilename).step"
+        let assetURL = URL(fileURLWithPath: "assets/\(assetNameWithExt)")
+
+        if var feat = document.feature(for: id) {
+            feat.operation = .imported(ImportedFeatureData(
+                name: name,
+                sourceURL: assetURL,
+                data: data,
+                isLinked: false,
+                lastModifiedDate: nil,
+                fileChecksum: nil
+            ))
+            _ = document.updateFeature(feat)
+        }
+
+        markDocumentModified()
+        refreshLinkedReferenceStatuses()
+        log(.info, "Kernel", "Converted linked reference to embedded asset (\(id.rawValue))")
+        return true
+    }
+
+    @discardableResult
+    func relinkReference(_ id: ObjectId, to newURL: URL) async -> Bool {
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return false }
+        guard case .imported = obj.def else { return false }
+        guard FileManager.default.fileExists(atPath: newURL.path) else {
+            log(.error, "Kernel", "Cannot relink: target file not found at \(newURL.path)")
+            return false
+        }
+
+        let isDirectoryPackage = newURL.pathExtension.lowercased() == "made" || (try? FileWrapper(url: newURL, options: []).isDirectory) == true
+        let data: Data
+        if isDirectoryPackage {
+            do {
+                let pkg = try MadePackage(directoryURL: newURL)
+                let exportResult = await kernelClient.exportStep(objects: pkg.documentData.objects)
+                switch exportResult {
+                case .success(_, let stepData):
+                    data = stepData
+                case .failure(_, let error):
+                    log(.error, "Kernel", "Failed to export compound STEP from relinked .made package: \(error.message)")
+                    return false
+                }
+            } catch {
+                log(.error, "Kernel", "Failed to load relinked .made package: \(error.localizedDescription)")
+                return false
+            }
+        } else {
+            guard let fileData = try? Data(contentsOf: newURL), !fileData.isEmpty else {
+                log(.error, "Kernel", "Failed to read relinked external file: \(newURL.path)")
+                return false
+            }
+            data = fileData
+        }
+
+        let result = await kernelClient.request(.importStep(jobId: JobId("relink-\(UUID().uuidString)"), solidId: id, data: data))
+        switch result {
+        case .failure(_, let error):
+            log(.error, "Kernel", "Failed to relink reference: \(error.message)")
+            return false
+        case .success:
+            let modDate = ExternalReferenceDescriptor.modificationDate(of: newURL)
+            let checksum = ExternalReferenceDescriptor.computeChecksum(of: newURL)
+            let updatedName = newURL.lastPathComponent
+
+            if var feat = document.feature(for: id) {
+                feat.name = updatedName
+                feat.operation = .imported(ImportedFeatureData(
+                    name: updatedName,
+                    sourceURL: newURL,
+                    data: nil,
+                    isLinked: true,
+                    lastModifiedDate: modDate,
+                    fileChecksum: checksum
+                ))
+                _ = document.updateFeature(feat)
+            }
+
+            markDocumentModified()
+            if let renderer = viewportManager.renderer,
+               SolidMeshApplier.apply(result, to: id, document: document, sink: renderer) {
+                invalidateViewport(.model)
+            }
+            refreshLinkedReferenceStatuses()
+            log(.info, "Kernel", "Relinked reference to \(newURL.lastPathComponent) (\(id.rawValue))")
+            return true
+        }
+    }
+
+    func linkStatus(for id: ObjectId) -> ExternalLinkStatus {
+        _ = externalLinkCheckVersion
+        guard let obj = document.objects.first(where: { $0.id == id }) else { return .upToDate }
+        if case .imported(_, let sourceURL, _, let isLinked, let lastModifiedDate, let fileChecksum) = obj.def,
+           isLinked, let sourceURL {
+            let desc = ExternalReferenceDescriptor(
+                sourceURL: sourceURL,
+                isLinked: isLinked,
+                lastModifiedDate: lastModifiedDate,
+                fileChecksum: fileChecksum
+            )
+            return desc.checkStatus()
+        }
+        return .upToDate
+    }
+
+    func refreshLinkedReferenceStatuses() {
+        externalLinkCheckVersion += 1
     }
 
     var canDeleteSelectedFeature: Bool {
@@ -3604,6 +3982,14 @@ final class WorkspaceModel {
             partReloadController?.watchPart(id: id, url: url, evaluateImmediately: true)
             return
         }
+        if case .imported(_, let sourceURL, let data, let isLinked, _, _) = obj.def,
+           isLinked, data == nil, let sourceURL,
+           sourceURL.pathExtension.lowercased() == "made" || (try? FileWrapper(url: sourceURL, options: []).isDirectory) == true {
+            Task { [weak self] in
+                await self?.updateLinkedReference(id)
+            }
+            return
+        }
         if let registry = toolRegistry {
             let task = registry.scheduleRecompute(id: id)
             let clock = ContinuousClock()
@@ -3666,7 +4052,7 @@ final class WorkspaceModel {
             }
             if case .failure(_, let err) = result,
                let obj = self.document.objects.first(where: { $0.id == id }),
-               case .imported(let name, let sourceURL, _) = obj.def {
+               case .imported(let name, let sourceURL, _, _, _, _) = obj.def {
                 let fileURL = sourceURL ?? URL(fileURLWithPath: name)
                 self.pendingImportError = ImportErrorInfo(
                     fileURL: fileURL,

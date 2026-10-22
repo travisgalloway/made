@@ -155,7 +155,8 @@ public struct MadePackage: Sendable, Equatable {
 
         // Link assets into .imported solids where present
         for i in 0..<decodedDoc.objects.count {
-            if case .imported(let name, let sourceURL, _) = decodedDoc.objects[i].def {
+            if case .imported(let name, let sourceURL, _, let isLinked, let lastModifiedDate, let fileChecksum) = decodedDoc.objects[i].def {
+                guard !isLinked else { continue }
                 let candidateFilenames = [
                     sourceURL?.lastPathComponent,
                     name,
@@ -180,7 +181,14 @@ public struct MadePackage: Sendable, Equatable {
                             return URL(fileURLWithPath: "assets/\(name)")
                         }
                     }
-                    decodedDoc.objects[i].def = .imported(name: name, sourceURL: url, data: matchedData)
+                    decodedDoc.objects[i].def = .imported(
+                        name: name,
+                        sourceURL: url,
+                        data: matchedData,
+                        isLinked: isLinked,
+                        lastModifiedDate: lastModifiedDate,
+                        fileChecksum: fileChecksum
+                    )
                 }
             }
         }
@@ -188,6 +196,7 @@ public struct MadePackage: Sendable, Equatable {
         if var features = decodedDoc.features {
             for i in 0..<features.count {
                 if case .imported(var imp) = features[i].operation {
+                    guard !imp.isLinked else { continue }
                     let candidateFilenames = [
                         imp.sourceURL?.lastPathComponent,
                         imp.name,

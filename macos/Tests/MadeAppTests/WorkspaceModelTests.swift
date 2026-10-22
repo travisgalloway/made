@@ -461,7 +461,7 @@ import MadeCore
         }
         #expect(obj.id == importedId)
         #expect(obj.name == tempURL.lastPathComponent)
-        if case .imported(let name, let sourceURL, let data) = obj.def {
+        if case .imported(let name, let sourceURL, let data, _, _, _) = obj.def {
             #expect(name == tempURL.lastPathComponent)
             #expect(sourceURL == tempURL)
             #expect(data == stepData)

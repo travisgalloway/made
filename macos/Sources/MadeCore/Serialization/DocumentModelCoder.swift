@@ -152,8 +152,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
                 return false
             }
             switch (objA.def, objB.def) {
-            case (.imported(let nA, let uA, let dA), .imported(let nB, let uB, let dB)):
-                guard nA == nB, dA == dB else { return false }
+            case (.imported(let nA, let uA, let dA, let lA, let mA, let cA), .imported(let nB, let uB, let dB, let lB, let mB, let cB)):
+                guard nA == nB, dA == dB, lA == lB, mA == mB, cA == cB else { return false }
                 if let uA, let uB {
                     if uA != uB && uA.path != uB.path && uA.lastPathComponent != uB.lastPathComponent {
                         return false
