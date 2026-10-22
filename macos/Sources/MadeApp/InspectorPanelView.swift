@@ -1218,6 +1218,7 @@ struct InspectorComponentInstanceView: View {
             referenceSection
             transformSection
                 .disabled(component.isLocked || component.isGrounded)
+            degreesOfFreedomSection
             matesAndJointsSection
         }
         .formStyle(.columns)
@@ -1399,6 +1400,22 @@ struct InspectorComponentInstanceView: View {
         .labelsHidden()
     }
 
+    private var degreesOfFreedomSection: some View {
+        Section {
+            let dof = workspace.remainingAssemblyDOF(for: component.id)
+            LabeledContent("Remaining DOF") {
+                HStack(spacing: 4) {
+                    Text("\(dof)").bold()
+                    Text(component.isGrounded ? "(Grounded)" : (dof == 0 ? "(Fully Constrained)" : "(Under-constrained)"))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("inspector-component-dof-label")
+            }
+        } header: {
+            sectionHeader("Degrees of Freedom")
+        }
+    }
+
     private var matesAndJointsSection: some View {
         Section {
             matesAndJointsList
@@ -1457,7 +1474,38 @@ struct InspectorAssemblyConstraintView: View {
     let constraint: AssemblyConstraint
 
     var body: some View {
+        let isConflicting = workspace.isAssemblyConstraintConflicting(constraint.id)
+        let isRedundant = workspace.isAssemblyConstraintRedundant(constraint.id)
+
         Form {
+            if isConflicting {
+                Section {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                        Text("This mate conflicts with other constraints and cannot be satisfied.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    .accessibilityIdentifier("inspector-constraint-conflict-alert")
+                } header: {
+                    sectionHeader("Diagnostics", isFirst: true)
+                }
+            } else if isRedundant {
+                Section {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundStyle(.orange)
+                        Text("This mate is redundant and duplicates existing constraints.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    .accessibilityIdentifier("inspector-constraint-redundant-alert")
+                } header: {
+                    sectionHeader("Diagnostics", isFirst: true)
+                }
+            }
+
             Section {
                 TextField("Name", text: Binding(
                     get: { constraint.name },
@@ -1498,7 +1546,7 @@ struct InspectorAssemblyConstraintView: View {
                 ))
                 .accessibilityIdentifier("inspector-constraint-suppressed-toggle")
             } header: {
-                sectionHeader("Constraint Identity", isFirst: true)
+                sectionHeader("Constraint Identity", isFirst: !(isConflicting || isRedundant))
             }
 
             if constraint.kind == .distance || constraint.kind == .angle || constraint.kind == .tangent || constraint.kind == .planar {
@@ -1540,6 +1588,21 @@ struct InspectorAssemblyConstraintView: View {
             }
 
             Section {
+                if let result = workspace.lastAssemblySolverResult {
+                    LabeledContent("Last Solve") {
+                        Text(result.status.summaryText)
+                            .font(.caption)
+                            .foregroundStyle(result.status.isOverConstrained ? .red : (result.status.isRedundant ? .orange : .secondary))
+                            .accessibilityIdentifier("inspector-assembly-solve-status-label")
+                    }
+                    LabeledContent("Total DOF") {
+                        Text("\(result.totalDOF)")
+                            .font(.caption)
+                            .bold()
+                            .accessibilityIdentifier("inspector-assembly-total-dof-label")
+                    }
+                }
+
                 Button("Solve Assembly", systemImage: "arrow.triangle.2.circlepath") {
                     _ = workspace.solveAssemblyConstraints()
                 }

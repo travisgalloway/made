@@ -270,6 +270,39 @@ public enum AssemblySolverStatus: Sendable, Codable, Equatable {
             return false
         }
     }
+
+    public var isOverConstrained: Bool {
+        if case .overConstrained = self { return true }
+        return false
+    }
+
+    public var isRedundant: Bool {
+        if case .redundant = self { return true }
+        return false
+    }
+
+    public var conflictingConstraints: [UUID] {
+        if case .overConstrained(let ids) = self { return ids }
+        return []
+    }
+
+    public var redundantConstraints: [UUID] {
+        if case .redundant(let ids) = self { return ids }
+        return []
+    }
+
+    public var summaryText: String {
+        switch self {
+        case .converged:
+            return "Converged"
+        case .overConstrained(let ids):
+            return "Over-constrained (\(ids.count) conflicting)"
+        case .redundant(let ids):
+            return "Redundant (\(ids.count) redundant)"
+        case .failedToConverge(let reason):
+            return "Failed to converge: \(reason)"
+        }
+    }
 }
 
 /// Result envelope returned by the 3D assembly constraint solver (ADR-D4, #164).

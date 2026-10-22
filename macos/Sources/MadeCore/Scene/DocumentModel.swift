@@ -6356,9 +6356,19 @@ public final class DocumentModel {
         return .success(())
     }
 
+    /// Returns the assembly constraint system consisting of all current component instances and constraints (BL-ASM-05, #166).
+    public func assemblyConstraintSystem() -> AssemblyConstraintSystem {
+        AssemblyConstraintSystem(instances: componentInstances, constraints: assemblyConstraints)
+    }
+
+    /// Computes remaining total and per-instance degrees of freedom for the assembly (BL-ASM-05, #166).
+    public func computeAssemblyDOF() -> (totalDOF: Int, instanceDOF: [UUID: Int]) {
+        AssemblyConstraintSolver.computeSystemDOF(system: assemblyConstraintSystem())
+    }
+
     @discardableResult
     public func solveAssemblyConstraints(actionName: String? = nil, registerUndo: Bool = true) -> AssemblySolverResult {
-        let system = AssemblyConstraintSystem(instances: componentInstances, constraints: assemblyConstraints)
+        let system = assemblyConstraintSystem()
         let result = AssemblyConstraintSolver.solve(system: system)
         guard result.status.isConverged else {
             return result
