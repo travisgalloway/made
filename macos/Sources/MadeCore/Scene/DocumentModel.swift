@@ -11,7 +11,14 @@ public enum ObjectDef: Sendable, Equatable {
     case cone(ConeParams)
     case torus(TorusParams)
     case wedge(WedgeParams)
-    case imported(name: String, sourceURL: URL? = nil, data: Data? = nil)
+    case imported(
+        name: String,
+        sourceURL: URL? = nil,
+        data: Data? = nil,
+        isLinked: Bool = false,
+        lastModifiedDate: Date? = nil,
+        fileChecksum: String? = nil
+    )
     /// A boolean result: the operation and its operand IDs, with no replay (#35).
     case boolean(op: BooleanOp, solidA: ObjectId, solidB: ObjectId)
     /// A scripted `.part.ts` or `.part.js` source file on disk, with its last evaluated shape tree (#427).
@@ -56,6 +63,22 @@ public enum ObjectDef: Sendable, Equatable {
 public typealias ObjectDefinition = ObjectDef
 
 extension ObjectDef {
+    /// Whether this object represents an externally linked reference.
+    public var isLinked: Bool {
+        if case .imported(_, _, _, let isLinked, _, _) = self {
+            return isLinked
+        }
+        return false
+    }
+
+    /// The external source URL if this object is a linked reference.
+    public var linkedSourceURL: URL? {
+        if case .imported(_, let sourceURL, _, let isLinked, _, _) = self, isLinked {
+            return sourceURL
+        }
+        return nil
+    }
+
     /// Human-readable summary of the object's primary parameters.
     public var parameterSummary: String {
         switch self {
@@ -79,7 +102,7 @@ extension ObjectDef {
             } else {
                 return "\(Self.formatDim(p.width)) × \(Self.formatDim(p.depth)) × \(Self.formatDim(p.height)) mm"
             }
-        case .imported(let name, _, _):
+        case .imported(let name, _, _, _, _, _):
             return name.isEmpty ? "Imported mesh" : name
         case .boolean(let op, let solidA, let solidB):
             return "\(op.rawValue)(\(solidA.rawValue), \(solidB.rawValue))"
@@ -195,6 +218,11 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
     }
 }
 
+extension SceneObject {
+    public var isLinked: Bool { def.isLinked }
+    public var linkedSourceURL: URL? { def.linkedSourceURL }
+}
+
 extension ObjectDef: Codable {
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -205,6 +233,9 @@ extension ObjectDef: Codable {
         case solidA
         case solidB
         case url
+        case isLinked
+        case lastModifiedDate
+        case fileChecksum
     }
 
     public init(from decoder: Decoder) throws {
@@ -232,9 +263,19 @@ extension ObjectDef: Codable {
         case "imported":
             let name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
             let assetPath = try container.decodeIfPresent(String.self, forKey: .assetPath)
+                ?? container.decodeIfPresent(String.self, forKey: .url)
+            let isLinked = try container.decodeIfPresent(Bool.self, forKey: .isLinked) ?? false
+            let lastModifiedDate = try container.decodeIfPresent(Date.self, forKey: .lastModifiedDate)
+            let fileChecksum = try container.decodeIfPresent(String.self, forKey: .fileChecksum)
             let packageURL = decoder.userInfo[.packageURL] as? URL
             let sourceURL: URL? = assetPath.map { path in
-                if let packageURL {
+                if isLinked {
+                    if path.hasPrefix("file://"), let parsed = URL(string: path) {
+                        return parsed
+                    } else {
+                        return URL(fileURLWithPath: path)
+                    }
+                } else if let packageURL {
                     if path.contains("/assets/") {
                         let filename = URL(fileURLWithPath: path).lastPathComponent
                         return packageURL.appendingPathComponent("assets/\(filename)")
@@ -251,7 +292,14 @@ extension ObjectDef: Codable {
                     return URL(fileURLWithPath: path)
                 }
             }
-            self = .imported(name: name, sourceURL: sourceURL, data: nil)
+            self = .imported(
+                name: name,
+                sourceURL: sourceURL,
+                data: nil,
+                isLinked: isLinked,
+                lastModifiedDate: lastModifiedDate,
+                fileChecksum: fileChecksum
+            )
         case "boolean":
             let op = try container.decode(BooleanOp.self, forKey: .op)
             let solidA = try container.decode(ObjectId.self, forKey: .solidA)
@@ -333,15 +381,24 @@ extension ObjectDef: Codable {
         case .wedge(let params):
             try container.encode("wedge", forKey: .kind)
             try container.encode(params, forKey: .params)
-        case .imported(let name, let sourceURL, _):
+        case .imported(let name, let sourceURL, _, let isLinked, let lastModifiedDate, let fileChecksum):
             try container.encode("imported", forKey: .kind)
             try container.encode(name, forKey: .name)
-            if let sourceURL {
-                let filename = sourceURL.lastPathComponent
-                try container.encode("assets/\(filename)", forKey: .assetPath)
-            } else if !name.isEmpty {
-                let filename = (name.hasSuffix(".step") || name.hasSuffix(".stp") || name.hasSuffix(".iges") || name.hasSuffix(".igs")) ? name : "\(name).step"
-                try container.encode("assets/\(filename)", forKey: .assetPath)
+            if isLinked {
+                try container.encode(true, forKey: .isLinked)
+                try container.encodeIfPresent(lastModifiedDate, forKey: .lastModifiedDate)
+                try container.encodeIfPresent(fileChecksum, forKey: .fileChecksum)
+                if let sourceURL {
+                    try container.encode(sourceURL.path, forKey: .assetPath)
+                }
+            } else {
+                if let sourceURL {
+                    let filename = sourceURL.lastPathComponent
+                    try container.encode("assets/\(filename)", forKey: .assetPath)
+                } else if !name.isEmpty {
+                    let filename = (name.hasSuffix(".step") || name.hasSuffix(".stp") || name.hasSuffix(".iges") || name.hasSuffix(".igs")) ? name : "\(name).step"
+                    try container.encode("assets/\(filename)", forKey: .assetPath)
+                }
             }
         case .boolean(let op, let solidA, let solidB):
             try container.encode("boolean", forKey: .kind)
@@ -1276,6 +1333,7 @@ public final class DocumentModel {
                     changed = true
                 }
             case .imported(var impData):
+                guard !impData.isLinked else { break }
                 if let sourceURL = impData.sourceURL {
                     let filename = sourceURL.lastPathComponent
                     guard !filename.isEmpty && filename != "/" else { break }
@@ -1303,13 +1361,21 @@ public final class DocumentModel {
                 if url != newURL {
                     objects[i].def = .part(url: newURL, shape: shape)
                 }
-            case .imported(let name, let sourceURL, let data):
+            case .imported(let name, let sourceURL, let data, let isLinked, let lastModifiedDate, let fileChecksum):
+                guard !isLinked else { break }
                 if let sourceURL {
                     let filename = sourceURL.lastPathComponent
                     guard !filename.isEmpty && filename != "/" else { break }
                     let newURL = packageURL.appendingPathComponent("assets/\(filename)")
                     if sourceURL != newURL {
-                        objects[i].def = .imported(name: name, sourceURL: newURL, data: data)
+                        objects[i].def = .imported(
+                            name: name,
+                            sourceURL: newURL,
+                            data: data,
+                            isLinked: isLinked,
+                            lastModifiedDate: lastModifiedDate,
+                            fileChecksum: fileChecksum
+                        )
                     }
                 }
             default:
@@ -4705,7 +4771,7 @@ public final class DocumentModel {
         let defaultName: String?
         if case .part(let url, _) = clamped, !url.lastPathComponent.isEmpty {
             defaultName = url.lastPathComponent
-        } else if case .imported(let name, _, _) = clamped, !name.isEmpty {
+        } else if case .imported(let name, _, _, _, _, _) = clamped, !name.isEmpty {
             defaultName = name
         } else {
             defaultName = nil

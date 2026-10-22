@@ -44,6 +44,10 @@ struct FileMenuCommands: Commands {
                 workspace.promptImportStepFile()
             }
 
+            Button("Link External File…") {
+                workspace.promptLinkExternalFile()
+            }
+
             Menu("Export") {
                 Button("3MF…") {
                     workspace.promptExportThreeMFFile()
@@ -201,6 +205,10 @@ struct SolidMenuCommands: Commands {
 
             Button("Import STEP Solid…") {
                 workspace.promptImportStepFile()
+            }
+
+            Button("Link External File…") {
+                workspace.promptLinkExternalFile()
             }
 
             Button("Export STEP Solid…") {

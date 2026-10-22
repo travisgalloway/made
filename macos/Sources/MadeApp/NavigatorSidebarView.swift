@@ -111,6 +111,17 @@ struct NavigatorSidebarView: View {
                             Button("Reload Part") { workspace.reloadPart(id) }
                             Divider()
                         }
+                        if let obj, case .imported(_, _, _, let isLinked, _, _) = obj.def, isLinked {
+                            Button("Update Link") {
+                                Task {
+                                    _ = await workspace.updateLinkedReference(id)
+                                }
+                            }
+                            Button("Relink…") {
+                                workspace.promptRelinkReference(id)
+                            }
+                            Divider()
+                        }
                         Button("Roll Back to Here") { workspace.rollBack(to: id) }
                         Button("Roll Back Before") { workspace.rollBack(before: id) }
                         Divider()
@@ -250,6 +261,9 @@ struct NavigatorSidebarView: View {
                 Button("Part Script File…", systemImage: "curlybraces") {
                     workspace.promptOpenPartFile()
                 }
+                Button("Link External File…", systemImage: "link") {
+                    workspace.promptLinkExternalFile()
+                }
             }
             .menuIndicator(.hidden)
             .fixedSize()
@@ -366,6 +380,32 @@ private struct NavigatorRow: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.secondary.opacity(0.12))
                             )
+                    }
+
+                    if let object, case .imported(_, _, _, let isLinked, _, _) = object.def, isLinked {
+                        let status = workspace.linkStatus(for: bodyItem.id)
+                        switch status {
+                        case .outOfDate:
+                            Text("Out of Date")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.orange))
+                                .help("External file has been modified on disk")
+                        case .missingFile:
+                            Text("Missing")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.red))
+                                .help("External file not found")
+                        case .upToDate:
+                            EmptyView()
+                        }
                     }
 
                     if let errorState {

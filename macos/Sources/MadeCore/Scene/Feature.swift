@@ -509,11 +509,24 @@ public struct ImportedFeatureData: Sendable, Codable, Equatable {
     public var name: String
     public var sourceURL: URL?
     public var data: Data?
+    public var isLinked: Bool
+    public var lastModifiedDate: Date?
+    public var fileChecksum: String?
 
-    public init(name: String, sourceURL: URL? = nil, data: Data? = nil) {
+    public init(
+        name: String,
+        sourceURL: URL? = nil,
+        data: Data? = nil,
+        isLinked: Bool = false,
+        lastModifiedDate: Date? = nil,
+        fileChecksum: String? = nil
+    ) {
         self.name = name
         self.sourceURL = sourceURL
         self.data = data
+        self.isLinked = isLinked
+        self.lastModifiedDate = lastModifiedDate
+        self.fileChecksum = fileChecksum
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -521,12 +534,18 @@ public struct ImportedFeatureData: Sendable, Codable, Equatable {
         case sourceURL
         case assetPath
         case data
+        case isLinked
+        case lastModifiedDate
+        case fileChecksum
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         let data = try container.decodeIfPresent(Data.self, forKey: .data)
+        let isLinked = try container.decodeIfPresent(Bool.self, forKey: .isLinked) ?? false
+        let lastModifiedDate = try container.decodeIfPresent(Date.self, forKey: .lastModifiedDate)
+        let fileChecksum = try container.decodeIfPresent(String.self, forKey: .fileChecksum)
         let rawURLString = try container.decodeIfPresent(String.self, forKey: .sourceURL)
             ?? container.decodeIfPresent(String.self, forKey: .assetPath)
 
@@ -539,38 +558,58 @@ public struct ImportedFeatureData: Sendable, Codable, Equatable {
                     return URL(fileURLWithPath: rawURLString)
                 }
             }()
-            let packageURL = decoder.userInfo[.packageURL] as? URL
-            if let packageURL {
-                if rawURLString.contains("/assets/") {
-                    resolvedURL = packageURL.appendingPathComponent("assets/\(parsedURL.lastPathComponent)")
-                } else if !rawURLString.hasPrefix("/") && !rawURLString.hasPrefix("file://") {
-                    if rawURLString.hasPrefix("assets/") {
-                        resolvedURL = packageURL.appendingPathComponent(rawURLString)
+            if isLinked {
+                resolvedURL = parsedURL
+            } else {
+                let packageURL = decoder.userInfo[.packageURL] as? URL
+                if let packageURL {
+                    if rawURLString.contains("/assets/") {
+                        resolvedURL = packageURL.appendingPathComponent("assets/\(parsedURL.lastPathComponent)")
+                    } else if !rawURLString.hasPrefix("/") && !rawURLString.hasPrefix("file://") {
+                        if rawURLString.hasPrefix("assets/") {
+                            resolvedURL = packageURL.appendingPathComponent(rawURLString)
+                        } else {
+                            resolvedURL = packageURL.appendingPathComponent("assets/\(rawURLString)")
+                        }
                     } else {
-                        resolvedURL = packageURL.appendingPathComponent("assets/\(rawURLString)")
+                        resolvedURL = parsedURL
                     }
                 } else {
                     resolvedURL = parsedURL
                 }
-            } else {
-                resolvedURL = parsedURL
             }
         } else {
             resolvedURL = nil
         }
 
-        self.init(name: name, sourceURL: resolvedURL, data: data)
+        self.init(
+            name: name,
+            sourceURL: resolvedURL,
+            data: data,
+            isLinked: isLinked,
+            lastModifiedDate: lastModifiedDate,
+            fileChecksum: fileChecksum
+        )
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(name, forKey: .name)
-        if let sourceURL {
-            let filename = sourceURL.lastPathComponent
-            if !filename.isEmpty && filename != "/" {
-                try container.encode("assets/\(filename)", forKey: .sourceURL)
-            } else {
-                try container.encode("assets/asset", forKey: .sourceURL)
+        if isLinked {
+            try container.encode(true, forKey: .isLinked)
+            try container.encodeIfPresent(lastModifiedDate, forKey: .lastModifiedDate)
+            try container.encodeIfPresent(fileChecksum, forKey: .fileChecksum)
+            if let sourceURL {
+                try container.encode(sourceURL.path, forKey: .sourceURL)
+            }
+        } else {
+            if let sourceURL {
+                let filename = sourceURL.lastPathComponent
+                if !filename.isEmpty && filename != "/" {
+                    try container.encode("assets/\(filename)", forKey: .sourceURL)
+                } else {
+                    try container.encode("assets/asset", forKey: .sourceURL)
+                }
             }
         }
         try container.encodeIfPresent(data, forKey: .data)
@@ -993,7 +1032,14 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         case .part(let p):
             def = .part(url: p.url, shape: p.shape)
         case .imported(let imp):
-            def = .imported(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
+            def = .imported(
+                name: imp.name,
+                sourceURL: imp.sourceURL,
+                data: imp.data,
+                isLinked: imp.isLinked,
+                lastModifiedDate: imp.lastModifiedDate,
+                fileChecksum: imp.fileChecksum
+            )
         case .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem, .moveBody, .copyBody, .deleteBody:
             return nil
         case .extrude(let data):
@@ -2001,10 +2047,17 @@ extension Feature {
                 isLocked: object.isLocked,
                 material: object.material
             )
-        case .imported(let name, let sourceURL, let data):
+        case .imported(let name, let sourceURL, let data, let isLinked, let lastModifiedDate, let fileChecksum):
             self.init(
                 name: object.name,
-                operation: .imported(ImportedFeatureData(name: name, sourceURL: sourceURL, data: data)),
+                operation: .imported(ImportedFeatureData(
+                    name: name,
+                    sourceURL: sourceURL,
+                    data: data,
+                    isLinked: isLinked,
+                    lastModifiedDate: lastModifiedDate,
+                    fileChecksum: fileChecksum
+                )),
                 outputSolidId: object.id,
                 bodyOperation: .create,
                 targetBodyId: nil,

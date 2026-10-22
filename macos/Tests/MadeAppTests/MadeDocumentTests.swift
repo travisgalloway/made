@@ -357,7 +357,7 @@ import UniformTypeIdentifiers
         #expect(workspace.document.objects.count == 1)
         let obj = workspace.document.objects[0]
         #expect(obj.id == ObjectId("imported-1"))
-        if case .imported(let name, _, let data) = obj.def {
+        if case .imported(let name, _, let data, _, _, _) = obj.def {
             #expect(name == "missing.step")
             #expect(data == nil)
         } else {
@@ -773,7 +773,7 @@ import UniformTypeIdentifiers
         #expect(objPartURL == expectedPartURL)
 
         guard let reloadedImpObj = reloadedDoc.objects.first(where: { $0.id == SolidId("imported-1") }),
-              case .imported(_, let objImpURL, let objImpData) = reloadedImpObj.def else {
+              case .imported(_, let objImpURL, let objImpData, _, _, _) = reloadedImpObj.def else {
             Issue.record("Missing reloaded imported object")
             return
         }
