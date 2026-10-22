@@ -201,6 +201,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onSketchDragStart: ((UUID, UUID) -> Void)?
     var onSketchDragUpdate: ((UUID, DragTarget) -> Void)?
     var onSketchDragEnd: ((UUID) -> Void)?
+    var onAssemblyDragStart: ((UUID) -> Void)?
+    var onAssemblyDragUpdate: ((AssemblyDragTarget) -> Void)?
+    var onAssemblyDragEnd: ((UUID) -> Void)?
+    var onAssemblyDragCancel: ((UUID) -> Void)?
     var activeRectangleKind: SketchRectangleKind
     var onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)?
     var isRadialMenuOpen: Bool
@@ -247,6 +251,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onSketchDragStart: ((UUID, UUID) -> Void)? = nil,
         onSketchDragUpdate: ((UUID, DragTarget) -> Void)? = nil,
         onSketchDragEnd: ((UUID) -> Void)? = nil,
+        onAssemblyDragStart: ((UUID) -> Void)? = nil,
+        onAssemblyDragUpdate: ((AssemblyDragTarget) -> Void)? = nil,
+        onAssemblyDragEnd: ((UUID) -> Void)? = nil,
+        onAssemblyDragCancel: ((UUID) -> Void)? = nil,
         activeRectangleKind: SketchRectangleKind = .corner,
         onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)? = nil,
         isRadialMenuOpen: Bool = false,
@@ -292,6 +300,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onSketchDragStart = onSketchDragStart
         self.onSketchDragUpdate = onSketchDragUpdate
         self.onSketchDragEnd = onSketchDragEnd
+        self.onAssemblyDragStart = onAssemblyDragStart
+        self.onAssemblyDragUpdate = onAssemblyDragUpdate
+        self.onAssemblyDragEnd = onAssemblyDragEnd
+        self.onAssemblyDragCancel = onAssemblyDragCancel
         self.activeRectangleKind = activeRectangleKind
         self.onRectangleCompleted = onRectangleCompleted
         self.isRadialMenuOpen = isRadialMenuOpen
@@ -1120,15 +1132,25 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 }
             }
             
-            if previewTransform.position != drag.initialTransform.position ||
-               previewTransform.rotation != drag.initialTransform.rotation ||
-               previewTransform.scale != drag.initialTransform.scale {
-                drag.hasMoved = true
+            let moved = previewTransform.position != drag.initialTransform.position ||
+                        previewTransform.rotation != drag.initialTransform.rotation ||
+                        previewTransform.scale != drag.initialTransform.scale
+            if moved {
+                if !drag.hasMoved {
+                    if let comp = parent.document.componentInstances.first(where: { $0.solidId == drag.selectedId }), !comp.isGrounded {
+                        parent.onAssemblyDragStart?(comp.id)
+                    }
+                    drag.hasMoved = true
+                }
             }
             self.dragState = drag
             
-            _ = parent.renderer.updateTransform(previewTransform, for: drag.selectedId)
-            invalidate(reason: .interaction)
+            if let comp = parent.document.componentInstances.first(where: { $0.solidId == drag.selectedId }), !comp.isGrounded {
+                parent.onAssemblyDragUpdate?(AssemblyDragTarget(instanceId: comp.id, targetTransform: previewTransform))
+            } else {
+                _ = parent.renderer.updateTransform(previewTransform, for: drag.selectedId)
+                invalidate(reason: .interaction)
+            }
         }
         
         private func handleWidgetlessDrag(at loc: CGPoint, in view: MTKView, isTouch: Bool) {
@@ -1270,9 +1292,22 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 }
             }
 
+            if previewTransform.position != drag.initialTransform.position {
+                if !drag.hasMoved {
+                    if let comp = parent.document.componentInstances.first(where: { $0.solidId == drag.selectedId }), !comp.isGrounded {
+                        parent.onAssemblyDragStart?(comp.id)
+                    }
+                    drag.hasMoved = true
+                }
+            }
+
             self.widgetlessDragState = drag
-            _ = parent.renderer.updateTransform(previewTransform, for: drag.selectedId)
-            invalidate(reason: .interaction)
+            if let comp = parent.document.componentInstances.first(where: { $0.solidId == drag.selectedId }), !comp.isGrounded {
+                parent.onAssemblyDragUpdate?(AssemblyDragTarget(instanceId: comp.id, targetTransform: previewTransform))
+            } else {
+                _ = parent.renderer.updateTransform(previewTransform, for: drag.selectedId)
+                invalidate(reason: .interaction)
+            }
         }
         
         func handleMouseUp(with event: NSEvent, button: MouseButton) {
@@ -1284,10 +1319,19 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             (mtkView as? CADMTKView)?.endDragCursor()
             
             if let drag = widgetlessDragState {
-                if drag.hasMoved, let currentMesh = parent.renderer.meshes[drag.selectedId] {
-                    parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                if let comp = parent.document.componentInstances.first(where: { $0.solidId == drag.selectedId }), !comp.isGrounded {
+                    if drag.hasMoved {
+                        parent.onAssemblyDragEnd?(comp.id)
+                    } else {
+                        parent.onAssemblyDragCancel?(comp.id)
+                        _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
+                    }
                 } else {
-                    _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
+                    if drag.hasMoved, let currentMesh = parent.renderer.meshes[drag.selectedId] {
+                        parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                    } else {
+                        _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
+                    }
                 }
                 widgetlessDragState = nil
                 parent.renderer.activeGizmoHandle = nil
@@ -1302,40 +1346,49 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
 
             if let drag = dragState {
-                if drag.hasMoved, let currentMesh = parent.renderer.meshes[drag.selectedId] {
-                    if drag.handle.isScale {
-                        if let obj = parent.document.objects.first(where: { $0.id == drag.selectedId }) {
-                            let initScale = drag.initialTransform.scale
-                            let currScale = currentMesh.transform.scale
-                            let relativeScale = SIMD3<Float>(
-                                abs(initScale.x) > 1e-5 ? currScale.x / initScale.x : currScale.x,
-                                abs(initScale.y) > 1e-5 ? currScale.y / initScale.y : currScale.y,
-                                abs(initScale.z) > 1e-5 ? currScale.z / initScale.z : currScale.z
-                            )
-                            let paramsToCommit = computeResizedParameters(for: obj.def, scale: relativeScale)
-                            if !paramsToCommit.isEmpty {
-                                var resetTransform = currentMesh.transform
-                                resetTransform.scale = SIMD3<Float>(1, 1, 1)
-                                _ = parent.renderer.updateTransform(resetTransform, for: drag.selectedId)
-                                
-                                if let onCommit = parent.onCommitParam {
-                                    for (key, val) in paramsToCommit {
-                                        onCommit(drag.selectedId, key, val)
-                                    }
-                                } else {
-                                    for (key, val) in paramsToCommit {
-                                        parent.document.setParam(id: drag.selectedId, key: key, value: val)
-                                    }
-                                }
-                            } else {
-                                parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
-                            }
-                        }
+                if let comp = parent.document.componentInstances.first(where: { $0.solidId == drag.selectedId }), !comp.isGrounded {
+                    if drag.hasMoved {
+                        parent.onAssemblyDragEnd?(comp.id)
                     } else {
-                        parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                        parent.onAssemblyDragCancel?(comp.id)
+                        _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
                     }
                 } else {
-                    _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
+                    if drag.hasMoved, let currentMesh = parent.renderer.meshes[drag.selectedId] {
+                        if drag.handle.isScale {
+                            if let obj = parent.document.objects.first(where: { $0.id == drag.selectedId }) {
+                                let initScale = drag.initialTransform.scale
+                                let currScale = currentMesh.transform.scale
+                                let relativeScale = SIMD3<Float>(
+                                    abs(initScale.x) > 1e-5 ? currScale.x / initScale.x : currScale.x,
+                                    abs(initScale.y) > 1e-5 ? currScale.y / initScale.y : currScale.y,
+                                    abs(initScale.z) > 1e-5 ? currScale.z / initScale.z : currScale.z
+                                )
+                                let paramsToCommit = computeResizedParameters(for: obj.def, scale: relativeScale)
+                                if !paramsToCommit.isEmpty {
+                                    var resetTransform = currentMesh.transform
+                                    resetTransform.scale = SIMD3<Float>(1, 1, 1)
+                                    _ = parent.renderer.updateTransform(resetTransform, for: drag.selectedId)
+                                    
+                                    if let onCommit = parent.onCommitParam {
+                                        for (key, val) in paramsToCommit {
+                                            onCommit(drag.selectedId, key, val)
+                                        }
+                                    } else {
+                                        for (key, val) in paramsToCommit {
+                                            parent.document.setParam(id: drag.selectedId, key: key, value: val)
+                                        }
+                                    }
+                                } else {
+                                    parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                                }
+                            }
+                        } else {
+                            parent.document.setTransform(id: drag.selectedId, transform: currentMesh.transform)
+                        }
+                    } else {
+                        _ = parent.renderer.updateTransform(drag.initialTransform, for: drag.selectedId)
+                    }
                 }
                 dragState = nil
                 parent.renderer.activeGizmoHandle = nil
@@ -1950,6 +2003,10 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
     var onSketchDragStart: ((UUID, UUID) -> Void)?
     var onSketchDragUpdate: ((UUID, DragTarget) -> Void)?
     var onSketchDragEnd: ((UUID) -> Void)?
+    var onAssemblyDragStart: ((UUID) -> Void)?
+    var onAssemblyDragUpdate: ((AssemblyDragTarget) -> Void)?
+    var onAssemblyDragEnd: ((UUID) -> Void)?
+    var onAssemblyDragCancel: ((UUID) -> Void)?
     var activeRectangleKind: SketchRectangleKind
     var onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)?
     var isRadialMenuOpen: Bool
@@ -1993,6 +2050,10 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         onSketchDragStart: ((UUID, UUID) -> Void)? = nil,
         onSketchDragUpdate: ((UUID, DragTarget) -> Void)? = nil,
         onSketchDragEnd: ((UUID) -> Void)? = nil,
+        onAssemblyDragStart: ((UUID) -> Void)? = nil,
+        onAssemblyDragUpdate: ((AssemblyDragTarget) -> Void)? = nil,
+        onAssemblyDragEnd: ((UUID) -> Void)? = nil,
+        onAssemblyDragCancel: ((UUID) -> Void)? = nil,
         activeRectangleKind: SketchRectangleKind = .corner,
         onRectangleCompleted: ((SIMD2<Double>, SIMD2<Double>) -> Void)? = nil,
         isRadialMenuOpen: Bool = false,
@@ -2035,6 +2096,10 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         self.onSketchDragStart = onSketchDragStart
         self.onSketchDragUpdate = onSketchDragUpdate
         self.onSketchDragEnd = onSketchDragEnd
+        self.onAssemblyDragStart = onAssemblyDragStart
+        self.onAssemblyDragUpdate = onAssemblyDragUpdate
+        self.onAssemblyDragEnd = onAssemblyDragEnd
+        self.onAssemblyDragCancel = onAssemblyDragCancel
         self.activeRectangleKind = activeRectangleKind
         self.onRectangleCompleted = onRectangleCompleted
         self.isRadialMenuOpen = isRadialMenuOpen

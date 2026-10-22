@@ -5,8 +5,8 @@ public actor AssemblyConstraintSolverActor {
     public init() {}
 
     /// Solves the given 3D assembly constraint system asynchronously off the main thread.
-    public func solve(system: AssemblyConstraintSystem) -> AssemblySolverResult {
-        AssemblyConstraintSolver.solve(system: system)
+    public func solve(system: AssemblyConstraintSystem, dragTarget: AssemblyDragTarget? = nil) -> AssemblySolverResult {
+        AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
     }
 
     /// Evaluates total and per-instance degrees of freedom asynchronously off the main thread.

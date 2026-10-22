@@ -560,4 +560,58 @@ import simd
         #expect(ws.lastAssemblySolverResult == nil)
         #expect(ws.redundantAssemblyConstraintIds.isEmpty)
     }
+
+    // MARK: - Workspace Interactive Assembly Drag (BL-ASM-06)
+
+    @Test func testWorkspaceInteractiveAssemblyDragLifecycle() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let base = ws.addComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "Base"),
+            transform: .identity,
+            isGrounded: true
+        )
+        #expect(ws.document.componentInstances.first?.isGrounded == true)
+
+        let slider = ws.addComponentInstance(
+            name: "Slider",
+            reference: .internalPart(name: "Slider"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        #expect(ws.document.componentInstances.count == 2)
+        #expect(ws.document.componentInstances[1].isGrounded == false)
+
+        let fBase = AssemblyFeature(componentInstanceId: base.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        let fSlider = AssemblyFeature(componentInstanceId: slider.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        #expect(ws.addAssemblyConstraint(AssemblyConstraint(kind: .planar, firstFeature: fBase, secondFeature: fSlider, value: 0.0)))
+
+        ws.document.undoManager?.removeAllActions()
+
+        ws.beginInteractiveAssemblyDrag(instanceId: slider.id)
+        let solveResult = ws.solveAssemblyDrag(
+            dragTarget: AssemblyDragTarget(instanceId: slider.id, targetPosition: SIMD3<Float>(30, 40, 50))
+        )
+        #expect(solveResult.status.isConverged)
+
+        // Intermediate drag state: Z is constrained to 0
+        let currentPos = ws.document.componentInstances[1].transform.position
+        #expect(abs(currentPos.z) < 1e-3)
+        #expect(abs(currentPos.x - 30) < 1.0)
+        #expect(abs(currentPos.y - 40) < 1.0)
+        #expect(ws.document.undoManager?.canUndo == false)
+
+        ws.endInteractiveAssemblyDrag(instanceId: slider.id)
+        #expect(ws.isDocumentModified)
+        #expect(ws.document.undoManager?.canUndo == true)
+
+        ws.undo()
+        #expect(ws.document.componentInstances[1].transform.position == SIMD3<Float>(0, 0, 0))
+
+        ws.redo()
+        let redoPos = ws.document.componentInstances[1].transform.position
+        #expect(abs(redoPos.z) < 1e-3)
+        #expect(abs(redoPos.x - 30) < 1.0)
+    }
 }

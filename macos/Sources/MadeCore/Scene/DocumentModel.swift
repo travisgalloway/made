@@ -839,6 +839,7 @@ public final class DocumentModel {
     public var onUndoRedoMutation: (@MainActor (DocumentMutation) -> Void)?
     private var activeInteractiveParamEdit: (id: ObjectId, key: String, initialValue: Float)?
     public private(set) var activeInteractiveSketchDrag: (featureId: UUID, initialEntities: [SketchEntity])?
+    public private(set) var activeAssemblyDragInitialTransforms: [UUID: Transform]?
     @ObservationIgnored private var undoObservers: [NSObjectProtocol] = []
 
     public var isRolledBack: Bool { rollbackIndex != nil }
@@ -1333,6 +1334,7 @@ public final class DocumentModel {
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         activeInteractiveSketchDrag = nil
+        activeAssemblyDragInitialTransforms = nil
         undoStateVersion += 1
     }
 
@@ -1366,6 +1368,7 @@ public final class DocumentModel {
         self.selectedSubElement = nil
         activeInteractiveParamEdit = nil
         activeInteractiveSketchDrag = nil
+        activeAssemblyDragInitialTransforms = nil
         undoStateVersion += 1
     }
 
@@ -6367,9 +6370,9 @@ public final class DocumentModel {
     }
 
     @discardableResult
-    public func solveAssemblyConstraints(actionName: String? = nil, registerUndo: Bool = true) -> AssemblySolverResult {
+    public func solveAssemblyConstraints(dragTarget: AssemblyDragTarget? = nil, actionName: String? = nil, registerUndo: Bool = true) -> AssemblySolverResult {
         let system = assemblyConstraintSystem()
-        let result = AssemblyConstraintSolver.solve(system: system)
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
         guard result.status.isConverged else {
             return result
         }
@@ -6386,7 +6389,7 @@ public final class DocumentModel {
 
         if !oldTransforms.isEmpty {
             syncObjectsFromFeatures()
-            if registerUndo {
+            if registerUndo && activeAssemblyDragInitialTransforms == nil {
                 let effectiveActionName = actionName ?? "Solve Assembly Constraints"
                 let newTransforms = result.solvedTransforms.filter { oldTransforms[$0.key] != nil }
                 undoManager?.registerUndo(withTarget: self) { target in
@@ -6419,6 +6422,89 @@ public final class DocumentModel {
         }
 
         return result
+    }
+
+    // MARK: - Interactive Assembly Drag Sessions (BL-ASM-06)
+
+    public func beginInteractiveAssemblyDrag(instanceId: UUID) {
+        guard componentInstances.contains(where: { $0.id == instanceId && !$0.isGrounded && !$0.isLocked }) else {
+            return
+        }
+        var initialMap: [UUID: Transform] = [:]
+        for inst in componentInstances {
+            initialMap[inst.id] = inst.transform
+        }
+        activeAssemblyDragInitialTransforms = initialMap
+    }
+
+    public func endInteractiveAssemblyDrag(instanceId: UUID, actionName: String? = nil) {
+        guard let initialTransforms = activeAssemblyDragInitialTransforms else {
+            activeAssemblyDragInitialTransforms = nil
+            return
+        }
+        activeAssemblyDragInitialTransforms = nil
+
+        var changedOldTransforms: [UUID: Transform] = [:]
+        var changedNewTransforms: [UUID: Transform] = [:]
+
+        for inst in componentInstances where !inst.isGrounded {
+            if let oldT = initialTransforms[inst.id], oldT != inst.transform {
+                changedOldTransforms[inst.id] = oldT
+                changedNewTransforms[inst.id] = inst.transform
+            }
+        }
+
+        guard !changedOldTransforms.isEmpty else { return }
+
+        let effectiveActionName = actionName ?? "Drag Component"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                for (id, oldTransform) in changedOldTransforms {
+                    if let idx = target.componentInstances.firstIndex(where: { $0.id == id }), !target.componentInstances[idx].isGrounded {
+                        target.componentInstances[idx].transform = oldTransform
+                    }
+                }
+                target.syncObjectsFromFeatures()
+                target.undoStateVersion += 1
+                target.undoManager?.setActionName(effectiveActionName)
+                target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                    MainActor.assumeIsolated {
+                        for (id, newTransform) in changedNewTransforms {
+                            if let idx = redoTarget.componentInstances.firstIndex(where: { $0.id == id }), !redoTarget.componentInstances[idx].isGrounded {
+                                redoTarget.componentInstances[idx].transform = newTransform
+                            }
+                        }
+                        redoTarget.syncObjectsFromFeatures()
+                        redoTarget.undoStateVersion += 1
+                        redoTarget.undoManager?.setActionName(effectiveActionName)
+                    }
+                }
+            }
+        }
+        undoManager?.setActionName(effectiveActionName)
+        undoStateVersion += 1
+    }
+
+    public func cancelInteractiveAssemblyDrag() {
+        guard let initialTransforms = activeAssemblyDragInitialTransforms else {
+            activeAssemblyDragInitialTransforms = nil
+            return
+        }
+        activeAssemblyDragInitialTransforms = nil
+
+        var changed = false
+        for (id, oldTransform) in initialTransforms {
+            if let idx = componentInstances.firstIndex(where: { $0.id == id }), !componentInstances[idx].isGrounded {
+                if componentInstances[idx].transform != oldTransform {
+                    componentInstances[idx].transform = oldTransform
+                    changed = true
+                }
+            }
+        }
+        if changed {
+            syncObjectsFromFeatures()
+            undoStateVersion += 1
+        }
     }
 
     /// Returns all direct dependent objects of `rootId` (BL-FND-03).

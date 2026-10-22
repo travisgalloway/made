@@ -4217,8 +4217,8 @@ final class WorkspaceModel {
     }
 
     @discardableResult
-    public func solveAssemblyConstraints() -> AssemblySolverResult {
-        let result = document.solveAssemblyConstraints()
+    public func solveAssemblyConstraints(dragTarget: AssemblyDragTarget? = nil) -> AssemblySolverResult {
+        let result = document.solveAssemblyConstraints(dragTarget: dragTarget)
         lastAssemblySolverResult = result
         if result.status.isConverged {
             markDocumentModified()
@@ -4234,6 +4234,49 @@ final class WorkspaceModel {
             log(.warning, "Assembly", "Assembly solve status: \(result.status)")
         }
         return result
+    }
+
+    public func beginInteractiveAssemblyDrag(instanceId: UUID) {
+        document.beginInteractiveAssemblyDrag(instanceId: instanceId)
+    }
+
+    @discardableResult
+    public func solveAssemblyDrag(dragTarget: AssemblyDragTarget) -> AssemblySolverResult {
+        let result = document.solveAssemblyConstraints(dragTarget: dragTarget, registerUndo: false)
+        lastAssemblySolverResult = result
+        if result.status.isConverged {
+            if let renderer = viewportManager.renderer {
+                for (id, _) in result.solvedTransforms {
+                    let solidId = SolidId("component-\(id.uuidString)")
+                    _ = SolidMeshApplier.applyTransform(to: solidId, document: document, sink: renderer)
+                }
+            }
+            invalidateViewport(.model)
+        }
+        return result
+    }
+
+    public func endInteractiveAssemblyDrag(instanceId: UUID) {
+        document.endInteractiveAssemblyDrag(instanceId: instanceId)
+        markDocumentModified()
+        if let renderer = viewportManager.renderer {
+            for comp in document.componentInstances {
+                let solidId = SolidId("component-\(comp.id.uuidString)")
+                _ = SolidMeshApplier.applyTransform(to: solidId, document: document, sink: renderer)
+            }
+        }
+        invalidateViewport(.model)
+    }
+
+    public func cancelInteractiveAssemblyDrag() {
+        document.cancelInteractiveAssemblyDrag()
+        if let renderer = viewportManager.renderer {
+            for comp in document.componentInstances {
+                let solidId = SolidId("component-\(comp.id.uuidString)")
+                _ = SolidMeshApplier.applyTransform(to: solidId, document: document, sink: renderer)
+            }
+        }
+        invalidateViewport(.model)
     }
 
     @discardableResult

@@ -338,3 +338,30 @@ public struct AssemblyConstraintSystem: Sendable, Codable, Equatable {
         self.constraints = constraints
     }
 }
+
+/// Target transform or position descriptor for interactive assembly dragging operations (BL-ASM-06).
+public struct AssemblyDragTarget: Sendable, Codable, Equatable {
+    public var instanceId: UUID
+    public var targetPosition: SIMD3<Float>?
+    public var targetRotation: simd_quatf?
+    public var weight: Double
+
+    public init(
+        instanceId: UUID,
+        targetPosition: SIMD3<Float>? = nil,
+        targetRotation: simd_quatf? = nil,
+        weight: Double = 1.0
+    ) {
+        self.instanceId = instanceId
+        self.targetPosition = targetPosition
+        self.targetRotation = targetRotation
+        self.weight = weight
+    }
+
+    public init(instanceId: UUID, targetTransform: Transform, weight: Double = 1.0) {
+        self.instanceId = instanceId
+        self.targetPosition = targetTransform.position
+        self.targetRotation = targetTransform.rotation
+        self.weight = weight
+    }
+}

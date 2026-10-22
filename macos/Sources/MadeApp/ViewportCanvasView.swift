@@ -129,6 +129,18 @@ struct ViewportCanvasView: View {
                             onSketchDragEnd: { featId in
                                 workspace.endInteractiveSketchDrag(featureId: featId)
                             },
+                            onAssemblyDragStart: { instanceId in
+                                workspace.beginInteractiveAssemblyDrag(instanceId: instanceId)
+                            },
+                            onAssemblyDragUpdate: { dragTarget in
+                                workspace.solveAssemblyDrag(dragTarget: dragTarget)
+                            },
+                            onAssemblyDragEnd: { instanceId in
+                                workspace.endInteractiveAssemblyDrag(instanceId: instanceId)
+                            },
+                            onAssemblyDragCancel: { _ in
+                                workspace.cancelInteractiveAssemblyDrag()
+                            },
                             activeRectangleKind: workspace.activeRectangleKind,
                             onRectangleCompleted: { start, end in
                                 guard let feat = workspace.selectedSketchFeature else { return }

@@ -779,4 +779,189 @@ import simd
         #expect(result.status.isConverged)
         #expect(!result.solvedTransforms.isEmpty)
     }
+
+    // MARK: - Under-Constrained Drag Solver Tests (BL-ASM-06)
+
+    @Test func testDragTargetRespectsPlanarMate() {
+        let base = ComponentInstance(name: "Base", reference: .internalPart(name: "Base"), transform: .identity, isGrounded: true)
+        let slider = ComponentInstance(
+            name: "Slider",
+            reference: .internalPart(name: "Slider"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        // Planar joint constraining Z to 0 (normal along +Z)
+        let fBase = AssemblyFeature(componentInstanceId: base.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        let fSlider = AssemblyFeature(componentInstanceId: slider.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        let joint = AssemblyConstraint(kind: .planar, firstFeature: fBase, secondFeature: fSlider, value: 0.0)
+
+        // Drag target wants to move to (25, 40, 100) - an out-of-plane deviation of 100 on Z
+        let dragTarget = AssemblyDragTarget(
+            instanceId: slider.id,
+            targetPosition: SIMD3<Float>(25, 40, 100),
+            weight: 1.0
+        )
+        let system = AssemblyConstraintSystem(instances: [base, slider], constraints: [joint])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        guard let solved = result.solvedTransforms[slider.id] else {
+            Issue.record("Missing solved transform")
+            return
+        }
+        // In-plane translations (X and Y) follow the drag target
+        #expect(abs(solved.position.x - 25) < 1.0)
+        #expect(abs(solved.position.y - 40) < 1.0)
+        // Out-of-plane translation Z is strictly constrained to 0
+        #expect(abs(solved.position.z) < 1e-3)
+    }
+
+    @Test func testDragTargetRespectsRevoluteJoint() {
+        let base = ComponentInstance(name: "Base", reference: .internalPart(name: "Base"), transform: .identity, isGrounded: true)
+        let arm = ComponentInstance(
+            name: "Arm",
+            reference: .internalPart(name: "Arm"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        // Revolute joint at origin around +Z axis
+        let fBase = AssemblyFeature(componentInstanceId: base.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        let fArm = AssemblyFeature(componentInstanceId: arm.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        let joint = AssemblyConstraint(kind: .revolute, firstFeature: fBase, secondFeature: fArm)
+
+        // Drag target wants to rotate 45 degrees around Z, but also shift position to (50, 50, 50)
+        let targetRot = simd_quatf(angle: Float.pi / 4.0, axis: SIMD3<Float>(0, 0, 1))
+        let dragTarget = AssemblyDragTarget(
+            instanceId: arm.id,
+            targetPosition: SIMD3<Float>(50, 50, 50),
+            targetRotation: targetRot,
+            weight: 1.0
+        )
+        let system = AssemblyConstraintSystem(instances: [base, arm], constraints: [joint])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        guard let solved = result.solvedTransforms[arm.id] else {
+            Issue.record("Missing solved transform")
+            return
+        }
+        // Origin remains pinned at (0, 0, 0)
+        #expect(abs(solved.position.x) < 1e-3)
+        #expect(abs(solved.position.y) < 1e-3)
+        #expect(abs(solved.position.z) < 1e-3)
+
+        // Rotation around Z rotated toward target
+        let armX = solved.rotation.act(SIMD3<Float>(1, 0, 0))
+        let expectedX = targetRot.act(SIMD3<Float>(1, 0, 0))
+        #expect(abs(armX.x - expectedX.x) < 1e-2)
+        #expect(abs(armX.y - expectedX.y) < 1e-2)
+    }
+
+    @Test func testDragTargetArticulatesKinematicChain() {
+        // Multi-link chain: Ground -> Link1 (revolute at (0,0,0) around Z) -> Link2 (revolute at (10,0,0) on Link1 around Z)
+        let ground = ComponentInstance(name: "Ground", reference: .internalPart(name: "G"), transform: .identity, isGrounded: true)
+        let link1 = ComponentInstance(name: "Link1", reference: .internalPart(name: "L1"), transform: .identity)
+        let link2 = ComponentInstance(name: "Link2", reference: .internalPart(name: "L2"), transform: Transform(position: SIMD3<Float>(10, 0, 0)))
+
+        let j1 = AssemblyConstraint(
+            kind: .revolute,
+            firstFeature: AssemblyFeature(componentInstanceId: ground.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1)),
+            secondFeature: AssemblyFeature(componentInstanceId: link1.id, origin: .zero, axis: SIMD3<Float>(0, 0, 1))
+        )
+        let j2 = AssemblyConstraint(
+            kind: .revolute,
+            firstFeature: AssemblyFeature(componentInstanceId: link1.id, localOrigin: SIMD3<Float>(10, 0, 0), localAxis: SIMD3<Float>(0, 0, 1)),
+            secondFeature: AssemblyFeature(componentInstanceId: link2.id, localOrigin: .zero, localAxis: SIMD3<Float>(0, 0, 1))
+        )
+
+        // Drag end-effector Link2 towards (0, 10, 0) - requires Link1 to rotate by 90 degrees
+        let dragTarget = AssemblyDragTarget(
+            instanceId: link2.id,
+            targetPosition: SIMD3<Float>(0, 10, 0),
+            weight: 1.0
+        )
+        let system = AssemblyConstraintSystem(instances: [ground, link1, link2], constraints: [j1, j2])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        guard let solvedL1 = result.solvedTransforms[link1.id],
+              let solvedL2 = result.solvedTransforms[link2.id] else {
+            Issue.record("Missing solved transforms")
+            return
+        }
+        // Link1 articulated around Z
+        let l1Rot = solvedL1.rotation.eulerAnglesDegrees
+        #expect(abs(l1Rot.z) > 1.0)
+        // Joint 2 origin remains connected: solvedL2 position matches link1 tip
+        let expectedL2Origin = solvedL1.rotation.act(SIMD3<Float>(10, 0, 0)) + solvedL1.position
+        #expect(abs(solvedL2.position.x - expectedL2Origin.x) < 1e-3)
+        #expect(abs(solvedL2.position.y - expectedL2Origin.y) < 1e-3)
+        #expect(abs(solvedL2.position.z - expectedL2Origin.z) < 1e-3)
+    }
+
+    @Test func testDragTargetOnGroundedComponentIgnored() {
+        let base = ComponentInstance(name: "Base", reference: .internalPart(name: "Base"), transform: .identity, isGrounded: true)
+        let dragTarget = AssemblyDragTarget(
+            instanceId: base.id,
+            targetPosition: SIMD3<Float>(100, 200, 300),
+            weight: 1.0
+        )
+        let system = AssemblyConstraintSystem(instances: [base], constraints: [])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        #expect(result.solvedTransforms[base.id]?.position == SIMD3<Float>(0, 0, 0))
+    }
+
+    @Test func testDragTargetOnFullyConstrainedComponentMaintainsMates() {
+        let base = ComponentInstance(name: "Base", reference: .internalPart(name: "Base"), transform: .identity, isGrounded: true)
+        let part = ComponentInstance(name: "Part", reference: .internalPart(name: "Part"), transform: Transform(position: SIMD3<Float>(10, 0, 0)))
+
+        // Fastened mate locks all 6 DOFs relative to base
+        let fBase = AssemblyFeature(componentInstanceId: base.id, origin: SIMD3<Float>(10, 0, 0))
+        let fPart = AssemblyFeature(componentInstanceId: part.id, origin: .zero)
+        let mate = AssemblyConstraint(kind: .fastened, firstFeature: fBase, secondFeature: fPart)
+
+        // Attempting to drag locked component away to (100, 200, 300)
+        let dragTarget = AssemblyDragTarget(
+            instanceId: part.id,
+            targetPosition: SIMD3<Float>(100, 200, 300),
+            weight: 1.0
+        )
+        let system = AssemblyConstraintSystem(instances: [base, part], constraints: [mate])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        #expect(result.totalDOF == 0)
+        guard let solvedPos = result.solvedTransforms[part.id]?.position else {
+            Issue.record("Missing solved transform")
+            return
+        }
+        // Part remains locked at (10, 0, 0)
+        #expect(abs(solvedPos.x - 10) < 1e-3)
+        #expect(abs(solvedPos.y) < 1e-3)
+        #expect(abs(solvedPos.z) < 1e-3)
+    }
+
+    @Test func testDragTargetWithZeroConstraintsMovesFreeInstance() {
+        let free = ComponentInstance(name: "Free", reference: .internalPart(name: "Part"), transform: .identity)
+        let targetPos = SIMD3<Float>(15, -25, 35)
+        let targetRot = simd_quatf(angle: Float.pi / 3.0, axis: SIMD3<Float>(0, 1, 0))
+        let dragTarget = AssemblyDragTarget(
+            instanceId: free.id,
+            targetPosition: targetPos,
+            targetRotation: targetRot
+        )
+        let system = AssemblyConstraintSystem(instances: [free], constraints: [])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        #expect(result.totalDOF == 6)
+        guard let solved = result.solvedTransforms[free.id] else {
+            Issue.record("Missing solved transform")
+            return
+        }
+        #expect(abs(solved.position.x - targetPos.x) < 1e-3)
+        #expect(abs(solved.position.y - targetPos.y) < 1e-3)
+        #expect(abs(solved.position.z - targetPos.z) < 1e-3)
+        #expect(abs(solved.rotation.real - targetRot.real) < 1e-3)
+    }
 }
