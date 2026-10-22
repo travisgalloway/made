@@ -3575,6 +3575,12 @@ struct DrawingViewInspectorView: View {
     var body: some View {
         Form {
             Section("View Setup") {
+                LabeledContent("Kind") {
+                    Text(view.kind.displayName)
+                        .fontWeight(.medium)
+                }
+                .accessibilityIdentifier("inspector-view-kind-label")
+
                 TextField("Name", text: Binding(
                     get: { view.name },
                     set: { newName in
@@ -3664,6 +3670,195 @@ struct DrawingViewInspectorView: View {
                 }
             }
 
+            if view.kind == .section || view.sectionDefinition != nil {
+                Section("Section Properties") {
+                    TextField("Label", text: Binding(
+                        get: { view.sectionDefinition?.label ?? "A" },
+                        set: { newLabel in
+                            var updated = view
+                            var sec = updated.sectionDefinition ?? SectionLineDefinition()
+                            sec.label = newLabel
+                            updated.sectionDefinition = sec
+                            _ = workspace.updateDrawingView(updated)
+                        }
+                    ))
+
+                    Picker("Hatch Style", selection: Binding(
+                        get: { view.hatchPattern?.style ?? .ansi31 },
+                        set: { newStyle in
+                            var updated = view
+                            var pat = updated.hatchPattern ?? HatchPatternDefinition()
+                            pat.style = newStyle
+                            updated.hatchPattern = pat
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    )) {
+                        ForEach(HatchPatternStyle.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+
+                    TextField("Hatch Angle (°)", value: Binding(
+                        get: { view.hatchPattern?.angleDegrees ?? 45.0 },
+                        set: { newAngle in
+                            var updated = view
+                            var pat = updated.hatchPattern ?? HatchPatternDefinition()
+                            pat.angleDegrees = newAngle
+                            updated.hatchPattern = pat
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    ), format: .number)
+
+                    TextField("Hatch Spacing (mm)", value: Binding(
+                        get: { view.hatchPattern?.spacingMM ?? 3.0 },
+                        set: { newSpacing in
+                            var updated = view
+                            var pat = updated.hatchPattern ?? HatchPatternDefinition()
+                            pat.spacingMM = max(0.5, newSpacing)
+                            updated.hatchPattern = pat
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    ), format: .number)
+                }
+            }
+
+            if view.kind == .detail || view.detailDefinition != nil {
+                Section("Detail Properties") {
+                    TextField("Label", text: Binding(
+                        get: { view.detailDefinition?.label ?? "B" },
+                        set: { newLabel in
+                            var updated = view
+                            var det = updated.detailDefinition ?? DetailCircleDefinition()
+                            det.label = newLabel
+                            updated.detailDefinition = det
+                            _ = workspace.updateDrawingView(updated)
+                        }
+                    ))
+
+                    TextField("Radius (mm)", value: Binding(
+                        get: { view.detailDefinition?.radiusMM ?? 15.0 },
+                        set: { newRadius in
+                            var updated = view
+                            var det = updated.detailDefinition ?? DetailCircleDefinition()
+                            det.radiusMM = max(1.0, newRadius)
+                            updated.detailDefinition = det
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    ), format: .number)
+                }
+            }
+
+            if view.kind == .auxiliary || view.auxiliaryDefinition != nil {
+                Section("Auxiliary Properties") {
+                    TextField("Label", text: Binding(
+                        get: { view.auxiliaryDefinition?.label ?? "C" },
+                        set: { newLabel in
+                            var updated = view
+                            var aux = updated.auxiliaryDefinition ?? AuxiliaryViewDefinition()
+                            aux.label = newLabel
+                            updated.auxiliaryDefinition = aux
+                            _ = workspace.updateDrawingView(updated)
+                        }
+                    ))
+
+                    TextField("Projection Angle (°)", value: Binding(
+                        get: { view.auxiliaryDefinition?.angleDegrees ?? 45.0 },
+                        set: { newAngle in
+                            var updated = view
+                            var aux = updated.auxiliaryDefinition ?? AuxiliaryViewDefinition()
+                            aux.angleDegrees = newAngle
+                            let derived = DrawingAuxiliaryDerivation.deriveDirection(
+                                from: updated.effectiveViewDirection,
+                                angleDegrees: newAngle
+                            )
+                            aux.customDirection = derived
+                            updated.auxiliaryDefinition = aux
+                            updated.customViewDirection = derived
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    ), format: .number)
+                }
+            }
+
+            if view.kind == .broken || view.breakDefinition != nil {
+                Section("Break View Properties") {
+                    Picker("Orientation", selection: Binding(
+                        get: { view.breakDefinition?.orientation ?? .horizontal },
+                        set: { newOrient in
+                            var updated = view
+                            var brk = updated.breakDefinition ?? BreakViewDefinition()
+                            brk.orientation = newOrient
+                            updated.breakDefinition = brk
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    )) {
+                        ForEach(BreakOrientation.allCases, id: \.self) { orient in
+                            Text(orient.displayName).tag(orient)
+                        }
+                    }
+
+                    Picker("Line Style", selection: Binding(
+                        get: { view.breakDefinition?.style ?? .zigzag },
+                        set: { newStyle in
+                            var updated = view
+                            var brk = updated.breakDefinition ?? BreakViewDefinition()
+                            brk.style = newStyle
+                            updated.breakDefinition = brk
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    )) {
+                        ForEach(BreakLineStyle.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+
+                    HStack {
+                        TextField("Start (mm)", value: Binding(
+                            get: { view.breakDefinition?.startMM ?? -10.0 },
+                            set: { newStart in
+                                var updated = view
+                                var brk = updated.breakDefinition ?? BreakViewDefinition()
+                                brk.startMM = newStart
+                                updated.breakDefinition = brk
+                                _ = workspace.updateDrawingView(updated)
+                                workspace.recomputeDrawingViewHLR(viewId: view.id)
+                            }
+                        ), format: .number)
+
+                        TextField("End (mm)", value: Binding(
+                            get: { view.breakDefinition?.endMM ?? 10.0 },
+                            set: { newEnd in
+                                var updated = view
+                                var brk = updated.breakDefinition ?? BreakViewDefinition()
+                                brk.endMM = newEnd
+                                updated.breakDefinition = brk
+                                _ = workspace.updateDrawingView(updated)
+                                workspace.recomputeDrawingViewHLR(viewId: view.id)
+                            }
+                        ), format: .number)
+                    }
+
+                    TextField("Gap (mm)", value: Binding(
+                        get: { view.breakDefinition?.gapMM ?? 5.0 },
+                        set: { newGap in
+                            var updated = view
+                            var brk = updated.breakDefinition ?? BreakViewDefinition()
+                            brk.gapMM = max(1.0, newGap)
+                            updated.breakDefinition = brk
+                            _ = workspace.updateDrawingView(updated)
+                            workspace.recomputeDrawingViewHLR(viewId: view.id)
+                        }
+                    ), format: .number)
+                }
+            }
+
             Section("Position (mm)") {
                 HStack {
                     TextField("X", value: Binding(
@@ -3686,7 +3881,7 @@ struct DrawingViewInspectorView: View {
                 }
             }
 
-            Section("Projected Views") {
+            Section("Projected & Derived Views") {
                 VStack(spacing: 6) {
                     HStack {
                         Button("Right") {
@@ -3704,6 +3899,25 @@ struct DrawingViewInspectorView: View {
                     }
                     Button("Isometric Projection") {
                         _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
+                    }
+
+                    Divider()
+
+                    HStack {
+                        Button("Section View") {
+                            _ = workspace.addSectionView(parentViewId: view.id)
+                        }
+                        Button("Detail View") {
+                            _ = workspace.addDetailView(parentViewId: view.id)
+                        }
+                    }
+                    HStack {
+                        Button("Auxiliary View") {
+                            _ = workspace.addAuxiliaryView(parentViewId: view.id)
+                        }
+                        Button("Broken View") {
+                            _ = workspace.addBrokenView(parentViewId: view.id)
+                        }
                     }
                 }
             }

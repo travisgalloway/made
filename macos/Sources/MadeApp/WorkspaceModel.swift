@@ -2672,6 +2672,222 @@ final class WorkspaceModel {
     }
 
     @discardableResult
+    func addSectionView(
+        parentViewId: UUID,
+        startPointMM: SIMD2<Double> = SIMD2(-20, 0),
+        endPointMM: SIMD2<Double> = SIMD2(20, 0),
+        arrowDirection: SIMD2<Double> = SIMD2(0, 1),
+        label: String = "A",
+        hatchPattern: HatchPatternDefinition = .standard,
+        distanceMM: Double = 60.0
+    ) -> DrawingView? {
+        guard let sheet = document.activeSheet else { return nil }
+        guard let parent = sheet.views.first(where: { $0.id == parentViewId }) else { return nil }
+
+        let newX = max(10.0, min(sheet.dimensionsMM.width - 10.0, parent.positionMM.x))
+        let newY = max(10.0, min(sheet.dimensionsMM.height - 10.0, parent.positionMM.y + distanceMM))
+        let newPos = SIMD2<Double>(newX, newY)
+
+        let baseHLR = HLREngine.computeHLR(
+            objects: document.objects,
+            direction: parent.effectiveViewDirection,
+            options: parent.displayStyle.hlrOptions
+        )
+
+        let hatchEdges: [HLREdge]
+        if let bounds = baseHLR.bounds2D {
+            hatchEdges = DrawingHatchGenerator.generateHatchLines(in: bounds, pattern: hatchPattern)
+        } else {
+            hatchEdges = []
+        }
+        let sectionHLR = HLRResult(edges: baseHLR.edges + hatchEdges, viewDirection: baseHLR.viewDirection)
+
+        let sectionDef = SectionLineDefinition(
+            label: label,
+            startPointMM: startPointMM,
+            endPointMM: endPointMM,
+            arrowDirection: arrowDirection
+        )
+
+        let sectionView = DrawingView(
+            name: "Section \(label)-\(label)",
+            kind: .section,
+            standardView: parent.standardView,
+            parentViewId: parent.id,
+            positionMM: newPos,
+            scale: parent.scale,
+            displayStyle: parent.displayStyle,
+            projectionAngle: sheet.projectionAngle,
+            cachedHLR: sectionHLR,
+            sectionDefinition: sectionDef,
+            hatchPattern: hatchPattern,
+            customViewDirection: parent.customViewDirection
+        )
+
+        guard let added = document.addDrawingView(sectionView, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    func addDetailView(
+        parentViewId: UUID,
+        centerMM: SIMD2<Double> = .zero,
+        radiusMM: Double = 15.0,
+        scale: DrawingViewScale = .double,
+        label: String = "B",
+        distanceMM: Double = 60.0
+    ) -> DrawingView? {
+        guard let sheet = document.activeSheet else { return nil }
+        guard let parent = sheet.views.first(where: { $0.id == parentViewId }) else { return nil }
+
+        let newX = max(10.0, min(sheet.dimensionsMM.width - 10.0, parent.positionMM.x + distanceMM))
+        let newY = max(10.0, min(sheet.dimensionsMM.height - 10.0, parent.positionMM.y))
+        let newPos = SIMD2<Double>(newX, newY)
+
+        let baseHLR = HLREngine.computeHLR(
+            objects: document.objects,
+            direction: parent.effectiveViewDirection,
+            options: parent.displayStyle.hlrOptions
+        )
+
+        let clippedEdges = DrawingDetailProcessor.clipEdgesToCircle(
+            edges: baseHLR.edges,
+            centerMM: centerMM,
+            radiusMM: radiusMM
+        )
+        let detailHLR = HLRResult(edges: clippedEdges, viewDirection: baseHLR.viewDirection)
+
+        let detailDef = DetailCircleDefinition(
+            label: label,
+            centerMM: centerMM,
+            radiusMM: radiusMM
+        )
+
+        let detailView = DrawingView(
+            name: "Detail \(label)",
+            kind: .detail,
+            standardView: parent.standardView,
+            parentViewId: parent.id,
+            positionMM: newPos,
+            scale: scale,
+            displayStyle: parent.displayStyle,
+            projectionAngle: sheet.projectionAngle,
+            cachedHLR: detailHLR,
+            detailDefinition: detailDef,
+            customViewDirection: parent.customViewDirection
+        )
+
+        guard let added = document.addDrawingView(detailView, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    func addAuxiliaryView(
+        parentViewId: UUID,
+        angleDegrees: Double = 45.0,
+        distanceMM: Double = 60.0,
+        label: String = "C"
+    ) -> DrawingView? {
+        guard let sheet = document.activeSheet else { return nil }
+        guard let parent = sheet.views.first(where: { $0.id == parentViewId }) else { return nil }
+
+        let rad = angleDegrees * .pi / 180.0
+        let newX = max(10.0, min(sheet.dimensionsMM.width - 10.0, parent.positionMM.x + cos(rad) * distanceMM))
+        let newY = max(10.0, min(sheet.dimensionsMM.height - 10.0, parent.positionMM.y - sin(rad) * distanceMM))
+        let newPos = SIMD2<Double>(newX, newY)
+
+        let derivedDir = DrawingAuxiliaryDerivation.deriveDirection(
+            from: parent.effectiveViewDirection,
+            angleDegrees: angleDegrees
+        )
+
+        let hlr = HLREngine.computeHLR(
+            objects: document.objects,
+            direction: derivedDir,
+            options: parent.displayStyle.hlrOptions
+        )
+
+        let auxDef = AuxiliaryViewDefinition(
+            label: label,
+            angleDegrees: angleDegrees,
+            customDirection: derivedDir
+        )
+
+        let auxView = DrawingView(
+            name: "Auxiliary View \(label)",
+            kind: .auxiliary,
+            standardView: parent.standardView,
+            parentViewId: parent.id,
+            positionMM: newPos,
+            scale: parent.scale,
+            displayStyle: parent.displayStyle,
+            projectionAngle: sheet.projectionAngle,
+            cachedHLR: hlr,
+            auxiliaryDefinition: auxDef,
+            customViewDirection: derivedDir
+        )
+
+        guard let added = document.addDrawingView(auxView, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    func addBrokenView(
+        parentViewId: UUID,
+        orientation: BreakOrientation = .horizontal,
+        startMM: Double = -10.0,
+        endMM: Double = 10.0,
+        gapMM: Double = 5.0,
+        style: BreakLineStyle = .zigzag,
+        distanceMM: Double = 60.0
+    ) -> DrawingView? {
+        guard let sheet = document.activeSheet else { return nil }
+        guard let parent = sheet.views.first(where: { $0.id == parentViewId }) else { return nil }
+
+        let offset = orientation == .horizontal ? SIMD2<Double>(distanceMM, 0) : SIMD2<Double>(0, distanceMM)
+        let newX = max(10.0, min(sheet.dimensionsMM.width - 10.0, parent.positionMM.x + offset.x))
+        let newY = max(10.0, min(sheet.dimensionsMM.height - 10.0, parent.positionMM.y + offset.y))
+        let newPos = SIMD2<Double>(newX, newY)
+
+        let baseHLR = HLREngine.computeHLR(
+            objects: document.objects,
+            direction: parent.effectiveViewDirection,
+            options: parent.displayStyle.hlrOptions
+        )
+
+        let breakDef = BreakViewDefinition(
+            orientation: orientation,
+            startMM: startMM,
+            endMM: endMM,
+            gapMM: gapMM,
+            style: style
+        )
+
+        let brokenHLR = DrawingBreakProcessor.applyBreak(to: baseHLR, definition: breakDef)
+
+        let brokenView = DrawingView(
+            name: "Broken View",
+            kind: .broken,
+            standardView: parent.standardView,
+            parentViewId: parent.id,
+            positionMM: newPos,
+            scale: parent.scale,
+            displayStyle: parent.displayStyle,
+            projectionAngle: sheet.projectionAngle,
+            cachedHLR: brokenHLR,
+            breakDefinition: breakDef,
+            customViewDirection: parent.customViewDirection
+        )
+
+        guard let added = document.addDrawingView(brokenView, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
     func removeDrawingView(id: UUID) -> Bool {
         let result = document.removeDrawingView(id: id)
         if result {
@@ -2700,17 +2916,52 @@ final class WorkspaceModel {
 
     func recomputeDrawingViewHLR(viewId: UUID) {
         for sheet in document.sheets {
-            if let view = sheet.views.first(where: { $0.id == viewId }) {
-                let hlr = HLREngine.computeHLR(
-                    objects: document.objects,
-                    direction: view.standardView.direction,
-                    options: view.displayStyle.hlrOptions
-                )
-                var updated = view
-                updated.cachedHLR = hlr
-                _ = updateDrawingView(updated)
-                break
+            guard let view = sheet.views.first(where: { $0.id == viewId }) else { continue }
+
+            let direction = view.effectiveViewDirection
+            let baseHLR = HLREngine.computeHLR(
+                objects: document.objects,
+                direction: direction,
+                options: view.displayStyle.hlrOptions
+            )
+
+            var finalHLR = baseHLR
+
+            switch view.kind {
+            case .base, .projected, .auxiliary:
+                finalHLR = baseHLR
+
+            case .section:
+                if let hatchDef = view.hatchPattern, let bounds = baseHLR.bounds2D {
+                    let hatchEdges = DrawingHatchGenerator.generateHatchLines(in: bounds, pattern: hatchDef)
+                    finalHLR = HLRResult(edges: baseHLR.edges + hatchEdges, viewDirection: direction)
+                }
+
+            case .detail:
+                if let detailDef = view.detailDefinition {
+                    let clipped = DrawingDetailProcessor.clipEdgesToCircle(
+                        edges: baseHLR.edges,
+                        centerMM: detailDef.centerMM,
+                        radiusMM: detailDef.radiusMM
+                    )
+                    finalHLR = HLRResult(edges: clipped, viewDirection: direction)
+                }
+
+            case .broken:
+                if let breakDef = view.breakDefinition {
+                    finalHLR = DrawingBreakProcessor.applyBreak(to: baseHLR, definition: breakDef)
+                }
             }
+
+            var updated = view
+            updated.cachedHLR = finalHLR
+            _ = updateDrawingView(updated)
+
+            // Recompute any dependent views
+            for child in sheet.views where child.parentViewId == viewId {
+                recomputeDrawingViewHLR(viewId: child.id)
+            }
+            break
         }
     }
 

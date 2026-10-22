@@ -154,7 +154,7 @@ struct DrawingCanvasView: View {
                         }
                     }
                 }
-                .stroke(Color.black, lineWidth: 1.0)
+                .stroke(Color.black, lineWidth: view.kind == .section ? 0.6 : 1.0)
             }
 
             // Hidden edges
@@ -176,6 +176,23 @@ struct DrawingCanvasView: View {
                 }
                 .stroke(Color.secondary, style: StrokeStyle(lineWidth: 0.8, dash: [4, 3]))
             }
+
+            // Detail view circular boundary border and label
+            if view.kind == .detail, let detDef = view.detailDefinition {
+                let rPt = detDef.radiusMM * effectiveScale
+                Circle()
+                    .stroke(Color.black, lineWidth: 1.2)
+                    .frame(width: rPt * 2, height: rPt * 2)
+                    .position(x: viewCenterX, y: viewCenterY)
+
+                Text("DETAIL \(detDef.label) · SCALE \(view.scale.displayString)")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .position(x: viewCenterX, y: viewCenterY + rPt + 12)
+            }
+
+            // Parent overlays for dependent derived views
+            parentOverlays(for: view, sheet: sheet, viewCenterX: viewCenterX, viewCenterY: viewCenterY, effectiveScale: effectiveScale)
 
             // Empty placeholder when no edges exist
             if visibleEdges.isEmpty && hiddenEdges.isEmpty {
@@ -254,12 +271,125 @@ struct DrawingCanvasView: View {
                     _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
                 }
             }
+            Menu("Add Derived View") {
+                Button("Section View") {
+                    _ = workspace.addSectionView(parentViewId: view.id)
+                }
+                Button("Detail View") {
+                    _ = workspace.addDetailView(parentViewId: view.id)
+                }
+                Button("Auxiliary View") {
+                    _ = workspace.addAuxiliaryView(parentViewId: view.id)
+                }
+                Button("Broken View") {
+                    _ = workspace.addBrokenView(parentViewId: view.id)
+                }
+            }
             Divider()
             Button("Delete View", role: .destructive) {
                 _ = workspace.removeDrawingView(id: view.id)
             }
         }
         .accessibilityIdentifier("drawing-view-\(view.id.uuidString)")
+    }
+
+    @ViewBuilder
+    private func parentOverlays(
+        for parent: DrawingView,
+        sheet: DrawingSheet,
+        viewCenterX: Double,
+        viewCenterY: Double,
+        effectiveScale: Double
+    ) -> some View {
+        let children = sheet.views.filter { $0.parentViewId == parent.id }
+        ForEach(children) { child in
+            switch child.kind {
+            case .section:
+                if let secDef = child.sectionDefinition {
+                    let startX = viewCenterX + (secDef.startPointMM.x * effectiveScale)
+                    let startY = viewCenterY - (secDef.startPointMM.y * effectiveScale)
+                    let endX = viewCenterX + (secDef.endPointMM.x * effectiveScale)
+                    let endY = viewCenterY - (secDef.endPointMM.y * effectiveScale)
+
+                    // Cutting plane line
+                    Path { p in
+                        p.move(to: CGPoint(x: startX, y: startY))
+                        p.addLine(to: CGPoint(x: endX, y: endY))
+                    }
+                    .stroke(Color.black, style: StrokeStyle(lineWidth: 1.5, dash: [8, 3, 2, 3]))
+
+                    // Arrows and reference letters at ends
+                    let arrowLen = 14.0
+                    let arrX = secDef.arrowDirection.x * arrowLen
+                    let arrY = -secDef.arrowDirection.y * arrowLen
+
+                    // Start arrow
+                    Path { p in
+                        p.move(to: CGPoint(x: startX, y: startY))
+                        p.addLine(to: CGPoint(x: startX + arrX, y: startY + arrY))
+                    }
+                    .stroke(Color.black, lineWidth: 1.5)
+
+                    Text(secDef.label)
+                        .font(.system(size: 9, weight: .bold))
+                        .position(x: startX + arrX * 1.5, y: startY + arrY * 1.5)
+
+                    // End arrow
+                    Path { p in
+                        p.move(to: CGPoint(x: endX, y: endY))
+                        p.addLine(to: CGPoint(x: endX + arrX, y: endY + arrY))
+                    }
+                    .stroke(Color.black, lineWidth: 1.5)
+
+                    Text(secDef.label)
+                        .font(.system(size: 9, weight: .bold))
+                        .position(x: endX + arrX * 1.5, y: endY + arrY * 1.5)
+                }
+
+            case .detail:
+                if let detDef = child.detailDefinition {
+                    let cX = viewCenterX + (detDef.centerMM.x * effectiveScale)
+                    let cY = viewCenterY - (detDef.centerMM.y * effectiveScale)
+                    let rPt = detDef.radiusMM * effectiveScale
+
+                    // Callout circle
+                    Circle()
+                        .stroke(Color.black, style: StrokeStyle(lineWidth: 1.0, dash: [4, 2]))
+                        .frame(width: rPt * 2, height: rPt * 2)
+                        .position(x: cX, y: cY)
+
+                    // Label badge
+                    Text(detDef.label)
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(2)
+                        .background(Color.white.opacity(0.85))
+                        .clipShape(Circle())
+                        .position(x: cX + rPt + 6, y: cY - rPt - 6)
+                }
+
+            case .auxiliary:
+                if let auxDef = child.auxiliaryDefinition {
+                    let rad = auxDef.angleDegrees * .pi / 180.0
+                    let dist = 32.0
+                    let aX = viewCenterX + cos(rad) * dist
+                    let aY = viewCenterY - sin(rad) * dist
+
+                    Path { p in
+                        p.move(to: CGPoint(x: aX, y: aY))
+                        p.addLine(to: CGPoint(x: viewCenterX, y: viewCenterY))
+                    }
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.2, dash: [4, 2]))
+
+                    Text("VIEW \(auxDef.label)")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.accentColor)
+                        .position(x: aX + cos(rad) * 10, y: aY - sin(rad) * 10)
+                }
+
+            case .base, .projected, .broken:
+                EmptyView()
+            }
+        }
     }
 
     private func computeBoundingBox(for hlr: HLRResult?, viewCenterX: Double, viewCenterY: Double, effectiveScale: Double) -> (width: Double, height: Double, centerX: Double, centerY: Double) {
