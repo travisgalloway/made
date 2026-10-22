@@ -2472,6 +2472,108 @@ final class WorkspaceModel {
         invalidateViewport(.model)
     }
 
+    func newDrawingDocument() {
+        cancelActiveCommand()
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        clearRecoverySnapshot()
+        pendingRecoveryRecord = nil
+        isShowingRecoveryAlert = false
+        pendingSaveError = nil
+        isShowingSaveErrorAlert = false
+        pendingOpenError = nil
+        isShowingOpenErrorAlert = false
+        pendingExportError = nil
+        isShowingExportErrorAlert = false
+        pendingImportError = nil
+        isShowingImportErrorAlert = false
+
+        let initialSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
+            tolerances: kernelTolerances
+        )
+        let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
+        document.reset(
+            with: [SceneObject](),
+            selectedId: nil,
+            settings: initialSettings,
+            documentType: .drawing,
+            componentInstances: [],
+            sheets: [defaultSheet],
+            activeSheetId: defaultSheet.id
+        )
+        currentDocumentURL = nil
+        isDocumentModified = false
+        syncWindowState()
+        syncHiddenSolidIds()
+        syncViewportSelection()
+        log(.info, "Document", "Created new drawing document")
+        invalidateViewport(.model)
+    }
+
+    // MARK: - Drawing Sheet Workspace Actions (BL-DRW-01, #208)
+
+    @discardableResult
+    func addSheet(
+        name: String? = nil,
+        size: DrawingSheetSize = .isoA3,
+        orientation: DrawingSheetOrientation = .landscape
+    ) -> DrawingSheet {
+        let sheet = DrawingSheet(
+            name: name ?? "Sheet \(document.sheets.count + 1)",
+            size: size,
+            orientation: orientation
+        )
+        let added = document.addSheet(sheet)
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    func removeSheet(id: UUID) -> Bool {
+        let result = document.removeSheet(id: id)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    @discardableResult
+    func updateSheet(_ sheet: DrawingSheet) -> Bool {
+        let result = document.updateSheet(sheet)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    func setActiveSheetId(_ id: UUID?) {
+        document.setActiveSheetId(id)
+    }
+
+    @discardableResult
+    func duplicateSheet(id: UUID) -> DrawingSheet? {
+        let duplicated = document.duplicateSheet(id: id)
+        if duplicated != nil {
+            isDocumentModified = true
+        }
+        return duplicated
+    }
+
+    func reorderSheets(_ newSheets: [DrawingSheet]) {
+        document.reorderSheets(newSheets)
+        isDocumentModified = true
+    }
+
+    @discardableResult
+    func setSheetProperty(sheetId: UUID, key: String, value: String?) -> Bool {
+        let result = document.setSheetProperty(sheetId: sheetId, key: key, value: value)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
     @discardableResult
     func openDocument(at url: URL) -> Bool {
         do {
@@ -2504,6 +2606,8 @@ final class WorkspaceModel {
             }()
             let docType = package.documentData.documentType ?? package.manifest.documentType
             let componentInstances = package.documentData.componentInstances ?? []
+            let sheets = package.documentData.sheets ?? []
+            let activeSheetId = package.documentData.activeSheetId
             if let features = package.documentData.features {
                 document.reset(
                     with: features,
@@ -2514,6 +2618,8 @@ final class WorkspaceModel {
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
                     componentInstances: componentInstances,
+                    sheets: sheets,
+                    activeSheetId: activeSheetId,
                     metadata: docMetadata
                 )
             } else {
@@ -2526,6 +2632,8 @@ final class WorkspaceModel {
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
                     componentInstances: componentInstances,
+                    sheets: sheets,
+                    activeSheetId: activeSheetId,
                     metadata: docMetadata
                 )
             }
@@ -2567,7 +2675,14 @@ final class WorkspaceModel {
             selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString },
             parameters: document.parameters,
             documentType: document.documentType,
-            componentInstances: document.componentInstances
+            componentInstances: document.componentInstances,
+            assemblyConstraints: document.assemblyConstraints,
+            componentPatterns: document.componentPatterns,
+            componentMirrors: document.componentMirrors,
+            explodedViews: document.explodedViews,
+            activeExplodedViewId: document.activeExplodedViewId,
+            sheets: document.sheets,
+            activeSheetId: document.activeSheetId
         )
 
         var assets: [String: Data] = [:]
@@ -5589,6 +5704,9 @@ final class WorkspaceModel {
 
     static let newAssemblyShortcutKey: KeyEquivalent = "n"
     static let newAssemblyShortcutModifiers: EventModifiers = [.command, .option]
+
+    static let newDrawingShortcutKey: KeyEquivalent = "d"
+    static let newDrawingShortcutModifiers: EventModifiers = [.command, .shift]
 
     static let solveAssemblyShortcutKey: KeyEquivalent = "s"
     static let solveAssemblyShortcutModifiers: EventModifiers = [.command, .option]

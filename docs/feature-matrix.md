@@ -4,7 +4,7 @@ Date: 2026-10-17
 Scope: macos/ (Swift 6 package, targets MadeCore, MadeApp, and MadeKernelService)
 Audit run: 20261017-112015
 
-Table 1 lists 193 capabilities with their implementation status. The matrix shows 161 Shipped, 22 In progress, 5 Planned, and 5 Deprecated rows.
+Table 1 lists 194 capabilities with their implementation status. The matrix shows 162 Shipped, 22 In progress, 5 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -82,6 +82,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - ASM-8 is Shipped. Linear, circular, and feature-driven component patterns, component mirroring across arbitrary 3D planes with symmetric reorientation and opposite-hand reflection, package persistence in DocumentData, symmetric undo and redo, subassembly coordinate preservation, Assembly menu commands, Navigator replica badges, and Inspector configuration was implemented under #169 (BL-ASM-08).
 - ASM-10 is Shipped. Bill of materials (BOM) export supporting flat and hierarchical structures, subassembly quantity rollup and multiplication, deterministic custom property columns, RFC 4180 CSV serialization, and File and Assembly menu integration was implemented under #173 (BL-ASM-10).
 - ASM-12 is Shipped. Named exploded views with sequential steps, cumulative translation displacements, trail generation, drawing query accessors, symmetric undo and redo, package serialization with backwards compatibility, Navigator sidebar outline management, Inspector configuration, and Assembly menu commands was implemented under #179 (BL-ASM-12).
+- DRW-1 is Shipped. Drawing document subsystem with sized sheets (ISO A0-A4, ANSI A-E, and custom sizes), landscape and portrait orientations, reactive title block templates with dynamic property resolution, symmetric single-step undo and redo, backward-compatible .made package persistence, File menu commands (⇧⌘D), 2D drawing canvas, Navigator sidebar sheets section, and Inspector panel sheet and title block controls was implemented under #208 (BL-DRW-01).
 
 Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
 
@@ -316,4 +317,6 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | ASM-8 | (new) A person can create linear, circular, and feature-driven component patterns, mirror components across 3D planes with symmetric reorientation or opposite-hand reflection, manage patterns and mirrors in Navigator and Inspector panels, and undo or redo pattern and mirror operations (BL-ASM-08) | done | done | done | Shipped | #169 | n/a |
 | ASM-10 | (new) A person can export flat and hierarchical bills of materials (BOM) to RFC 4180 CSV files with subassembly quantity multiplication, leaf part grouping, standard and custom metadata columns, and File and Assembly export commands (BL-ASM-10) | done | done | done | Shipped | #173 | n/a |
 | ASM-12 | (new) A person can create and configure named exploded views with sequential steps, displacements, and trails, toggle active and collapsed views, inspect views and steps in Navigator and Inspector panels, and undo or redo exploded view mutations (BL-ASM-12) | done | done | done | Shipped | #179 | n/a |
+| DRW-1 | (new) A person can create and edit drawing documents with sized sheets (ISO A0-A4, ANSI A-E, custom), landscape and portrait orientations, reactive title block templates with metadata resolution, symmetric single-step undo and redo, and backward-compatible package persistence (BL-DRW-01) | done | done | done | Shipped | #208 | n/a |
+
 

@@ -17,6 +17,28 @@ struct NavigatorSidebarView: View {
 
             ScrollViewReader { proxy in
                 List(selection: $workspace.selectedIds) {
+                    if workspace.document.documentType == .drawing || !workspace.document.sheets.isEmpty {
+                        Section {
+                            ForEach(workspace.document.sheets) { sheet in
+                                NavigatorSheetRow(sheet: sheet)
+                            }
+                        } header: {
+                            HStack {
+                                Text("Sheets")
+                                Spacer()
+                                Button {
+                                    _ = workspace.addSheet()
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                                .buttonStyle(.borderless)
+                                .frame(width: 16, height: 16)
+                                .help("Add Sheet")
+                                .accessibilityIdentifier("navigator-add-sheet-button")
+                            }
+                        }
+                    }
+
                     if workspace.document.documentType == .assembly || !workspace.document.componentInstances.isEmpty {
                         Section {
                             ForEach(filteredComponents) { component in
@@ -118,7 +140,7 @@ struct NavigatorSidebarView: View {
                         }
                     }
 
-                    if workspace.document.documentType != .assembly || !filteredBodies.isEmpty {
+                    if (workspace.document.documentType != .assembly && workspace.document.documentType != .drawing) || !filteredBodies.isEmpty {
                         Section("Bodies") {
                             ForEach(filteredBodies) { body in
                                 NavigatorRow(body: body)
@@ -178,7 +200,7 @@ struct NavigatorSidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty && workspace.document.explodedViews.isEmpty {
+                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty && workspace.document.explodedViews.isEmpty && workspace.document.sheets.isEmpty {
                         ContentUnavailableView {
                             Label(workspace.document.documentType == .assembly ? "No Components" : "No Objects", systemImage: workspace.document.documentType == .assembly ? "square.3.layers.3d" : "cube.transparent")
                         } description: {
@@ -1882,3 +1904,84 @@ struct NavigatorExplodeStepRow: View {
         .accessibilityIdentifier("navigator-explode-step-\(step.id.uuidString)")
     }
 }
+
+/// Outline row for a drawing sheet in the Navigator sidebar (BL-DRW-01, #208).
+struct NavigatorSheetRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let sheet: DrawingSheet
+    @State private var isRenaming: Bool = false
+    @State private var renameText: String = ""
+
+    private var isActive: Bool {
+        workspace.document.activeSheetId == sheet.id
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.text")
+                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sheet.name)
+                    .fontWeight(isActive ? .semibold : .regular)
+                Text("\(sheet.size.displayName) · \(sheet.orientation.displayName)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isActive {
+                Image(systemName: "checkmark.circle.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(Color.accentColor)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.setActiveSheetId(sheet.id)
+        }
+        .contextMenu {
+            Button("Duplicate") {
+                _ = workspace.duplicateSheet(id: sheet.id)
+            }
+            Button("Rename…") {
+                renameText = sheet.name
+                isRenaming = true
+            }
+            Divider()
+            Button("Delete Sheet", role: .destructive) {
+                _ = workspace.removeSheet(id: sheet.id)
+            }
+            .disabled(workspace.document.sheets.count <= 1)
+        }
+        .sheet(isPresented: $isRenaming) {
+            VStack(spacing: 16) {
+                Text("Rename Sheet")
+                    .font(.headline)
+                TextField("Sheet Name", text: $renameText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 240)
+                HStack {
+                    Button("Cancel") { isRenaming = false }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Rename") {
+                        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            var updated = sheet
+                            updated.name = trimmed
+                            _ = workspace.updateSheet(updated)
+                        }
+                        isRenaming = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding()
+        }
+        .accessibilityIdentifier("navigator-sheet-row-\(sheet.name)")
+    }
+}
+

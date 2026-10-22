@@ -4,6 +4,7 @@ import Foundation
 public enum DocumentType: String, Sendable, Codable, CaseIterable {
     case part
     case assembly
+    case drawing
 
     public var displayName: String {
         switch self {
@@ -11,6 +12,8 @@ public enum DocumentType: String, Sendable, Codable, CaseIterable {
             return "Part"
         case .assembly:
             return "Assembly"
+        case .drawing:
+            return "Drawing"
         }
     }
 }
