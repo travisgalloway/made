@@ -102,4 +102,72 @@ import Foundation
         #expect(restoredDoc.activeSheetId == sheet2.id)
         #expect(restoredDoc.activeSheet?.name == "Section Views")
     }
+
+    @Test func testDrawingPackageWithPlacedViewsRoundTrip() throws {
+        let doc = DocumentModel(documentType: .drawing)
+        let sheet = doc.activeSheet!
+
+        let baseView = DrawingView(
+            name: "Front Elevation",
+            kind: .base,
+            standardView: .front,
+            positionMM: SIMD2(100, 100),
+            scale: .half,
+            displayStyle: .visibleLinesOnly
+        )
+        _ = doc.addDrawingView(baseView, to: sheet.id)
+
+        let projView = DrawingView(
+            name: "Right Elevation",
+            kind: .projected,
+            standardView: .right,
+            parentViewId: baseView.id,
+            projectionDirection: .right,
+            positionMM: SIMD2(160, 100),
+            scale: .half,
+            displayStyle: .hiddenLinesVisible
+        )
+        _ = doc.addDrawingView(projView, to: sheet.id)
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("DrawingWithViews.made")
+        let manifest = MadeManifest(
+            schemaVersion: MadeManifest.currentSchemaVersion,
+            appVersion: "0.1",
+            documentSettings: doc.settings,
+            documentType: doc.documentType,
+            metadata: doc.metadata
+        )
+        let docData = DocumentData(
+            schemaVersion: DocumentData.currentSchemaVersion,
+            features: doc.features,
+            documentType: doc.documentType,
+            sheets: doc.sheets,
+            activeSheetId: doc.activeSheetId
+        )
+        let package = MadePackage(manifest: manifest, documentData: docData)
+        try package.write(to: packageURL)
+
+        // Read package back
+        let loadedPackage = try MadePackage(directoryURL: packageURL)
+        let loadedSheets = loadedPackage.documentData.sheets ?? []
+        #expect(loadedSheets.count == 1)
+        #expect(loadedSheets[0].views.count == 2)
+        #expect(loadedSheets[0].views[0].name == "Front Elevation")
+        #expect(loadedSheets[0].views[0].standardView == .front)
+        #expect(loadedSheets[0].views[0].scale == .half)
+        #expect(loadedSheets[0].views[1].name == "Right Elevation")
+        #expect(loadedSheets[0].views[1].kind == .projected)
+        #expect(loadedSheets[0].views[1].parentViewId == baseView.id)
+        #expect(loadedSheets[0].views[1].displayStyle == .hiddenLinesVisible)
+
+        // Decode into DocumentModel
+        let restoredDoc = DocumentModel(documentType: .part)
+        try DocumentModelCoder.decode(into: restoredDoc, from: try JSONEncoder().encode(loadedPackage.documentData))
+        #expect(restoredDoc.activeSheet?.views.count == 2)
+        #expect(restoredDoc.activeSheet?.views[1].standardView == .right)
+    }
 }

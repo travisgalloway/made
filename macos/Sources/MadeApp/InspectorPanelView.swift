@@ -62,7 +62,9 @@ struct InspectorPanelView: View {
     private var properties: some View {
         if workspace.document.documentType == .drawing {
             ScrollView {
-                if let activeSheet = workspace.document.activeSheet {
+                if let selectedView = workspace.selectedDrawingView, let activeSheet = workspace.document.activeSheet {
+                    DrawingViewInspectorView(view: selectedView, sheet: activeSheet)
+                } else if let activeSheet = workspace.document.activeSheet {
                     DrawingSheetInspectorView(sheet: activeSheet)
                 } else {
                     ContentUnavailableView("No Drawing Sheet", systemImage: "doc.text")
@@ -3463,6 +3465,55 @@ struct DrawingSheetInspectorView: View {
                     }
                 }
                 .accessibilityIdentifier("inspector-sheet-template-picker")
+
+                Picker("Projection Standard", selection: Binding(
+                    get: { sheet.projectionAngle },
+                    set: { newAngle in
+                        var copy = sheet
+                        copy.projectionAngle = newAngle
+                        _ = workspace.updateSheet(copy)
+                    }
+                )) {
+                    ForEach(DrawingProjectionAngle.allCases, id: \.self) { angle in
+                        Text(angle.displayName).tag(angle)
+                    }
+                }
+                .accessibilityIdentifier("inspector-sheet-projection-picker")
+            }
+
+            Section("Views (\(sheet.views.count))") {
+                Menu("Add Base View…") {
+                    Button("Front") { _ = workspace.addBaseView(standardView: .front) }
+                    Button("Top") { _ = workspace.addBaseView(standardView: .top) }
+                    Button("Right") { _ = workspace.addBaseView(standardView: .right) }
+                    Button("Back") { _ = workspace.addBaseView(standardView: .back) }
+                    Button("Bottom") { _ = workspace.addBaseView(standardView: .bottom) }
+                    Button("Left") { _ = workspace.addBaseView(standardView: .left) }
+                    Divider()
+                    Button("Isometric") { _ = workspace.addBaseView(standardView: .isometric) }
+                }
+                .accessibilityIdentifier("inspector-sheet-add-base-view-menu")
+
+                ForEach(sheet.views) { v in
+                    HStack {
+                        Image(systemName: "rectangle.inset.filled")
+                            .font(.caption2)
+                            .foregroundStyle(Color.secondary)
+                        Text(v.name)
+                            .font(.caption)
+                        Spacer()
+                        Text(v.standardView.rawValue.capitalized)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("[\(v.scale.displayString)]")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        workspace.selectDrawingView(v.id)
+                    }
+                }
             }
 
             Section("Title Block Properties") {
@@ -3512,6 +3563,163 @@ struct DrawingSheetInspectorView: View {
         .controlSize(.small)
         .padding()
         .accessibilityIdentifier("drawing-sheet-inspector-view")
+    }
+}
+
+/// Inspector view for configuring placed drawing views (BL-DRW-03, #210).
+struct DrawingViewInspectorView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let view: DrawingView
+    let sheet: DrawingSheet
+
+    var body: some View {
+        Form {
+            Section("View Setup") {
+                TextField("Name", text: Binding(
+                    get: { view.name },
+                    set: { newName in
+                        var updated = view
+                        updated.name = newName
+                        _ = workspace.updateDrawingView(updated)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-view-name-field")
+
+                Picker("Orientation", selection: Binding(
+                    get: { view.standardView },
+                    set: { newStdView in
+                        var updated = view
+                        updated.standardView = newStdView
+                        _ = workspace.updateDrawingView(updated)
+                        workspace.recomputeDrawingViewHLR(viewId: view.id)
+                    }
+                )) {
+                    ForEach(HLRStandardView.allCases, id: \.self) { stdView in
+                        Text(stdView.rawValue.capitalized).tag(stdView)
+                    }
+                }
+                .accessibilityIdentifier("inspector-view-orientation-picker")
+
+                Picker("Display Style", selection: Binding(
+                    get: { view.displayStyle },
+                    set: { newStyle in
+                        var updated = view
+                        updated.displayStyle = newStyle
+                        _ = workspace.updateDrawingView(updated)
+                        workspace.recomputeDrawingViewHLR(viewId: view.id)
+                    }
+                )) {
+                    ForEach(DrawingDisplayStyle.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .accessibilityIdentifier("inspector-view-display-style-picker")
+
+                Picker("Scale", selection: Binding(
+                    get: {
+                        if DrawingViewScale.standardScales.contains(view.scale) {
+                            return view.scale.displayString
+                        }
+                        return "custom"
+                    },
+                    set: { selectedStr in
+                        var updated = view
+                        if selectedStr != "custom", let parsed = DrawingViewScale.parse(selectedStr) {
+                            updated.scale = parsed
+                            _ = workspace.updateDrawingView(updated)
+                        }
+                    }
+                )) {
+                    ForEach(DrawingViewScale.standardScales, id: \.displayString) { scale in
+                        Text(scale.displayString).tag(scale.displayString)
+                    }
+                    Text("Custom…").tag("custom")
+                }
+                .accessibilityIdentifier("inspector-view-scale-picker")
+
+                if !DrawingViewScale.standardScales.contains(view.scale) {
+                    HStack {
+                        TextField("Numerator", value: Binding(
+                            get: { view.scale.numerator },
+                            set: { newNum in
+                                var updated = view
+                                updated.scale = DrawingViewScale(numerator: newNum, denominator: view.scale.denominator)
+                                _ = workspace.updateDrawingView(updated)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+
+                        Text(":")
+
+                        TextField("Denominator", value: Binding(
+                            get: { view.scale.denominator },
+                            set: { newDen in
+                                var updated = view
+                                updated.scale = DrawingViewScale(numerator: view.scale.numerator, denominator: newDen)
+                                _ = workspace.updateDrawingView(updated)
+                            }
+                        ), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                    }
+                }
+            }
+
+            Section("Position (mm)") {
+                HStack {
+                    TextField("X", value: Binding(
+                        get: { view.positionMM.x },
+                        set: { newX in
+                            let targetX = max(10.0, min(sheet.dimensionsMM.width - 10.0, newX))
+                            _ = workspace.repositionDrawingView(id: view.id, positionMM: SIMD2(targetX, view.positionMM.y))
+                        }
+                    ), format: .number.precision(.fractionLength(1)))
+                    .textFieldStyle(.roundedBorder)
+
+                    TextField("Y", value: Binding(
+                        get: { view.positionMM.y },
+                        set: { newY in
+                            let targetY = max(10.0, min(sheet.dimensionsMM.height - 10.0, newY))
+                            _ = workspace.repositionDrawingView(id: view.id, positionMM: SIMD2(view.positionMM.x, targetY))
+                        }
+                    ), format: .number.precision(.fractionLength(1)))
+                    .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            Section("Projected Views") {
+                VStack(spacing: 6) {
+                    HStack {
+                        Button("Right") {
+                            _ = workspace.addProjectedView(parentViewId: view.id, direction: .right)
+                        }
+                        Button("Left") {
+                            _ = workspace.addProjectedView(parentViewId: view.id, direction: .left)
+                        }
+                        Button("Above") {
+                            _ = workspace.addProjectedView(parentViewId: view.id, direction: .above)
+                        }
+                        Button("Below") {
+                            _ = workspace.addProjectedView(parentViewId: view.id, direction: .below)
+                        }
+                    }
+                    Button("Isometric Projection") {
+                        _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
+                    }
+                }
+            }
+
+            Section {
+                Button("Delete View", role: .destructive) {
+                    _ = workspace.removeDrawingView(id: view.id)
+                }
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("inspector-view-delete-button")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+        .accessibilityIdentifier("drawing-view-inspector-view")
     }
 }
 

@@ -61,6 +61,24 @@ final class WorkspaceModel {
         }
     }
 
+    public var selectedDrawingViewId: UUID? {
+        get { document.selectedDrawingViewId }
+        set { document.setSelectedDrawingViewId(newValue) }
+    }
+
+    public var selectedDrawingView: DrawingView? {
+        document.selectedDrawingView
+    }
+
+    public func selectDrawingView(_ id: UUID?) {
+        selectedDrawingViewId = id
+        if id != nil {
+            selectedId = nil
+            selectedAssemblyConstraintId = nil
+            selectedExplodedViewId = nil
+        }
+    }
+
     public var selectedAssemblyConstraint: AssemblyConstraint? {
         guard let id = selectedAssemblyConstraintId else { return nil }
         return document.assemblyConstraints.first(where: { $0.id == id })
@@ -2572,6 +2590,128 @@ final class WorkspaceModel {
             isDocumentModified = true
         }
         return result
+    }
+
+    // MARK: - Drawing View Workspace Actions (BL-DRW-03, #210)
+
+    @discardableResult
+    func addBaseView(
+        standardView: HLRStandardView = .front,
+        scale: DrawingViewScale? = nil,
+        displayStyle: DrawingDisplayStyle = .visibleLinesOnly,
+        positionMM: SIMD2<Double>? = nil
+    ) -> DrawingView? {
+        guard let sheet = document.activeSheet else { return nil }
+        let centerPos = SIMD2<Double>(sheet.dimensionsMM.width * 0.5, sheet.dimensionsMM.height * 0.5)
+        let pos = positionMM ?? centerPos
+        let viewScale = scale ?? (DrawingViewScale.parse(sheet.scale) ?? .full)
+
+        let hlr = HLREngine.computeHLR(
+            objects: document.objects,
+            direction: standardView.direction,
+            options: displayStyle.hlrOptions
+        )
+
+        let view = DrawingView(
+            name: "\(standardView.rawValue.capitalized) View",
+            kind: .base,
+            standardView: standardView,
+            parentViewId: nil,
+            projectionDirection: nil,
+            positionMM: pos,
+            scale: viewScale,
+            displayStyle: displayStyle,
+            projectionAngle: sheet.projectionAngle,
+            cachedHLR: hlr
+        )
+
+        guard let added = document.addDrawingView(view, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    func addProjectedView(
+        parentViewId: UUID,
+        direction: ProjectionDirection,
+        distanceMM: Double = 60.0
+    ) -> DrawingView? {
+        guard let sheet = document.activeSheet else { return nil }
+        guard let parent = sheet.views.first(where: { $0.id == parentViewId }) else { return nil }
+
+        let projAngle = sheet.projectionAngle
+        let derivedStandardView = projAngle.projectedView(from: parent.standardView, direction: direction)
+
+        let offset = direction.offset(distance: distanceMM)
+        let newX = max(10.0, min(sheet.dimensionsMM.width - 10.0, parent.positionMM.x + offset.x))
+        let newY = max(10.0, min(sheet.dimensionsMM.height - 10.0, parent.positionMM.y + offset.y))
+        let newPos = SIMD2<Double>(newX, newY)
+
+        let hlr = HLREngine.computeHLR(
+            objects: document.objects,
+            direction: derivedStandardView.direction,
+            options: parent.displayStyle.hlrOptions
+        )
+
+        let projView = DrawingView(
+            name: "\(derivedStandardView.rawValue.capitalized) View",
+            kind: .projected,
+            standardView: derivedStandardView,
+            parentViewId: parent.id,
+            projectionDirection: direction,
+            positionMM: newPos,
+            scale: parent.scale,
+            displayStyle: parent.displayStyle,
+            projectionAngle: projAngle,
+            cachedHLR: hlr
+        )
+
+        guard let added = document.addDrawingView(projView, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    func removeDrawingView(id: UUID) -> Bool {
+        let result = document.removeDrawingView(id: id)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    @discardableResult
+    func updateDrawingView(_ view: DrawingView) -> Bool {
+        let result = document.updateDrawingView(view)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    @discardableResult
+    func repositionDrawingView(id: UUID, positionMM: SIMD2<Double>) -> Bool {
+        let result = document.repositionDrawingView(id: id, positionMM: positionMM)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    func recomputeDrawingViewHLR(viewId: UUID) {
+        for sheet in document.sheets {
+            if let view = sheet.views.first(where: { $0.id == viewId }) {
+                let hlr = HLREngine.computeHLR(
+                    objects: document.objects,
+                    direction: view.standardView.direction,
+                    options: view.displayStyle.hlrOptions
+                )
+                var updated = view
+                updated.cachedHLR = hlr
+                _ = updateDrawingView(updated)
+                break
+            }
+        }
     }
 
     @discardableResult

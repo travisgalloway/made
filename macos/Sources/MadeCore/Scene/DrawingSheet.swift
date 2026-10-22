@@ -271,6 +271,8 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
     public var orientation: DrawingSheetOrientation
     public var scale: String
     public var titleBlockTemplate: TitleBlockTemplate
+    public var projectionAngle: DrawingProjectionAngle
+    public var views: [DrawingView]
     public var customProperties: [String: String]
 
     public init(
@@ -280,6 +282,8 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         orientation: DrawingSheetOrientation = .landscape,
         scale: String = "1:1",
         titleBlockTemplate: TitleBlockTemplate = .isoStandard,
+        projectionAngle: DrawingProjectionAngle? = nil,
+        views: [DrawingView] = [],
         customProperties: [String: String] = [:]
     ) {
         self.id = id
@@ -288,7 +292,48 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         self.orientation = orientation
         self.scale = scale
         self.titleBlockTemplate = titleBlockTemplate
+        self.projectionAngle = projectionAngle ?? (size.standard == .iso ? .firstAngle : .thirdAngle)
+        self.views = views
         self.customProperties = customProperties
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case size
+        case orientation
+        case scale
+        case titleBlockTemplate
+        case customProperties
+        case projectionAngle
+        case views
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Sheet 1"
+        let decodedSize = try container.decodeIfPresent(DrawingSheetSize.self, forKey: .size) ?? .isoA3
+        self.size = decodedSize
+        self.orientation = try container.decodeIfPresent(DrawingSheetOrientation.self, forKey: .orientation) ?? .landscape
+        self.scale = try container.decodeIfPresent(String.self, forKey: .scale) ?? "1:1"
+        self.titleBlockTemplate = try container.decodeIfPresent(TitleBlockTemplate.self, forKey: .titleBlockTemplate) ?? .isoStandard
+        self.customProperties = try container.decodeIfPresent([String: String].self, forKey: .customProperties) ?? [:]
+        self.projectionAngle = try container.decodeIfPresent(DrawingProjectionAngle.self, forKey: .projectionAngle) ?? (decodedSize.standard == .iso ? .firstAngle : .thirdAngle)
+        self.views = try container.decodeIfPresent([DrawingView].self, forKey: .views) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(size, forKey: .size)
+        try container.encode(orientation, forKey: .orientation)
+        try container.encode(scale, forKey: .scale)
+        try container.encode(titleBlockTemplate, forKey: .titleBlockTemplate)
+        try container.encode(customProperties, forKey: .customProperties)
+        try container.encode(projectionAngle, forKey: .projectionAngle)
+        try container.encode(views, forKey: .views)
     }
 
     /// Millimeter dimensions adjusted for the sheet orientation.

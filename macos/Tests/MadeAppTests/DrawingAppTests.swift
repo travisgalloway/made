@@ -101,4 +101,71 @@ import SwiftUI
         #expect(ws2.document.metadata[CustomPropertyKey.partNumber] == "PRJ-DRAW-001")
         #expect(ws2.document.metadata[CustomPropertyKey.description] == "Project Assembly Drawing")
     }
+
+    @Test func testDrawingViewWorkspaceActionsAndUndo() {
+        let ws = WorkspaceModel()
+        ws.newDrawingDocument()
+
+        #expect(ws.document.activeSheet?.views.isEmpty == true)
+
+        // 1. Add base view
+        let base = ws.addBaseView(standardView: .front, scale: .half, displayStyle: .visibleLinesOnly)
+        #expect(base != nil)
+        #expect(ws.document.activeSheet?.views.count == 1)
+        #expect(ws.selectedDrawingViewId == base?.id)
+        #expect(ws.selectedDrawingView?.standardView == .front)
+        #expect(ws.isDocumentModified)
+
+        // 2. Add projected view
+        guard let baseId = base?.id else { return }
+        let projected = ws.addProjectedView(parentViewId: baseId, direction: .right)
+        #expect(projected != nil)
+        #expect(ws.document.activeSheet?.views.count == 2)
+        #expect(projected?.parentViewId == baseId)
+        #expect(projected?.kind == .projected)
+
+        // 3. Reposition view
+        guard let projId = projected?.id else { return }
+        let repositioned = ws.repositionDrawingView(id: projId, positionMM: SIMD2(250, 180))
+        #expect(repositioned)
+        #expect(ws.document.activeSheet?.views.first(where: { $0.id == projId })?.positionMM == SIMD2(250, 180))
+
+        // 4. Update view
+        if var proj = ws.document.activeSheet?.views.first(where: { $0.id == projId }) {
+            proj.displayStyle = .hiddenLinesVisible
+            let updated = ws.updateDrawingView(proj)
+            #expect(updated)
+            #expect(ws.document.activeSheet?.views.first(where: { $0.id == projId })?.displayStyle == .hiddenLinesVisible)
+        }
+
+        // 5. Select drawing view
+        ws.selectDrawingView(baseId)
+        #expect(ws.selectedDrawingViewId == baseId)
+        #expect(ws.selectedDrawingView?.name == base?.name)
+
+        // 6. Test undo and redo for remove
+        ws.document.undoManager?.removeAllActions()
+        let removedProj = ws.removeDrawingView(id: projId)
+        #expect(removedProj)
+        #expect(ws.document.activeSheet?.views.count == 1)
+
+        ws.undo()
+        #expect(ws.document.activeSheet?.views.count == 2)
+        #expect(ws.document.activeSheet?.views.contains(where: { $0.id == projId }) == true)
+
+        ws.redo()
+        #expect(ws.document.activeSheet?.views.count == 1)
+
+        // 7. Add projected view back and test parent view removal unlinking child
+        let readdedProj = ws.addProjectedView(parentViewId: baseId, direction: .below)
+        guard let readdedId = readdedProj?.id else { return }
+        #expect(ws.document.activeSheet?.views.count == 2)
+
+        let removed = ws.removeDrawingView(id: baseId)
+        #expect(removed)
+        #expect(ws.document.activeSheet?.views.count == 1)
+        #expect(ws.document.activeSheet?.views.first?.id == readdedId)
+        #expect(ws.document.activeSheet?.views.first?.parentViewId == nil)
+        #expect(ws.document.activeSheet?.views.first?.kind == .base)
+    }
 }
