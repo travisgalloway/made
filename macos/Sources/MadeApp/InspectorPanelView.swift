@@ -62,7 +62,9 @@ struct InspectorPanelView: View {
     private var properties: some View {
         if workspace.document.documentType == .drawing {
             ScrollView {
-                if let selectedView = workspace.selectedDrawingView, let activeSheet = workspace.document.activeSheet {
+                if let selectedAnnotation = workspace.selectedDrawingAnnotation {
+                    DrawingAnnotationInspectorView(annotation: selectedAnnotation)
+                } else if let selectedView = workspace.selectedDrawingView, let activeSheet = workspace.document.activeSheet {
                     DrawingViewInspectorView(view: selectedView, sheet: activeSheet)
                 } else if let activeSheet = workspace.document.activeSheet {
                     DrawingSheetInspectorView(sheet: activeSheet)
@@ -3922,6 +3924,38 @@ struct DrawingViewInspectorView: View {
                 }
             }
 
+            Section("Annotations & Dimensions") {
+                VStack(spacing: 6) {
+                    HStack {
+                        Button("Linear") {
+                            _ = workspace.addLinearDimension(viewId: view.id, start: SIMD2(-20.0, 0.0), end: SIMD2(20.0, 0.0))
+                        }
+                        Button("Angular") {
+                            _ = workspace.addAngularDimension(viewId: view.id, vertex: SIMD2(0.0, 0.0), start: SIMD2(20.0, 0.0), end: SIMD2(0.0, 20.0))
+                        }
+                        Button("Radial") {
+                            _ = workspace.addRadialDimension(viewId: view.id, center: SIMD2(0.0, 0.0), arcPoint: SIMD2(15.0, 0.0))
+                        }
+                    }
+                    HStack {
+                        Button("Center Mark") {
+                            _ = workspace.addCenterMark(viewId: view.id, center: SIMD2(0.0, 0.0))
+                        }
+                        Button("Hole Callout") {
+                            let holeParam = workspace.document.features.compactMap { feat -> HoleParams? in
+                                if case .hole(let data) = feat.operation { return data }
+                                return nil
+                            }.first
+                            if let holeParam {
+                                _ = workspace.addHoleCalloutFromHoleWizard(viewId: view.id, anchor: SIMD2(10.0, 0.0), elbow: SIMD2(25.0, 15.0), holeParams: holeParam)
+                            } else {
+                                _ = workspace.addHoleCallout(viewId: view.id, anchor: SIMD2(10.0, 0.0), elbow: SIMD2(25.0, 15.0), holeData: HoleCalloutAnnotationData(anchorPointMM: SIMD2(10.0, 0.0), elbowPointMM: SIMD2(25.0, 15.0)))
+                            }
+                        }
+                    }
+                }
+            }
+
             Section {
                 Button("Delete View", role: .destructive) {
                     _ = workspace.removeDrawingView(id: view.id)
@@ -3934,6 +3968,327 @@ struct DrawingViewInspectorView: View {
         .controlSize(.small)
         .padding()
         .accessibilityIdentifier("drawing-view-inspector-view")
+    }
+}
+
+/// Inspector panel view for inspecting and modifying drawing annotations and dimensions (BL-DRW-05).
+struct DrawingAnnotationInspectorView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let annotation: DrawingAnnotation
+
+    var body: some View {
+        Form {
+            Section("Annotation Details") {
+                LabeledContent("Kind") {
+                    Text(annotation.kind.displayName)
+                        .fontWeight(.medium)
+                }
+                .accessibilityIdentifier("inspector-annotation-kind-label")
+
+                TextField("Name", text: Binding(
+                    get: { annotation.name },
+                    set: { newName in
+                        var updated = annotation
+                        updated.name = newName
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-annotation-name-field")
+
+                if let viewId = annotation.viewId,
+                   let view = workspace.document.activeSheet?.views.first(where: { $0.id == viewId }) {
+                    LabeledContent("Attached View") {
+                        Text(view.name)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    LabeledContent("Attachment") {
+                        Text("Sheet-Level")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle("Visible", isOn: Binding(
+                    get: { annotation.isVisible },
+                    set: { newVis in
+                        var updated = annotation
+                        updated.isVisible = newVis
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+            }
+
+            measurementSection
+
+            holeSpecificationSection
+
+            Section {
+                Button("Delete Annotation", role: .destructive) {
+                    _ = workspace.removeDrawingAnnotation(id: annotation.id)
+                }
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("inspector-annotation-delete-button")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+        .accessibilityIdentifier("drawing-annotation-inspector-view")
+    }
+
+    @ViewBuilder
+    private var measurementSection: some View {
+        switch annotation.data {
+        case .linear(let data):
+            Section("Measurement & Text") {
+                LabeledContent("Measured Value") {
+                    Text(String(format: "%.2f mm", data.measuredValue))
+                }
+                TextField("Text Override", text: Binding(
+                    get: { data.textOverride ?? "" },
+                    set: { newOverride in
+                        var updated = annotation
+                        var d = data
+                        d.textOverride = newOverride.isEmpty ? nil : newOverride
+                        updated.data = .linear(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                Stepper("Precision: \(data.precision)", value: Binding(
+                    get: { data.precision },
+                    set: { newPrec in
+                        var updated = annotation
+                        var d = data
+                        d.precision = max(0, min(6, newPrec))
+                        updated.data = .linear(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ), in: 0...6)
+                TextField("Prefix", text: Binding(
+                    get: { data.prefix },
+                    set: { newPrefix in
+                        var updated = annotation
+                        var d = data
+                        d.prefix = newPrefix
+                        updated.data = .linear(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                TextField("Suffix", text: Binding(
+                    get: { data.suffix },
+                    set: { newSuffix in
+                        var updated = annotation
+                        var d = data
+                        d.suffix = newSuffix
+                        updated.data = .linear(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+            }
+
+        case .angular(let data):
+            Section("Measurement & Text") {
+                LabeledContent("Measured Angle") {
+                    Text(String(format: "%.1f°", data.measuredDegrees))
+                }
+                TextField("Text Override", text: Binding(
+                    get: { data.textOverride ?? "" },
+                    set: { newOverride in
+                        var updated = annotation
+                        var d = data
+                        d.textOverride = newOverride.isEmpty ? nil : newOverride
+                        updated.data = .angular(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                Stepper("Precision: \(data.precision)", value: Binding(
+                    get: { data.precision },
+                    set: { newPrec in
+                        var updated = annotation
+                        var d = data
+                        d.precision = max(0, min(4, newPrec))
+                        updated.data = .angular(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ), in: 0...4)
+            }
+
+        case .radial(let data):
+            Section("Measurement & Text") {
+                LabeledContent(data.isDiameter ? "Measured Diameter" : "Measured Radius") {
+                    Text(String(format: "%.2f mm", data.measuredValue))
+                }
+                Toggle("Is Diameter", isOn: Binding(
+                    get: { data.isDiameter },
+                    set: { newIsDia in
+                        var updated = annotation
+                        var d = data
+                        d.isDiameter = newIsDia
+                        updated.data = .radial(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                TextField("Text Override", text: Binding(
+                    get: { data.textOverride ?? "" },
+                    set: { newOverride in
+                        var updated = annotation
+                        var d = data
+                        d.textOverride = newOverride.isEmpty ? nil : newOverride
+                        updated.data = .radial(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+            }
+
+        case .ordinate(let data):
+            Section("Measurement & Text") {
+                LabeledContent("Offset from Datum") {
+                    Text(String(format: "%.2f mm", data.measuredValue))
+                }
+                TextField("Text Override", text: Binding(
+                    get: { data.textOverride ?? "" },
+                    set: { newOverride in
+                        var updated = annotation
+                        var d = data
+                        d.textOverride = newOverride.isEmpty ? nil : newOverride
+                        updated.data = .ordinate(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+            }
+
+        case .note(let data):
+            Section("Note Properties") {
+                TextField("Text", text: Binding(
+                    get: { data.text },
+                    set: { newText in
+                        var updated = annotation
+                        var d = data
+                        d.text = newText
+                        updated.data = .note(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                Toggle("Bold", isOn: Binding(
+                    get: { data.isBold },
+                    set: { newBold in
+                        var updated = annotation
+                        var d = data
+                        d.isBold = newBold
+                        updated.data = .note(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                Toggle("Border Frame", isOn: Binding(
+                    get: { data.hasBorder },
+                    set: { newBorder in
+                        var updated = annotation
+                        var d = data
+                        d.hasBorder = newBorder
+                        updated.data = .note(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+            }
+
+        case .leader(let data):
+            Section("Leader Properties") {
+                TextField("Text", text: Binding(
+                    get: { data.text },
+                    set: { newText in
+                        var updated = annotation
+                        var d = data
+                        d.text = newText
+                        updated.data = .leader(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+            }
+
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var holeSpecificationSection: some View {
+        if case .holeCallout(let data) = annotation.data {
+            Section("Hole Specifications") {
+                LabeledContent("Hole Type") {
+                    Text(data.holeType.rawValue.capitalized)
+                }
+                LabeledContent("Standard") {
+                    Text(data.standard.rawValue.uppercased())
+                }
+                if let size = data.sizeDesignation {
+                    LabeledContent("Size") {
+                        Text(size)
+                    }
+                }
+                TextField("Diameter (mm)", value: Binding(
+                    get: { data.diameter },
+                    set: { newDia in
+                        var updated = annotation
+                        var d = data
+                        d.diameter = max(0.1, newDia)
+                        updated.data = .holeCallout(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ), format: .number)
+                if !data.isThrough {
+                    TextField("Depth (mm)", value: Binding(
+                        get: { data.depth },
+                        set: { newDepth in
+                            var updated = annotation
+                            var d = data
+                            d.depth = max(0.1, newDepth)
+                            updated.data = .holeCallout(d)
+                            _ = workspace.updateDrawingAnnotation(updated)
+                        }
+                    ), format: .number)
+                }
+                Toggle("Through Hole", isOn: Binding(
+                    get: { data.isThrough },
+                    set: { newThrough in
+                        var updated = annotation
+                        var d = data
+                        d.isThrough = newThrough
+                        updated.data = .holeCallout(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                Stepper("Hole Count: \(data.holeCount)", value: Binding(
+                    get: { data.holeCount },
+                    set: { newCount in
+                        var updated = annotation
+                        var d = data
+                        d.holeCount = max(1, newCount)
+                        updated.data = .holeCallout(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ), in: 1...99)
+                TextField("Text Override", text: Binding(
+                    get: { data.textOverride ?? "" },
+                    set: { newOverride in
+                        var updated = annotation
+                        var d = data
+                        d.textOverride = newOverride.isEmpty ? nil : newOverride
+                        updated.data = .holeCallout(d)
+                        _ = workspace.updateDrawingAnnotation(updated)
+                    }
+                ))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Callout Preview:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(data.formattedCalloutText)
+                        .font(.system(size: 10, design: .monospaced))
+                        .padding(4)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+            }
+        }
     }
 }
 

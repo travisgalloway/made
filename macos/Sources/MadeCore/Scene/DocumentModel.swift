@@ -853,6 +853,16 @@ public final class DocumentModel {
         }
         return nil
     }
+    public private(set) var selectedDrawingAnnotationId: UUID? = nil
+    public var selectedDrawingAnnotation: DrawingAnnotation? {
+        guard let selectedDrawingAnnotationId else { return nil }
+        for sheet in sheets {
+            if let annotation = sheet.annotations.first(where: { $0.id == selectedDrawingAnnotationId }) {
+                return annotation
+            }
+        }
+        return nil
+    }
     public private(set) var metadata: [String: String] = [:]
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
@@ -7896,6 +7906,9 @@ public final class DocumentModel {
         if let selected = selectedDrawingViewId, removedSheet.views.contains(where: { $0.id == selected }) {
             selectedDrawingViewId = nil
         }
+        if let selectedAnn = selectedDrawingAnnotationId, removedSheet.annotations.contains(where: { $0.id == selectedAnn }) {
+            selectedDrawingAnnotationId = nil
+        }
 
         if registerUndo {
             let effectiveActionName = actionName ?? "Delete Sheet"
@@ -8110,6 +8123,13 @@ public final class DocumentModel {
             }
         }
 
+        // Collect and detach/remove attached annotations
+        let attachedAnnotations = sheets[sIdx].annotations.filter { $0.viewId == viewId }
+        sheets[sIdx].annotations.removeAll { $0.viewId == viewId }
+        if let selAnnId = selectedDrawingAnnotationId, attachedAnnotations.contains(where: { $0.id == selAnnId }) {
+            selectedDrawingAnnotationId = nil
+        }
+
         let oldSelectedId = selectedDrawingViewId
         if selectedDrawingViewId == viewId {
             selectedDrawingViewId = nil
@@ -8128,6 +8148,7 @@ public final class DocumentModel {
                                 target.sheets[child.sheetIndex].views[childViewIdx] = child.view
                             }
                         }
+                        target.sheets[targetSheetIdx].annotations.append(contentsOf: attachedAnnotations)
                         target.selectedDrawingViewId = oldSelectedId ?? removedView.id
                         target.undoManager?.registerUndo(withTarget: target) { redoTarget in
                             MainActor.assumeIsolated {
@@ -8218,6 +8239,127 @@ public final class DocumentModel {
 
     public func setSelectedDrawingViewId(_ id: UUID?) {
         selectedDrawingViewId = id
+    }
+
+    public func setSelectedDrawingAnnotationId(_ id: UUID?) {
+        selectedDrawingAnnotationId = id
+    }
+
+    @discardableResult
+    public func addDrawingAnnotation(
+        _ annotation: DrawingAnnotation,
+        to sheetId: UUID? = nil,
+        index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> DrawingAnnotation? {
+        let targetSheetId = sheetId ?? activeSheetId ?? sheets.first?.id
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            targetSheetId != nil ? sheet.id == targetSheetId : true
+        }) else {
+            return nil
+        }
+        let sheetUUID = sheets[sIdx].id
+        let insertionIndex = min(max(0, index ?? sheets[sIdx].annotations.count), sheets[sIdx].annotations.count)
+        sheets[sIdx].annotations.insert(annotation, at: insertionIndex)
+        selectedDrawingAnnotationId = annotation.id
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Annotation"
+            let annId = annotation.id
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeDrawingAnnotation(id: annId, from: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return annotation
+    }
+
+    @discardableResult
+    public func removeDrawingAnnotation(
+        id annotationId: UUID,
+        from sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            (targetSheetId != nil ? sheet.id == targetSheetId : true) && sheet.annotations.contains(where: { $0.id == annotationId })
+        }) else {
+            return false
+        }
+        guard let aIdx = sheets[sIdx].annotations.firstIndex(where: { $0.id == annotationId }) else {
+            return false
+        }
+        let sheetUUID = sheets[sIdx].id
+        let removedAnnotation = sheets[sIdx].annotations.remove(at: aIdx)
+
+        let oldSelectedId = selectedDrawingAnnotationId
+        if selectedDrawingAnnotationId == annotationId {
+            selectedDrawingAnnotationId = nil
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Delete Annotation"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    if let targetSheetIdx = target.sheets.firstIndex(where: { $0.id == sheetUUID }) {
+                        let insertIdx = min(aIdx, target.sheets[targetSheetIdx].annotations.count)
+                        target.sheets[targetSheetIdx].annotations.insert(removedAnnotation, at: insertIdx)
+                        target.selectedDrawingAnnotationId = oldSelectedId ?? removedAnnotation.id
+                        target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                            MainActor.assumeIsolated {
+                                _ = redoTarget.removeDrawingAnnotation(id: removedAnnotation.id, from: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                                redoTarget.undoManager?.setActionName(effectiveActionName)
+                            }
+                        }
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    @discardableResult
+    public func updateDrawingAnnotation(
+        _ annotation: DrawingAnnotation,
+        on sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            (targetSheetId != nil ? sheet.id == targetSheetId : true) && sheet.annotations.contains(where: { $0.id == annotation.id })
+        }) else {
+            return false
+        }
+        guard let aIdx = sheets[sIdx].annotations.firstIndex(where: { $0.id == annotation.id }) else {
+            return false
+        }
+        let sheetUUID = sheets[sIdx].id
+        let oldAnnotation = sheets[sIdx].annotations[aIdx]
+        guard oldAnnotation != annotation else { return true }
+        sheets[sIdx].annotations[aIdx] = annotation
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Annotation"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateDrawingAnnotation(oldAnnotation, on: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
     }
 }
 

@@ -74,6 +74,26 @@ final class WorkspaceModel {
         selectedDrawingViewId = id
         if id != nil {
             selectedId = nil
+            selectedDrawingAnnotationId = nil
+            selectedAssemblyConstraintId = nil
+            selectedExplodedViewId = nil
+        }
+    }
+
+    public var selectedDrawingAnnotationId: UUID? {
+        get { document.selectedDrawingAnnotationId }
+        set { document.setSelectedDrawingAnnotationId(newValue) }
+    }
+
+    public var selectedDrawingAnnotation: DrawingAnnotation? {
+        document.selectedDrawingAnnotation
+    }
+
+    public func selectDrawingAnnotation(_ id: UUID?) {
+        selectedDrawingAnnotationId = id
+        if id != nil {
+            selectedId = nil
+            selectedDrawingViewId = nil
             selectedAssemblyConstraintId = nil
             selectedExplodedViewId = nil
         }
@@ -2908,6 +2928,287 @@ final class WorkspaceModel {
     @discardableResult
     func repositionDrawingView(id: UUID, positionMM: SIMD2<Double>) -> Bool {
         let result = document.repositionDrawingView(id: id, positionMM: positionMM)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    // MARK: - Drawing Annotation & Dimension Actions (BL-DRW-05)
+
+    @discardableResult
+    public func addLinearDimension(
+        viewId: UUID? = nil,
+        start: SIMD2<Double>,
+        end: SIMD2<Double>,
+        offset: Double = 10.0,
+        orientation: LinearDimensionOrientation = .aligned,
+        prefix: String = "",
+        suffix: String = ""
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .linear }).count + 1
+        let data = LinearDimensionData(
+            startPointMM: start,
+            endPointMM: end,
+            offsetMM: offset,
+            orientation: orientation,
+            prefix: prefix,
+            suffix: suffix
+        )
+        let annotation = DrawingAnnotation(
+            name: "Linear Dim \(count)",
+            viewId: viewId,
+            data: .linear(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addAngularDimension(
+        viewId: UUID? = nil,
+        vertex: SIMD2<Double>,
+        start: SIMD2<Double>,
+        end: SIMD2<Double>,
+        radius: Double = 15.0
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .angular }).count + 1
+        let data = AngularDimensionData(
+            vertexMM: vertex,
+            startPointMM: start,
+            endPointMM: end,
+            arcRadiusMM: radius
+        )
+        let annotation = DrawingAnnotation(
+            name: "Angular Dim \(count)",
+            viewId: viewId,
+            data: .angular(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addRadialDimension(
+        viewId: UUID? = nil,
+        center: SIMD2<Double>,
+        arcPoint: SIMD2<Double>,
+        isDiameter: Bool = false
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .radial }).count + 1
+        let data = RadialDimensionData(
+            centerMM: center,
+            arcPointMM: arcPoint,
+            isDiameter: isDiameter
+        )
+        let annotation = DrawingAnnotation(
+            name: isDiameter ? "Diameter Dim \(count)" : "Radial Dim \(count)",
+            viewId: viewId,
+            data: .radial(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addOrdinateDimension(
+        viewId: UUID? = nil,
+        datum: SIMD2<Double>,
+        location: SIMD2<Double>,
+        axis: OrdinateDimensionAxis = .x
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .ordinate }).count + 1
+        let data = OrdinateDimensionData(
+            datumOriginMM: datum,
+            locationMM: location,
+            axis: axis
+        )
+        let annotation = DrawingAnnotation(
+            name: "Ordinate Dim \(count)",
+            viewId: viewId,
+            data: .ordinate(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addBaselineDimension(
+        viewId: UUID? = nil,
+        basePoint: SIMD2<Double>,
+        targets: [SIMD2<Double>],
+        orientation: LinearDimensionOrientation = .horizontal
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .baseline }).count + 1
+        let data = BaselineDimensionData(
+            basePointMM: basePoint,
+            targetPointsMM: targets,
+            orientation: orientation
+        )
+        let annotation = DrawingAnnotation(
+            name: "Baseline Dim \(count)",
+            viewId: viewId,
+            data: .baseline(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addNote(
+        viewId: UUID? = nil,
+        position: SIMD2<Double>,
+        text: String = "NOTE"
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .note }).count + 1
+        let data = NoteAnnotationData(
+            positionMM: position,
+            text: text
+        )
+        let annotation = DrawingAnnotation(
+            name: "Note \(count)",
+            viewId: viewId,
+            data: .note(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addLeader(
+        viewId: UUID? = nil,
+        arrowPoint: SIMD2<Double>,
+        elbowPoint: SIMD2<Double>,
+        text: String = "NOTE"
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .leader }).count + 1
+        let data = LeaderAnnotationData(
+            arrowPointMM: arrowPoint,
+            elbowPointMM: elbowPoint,
+            text: text
+        )
+        let annotation = DrawingAnnotation(
+            name: "Leader \(count)",
+            viewId: viewId,
+            data: .leader(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addCenterMark(
+        viewId: UUID? = nil,
+        center: SIMD2<Double>,
+        size: Double = 5.0,
+        extensionMM: Double = 3.0
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .centerMark }).count + 1
+        let data = CenterMarkData(
+            centerMM: center,
+            markSizeMM: size,
+            extensionMM: extensionMM
+        )
+        let annotation = DrawingAnnotation(
+            name: "Center Mark \(count)",
+            viewId: viewId,
+            data: .centerMark(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addCenterline(
+        viewId: UUID? = nil,
+        start: SIMD2<Double>,
+        end: SIMD2<Double>,
+        extensionMM: Double = 3.0
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .centerline }).count + 1
+        let data = CenterlineData(
+            startPointMM: start,
+            endPointMM: end,
+            extensionMM: extensionMM
+        )
+        let annotation = DrawingAnnotation(
+            name: "Centerline \(count)",
+            viewId: viewId,
+            data: .centerline(data)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addHoleCallout(
+        viewId: UUID? = nil,
+        anchor: SIMD2<Double>,
+        elbow: SIMD2<Double>,
+        holeData: HoleCalloutAnnotationData
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .holeCallout }).count + 1
+        var configuredData = holeData
+        configuredData.anchorPointMM = anchor
+        configuredData.elbowPointMM = elbow
+        let annotation = DrawingAnnotation(
+            name: "Hole Callout \(count)",
+            viewId: viewId,
+            data: .holeCallout(configuredData)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func addHoleCalloutFromHoleWizard(
+        viewId: UUID? = nil,
+        anchor: SIMD2<Double>,
+        elbow: SIMD2<Double>,
+        holeParams: HoleParams,
+        count: Int = 1
+    ) -> DrawingAnnotation? {
+        let holeData = HoleCalloutAnnotationData(
+            anchorPointMM: anchor,
+            elbowPointMM: elbow,
+            holeParams: holeParams,
+            holeCount: count
+        )
+        return addHoleCallout(viewId: viewId, anchor: anchor, elbow: elbow, holeData: holeData)
+    }
+
+    @discardableResult
+    public func updateDrawingAnnotation(_ annotation: DrawingAnnotation) -> Bool {
+        let result = document.updateDrawingAnnotation(annotation)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    @discardableResult
+    public func removeDrawingAnnotation(id: UUID) -> Bool {
+        let result = document.removeDrawingAnnotation(id: id)
         if result {
             isDocumentModified = true
         }

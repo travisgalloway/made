@@ -80,6 +80,11 @@ struct DrawingCanvasView: View {
                 drawingViewItem(view: view, sheet: sheet, fitScale: fitScale)
             }
 
+            // Placed drawing annotations and dimensions (BL-DRW-05)
+            ForEach(sheet.annotations) { annotation in
+                drawingAnnotationItem(annotation: annotation, sheet: sheet, fitScale: fitScale)
+            }
+
             // Zone reference marks (1-4 on top & bottom, A-D on left & right)
             zoneMarks(
                 paperWidth: paperWidth,
@@ -112,6 +117,32 @@ struct DrawingCanvasView: View {
                 Button("Left") { _ = workspace.addBaseView(standardView: .left) }
                 Divider()
                 Button("Isometric") { _ = workspace.addBaseView(standardView: .isometric) }
+            }
+            Divider()
+            Menu("Add Sheet Dimension") {
+                Button("Linear Dimension") {
+                    _ = workspace.addLinearDimension(start: SIMD2(50.0, 100.0), end: SIMD2(150.0, 100.0))
+                }
+                Button("Angular Dimension") {
+                    _ = workspace.addAngularDimension(vertex: SIMD2(50.0, 50.0), start: SIMD2(100.0, 50.0), end: SIMD2(50.0, 100.0))
+                }
+                Button("Radial Dimension") {
+                    _ = workspace.addRadialDimension(center: SIMD2(100.0, 100.0), arcPoint: SIMD2(120.0, 100.0))
+                }
+                Button("Ordinate Dimension") {
+                    _ = workspace.addOrdinateDimension(datum: SIMD2(50.0, 50.0), location: SIMD2(120.0, 50.0), axis: .x)
+                }
+                Button("Baseline Dimension") {
+                    _ = workspace.addBaselineDimension(basePoint: SIMD2(50.0, 80.0), targets: [SIMD2(80.0, 80.0), SIMD2(120.0, 80.0)])
+                }
+            }
+            Menu("Add Sheet Annotation") {
+                Button("Note") {
+                    _ = workspace.addNote(position: SIMD2(50.0, 50.0), text: "GENERAL NOTE")
+                }
+                Button("Leader") {
+                    _ = workspace.addLeader(arrowPoint: SIMD2(60.0, 60.0), elbowPoint: SIMD2(90.0, 80.0), text: "SHEET NOTE")
+                }
             }
         }
     }
@@ -253,44 +284,92 @@ struct DrawingCanvasView: View {
                 }
         )
         .contextMenu {
-            Menu("Add Projected View") {
-                Button("Right") {
-                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .right)
-                }
-                Button("Left") {
-                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .left)
-                }
-                Button("Above") {
-                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .above)
-                }
-                Button("Below") {
-                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .below)
-                }
-                Divider()
-                Button("Isometric") {
-                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
-                }
-            }
-            Menu("Add Derived View") {
-                Button("Section View") {
-                    _ = workspace.addSectionView(parentViewId: view.id)
-                }
-                Button("Detail View") {
-                    _ = workspace.addDetailView(parentViewId: view.id)
-                }
-                Button("Auxiliary View") {
-                    _ = workspace.addAuxiliaryView(parentViewId: view.id)
-                }
-                Button("Broken View") {
-                    _ = workspace.addBrokenView(parentViewId: view.id)
-                }
-            }
-            Divider()
-            Button("Delete View", role: .destructive) {
-                _ = workspace.removeDrawingView(id: view.id)
-            }
+            drawingViewContextMenu(view: view)
         }
         .accessibilityIdentifier("drawing-view-\(view.id.uuidString)")
+    }
+
+    @ViewBuilder
+    private func drawingViewContextMenu(view: DrawingView) -> some View {
+        Menu("Add Projected View") {
+            Button("Right") {
+                _ = workspace.addProjectedView(parentViewId: view.id, direction: .right)
+            }
+            Button("Left") {
+                _ = workspace.addProjectedView(parentViewId: view.id, direction: .left)
+            }
+            Button("Above") {
+                _ = workspace.addProjectedView(parentViewId: view.id, direction: .above)
+            }
+            Button("Below") {
+                _ = workspace.addProjectedView(parentViewId: view.id, direction: .below)
+            }
+            Divider()
+            Button("Isometric") {
+                _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
+            }
+        }
+        Menu("Add Derived View") {
+            Button("Section View") {
+                _ = workspace.addSectionView(parentViewId: view.id)
+            }
+            Button("Detail View") {
+                _ = workspace.addDetailView(parentViewId: view.id)
+            }
+            Button("Auxiliary View") {
+                _ = workspace.addAuxiliaryView(parentViewId: view.id)
+            }
+            Button("Broken View") {
+                _ = workspace.addBrokenView(parentViewId: view.id)
+            }
+        }
+        Divider()
+        Menu("Add Dimension") {
+            Button("Linear Dimension") {
+                _ = workspace.addLinearDimension(viewId: view.id, start: SIMD2(-20.0, 0.0), end: SIMD2(20.0, 0.0))
+            }
+            Button("Angular Dimension") {
+                _ = workspace.addAngularDimension(viewId: view.id, vertex: SIMD2(0.0, 0.0), start: SIMD2(20.0, 0.0), end: SIMD2(0.0, 20.0))
+            }
+            Button("Radial Dimension") {
+                _ = workspace.addRadialDimension(viewId: view.id, center: SIMD2(0.0, 0.0), arcPoint: SIMD2(15.0, 0.0))
+            }
+            Button("Ordinate Dimension") {
+                _ = workspace.addOrdinateDimension(viewId: view.id, datum: SIMD2(0.0, 0.0), location: SIMD2(25.0, 0.0), axis: .x)
+            }
+            Button("Baseline Dimension") {
+                _ = workspace.addBaselineDimension(viewId: view.id, basePoint: SIMD2(-30.0, -20.0), targets: [SIMD2(-10.0, -20.0), SIMD2(10.0, -20.0)])
+            }
+        }
+        Menu("Add Annotation") {
+            Button("Note") {
+                _ = workspace.addNote(viewId: view.id, position: SIMD2(0.0, 30.0), text: "VIEW NOTE")
+            }
+            Button("Leader") {
+                _ = workspace.addLeader(viewId: view.id, arrowPoint: SIMD2(10.0, 10.0), elbowPoint: SIMD2(25.0, 25.0), text: "SURFACE")
+            }
+            Button("Center Mark") {
+                _ = workspace.addCenterMark(viewId: view.id, center: SIMD2(0.0, 0.0))
+            }
+            Button("Centerline") {
+                _ = workspace.addCenterline(viewId: view.id, start: SIMD2(0.0, -25.0), end: SIMD2(0.0, 25.0))
+            }
+            Button("Hole Callout") {
+                let holeParam = workspace.document.features.compactMap { feat -> HoleParams? in
+                    if case .hole(let data) = feat.operation { return data }
+                    return nil
+                }.first
+                if let holeParam {
+                    _ = workspace.addHoleCalloutFromHoleWizard(viewId: view.id, anchor: SIMD2(10.0, 0.0), elbow: SIMD2(25.0, 15.0), holeParams: holeParam)
+                } else {
+                    _ = workspace.addHoleCallout(viewId: view.id, anchor: SIMD2(10.0, 0.0), elbow: SIMD2(25.0, 15.0), holeData: HoleCalloutAnnotationData(anchorPointMM: SIMD2(10.0, 0.0), elbowPointMM: SIMD2(25.0, 15.0)))
+                }
+            }
+        }
+        Divider()
+        Button("Delete View", role: .destructive) {
+            _ = workspace.removeDrawingView(id: view.id)
+        }
     }
 
     @ViewBuilder
@@ -673,5 +752,532 @@ struct DrawingCanvasView: View {
             }
         }
         .padding()
+    }
+
+    // MARK: - Annotation Item Rendering (BL-DRW-05)
+
+    private func toCanvasPoint(_ pointMM: SIMD2<Double>, viewId: UUID?, sheet: DrawingSheet, fitScale: Double) -> CGPoint {
+        if let viewId, let view = sheet.views.first(where: { $0.id == viewId }) {
+            let dragOffset = dragTranslations[view.id] ?? .zero
+            let viewCenterX = (view.positionMM.x * fitScale) + dragOffset.width
+            let viewCenterY = (view.positionMM.y * fitScale) + dragOffset.height
+            let effectiveScale = view.scale.scaleFactor * fitScale
+            return CGPoint(
+                x: viewCenterX + (pointMM.x * effectiveScale),
+                y: viewCenterY - (pointMM.y * effectiveScale)
+            )
+        } else {
+            return CGPoint(
+                x: pointMM.x * fitScale,
+                y: pointMM.y * fitScale
+            )
+        }
+    }
+
+    private func toCanvasScale(viewId: UUID?, sheet: DrawingSheet, fitScale: Double) -> Double {
+        if let viewId, let view = sheet.views.first(where: { $0.id == viewId }) {
+            return view.scale.scaleFactor * fitScale
+        }
+        return fitScale
+    }
+
+    private func appendArrowhead(to path: inout Path, tip: CGPoint, angle: Double, length: CGFloat = 8.0, width: CGFloat = 4.0) {
+        let leftAngle = angle + .pi - atan2(width, length)
+        let rightAngle = angle + .pi + atan2(width, length)
+        let leftPt = CGPoint(x: tip.x + cos(leftAngle) * length, y: tip.y + sin(leftAngle) * length)
+        let rightPt = CGPoint(x: tip.x + cos(rightAngle) * length, y: tip.y + sin(rightAngle) * length)
+        path.move(to: tip)
+        path.addLine(to: leftPt)
+        path.addLine(to: rightPt)
+        path.closeSubpath()
+    }
+
+    @ViewBuilder
+    private func drawingAnnotationItem(annotation: DrawingAnnotation, sheet: DrawingSheet, fitScale: Double) -> some View {
+        let isSelected = workspace.selectedDrawingAnnotationId == annotation.id
+        let strokeColor = isSelected ? Color.accentColor : Color.black
+        let lineWidth: CGFloat = isSelected ? 1.5 : 1.0
+        let scale = toCanvasScale(viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+
+        ZStack {
+            switch annotation.data {
+            case .linear(let data):
+                renderLinearDimension(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .angular(let data):
+                renderAngularDimension(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .radial(let data):
+                renderRadialDimension(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .ordinate(let data):
+                renderOrdinateDimension(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .baseline(let data):
+                renderBaselineDimension(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .note(let data):
+                renderNote(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, strokeColor: strokeColor)
+
+            case .leader(let data):
+                renderLeader(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .centerMark(let data):
+                renderCenterMark(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .centerline(let data):
+                renderCenterline(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+
+            case .holeCallout(let data):
+                renderHoleCallout(data: data, annotation: annotation, sheet: sheet, fitScale: fitScale, scale: scale, strokeColor: strokeColor, lineWidth: lineWidth)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectDrawingAnnotation(annotation.id)
+        }
+        .contextMenu {
+            Button("Delete Annotation", role: .destructive) {
+                _ = workspace.removeDrawingAnnotation(id: annotation.id)
+            }
+        }
+        .accessibilityIdentifier("drawing-annotation-\(annotation.id.uuidString)")
+    }
+
+    private struct LinearDimensionGeometry {
+        let d1: CGPoint
+        let d2: CGPoint
+        let w1End: CGPoint
+        let w2End: CGPoint
+        let midPt: CGPoint
+        let angle: Double
+    }
+
+    private func computeLinearPoints(data: LinearDimensionData, p1: CGPoint, p2: CGPoint, scale: Double) -> LinearDimensionGeometry {
+        let offset = data.offsetMM * scale
+        switch data.orientation {
+        case .aligned:
+            let dx = p2.x - p1.x
+            let dy = p2.y - p1.y
+            let len = hypot(dx, dy)
+            let nx = len > 1e-4 ? -dy / len : 0.0
+            let ny = len > 1e-4 ? dx / len : -1.0
+            let d1 = CGPoint(x: p1.x + nx * offset, y: p1.y + ny * offset)
+            let d2 = CGPoint(x: p2.x + nx * offset, y: p2.y + ny * offset)
+            let w1End = CGPoint(x: d1.x + nx * 2, y: d1.y + ny * 2)
+            let w2End = CGPoint(x: d2.x + nx * 2, y: d2.y + ny * 2)
+            let midPt = CGPoint(x: (d1.x + d2.x) * 0.5, y: (d1.y + d2.y) * 0.5)
+            let angle = atan2(d2.y - d1.y, d2.x - d1.x)
+            return LinearDimensionGeometry(d1: d1, d2: d2, w1End: w1End, w2End: w2End, midPt: midPt, angle: angle)
+
+        case .horizontal:
+            let dimY = p1.y + offset
+            let d1 = CGPoint(x: p1.x, y: dimY)
+            let d2 = CGPoint(x: p2.x, y: dimY)
+            let extY: CGFloat = offset >= 0 ? 3.0 : -3.0
+            let w1End = CGPoint(x: p1.x, y: dimY + extY)
+            let w2End = CGPoint(x: p2.x, y: dimY + extY)
+            let midPt = CGPoint(x: (d1.x + d2.x) * 0.5, y: dimY)
+            return LinearDimensionGeometry(d1: d1, d2: d2, w1End: w1End, w2End: w2End, midPt: midPt, angle: 0.0)
+
+        case .vertical:
+            let dimX = p1.x + offset
+            let d1 = CGPoint(x: dimX, y: p1.y)
+            let d2 = CGPoint(x: dimX, y: p2.y)
+            let extX: CGFloat = offset >= 0 ? 3.0 : -3.0
+            let w1End = CGPoint(x: dimX + extX, y: p1.y)
+            let w2End = CGPoint(x: dimX + extX, y: p2.y)
+            let midPt = CGPoint(x: dimX, y: (d1.y + d2.y) * 0.5)
+            return LinearDimensionGeometry(d1: d1, d2: d2, w1End: w1End, w2End: w2End, midPt: midPt, angle: .pi * 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private func renderLinearDimension(
+        data: LinearDimensionData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let p1 = toCanvasPoint(data.startPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let p2 = toCanvasPoint(data.endPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let geom = computeLinearPoints(data: data, p1: p1, p2: p2, scale: scale)
+
+        ZStack {
+            Path { path in
+                path.move(to: p1)
+                path.addLine(to: geom.w1End)
+                path.move(to: p2)
+                path.addLine(to: geom.w2End)
+                path.move(to: geom.d1)
+                path.addLine(to: geom.d2)
+            }
+            .stroke(strokeColor, lineWidth: lineWidth)
+
+            Path { path in
+                appendArrowhead(to: &path, tip: geom.d1, angle: geom.angle)
+                appendArrowhead(to: &path, tip: geom.d2, angle: geom.angle + .pi)
+            }
+            .fill(strokeColor)
+
+            Text(data.formattedText)
+                .font(.system(size: 9, weight: .medium))
+                .padding(.horizontal, 3)
+                .background(Color.white)
+                .foregroundStyle(strokeColor)
+                .position(geom.midPt)
+        }
+    }
+
+    @ViewBuilder
+    private func renderAngularDimension(
+        data: AngularDimensionData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let vCenter = toCanvasPoint(data.vertexMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let p1 = toCanvasPoint(data.startPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let p2 = toCanvasPoint(data.endPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let arcRadius = data.arcRadiusMM * scale
+        let angle1 = atan2(p1.y - vCenter.y, p1.x - vCenter.x)
+        let angle2 = atan2(p2.y - vCenter.y, p2.x - vCenter.x)
+
+        let startPt = CGPoint(x: vCenter.x + cos(angle1) * arcRadius, y: vCenter.y + sin(angle1) * arcRadius)
+        let endPt = CGPoint(x: vCenter.x + cos(angle2) * arcRadius, y: vCenter.y + sin(angle2) * arcRadius)
+        let midAngle = (angle1 + angle2) * 0.5
+        let textPos = CGPoint(x: vCenter.x + cos(midAngle) * (arcRadius + 10), y: vCenter.y + sin(midAngle) * (arcRadius + 10))
+
+        ZStack {
+            Path { path in
+                path.move(to: vCenter)
+                path.addLine(to: p1)
+                path.move(to: vCenter)
+                path.addLine(to: p2)
+                path.move(to: startPt)
+                path.addArc(center: vCenter, radius: arcRadius, startAngle: Angle(radians: angle1), endAngle: Angle(radians: angle2), clockwise: false)
+            }
+            .stroke(strokeColor, lineWidth: lineWidth)
+
+            Path { path in
+                let tangent1 = angle1 + .pi * 0.5
+                let tangent2 = angle2 - .pi * 0.5
+                appendArrowhead(to: &path, tip: startPt, angle: tangent1)
+                appendArrowhead(to: &path, tip: endPt, angle: tangent2)
+            }
+            .fill(strokeColor)
+
+            Text(data.formattedText)
+                .font(.system(size: 9, weight: .medium))
+                .padding(.horizontal, 3)
+                .background(Color.white)
+                .foregroundStyle(strokeColor)
+                .position(textPos)
+        }
+    }
+
+    @ViewBuilder
+    private func renderRadialDimension(
+        data: RadialDimensionData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let center = toCanvasPoint(data.centerMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let arcPt = toCanvasPoint(data.arcPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let angle = atan2(arcPt.y - center.y, arcPt.x - center.x)
+        let leaderOffset = data.leaderOffsetMM * scale
+        let elbow = CGPoint(x: arcPt.x + cos(angle) * leaderOffset, y: arcPt.y + sin(angle) * leaderOffset)
+        let shelfDir: CGFloat = elbow.x >= center.x ? 1.0 : -1.0
+        let shelfEnd = CGPoint(x: elbow.x + shelfDir * 14.0, y: elbow.y)
+        let textPos = CGPoint(x: elbow.x + shelfDir * 24.0, y: elbow.y - 6.0)
+
+        ZStack {
+            Path { path in
+                path.move(to: center)
+                path.addLine(to: arcPt)
+                path.addLine(to: elbow)
+                path.addLine(to: shelfEnd)
+            }
+            .stroke(strokeColor, lineWidth: lineWidth)
+
+            Path { path in
+                appendArrowhead(to: &path, tip: arcPt, angle: angle)
+            }
+            .fill(strokeColor)
+
+            Text(data.formattedText)
+                .font(.system(size: 9, weight: .medium))
+                .padding(.horizontal, 2)
+                .foregroundStyle(strokeColor)
+                .position(textPos)
+        }
+    }
+
+    @ViewBuilder
+    private func renderOrdinateDimension(
+        data: OrdinateDimensionData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let datumPt = toCanvasPoint(data.datumOriginMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let locPt = toCanvasPoint(data.locationMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let jog = data.jogOffsetMM * scale
+
+        ZStack {
+            if data.isDatum {
+                Circle()
+                    .stroke(strokeColor, lineWidth: lineWidth)
+                    .frame(width: 8, height: 8)
+                    .position(datumPt)
+
+                Path { path in
+                    path.move(to: CGPoint(x: datumPt.x - 6, y: datumPt.y))
+                    path.addLine(to: CGPoint(x: datumPt.x + 6, y: datumPt.y))
+                    path.move(to: CGPoint(x: datumPt.x, y: datumPt.y - 6))
+                    path.addLine(to: CGPoint(x: datumPt.x, y: datumPt.y + 6))
+                }
+                .stroke(strokeColor, lineWidth: lineWidth)
+
+                Text("0")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(strokeColor)
+                    .position(x: datumPt.x + 10, y: datumPt.y - 8)
+            } else if data.axis == .x {
+                let endPt = CGPoint(x: locPt.x, y: locPt.y - jog)
+                Path { path in
+                    path.move(to: locPt)
+                    path.addLine(to: endPt)
+                }
+                .stroke(strokeColor, lineWidth: lineWidth)
+
+                Text(data.formattedText)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(strokeColor)
+                    .position(x: endPt.x, y: endPt.y - 8)
+            } else {
+                let endPt = CGPoint(x: locPt.x + jog, y: locPt.y)
+                Path { path in
+                    path.move(to: locPt)
+                    path.addLine(to: endPt)
+                }
+                .stroke(strokeColor, lineWidth: lineWidth)
+
+                Text(data.formattedText)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(strokeColor)
+                    .position(x: endPt.x + 14, y: endPt.y)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func renderBaselineDimension(
+        data: BaselineDimensionData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let basePt = toCanvasPoint(data.basePointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+
+        ZStack {
+            ForEach(data.targetPointsMM.indices, id: \.self) { index in
+                let targetPt = toCanvasPoint(data.targetPointsMM[index], viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+                let offset = data.stackOffsetMM(forTargetIndex: index) * scale
+                let dimY = basePt.y + offset
+                let d1 = CGPoint(x: basePt.x, y: dimY)
+                let d2 = CGPoint(x: targetPt.x, y: dimY)
+                let midPt = CGPoint(x: (d1.x + d2.x) * 0.5, y: dimY)
+
+                Path { path in
+                    path.move(to: basePt)
+                    path.addLine(to: CGPoint(x: basePt.x, y: dimY + 3))
+                    path.move(to: targetPt)
+                    path.addLine(to: CGPoint(x: targetPt.x, y: dimY + 3))
+                    path.move(to: d1)
+                    path.addLine(to: d2)
+                }
+                .stroke(strokeColor, lineWidth: lineWidth)
+
+                Path { path in
+                    appendArrowhead(to: &path, tip: d1, angle: 0.0)
+                    appendArrowhead(to: &path, tip: d2, angle: .pi)
+                }
+                .fill(strokeColor)
+
+                Text(data.formattedText(forTargetIndex: index))
+                    .font(.system(size: 9, weight: .medium))
+                    .padding(.horizontal, 2)
+                    .background(Color.white)
+                    .foregroundStyle(strokeColor)
+                    .position(midPt)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func renderNote(
+        data: NoteAnnotationData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        strokeColor: Color
+    ) -> some View {
+        let pos = toCanvasPoint(data.positionMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+
+        Text(data.text)
+            .font(.system(size: CGFloat(data.fontSizePt), weight: data.isBold ? .bold : .regular))
+            .foregroundStyle(strokeColor)
+            .padding(4)
+            .overlay(
+                data.hasBorder ? Rectangle().stroke(strokeColor, lineWidth: 1.0) : nil
+            )
+            .position(pos)
+    }
+
+    @ViewBuilder
+    private func renderLeader(
+        data: LeaderAnnotationData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let arrowPt = toCanvasPoint(data.arrowPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let elbowPt = toCanvasPoint(data.elbowPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let shelfDir: CGFloat = elbowPt.x >= arrowPt.x ? 1.0 : -1.0
+        let shelfLen = max(10.0, data.landingLengthMM * scale)
+        let shelfEnd = CGPoint(x: elbowPt.x + shelfDir * shelfLen, y: elbowPt.y)
+        let angle = atan2(elbowPt.y - arrowPt.y, elbowPt.x - arrowPt.x)
+        let textPos = CGPoint(x: elbowPt.x + shelfDir * (shelfLen + 15.0), y: elbowPt.y)
+
+        ZStack {
+            Path { path in
+                path.move(to: arrowPt)
+                path.addLine(to: elbowPt)
+                path.addLine(to: shelfEnd)
+            }
+            .stroke(strokeColor, lineWidth: lineWidth)
+
+            Path { path in
+                appendArrowhead(to: &path, tip: arrowPt, angle: angle + .pi)
+            }
+            .fill(strokeColor)
+
+            Text(data.text)
+                .font(.system(size: CGFloat(data.fontSizePt), weight: .medium))
+                .foregroundStyle(strokeColor)
+                .position(textPos)
+        }
+    }
+
+    @ViewBuilder
+    private func renderCenterMark(
+        data: CenterMarkData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let center = toCanvasPoint(data.centerMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let size = data.markSizeMM * scale
+        let ext = data.extensionMM * scale
+        let total = size + ext
+
+        Path { path in
+            path.move(to: CGPoint(x: center.x - total, y: center.y))
+            path.addLine(to: CGPoint(x: center.x - 2, y: center.y))
+            path.move(to: CGPoint(x: center.x + 2, y: center.y))
+            path.addLine(to: CGPoint(x: center.x + total, y: center.y))
+            path.move(to: CGPoint(x: center.x, y: center.y - total))
+            path.addLine(to: CGPoint(x: center.x, y: center.y - 2))
+            path.move(to: CGPoint(x: center.x, y: center.y + 2))
+            path.addLine(to: CGPoint(x: center.x, y: center.y + total))
+        }
+        .rotation(Angle(degrees: data.rotationDegrees), anchor: .center)
+        .stroke(strokeColor, lineWidth: lineWidth)
+    }
+
+    @ViewBuilder
+    private func renderCenterline(
+        data: CenterlineData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let p1 = toCanvasPoint(data.startPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let p2 = toCanvasPoint(data.endPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let ext = data.extensionMM * scale
+        let angle = atan2(p2.y - p1.y, p2.x - p1.x)
+        let startExt = CGPoint(x: p1.x - cos(angle) * ext, y: p1.y - sin(angle) * ext)
+        let endExt = CGPoint(x: p2.x + cos(angle) * ext, y: p2.y + sin(angle) * ext)
+
+        Path { path in
+            path.move(to: startExt)
+            path.addLine(to: endExt)
+        }
+        .stroke(strokeColor, style: StrokeStyle(lineWidth: lineWidth, dash: [10, 3, 3, 3]))
+    }
+
+    @ViewBuilder
+    private func renderHoleCallout(
+        data: HoleCalloutAnnotationData,
+        annotation: DrawingAnnotation,
+        sheet: DrawingSheet,
+        fitScale: Double,
+        scale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let anchor = toCanvasPoint(data.anchorPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let elbow = toCanvasPoint(data.elbowPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
+        let shelfDir: CGFloat = elbow.x >= anchor.x ? 1.0 : -1.0
+        let shelfLen = max(18.0, data.landingLengthMM * scale)
+        let shelfEnd = CGPoint(x: elbow.x + shelfDir * shelfLen, y: elbow.y)
+        let angle = atan2(elbow.y - anchor.y, elbow.x - anchor.x)
+        let textPos = CGPoint(x: elbow.x + shelfDir * (shelfLen + 30.0), y: elbow.y)
+
+        ZStack {
+            Path { path in
+                path.move(to: anchor)
+                path.addLine(to: elbow)
+                path.addLine(to: shelfEnd)
+            }
+            .stroke(strokeColor, lineWidth: lineWidth)
+
+            Path { path in
+                appendArrowhead(to: &path, tip: anchor, angle: angle + .pi)
+            }
+            .fill(strokeColor)
+
+            Text(data.formattedCalloutText)
+                .font(.system(size: 8, weight: .medium))
+                .lineSpacing(2)
+                .foregroundStyle(strokeColor)
+                .position(textPos)
+        }
     }
 }
