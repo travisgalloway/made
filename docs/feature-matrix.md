@@ -83,6 +83,8 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - ASM-10 is Shipped. Bill of materials (BOM) export supporting flat and hierarchical structures, subassembly quantity rollup and multiplication, deterministic custom property columns, RFC 4180 CSV serialization, and File and Assembly menu integration was implemented under #173 (BL-ASM-10).
 - ASM-12 is Shipped. Named exploded views with sequential steps, cumulative translation displacements, trail generation, drawing query accessors, symmetric undo and redo, package serialization with backwards compatibility, Navigator sidebar outline management, Inspector configuration, and Assembly menu commands was implemented under #179 (BL-ASM-12).
 - DRW-1 is Shipped. Drawing document subsystem with sized sheets (ISO A0-A4, ANSI A-E, and custom sizes), landscape and portrait orientations, reactive title block templates with dynamic property resolution, symmetric single-step undo and redo, backward-compatible .made package persistence, File menu commands (⇧⌘D), 2D drawing canvas, Navigator sidebar sheets section, and Inspector panel sheet and title block controls was implemented under #208 (BL-DRW-01).
+- DRW-2 is Shipped. Exact Hidden Line Removal (HLR) engine for B-rep geometry in MadeCore, extracting visible, hidden, silhouette, and tangent edges with orthographic and isometric projections, multi-body assembly occlusion compounding, and actor-isolated kernel execution was implemented under #209 (BL-DRW-02).
+
 
 Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
 
@@ -318,5 +320,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | ASM-10 | (new) A person can export flat and hierarchical bills of materials (BOM) to RFC 4180 CSV files with subassembly quantity multiplication, leaf part grouping, standard and custom metadata columns, and File and Assembly export commands (BL-ASM-10) | done | done | done | Shipped | #173 | n/a |
 | ASM-12 | (new) A person can create and configure named exploded views with sequential steps, displacements, and trails, toggle active and collapsed views, inspect views and steps in Navigator and Inspector panels, and undo or redo exploded view mutations (BL-ASM-12) | done | done | done | Shipped | #179 | n/a |
 | DRW-1 | (new) A person can create and edit drawing documents with sized sheets (ISO A0-A4, ANSI A-E, custom), landscape and portrait orientations, reactive title block templates with metadata resolution, symmetric single-step undo and redo, and backward-compatible package persistence (BL-DRW-01) | done | done | done | Shipped | #208 | n/a |
+| DRW-2 | (new) A person can compute exact visible, hidden, silhouette, and tangent edges from B-rep geometry for 2D drawing views with orthographic and isometric projections (BL-DRW-02) | done | done | done | Shipped | #209 | n/a |
+
 
 

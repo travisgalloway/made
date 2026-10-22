@@ -28,6 +28,7 @@ public protocol KernelClientProtocol: Sendable {
     func exportStep(objects: [SceneObject]) async -> KernelResult<Data>
     func exportSTL(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<Int>
     func exportThreeMF(objects: [SceneObject], tolerance: Double, unit: LengthUnit, to url: URL) async -> KernelResult<ThreeMFExportResult>
+    func computeHLR(request: HLRRequest) async -> KernelResult<HLRResult>
     func cancel(jobId: JobId) async
     func dispose(solidId: SolidId) async
     func getStats() async -> KernelStats
@@ -38,6 +39,46 @@ public protocol KernelClientProtocol: Sendable {
 extension KernelClientProtocol {
     public func restarts() async -> AsyncStream<KernelRestart> {
         AsyncStream { $0.finish() }
+    }
+
+    public func computeHLR(request: HLRRequest) async -> KernelResult<HLRResult> {
+        .failure(jobId: request.jobId, error: KernelError(code: .geometryFailed, message: "HLR not supported by this client"))
+    }
+
+    public func computeHLR(
+        objects: [SceneObject],
+        direction: SIMD3<Double>,
+        options: HLROptions = .default
+    ) async -> KernelResult<HLRResult> {
+        let request = HLRRequest(objects: objects, direction: direction, options: options)
+        return await computeHLR(request: request)
+    }
+
+    public func computeHLR(
+        objects: [SceneObject],
+        view: HLRStandardView,
+        options: HLROptions = .default
+    ) async -> KernelResult<HLRResult> {
+        let request = HLRRequest(objects: objects, view: view, options: options)
+        return await computeHLR(request: request)
+    }
+
+    public func computeHLR(
+        solidId: SolidId,
+        direction: SIMD3<Double>,
+        options: HLROptions = .default
+    ) async -> KernelResult<HLRResult> {
+        let request = HLRRequest(solidId: solidId, direction: direction, options: options)
+        return await computeHLR(request: request)
+    }
+
+    public func computeHLR(
+        solidId: SolidId,
+        view: HLRStandardView,
+        options: HLROptions = .default
+    ) async -> KernelResult<HLRResult> {
+        let request = HLRRequest(solidId: solidId, view: view, options: options)
+        return await computeHLR(request: request)
     }
 
     public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
@@ -77,6 +118,10 @@ public actor KernelClient: KernelClientProtocol {
     
     public func getStats() async -> KernelStats {
         return stats
+    }
+
+    public func computeHLR(request: HLRRequest) async -> KernelResult<HLRResult> {
+        await engine.computeHLR(request: request)
     }
 
     public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {

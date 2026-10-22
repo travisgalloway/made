@@ -849,7 +849,38 @@ public actor LocalKernelEngine: KernelEngine {
         AsyncStream { $0.finish() }
     }
     
+    public func computeHLR(request: HLRRequest) async -> KernelResult<HLRResult> {
+        if let objects = request.objects, !objects.isEmpty {
+            let result = HLREngine.computeHLR(
+                objects: objects,
+                cachedShapes: occtShapes,
+                direction: request.direction,
+                options: request.options
+            )
+            return .success(jobId: request.jobId, value: result)
+        } else if let solidId = request.solidId {
+            guard let shape = occtShapes[solidId] else {
+                return .failure(
+                    jobId: request.jobId,
+                    error: KernelError(code: .unknownSolid, message: "Solid not found: \(solidId.rawValue)")
+                )
+            }
+            let result = HLREngine.computeHLR(
+                shape: shape,
+                direction: request.direction,
+                options: request.options
+            )
+            return .success(jobId: request.jobId, value: result)
+        } else {
+            return .failure(
+                jobId: request.jobId,
+                error: KernelError(code: .invalidParams, message: "HLRRequest must specify either objects or solidId")
+            )
+        }
+    }
+
     public func storeCounts() async -> KernelEngineCounts {
         KernelEngineCounts(solids: solids.count, euclidMeshes: euclidMeshes.count, occtShapes: occtShapes.count)
     }
 }
+
