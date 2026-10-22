@@ -4,7 +4,7 @@ Date: 2026-10-17
 Scope: macos/ (Swift 6 package, targets MadeCore, MadeApp, and MadeKernelService)
 Audit run: 20261017-112015
 
-Table 1 lists 192 capabilities with their implementation status. The matrix shows 160 Shipped, 22 In progress, 5 Planned, and 5 Deprecated rows.
+Table 1 lists 193 capabilities with their implementation status. The matrix shows 161 Shipped, 22 In progress, 5 Planned, and 5 Deprecated rows.
 
 Cell values are done, none, or n/a. A cell reads n/a where the layer does not apply to the capability.
 
@@ -75,6 +75,7 @@ Cell values are done, none, or n/a. A cell reads n/a where the layer does not ap
 - ASM-1 is Shipped. Foundational assembly document type supporting part and assembly document distinction, component instances with internal part or external document references, 3D transform positioning with Euler angles, package serialization round-trip, File > New Assembly (⌥⌘N), Navigator Components outline, and Inspector transform editing with undo and redo was implemented under #161 (BL-ASM-01).
 - ASM-2 is Shipped. Interactive component insertion from external CAD files (.made, .step, .stp) or internal document bodies, click-to-place viewport ray unprojection with surface snapping and Z=0 ground plane intersection, Assembly menu commands (⌥⌘I), Navigator sidebar insertion actions, and symmetric undo and redo was implemented under #162 (BL-ASM-02).
 - ASM-3 is Shipped. Fixed and grounded component instances anchoring coordinate frames to the assembly origin, automatic grounding on the first placed component, gizmo and transform suppression, Navigator and Inspector toggles, Assembly menu commands, and backwards-compatible package persistence was implemented under #163 (BL-ASM-03).
+- ASM-4 is Shipped. Pure-Swift 3D rigid-body assembly constraint and mate solver (`AssemblyConstraintSolver`) with Levenberg-Marquardt numerical optimization, 7 mate kinds (coincident, concentric, distance, parallel, perpendicular, angle, fastened), degrees of freedom (DOF) and rank analysis, redundant mate detection, conflicting constraint diagnostics, asynchronous actor execution (`AssemblyConstraintSolverActor`), and DocumentModel persistence with undo and redo was implemented under #164 (BL-CON-10).
 
 Persistence and simulation note. Native document persistence using the .made directory package format is implemented under #83 and ADR-D7 (via FileDocument and MadePackage). CAE simulation and volume meshing (CalculiX `ccx` and Gmsh out-of-process file deck execution with pure-Swift clean-room fallback in `libs/`) is planned under Phase 6 (#187, #188, #413) and governed by ADR-D5 (#147).
 
@@ -301,4 +302,5 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | ASM-1 | (new) A person can create and edit assembly documents with component instances referencing internal parts or external documents, position instances via 3D transforms with Euler angles, inspect and edit components in Navigator and Inspector panels, and persist assembly packages with backwards compatibility (BL-ASM-01) | done | done | done | Shipped | #161 | n/a |
 | ASM-2 | (new) A person can insert a component instance referencing an external CAD file (.made, .step, .stp) or an internal document part, position it interactively in the 3D viewport with surface and ground snapping, and undo or redo the placement (BL-ASM-02) | done | done | done | Shipped | #162 | n/a |
 | ASM-3 | (new) A person can ground and float assembly component instances anchoring coordinate frames to the assembly origin, with automatic grounding on the first placed component, gizmo suppression, and symmetric undo and redo (BL-ASM-03) | done | done | done | Shipped | #163 | n/a |
+| ASM-4 | (new) A person can constrain component instances with 3D assembly mates (coincident, concentric, distance, parallel, perpendicular, angle, fastened), solve systems via Levenberg-Marquardt optimization, inspect degrees of freedom and diagnostics, and undo or redo constraint mutations (BL-CON-10) | none | done | done | Shipped | #164 | n/a |
 

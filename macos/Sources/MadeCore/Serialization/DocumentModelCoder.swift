@@ -14,6 +14,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var parameters: [DocumentParameter]?
     public var documentType: DocumentType?
     public var componentInstances: [ComponentInstance]?
+    public var assemblyConstraints: [AssemblyConstraint]?
 
     public init(
         schemaVersion: Int = DocumentData.currentSchemaVersion,
@@ -25,13 +26,15 @@ public struct DocumentData: Codable, Sendable, Equatable {
         selection: [Reference]? = nil,
         parameters: [DocumentParameter]? = nil,
         documentType: DocumentType? = nil,
-        componentInstances: [ComponentInstance]? = nil
+        componentInstances: [ComponentInstance]? = nil,
+        assemblyConstraints: [AssemblyConstraint]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.rollbackIndex = rollbackIndex
         self.parameters = parameters
         self.documentType = documentType
         self.componentInstances = componentInstances
+        self.assemblyConstraints = assemblyConstraints
         let projectedCompObjects: [SceneObject] = (componentInstances ?? []).map { $0.toSceneObject() }
         if let features {
             self.features = features
@@ -58,8 +61,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.selection = selection
     }
 
-    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances)
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil, assemblyConstraints: [AssemblyConstraint]? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances, assemblyConstraints: assemblyConstraints)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -73,6 +76,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case parameters
         case documentType
         case componentInstances
+        case assemblyConstraints
     }
 
     public init(from decoder: Decoder) throws {
@@ -143,6 +147,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.selectedId = try container.decodeIfPresent(ObjectId.self, forKey: .selectedId)
         self.selection = try container.decodeIfPresent([Reference].self, forKey: .selection)
         self.parameters = try container.decodeIfPresent([DocumentParameter].self, forKey: .parameters)
+        self.assemblyConstraints = try container.decodeIfPresent([AssemblyConstraint].self, forKey: .assemblyConstraints)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -159,6 +164,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encodeIfPresent(parameters, forKey: .parameters)
         try container.encodeIfPresent(documentType, forKey: .documentType)
         try container.encodeIfPresent(componentInstances, forKey: .componentInstances)
+        try container.encodeIfPresent(assemblyConstraints, forKey: .assemblyConstraints)
     }
 
     private static func sceneObjectsMatch(_ a: [SceneObject], _ b: [SceneObject]) -> Bool {
@@ -259,7 +265,8 @@ public enum DocumentModelCoder {
             selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString },
             parameters: document.parameters,
             documentType: document.documentType,
-            componentInstances: document.componentInstances
+            componentInstances: document.componentInstances,
+            assemblyConstraints: document.assemblyConstraints
         )
         return try encode(docData, packageURL: packageURL)
     }
@@ -279,6 +286,7 @@ public enum DocumentModelCoder {
         }()
         let docType = docData.documentType ?? .part
         let instances = docData.componentInstances ?? []
+        let constraints = docData.assemblyConstraints ?? []
         if let features = docData.features {
             document.reset(
                 with: features,
@@ -287,7 +295,8 @@ public enum DocumentModelCoder {
                 rollbackIndex: docData.rollbackIndex,
                 parameters: docData.parameters ?? [],
                 documentType: docType,
-                componentInstances: instances
+                componentInstances: instances,
+                assemblyConstraints: constraints
             )
         } else {
             document.reset(
@@ -297,7 +306,8 @@ public enum DocumentModelCoder {
                 rollbackIndex: docData.rollbackIndex,
                 parameters: docData.parameters ?? [],
                 documentType: docType,
-                componentInstances: instances
+                componentInstances: instances,
+                assemblyConstraints: constraints
             )
         }
     }

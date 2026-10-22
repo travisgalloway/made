@@ -262,4 +262,141 @@ import simd
         #expect(doc.componentInstances.first?.isGrounded == true)
         #expect(doc.objects.first(where: { $0.id == instance.solidId })?.isLocked == true)
     }
+
+    @Test func testAddAssemblyConstraintWithUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let constraint = AssemblyConstraint(
+            kind: .coincident,
+            firstFeature: AssemblyFeature(origin: .zero),
+            secondFeature: AssemblyFeature(origin: SIMD3<Float>(10, 0, 0))
+        )
+
+        let result = doc.addAssemblyConstraint(constraint)
+        guard case .success = result else {
+            Issue.record("Expected successful addAssemblyConstraint")
+            return
+        }
+        #expect(doc.assemblyConstraints.count == 1)
+        #expect(doc.assemblyConstraints.first?.id == constraint.id)
+
+        undoManager.undo()
+        #expect(doc.assemblyConstraints.isEmpty)
+
+        undoManager.redo()
+        #expect(doc.assemblyConstraints.count == 1)
+        #expect(doc.assemblyConstraints.first?.id == constraint.id)
+    }
+
+    @Test func testRemoveAssemblyConstraintWithUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let constraint = AssemblyConstraint(
+            kind: .parallel,
+            firstFeature: AssemblyFeature(origin: .zero, axis: SIMD3<Float>(0, 1, 0)),
+            secondFeature: AssemblyFeature(origin: .zero, axis: SIMD3<Float>(0, 1, 0))
+        )
+        _ = doc.addAssemblyConstraint(constraint)
+        undoManager.removeAllActions()
+
+        let removeResult = doc.removeAssemblyConstraint(id: constraint.id)
+        guard case .success = removeResult else {
+            Issue.record("Expected successful removeAssemblyConstraint")
+            return
+        }
+        #expect(doc.assemblyConstraints.isEmpty)
+
+        undoManager.undo()
+        #expect(doc.assemblyConstraints.count == 1)
+        #expect(doc.assemblyConstraints.first?.id == constraint.id)
+
+        undoManager.redo()
+        #expect(doc.assemblyConstraints.isEmpty)
+    }
+
+    @Test func testUpdateAssemblyConstraintWithUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let constraint = AssemblyConstraint(
+            kind: .distance,
+            firstFeature: AssemblyFeature(origin: .zero),
+            secondFeature: AssemblyFeature(origin: .zero),
+            value: 10.0
+        )
+        _ = doc.addAssemblyConstraint(constraint)
+        undoManager.removeAllActions()
+
+        var updated = constraint
+        updated.value = 25.0
+        let updateResult = doc.updateAssemblyConstraint(updated)
+        guard case .success = updateResult else {
+            Issue.record("Expected successful updateAssemblyConstraint")
+            return
+        }
+        #expect(doc.assemblyConstraints.first?.value == 25.0)
+
+        undoManager.undo()
+        #expect(doc.assemblyConstraints.first?.value == 10.0)
+
+        undoManager.redo()
+        #expect(doc.assemblyConstraints.first?.value == 25.0)
+    }
+
+    @Test func testSolveAssemblyConstraintsWithUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let base = ComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "BasePart"),
+            transform: .identity,
+            isGrounded: true
+        )
+        let slider = ComponentInstance(
+            name: "Slider",
+            reference: .internalPart(name: "SliderPart"),
+            transform: Transform(position: SIMD3<Float>(50, 0, 0)),
+            isGrounded: false
+        )
+        _ = doc.addComponentInstance(base)
+        _ = doc.addComponentInstance(slider)
+
+        let mate = AssemblyConstraint(
+            kind: .coincident,
+            firstFeature: AssemblyFeature(componentInstanceId: base.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: slider.id, origin: .zero)
+        )
+        _ = doc.addAssemblyConstraint(mate)
+        undoManager.removeAllActions()
+
+        let solveResult = doc.solveAssemblyConstraints()
+        #expect(solveResult.status.isConverged)
+
+        let solvedSlider = doc.componentInstances.first(where: { $0.id == slider.id })
+        #expect(solvedSlider != nil)
+        #expect(abs(solvedSlider!.transform.position.x) < 1e-3)
+        #expect(abs(solvedSlider!.transform.position.y) < 1e-3)
+        #expect(abs(solvedSlider!.transform.position.z) < 1e-3)
+
+        // Grounded base must remain unchanged at (0, 0, 0)
+        let solvedBase = doc.componentInstances.first(where: { $0.id == base.id })
+        #expect(solvedBase?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        // Verify undo restores slider position to (50, 0, 0)
+        undoManager.undo()
+        let undoneSlider = doc.componentInstances.first(where: { $0.id == slider.id })
+        #expect(undoneSlider?.transform.position == SIMD3<Float>(50, 0, 0))
+
+        // Verify redo reapplies solved position (0, 0, 0)
+        undoManager.redo()
+        let redoneSlider = doc.componentInstances.first(where: { $0.id == slider.id })
+        #expect(abs(redoneSlider!.transform.position.x) < 1e-3)
+    }
 }
