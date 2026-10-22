@@ -822,6 +822,7 @@ public final class DocumentModel {
     public private(set) var settings: DocumentSettings = DocumentSettings()
     public private(set) var documentType: DocumentType = .part
     public private(set) var componentInstances: [ComponentInstance] = []
+    public private(set) var assemblyConstraints: [AssemblyConstraint] = []
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
@@ -1233,11 +1234,12 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], settings: DocumentSettings = DocumentSettings()) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], settings: DocumentSettings = DocumentSettings()) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
         self.componentInstances = componentInstances
+        self.assemblyConstraints = assemblyConstraints
         self.settings = settings
         self._selection = []
         self._selectedId = nil
@@ -1246,10 +1248,11 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = []) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = []) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
+        self.assemblyConstraints = assemblyConstraints
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
             self.rollbackIndex = (clamped >= features.count) ? nil : clamped
@@ -1301,10 +1304,11 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = []) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
+        self.assemblyConstraints = assemblyConstraints
         self.parameters = parameters
         rebuildParameterGraph()
         features = newFeatures
@@ -1332,10 +1336,11 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = []) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
+        self.assemblyConstraints = assemblyConstraints
         self.parameters = parameters
         rebuildParameterGraph()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
@@ -6287,6 +6292,123 @@ public final class DocumentModel {
             undoManager?.setActionName(effectiveActionName)
         }
         undoStateVersion += 1
+    }
+
+    // MARK: - Assembly Constraints (BL-CON-10, #164)
+
+    @discardableResult
+    public func addAssemblyConstraint(_ constraint: AssemblyConstraint, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        assemblyConstraints.append(constraint)
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Assembly Constraint"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeAssemblyConstraint(id: constraint.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeAssemblyConstraint(id: UUID, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        guard let index = assemblyConstraints.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Assembly constraint not found"))
+        }
+        let constraint = assemblyConstraints[index]
+        assemblyConstraints.remove(at: index)
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Assembly Constraint"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addAssemblyConstraint(constraint, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateAssemblyConstraint(_ constraint: AssemblyConstraint, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        guard let index = assemblyConstraints.firstIndex(where: { $0.id == constraint.id }) else {
+            return .failure(.invalidOperation("Assembly constraint not found"))
+        }
+        let old = assemblyConstraints[index]
+        guard old != constraint else { return .success(()) }
+        assemblyConstraints[index] = constraint
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Assembly Constraint"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateAssemblyConstraint(old, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func solveAssemblyConstraints(actionName: String? = nil, registerUndo: Bool = true) -> AssemblySolverResult {
+        let system = AssemblyConstraintSystem(instances: componentInstances, constraints: assemblyConstraints)
+        let result = AssemblyConstraintSolver.solve(system: system)
+        guard result.status.isConverged else {
+            return result
+        }
+
+        var oldTransforms: [UUID: Transform] = [:]
+        for (id, newTransform) in result.solvedTransforms {
+            if let idx = componentInstances.firstIndex(where: { $0.id == id }), !componentInstances[idx].isGrounded {
+                if componentInstances[idx].transform != newTransform {
+                    oldTransforms[id] = componentInstances[idx].transform
+                    componentInstances[idx].transform = newTransform
+                }
+            }
+        }
+
+        if !oldTransforms.isEmpty {
+            syncObjectsFromFeatures()
+            if registerUndo {
+                let effectiveActionName = actionName ?? "Solve Assembly Constraints"
+                let newTransforms = result.solvedTransforms.filter { oldTransforms[$0.key] != nil }
+                undoManager?.registerUndo(withTarget: self) { target in
+                    MainActor.assumeIsolated {
+                        for (id, oldTransform) in oldTransforms {
+                            if let idx = target.componentInstances.firstIndex(where: { $0.id == id }), !target.componentInstances[idx].isGrounded {
+                                target.componentInstances[idx].transform = oldTransform
+                            }
+                        }
+                        target.syncObjectsFromFeatures()
+                        target.undoStateVersion += 1
+                        target.undoManager?.setActionName(effectiveActionName)
+                        target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                            MainActor.assumeIsolated {
+                                for (id, newTransform) in newTransforms {
+                                    if let idx = redoTarget.componentInstances.firstIndex(where: { $0.id == id }), !redoTarget.componentInstances[idx].isGrounded {
+                                        redoTarget.componentInstances[idx].transform = newTransform
+                                    }
+                                }
+                                redoTarget.syncObjectsFromFeatures()
+                                redoTarget.undoStateVersion += 1
+                                redoTarget.undoManager?.setActionName(effectiveActionName)
+                            }
+                        }
+                    }
+                }
+                undoManager?.setActionName(effectiveActionName)
+            }
+            undoStateVersion += 1
+        }
+
+        return result
     }
 
     /// Returns all direct dependent objects of `rootId` (BL-FND-03).

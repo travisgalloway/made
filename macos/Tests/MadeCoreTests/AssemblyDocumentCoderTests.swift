@@ -138,4 +138,59 @@ import simd
         #expect(reopenedDoc.componentInstances.first?.transform.position == SIMD3<Float>(5, 15, 25))
         #expect(reopenedDoc.objects.contains(where: { $0.id == instance.solidId }))
     }
+
+    @Test func testAssemblyConstraintsDocumentDataRoundTrip() throws {
+        let instanceA = ComponentInstance(name: "A", reference: .internalPart(name: "PartA"))
+        let instanceB = ComponentInstance(name: "B", reference: .internalPart(name: "PartB"))
+
+        let mate1 = AssemblyConstraint(
+            kind: .coincident,
+            firstFeature: AssemblyFeature(componentInstanceId: instanceA.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: instanceB.id, origin: .zero)
+        )
+        let mate2 = AssemblyConstraint(
+            kind: .distance,
+            firstFeature: AssemblyFeature(componentInstanceId: instanceA.id, origin: SIMD3<Float>(10, 0, 0)),
+            secondFeature: AssemblyFeature(componentInstanceId: instanceB.id, origin: .zero),
+            value: 20.0
+        )
+
+        let sourceDoc = DocumentModel(
+            documentType: .assembly,
+            componentInstances: [instanceA, instanceB],
+            assemblyConstraints: [mate1, mate2]
+        )
+
+        let data = try DocumentModelCoder.encode(document: sourceDoc)
+        let decodedData = try DocumentModelCoder.decode(from: data)
+
+        #expect(decodedData.assemblyConstraints?.count == 2)
+        #expect(decodedData.assemblyConstraints?.first?.kind == .coincident)
+        #expect(decodedData.assemblyConstraints?.last?.value == 20.0)
+
+        let targetDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: targetDoc, from: data)
+
+        #expect(targetDoc.documentType == .assembly)
+        #expect(targetDoc.assemblyConstraints.count == 2)
+        #expect(targetDoc.assemblyConstraints.first?.id == mate1.id)
+        #expect(targetDoc.assemblyConstraints.last?.id == mate2.id)
+    }
+
+    @Test func testLegacyDocumentWithoutAssemblyConstraintsDecodesEmpty() throws {
+        let legacyDocJSON = """
+        {
+          "schemaVersion": 2,
+          "documentType": "assembly",
+          "objects": []
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: legacyDocJSON)
+        #expect(decoded.assemblyConstraints == nil || decoded.assemblyConstraints?.isEmpty == true)
+
+        let targetDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: targetDoc, from: legacyDocJSON)
+        #expect(targetDoc.assemblyConstraints.isEmpty)
+    }
 }
