@@ -472,5 +472,78 @@ import simd
         #expect(targetDoc.componentInstances.first?.patternId == nil)
         #expect(targetDoc.componentInstances.first?.mirrorId == nil)
     }
+
+    // MARK: - Exploded Views (BL-ASM-12)
+
+    @Test func testExplodedViewsDocumentDataRoundTrip() throws {
+        let instance = ComponentInstance(
+            name: "Plate",
+            reference: .internalPart(name: "PlatePart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        let step = ExplodeStep(
+            name: "Step 1",
+            targetInstanceIds: [instance.id],
+            direction: SIMD3<Float>(0, 1, 0),
+            distance: 45.0,
+            hasTrail: true
+        )
+        let view = ExplodedView(
+            name: "Exploded 1",
+            steps: [step],
+            isCollapsed: false
+        )
+
+        let sourceDoc = DocumentModel(
+            documentType: .assembly,
+            componentInstances: [instance],
+            explodedViews: [view],
+            activeExplodedViewId: view.id
+        )
+
+        let encoded = try DocumentModelCoder.encode(document: sourceDoc)
+        let decodedData = try DocumentModelCoder.decode(from: encoded)
+
+        #expect(decodedData.explodedViews?.count == 1)
+        #expect(decodedData.explodedViews?.first?.name == "Exploded 1")
+        #expect(decodedData.explodedViews?.first?.steps.count == 1)
+        #expect(decodedData.explodedViews?.first?.steps.first?.distance == 45.0)
+        #expect(decodedData.explodedViews?.first?.steps.first?.hasTrail == true)
+        #expect(decodedData.activeExplodedViewId == view.id)
+
+        let targetDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: targetDoc, from: encoded)
+
+        #expect(targetDoc.documentType == .assembly)
+        #expect(targetDoc.explodedViews.count == 1)
+        #expect(targetDoc.explodedViews.first?.id == view.id)
+        #expect(targetDoc.explodedViews.first?.name == "Exploded 1")
+        #expect(targetDoc.activeExplodedViewId == view.id)
+        #expect(targetDoc.explodedViews.first?.steps.count == 1)
+        #expect(targetDoc.explodedViews.first?.steps.first?.targetInstanceIds == [instance.id])
+
+        // Verify scene object projected transform incorporates exploded displacement
+        let projected = targetDoc.objects.first(where: { $0.id == instance.solidId })
+        #expect(projected?.transform.position == SIMD3<Float>(0, 45, 0))
+    }
+
+    @Test func testLegacyDocumentWithoutExplodedViewsDecodesEmpty() throws {
+        let legacyAssemblyJSON = """
+        {
+          "schemaVersion": 2,
+          "documentType": "assembly",
+          "componentInstances": []
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try DocumentModelCoder.decode(from: legacyAssemblyJSON)
+        #expect(decoded.explodedViews == nil)
+        #expect(decoded.activeExplodedViewId == nil)
+
+        let targetDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: targetDoc, from: legacyAssemblyJSON)
+        #expect(targetDoc.explodedViews.isEmpty)
+        #expect(targetDoc.activeExplodedViewId == nil)
+    }
 }
 

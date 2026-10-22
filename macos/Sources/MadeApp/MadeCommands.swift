@@ -738,6 +738,24 @@ struct AssemblyMenuCommands: Commands {
                 }
             }
             .disabled(!workspace.canExportBillOfMaterials)
+
+            Divider()
+
+            Menu("Exploded Views") {
+                Button("New Exploded View") {
+                    _ = workspace.createExplodedView()
+                }
+                if !workspace.document.explodedViews.isEmpty {
+                    Divider()
+                    ForEach(workspace.document.explodedViews) { view in
+                        let isActive = workspace.activeExplodedViewId == view.id && !view.isCollapsed
+                        Button(isActive ? "Collapse \(view.name)" : "Explode \(view.name)") {
+                            workspace.toggleExplodedView(id: view.id)
+                        }
+                    }
+                }
+            }
+            .disabled(workspace.document.documentType != .assembly && workspace.document.componentInstances.isEmpty)
         }
     }
 }

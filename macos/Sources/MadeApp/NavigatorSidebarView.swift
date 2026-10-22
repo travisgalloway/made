@@ -96,6 +96,28 @@ struct NavigatorSidebarView: View {
                         }
                     }
 
+                    if workspace.document.documentType == .assembly || !workspace.document.explodedViews.isEmpty {
+                        Section {
+                            ForEach(workspace.document.explodedViews) { view in
+                                NavigatorExplodedViewRow(view: view)
+                            }
+                        } header: {
+                            HStack {
+                                Text("Exploded Views")
+                                Spacer()
+                                Button {
+                                    _ = workspace.createExplodedView()
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                                .buttonStyle(.borderless)
+                                .frame(width: 16, height: 16)
+                                .help("New Exploded View")
+                                .accessibilityIdentifier("navigator-add-exploded-view-button")
+                            }
+                        }
+                    }
+
                     if workspace.document.documentType != .assembly || !filteredBodies.isEmpty {
                         Section("Bodies") {
                             ForEach(filteredBodies) { body in
@@ -156,7 +178,7 @@ struct NavigatorSidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty {
+                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty && workspace.document.explodedViews.isEmpty {
                         ContentUnavailableView {
                             Label(workspace.document.documentType == .assembly ? "No Components" : "No Objects", systemImage: workspace.document.documentType == .assembly ? "square.3.layers.3d" : "cube.transparent")
                         } description: {
@@ -1670,5 +1692,193 @@ struct NavigatorParameterRow: View {
         .help(param.comment.isEmpty ? "\(param.name): \(param.value) \(param.unit)" : "\(param.name) (\(param.comment))")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(param.name), \(param.value) \(param.unit)")
+    }
+}
+
+/// Outline row for an exploded view in the Navigator sidebar (BL-ASM-12).
+struct NavigatorExplodedViewRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let view: ExplodedView
+    @State private var isExpanded: Bool = true
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        let isSelected = workspace.selectedExplodedViewId == view.id && workspace.selectedExplodeStepId == nil
+        let isActive = workspace.activeExplodedViewId == view.id && !view.isCollapsed
+
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 6) {
+                if !view.steps.isEmpty {
+                    Button {
+                        isExpanded.toggle()
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 12, height: 12)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Spacer().frame(width: 12)
+                }
+
+                Image(systemName: "shippingbox.and.arrow.backward")
+                    .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                    .frame(width: 16)
+
+                Text(view.name)
+                    .font(.body)
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+
+                if isActive {
+                    Text("Active")
+                        .font(.caption2)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.accentColor.opacity(0.15))
+                        )
+                        .accessibilityIdentifier("navigator-exploded-view-active-badge-\(view.id.uuidString)")
+                } else if view.isCollapsed && workspace.activeExplodedViewId == view.id {
+                    Text("Collapsed")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                Spacer(minLength: 4)
+
+                if isHovered || isActive {
+                    Button(isActive ? "Collapse" : "Explode", systemImage: isActive ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
+                        workspace.toggleExplodedView(id: view.id)
+                    }
+                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                    .help(isActive ? "Collapse Exploded View" : "Activate and Explode")
+                    .barControl()
+                }
+
+                if isHovered {
+                    Button("Add Step", systemImage: "plus") {
+                        _ = workspace.addExplodeStep(viewId: view.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help("Add Explode Step")
+                    .barControl()
+                }
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .onTapGesture {
+                workspace.selectExplodedView(view.id)
+            }
+            .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+            .contextMenu {
+                Button(isActive ? "Collapse" : "Explode") {
+                    workspace.toggleExplodedView(id: view.id)
+                }
+                Button(view.isCollapsed ? "Expand Steps" : "Collapse Steps") {
+                    workspace.toggleExplodedViewCollapsed(id: view.id)
+                }
+                Divider()
+                Button("Add Step") {
+                    _ = workspace.addExplodeStep(viewId: view.id)
+                }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    workspace.removeExplodedView(id: view.id)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(view.name), Exploded View, \(view.steps.count) steps\(isActive ? ", Active" : "")")
+            .accessibilityIdentifier("navigator-exploded-view-\(view.id.uuidString)")
+
+            if isExpanded {
+                ForEach(view.steps) { step in
+                    NavigatorExplodeStepRow(view: view, step: step, indentLevel: 1)
+                }
+            }
+        }
+    }
+}
+
+/// Outline row for an explode step in the Navigator sidebar (BL-ASM-12).
+struct NavigatorExplodeStepRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let view: ExplodedView
+    let step: ExplodeStep
+    var indentLevel: Int = 1
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        let isSelected = workspace.selectedExplodedViewId == view.id && workspace.selectedExplodeStepId == step.id
+        let lengthUnit = workspace.document.settings.units.lengthUnit
+        let displayDist = InspectorUnitConversion.displayLength(Double(step.distance), unit: lengthUnit)
+
+        HStack(alignment: .center, spacing: 6) {
+            Spacer().frame(width: CGFloat(indentLevel * 12 + 8))
+
+            Image(systemName: "arrow.right")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+
+            Text(step.name)
+                .font(.body)
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+
+            Text("\(step.targetInstanceIds.count) parts")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.secondary.opacity(0.12))
+                )
+
+            Text("\(displayDist.formatted(.number.precision(.fractionLength(1)))) \(lengthUnit.symbol)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            if step.hasTrail {
+                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                    .font(.caption2)
+                    .foregroundStyle(Color.accentColor)
+                    .help("Trail enabled")
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            workspace.selectExplodeStep(viewId: view.id, stepId: step.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .contextMenu {
+            Button(step.hasTrail ? "Hide Trail" : "Show Trail") {
+                var copy = step
+                copy.hasTrail.toggle()
+                workspace.updateExplodeStep(viewId: view.id, step: copy)
+            }
+            Divider()
+            Button("Delete Step", role: .destructive) {
+                workspace.removeExplodeStep(viewId: view.id, stepId: step.id)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(step.name), Step, \(step.targetInstanceIds.count) targets, \(displayDist.formatted(.number.precision(.fractionLength(1)))) \(lengthUnit.symbol)")
+        .accessibilityIdentifier("navigator-explode-step-\(step.id.uuidString)")
     }
 }

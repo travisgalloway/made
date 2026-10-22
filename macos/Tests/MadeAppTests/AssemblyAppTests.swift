@@ -846,6 +846,115 @@ import simd
         ws.undo()
         #expect(ws.document.componentMirrors.count == 1)
     }
+
+    // MARK: - Exploded Views (BL-ASM-12)
+
+    @Test func testWorkspaceExplodedViewsOperationsAndSelection() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let comp = ws.addComponentInstance(
+            name: "Bracket",
+            reference: .internalPart(name: "BracketPart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        #expect(ws.selectedId == comp.solidId)
+
+        // Create exploded view
+        let view = ws.createExplodedView(name: "Explode 1")
+        #expect(view != nil)
+        guard let view else { return }
+
+        #expect(ws.document.explodedViews.count == 1)
+        #expect(ws.document.explodedViews.first?.name == "Explode 1")
+        #expect(ws.selectedExplodedViewId == view.id)
+        #expect(ws.selectedId == nil) // Selection coordinated: solidId cleared
+
+        // Rename view
+        ws.renameExplodedView(id: view.id, name: "Disassembly")
+        #expect(ws.document.explodedViews.first?.name == "Disassembly")
+
+        // Add explode step
+        let step1 = ExplodeStep(
+            name: "Slide Pin",
+            targetInstanceIds: [comp.id],
+            direction: SIMD3<Float>(1, 0, 0),
+            distance: 25.0,
+            hasTrail: true
+        )
+        let addedStep = ws.addExplodeStep(viewId: view.id, step: step1)
+        #expect(addedStep != nil)
+        #expect(ws.document.explodedViews.first?.steps.count == 1)
+        #expect(ws.selectedExplodeStepId == step1.id)
+
+        // Add second step
+        let step2 = ExplodeStep(
+            name: "Lift Bracket",
+            targetInstanceIds: [comp.id],
+            direction: SIMD3<Float>(0, 1, 0),
+            distance: 50.0
+        )
+        _ = ws.addExplodeStep(viewId: view.id, step: step2)
+        #expect(ws.document.explodedViews.first?.steps.count == 2)
+
+        // Select step
+        ws.selectExplodeStep(viewId: view.id, stepId: step1.id)
+        #expect(ws.selectedExplodeStepId == step1.id)
+        #expect(ws.selectedExplodedViewId == view.id)
+        #expect(ws.selectedExplodeStep?.id == step1.id)
+
+        // Toggle active view
+        #expect(ws.document.activeExplodedViewId == nil)
+        ws.toggleExplodedView(id: view.id)
+        #expect(ws.document.activeExplodedViewId == view.id)
+
+        // When active, scene object reflects cumulative displacement (25 + 0, 0 + 50, 0)
+        let sceneObj = ws.document.objects.first(where: { $0.id == comp.solidId })
+        #expect(sceneObj?.transform.position == SIMD3<Float>(25, 50, 0))
+
+        // Toggle collapsed
+        ws.toggleExplodedViewCollapsed(id: view.id)
+        #expect(ws.document.explodedViews.first?.isCollapsed == true)
+        #expect(ws.document.objects.first(where: { $0.id == comp.solidId })?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        // Toggle expanded
+        ws.toggleExplodedViewCollapsed(id: view.id)
+        #expect(ws.document.explodedViews.first?.isCollapsed == false)
+        #expect(ws.document.objects.first(where: { $0.id == comp.solidId })?.transform.position == SIMD3<Float>(25, 50, 0))
+
+        // Reorder steps
+        ws.reorderExplodeSteps(viewId: view.id, stepIds: [step2.id, step1.id])
+        #expect(ws.document.explodedViews.first?.steps.map(\.id) == [step2.id, step1.id])
+
+        // Update step
+        var updatedStep1 = step1
+        updatedStep1.distance = 100.0
+        ws.updateExplodeStep(viewId: view.id, step: updatedStep1)
+        #expect(ws.document.explodedViews.first?.steps.first(where: { $0.id == step1.id })?.distance == 100.0)
+
+        // Remove step
+        ws.removeExplodeStep(viewId: view.id, stepId: step2.id)
+        #expect(ws.document.explodedViews.first?.steps.count == 1)
+
+        // Clear selection
+        ws.clearSelection()
+        #expect(ws.selectedExplodedViewId == nil)
+        #expect(ws.selectedExplodeStepId == nil)
+
+        // Selecting a solid clears exploded view selection
+        ws.selectExplodedView(view.id)
+        #expect(ws.selectedExplodedViewId == view.id)
+        ws.select(solidId: comp.solidId)
+        #expect(ws.selectedExplodedViewId == nil)
+        #expect(ws.selectedId == comp.solidId)
+
+        // Remove exploded view
+        ws.selectExplodedView(view.id)
+        ws.removeExplodedView(id: view.id)
+        #expect(ws.document.explodedViews.isEmpty)
+        #expect(ws.selectedExplodedViewId == nil)
+        #expect(ws.document.activeExplodedViewId == nil)
+    }
 }
 
 
