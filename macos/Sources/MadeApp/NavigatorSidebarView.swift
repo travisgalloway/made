@@ -17,11 +17,23 @@ struct NavigatorSidebarView: View {
 
             ScrollViewReader { proxy in
                 List(selection: $workspace.selectedIds) {
-                    Section("Bodies") {
-                        ForEach(filteredBodies) { body in
-                            NavigatorRow(body: body)
-                                .tag(body.id)
-                                .id(body.id)
+                    if workspace.document.documentType == .assembly || !workspace.document.componentInstances.isEmpty {
+                        Section("Components") {
+                            ForEach(filteredComponents) { component in
+                                NavigatorComponentRow(component: component)
+                                    .tag(component.solidId)
+                                    .id(component.solidId)
+                            }
+                        }
+                    }
+
+                    if workspace.document.documentType != .assembly || !filteredBodies.isEmpty {
+                        Section("Bodies") {
+                            ForEach(filteredBodies) { body in
+                                NavigatorRow(body: body)
+                                    .tag(body.id)
+                                    .id(body.id)
+                            }
                         }
                     }
 
@@ -75,24 +87,26 @@ struct NavigatorSidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty {
+                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty {
                         ContentUnavailableView {
-                            Label("No Objects", systemImage: "cube.transparent")
+                            Label(workspace.document.documentType == .assembly ? "No Components" : "No Objects", systemImage: workspace.document.documentType == .assembly ? "square.3.layers.3d" : "cube.transparent")
                         } description: {
-                            Text("Add a 3D solid primitive or open a part script to begin modeling.")
+                            Text(workspace.document.documentType == .assembly ? "Add components to begin assembling." : "Add a 3D solid primitive or open a part script to begin modeling.")
                         } actions: {
-                            VStack(spacing: 8) {
-                                Button("Add Box", systemImage: "shippingbox") {
-                                    workspace.addDefaultBox()
+                            if workspace.document.documentType != .assembly {
+                                VStack(spacing: 8) {
+                                    Button("Add Box", systemImage: "shippingbox") {
+                                        workspace.addDefaultBox()
+                                    }
+                                    Button("Add Cylinder", systemImage: "cylinder") {
+                                        workspace.addDefaultCylinder()
+                                    }
                                 }
-                                Button("Add Cylinder", systemImage: "cylinder") {
-                                    workspace.addDefaultCylinder()
-                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
-                    } else if filteredBodies.isEmpty {
+                    } else if filteredBodies.isEmpty && filteredComponents.isEmpty {
                         ContentUnavailableView.search(text: filterText)
                     }
                 }
@@ -301,6 +315,22 @@ struct NavigatorSidebarView: View {
                 return obj.def.kind.localizedCaseInsensitiveContains(trimmed) || obj.parameterSummary.localizedCaseInsensitiveContains(trimmed)
             }
             return false
+        }
+    }
+
+    private var filteredComponents: [ComponentInstance] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return workspace.document.componentInstances }
+        return workspace.document.componentInstances.filter { comp in
+            if comp.name.localizedCaseInsensitiveContains(trimmed) || comp.solidId.rawValue.localizedCaseInsensitiveContains(trimmed) {
+                return true
+            }
+            switch comp.reference {
+            case .internalPart(let name, _):
+                return name.localizedCaseInsensitiveContains(trimmed)
+            case .externalDocument(let url, let partName):
+                return url.lastPathComponent.localizedCaseInsensitiveContains(trimmed) || (partName?.localizedCaseInsensitiveContains(trimmed) ?? false)
+            }
         }
     }
 
@@ -541,6 +571,105 @@ private struct NavigatorRow: View {
         case .hole: return .teal
         case .pattern: return .indigo
         case .mirror: return .cyan
+        }
+    }
+}
+
+/// Outline row for an assembly component instance in the Navigator sidebar.
+private struct NavigatorComponentRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let component: ComponentInstance
+    @State private var isHovered = false
+
+    var body: some View {
+        let isSelected = workspace.document.isSelected(solidId: component.solidId)
+
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "square.3.layers.3d")
+                .foregroundStyle(.blue)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(component.name)
+                        .font(.body)
+                        .lineLimit(1)
+
+                    Text("Component")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                }
+
+                HStack(spacing: 6) {
+                    Text(component.solidId.rawValue)
+                        .font(.caption2)
+                        .monospaced()
+                        .foregroundStyle(.secondary)
+
+                    Text("•")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+
+                    Text(referenceDescription)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            Group {
+                if isHovered || !component.isVisible {
+                    Button(component.isVisible ? "Hide Component" : "Show Component",
+                           systemImage: component.isVisible ? "eye" : "eye.slash") {
+                        workspace.toggleBodyVisibility(component.solidId)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(component.isVisible ? "Hide Component" : "Show Component")
+                }
+                if isHovered || component.isLocked {
+                    Button(component.isLocked ? "Unlock Component" : "Lock Component",
+                           systemImage: component.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleBodyLocked(component.solidId)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(component.isLocked ? "Unlock Component" : "Lock Component")
+                }
+            }
+            .barControl()
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(component.name), Component, ID \(component.solidId.rawValue), \(referenceDescription)")
+        .accessibilityIdentifier("navigator-component-\(component.solidId.rawValue)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityAction(named: component.isVisible ? "Hide Component" : "Show Component") {
+            workspace.toggleBodyVisibility(component.solidId)
+        }
+        .accessibilityAction(named: component.isLocked ? "Unlock Component" : "Lock Component") {
+            workspace.toggleBodyLocked(component.solidId)
+        }
+    }
+
+    private var referenceDescription: String {
+        switch component.reference {
+        case .internalPart(let name, _):
+            return "Internal: \(name)"
+        case .externalDocument(let url, let partName):
+            if let partName {
+                return "\(url.lastPathComponent) (\(partName))"
+            } else {
+                return url.lastPathComponent
+            }
         }
     }
 }

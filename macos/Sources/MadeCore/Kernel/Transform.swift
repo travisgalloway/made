@@ -103,6 +103,37 @@ extension simd_quatf: @retroactive Codable {
         try container.encode(imag.y, forKey: .y)
         try container.encode(imag.z, forKey: .z)
     }
+
+    /// Constructs a rotation from Euler angles (in degrees, applied in order Rx, Ry, Rz -> Rz * Ry * Rx).
+    public static func fromEulerAngles(degrees: SIMD3<Float>) -> simd_quatf {
+        let degToRad = Float.pi / 180.0
+        let qx = simd_quatf(angle: degrees.x * degToRad, axis: SIMD3<Float>(1, 0, 0))
+        let qy = simd_quatf(angle: degrees.y * degToRad, axis: SIMD3<Float>(0, 1, 0))
+        let qz = simd_quatf(angle: degrees.z * degToRad, axis: SIMD3<Float>(0, 0, 1))
+        return qz * qy * qx
+    }
+
+    /// Extracts Euler angles (in degrees) assuming Rz * Ry * Rx convention.
+    public var eulerAnglesDegrees: SIMD3<Float> {
+        let m = simd_float3x3(self)
+        let radToDeg = 180.0 / Float.pi
+
+        let pitch: Float
+        let yaw: Float
+        let roll: Float
+
+        if abs(m.columns.0.z) < 0.99999 {
+            yaw = -asin(m.columns.0.z)
+            let cosYaw = cos(yaw)
+            pitch = atan2(m.columns.1.z / cosYaw, m.columns.2.z / cosYaw)
+            roll = atan2(m.columns.0.y / cosYaw, m.columns.0.x / cosYaw)
+        } else {
+            yaw = m.columns.0.z < 0 ? Float.pi / 2 : -Float.pi / 2
+            pitch = 0
+            roll = atan2(-m.columns.1.x, m.columns.1.y)
+        }
+        return SIMD3<Float>(pitch * radToDeg, yaw * radToDeg, roll * radToDeg)
+    }
 }
 
 extension Transform {

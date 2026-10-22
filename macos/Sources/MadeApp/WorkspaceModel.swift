@@ -2321,6 +2321,36 @@ final class WorkspaceModel {
         }
     }
 
+    func newAssemblyDocument() {
+        cancelActiveCommand()
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        clearRecoverySnapshot()
+        pendingRecoveryRecord = nil
+        isShowingRecoveryAlert = false
+        pendingSaveError = nil
+        isShowingSaveErrorAlert = false
+        pendingOpenError = nil
+        isShowingOpenErrorAlert = false
+        pendingExportError = nil
+        isShowingExportErrorAlert = false
+        pendingImportError = nil
+        isShowingImportErrorAlert = false
+
+        let initialSettings = DocumentSettings(
+            units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
+            tolerances: kernelTolerances
+        )
+        document.reset(with: [SceneObject](), selectedId: nil, settings: initialSettings, documentType: .assembly, componentInstances: [])
+        currentDocumentURL = nil
+        isDocumentModified = false
+        syncWindowState()
+        syncHiddenSolidIds()
+        syncViewportSelection()
+        log(.info, "Document", "Created new assembly document")
+        invalidateViewport(.model)
+    }
+
     @discardableResult
     func openDocument(at url: URL) -> Bool {
         do {
@@ -2350,10 +2380,30 @@ final class WorkspaceModel {
                     return nil
                 }
             }()
+            let docType = package.documentData.documentType ?? package.manifest.documentType
+            let componentInstances = package.documentData.componentInstances ?? []
             if let features = package.documentData.features {
-                document.reset(with: features, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings, parameters: package.documentData.parameters ?? [])
+                document.reset(
+                    with: features,
+                    selection: restoredSelection,
+                    selectedId: package.documentData.selectedId,
+                    rollbackIndex: package.documentData.rollbackIndex,
+                    settings: docSettings,
+                    parameters: package.documentData.parameters ?? [],
+                    documentType: docType,
+                    componentInstances: componentInstances
+                )
             } else {
-                document.reset(with: package.documentData.objects, selection: restoredSelection, selectedId: package.documentData.selectedId, rollbackIndex: package.documentData.rollbackIndex, settings: docSettings, parameters: package.documentData.parameters ?? [])
+                document.reset(
+                    with: package.documentData.objects,
+                    selection: restoredSelection,
+                    selectedId: package.documentData.selectedId,
+                    rollbackIndex: package.documentData.rollbackIndex,
+                    settings: docSettings,
+                    parameters: package.documentData.parameters ?? [],
+                    documentType: docType,
+                    componentInstances: componentInstances
+                )
             }
             currentDocumentURL = url
             isDocumentModified = false
@@ -2379,7 +2429,8 @@ final class WorkspaceModel {
         let manifest = MadeManifest(
             schemaVersion: MadeManifest.currentSchemaVersion,
             appVersion: "0.1",
-            documentSettings: document.settings
+            documentSettings: document.settings,
+            documentType: document.documentType
         )
         let docData = DocumentData(
             schemaVersion: DocumentData.currentSchemaVersion,
@@ -2389,7 +2440,9 @@ final class WorkspaceModel {
             rollbackIndex: document.rollbackIndex,
             bodies: document.bodies,
             selection: Array(document.selection).sorted { $0.id.uuidString < $1.id.uuidString },
-            parameters: document.parameters
+            parameters: document.parameters,
+            documentType: document.documentType,
+            componentInstances: document.componentInstances
         )
 
         var assets: [String: Data] = [:]
@@ -2422,6 +2475,9 @@ final class WorkspaceModel {
         }
 
         for obj in document.objects {
+            if document.componentInstances.contains(where: { $0.solidId == obj.id }) {
+                continue
+            }
             if case .imported(let name, let sourceURL, let data, let isLinked, _, _) = obj.def {
                 if !isLinked {
                     try collectAsset(name: name, sourceURL: sourceURL, data: data)
@@ -3880,6 +3936,74 @@ final class WorkspaceModel {
         invalidateViewport(.model)
     }
 
+    // MARK: - Assembly Component Management (BL-ASM-01)
+
+    @discardableResult
+    func addComponentInstance(
+        name: String,
+        reference: ComponentReference,
+        transform: Transform = .identity,
+        material: MaterialAttributes? = nil
+    ) -> ComponentInstance {
+        let instance = ComponentInstance(
+            id: UUID(),
+            name: name,
+            reference: reference,
+            transform: transform,
+            material: material ?? document.settings.defaultMaterial
+        )
+        return addComponentInstance(instance)
+    }
+
+    @discardableResult
+    func addComponentInstance(_ instance: ComponentInstance) -> ComponentInstance {
+        _ = document.addComponentInstance(instance)
+        selectedId = instance.solidId
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Added component instance '\(instance.name)'")
+        return instance
+    }
+
+    @discardableResult
+    func removeComponentInstance(id: UUID) -> Bool {
+        let solidId = SolidId("component-\(id.uuidString)")
+        let result = document.removeComponentInstance(id: id)
+        guard case .success = result else { return false }
+        if selectedId == solidId {
+            selectedId = nil
+        }
+        markDocumentModified()
+        if let renderer = viewportManager.renderer {
+            _ = SolidMeshApplier.remove(id: solidId, from: renderer)
+        }
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Removed component instance \(id)")
+        return true
+    }
+
+    @discardableResult
+    func updateComponentInstanceTransform(id: UUID, transform: Transform) -> Bool {
+        let result = document.updateComponentInstanceTransform(id: id, transform: transform)
+        guard case .success = result else { return false }
+        let solidId = SolidId("component-\(id.uuidString)")
+        markDocumentModified()
+        if let renderer = viewportManager.renderer {
+            _ = SolidMeshApplier.applyTransform(to: solidId, document: document, sink: renderer)
+        }
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Updated component instance \(id) transform")
+        return true
+    }
+
+    func setComponentInstanceName(id: UUID, name: String) {
+        guard let comp = document.componentInstances.first(where: { $0.id == id }) else { return }
+        var copy = comp
+        copy.name = name
+        _ = document.updateComponentInstance(copy)
+        markDocumentModified()
+    }
+
     // MARK: - Document Settings (BL-FND-11)
 
     func setDocumentSettings(_ newSettings: DocumentSettings) {
@@ -4578,6 +4702,9 @@ final class WorkspaceModel {
 
     static let newDocumentShortcutKey: KeyEquivalent = "n"
     static let newDocumentShortcutModifiers: EventModifiers = [.command]
+
+    static let newAssemblyShortcutKey: KeyEquivalent = "n"
+    static let newAssemblyShortcutModifiers: EventModifiers = [.command, .option]
 
     static let openDocumentShortcutKey: KeyEquivalent = "o"
     static let openDocumentShortcutModifiers: EventModifiers = [.command]

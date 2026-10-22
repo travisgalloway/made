@@ -62,6 +62,10 @@ struct InspectorPanelView: View {
     private var properties: some View {
         if workspace.document.selection.count > 1 {
             multiSelectionView
+        } else if let component = selectedComponentInstance {
+            ScrollView {
+                InspectorComponentInstanceView(component: component)
+            }
         } else if let selected = workspace.selectedObject {
             ScrollView {
                 Form {
@@ -154,6 +158,11 @@ struct InspectorPanelView: View {
                 description: Text("Select a solid in the viewport or Navigator to inspect its properties.")
             )
         }
+    }
+
+    private var selectedComponentInstance: ComponentInstance? {
+        guard let selectedId = workspace.selectedId else { return nil }
+        return workspace.document.componentInstances.first(where: { $0.solidId == selectedId })
     }
 
     private var hasAnySketches: Bool {
@@ -1194,6 +1203,200 @@ struct InspectorPanelView: View {
     }
 }
 
+/// Inspector panel for a selected assembly component instance.
+struct InspectorComponentInstanceView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let component: ComponentInstance
+
+    var body: some View {
+        Form {
+            identitySection
+            referenceSection
+            transformSection
+                .disabled(component.isLocked)
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    private var identitySection: some View {
+        Section {
+            TextField("Name", text: Binding(
+                get: { component.name },
+                set: { workspace.setComponentInstanceName(id: component.id, name: $0) }
+            ))
+            .disabled(component.isLocked)
+
+            Toggle("Visible in Viewport", isOn: Binding(
+                get: { component.isVisible },
+                set: { workspace.setBodyVisibility(id: component.solidId, isVisible: $0) }
+            ))
+
+            Toggle("Locked", isOn: Binding(
+                get: { component.isLocked },
+                set: { workspace.setBodyLocked(id: component.solidId, isLocked: $0) }
+            ))
+
+            LabeledContent("ID") {
+                Text(component.solidId.rawValue)
+                    .accessibilityIdentifier("inspector-selected-component")
+                    .monospaced()
+                    .textSelection(.enabled)
+            }
+        } header: {
+            sectionHeader("Component Identity", isFirst: true)
+        }
+    }
+
+    private var referenceSection: some View {
+        Section {
+            switch component.reference {
+            case .internalPart(let name, let bodyId):
+                LabeledContent("Source", value: "Internal Part")
+                LabeledContent("Part Name", value: name)
+                if let bodyId {
+                    LabeledContent("Body ID", value: bodyId.rawValue)
+                }
+            case .externalDocument(let url, let partName):
+                LabeledContent("Source", value: "External Document")
+                LabeledContent("File", value: url.lastPathComponent)
+                LabeledContent("Path") {
+                    Text(url.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if let partName {
+                    LabeledContent("Part", value: partName)
+                }
+            }
+        } header: {
+            sectionHeader("Reference")
+        }
+    }
+
+    private var transformSection: some View {
+        Section {
+            let lengthUnit = workspace.document.settings.units.lengthUnit
+            let angleUnit = workspace.document.settings.units.angleUnit
+
+            LabeledContent("Position (\(lengthUnit.symbol))") {
+                vectorFields(component.transform.position, unit: lengthUnit) { newPos in
+                    var t = component.transform
+                    t.position = newPos
+                    workspace.updateComponentInstanceTransform(id: component.id, transform: t)
+                }
+            }
+
+            LabeledContent("Rotation (\(angleUnit.symbol))") {
+                rotationFields(component.transform.rotation.eulerAnglesDegrees) { newEuler in
+                    var t = component.transform
+                    t.rotation = simd_quatf.fromEulerAngles(degrees: newEuler)
+                    workspace.updateComponentInstanceTransform(id: component.id, transform: t)
+                }
+            }
+
+            LabeledContent("Scale") {
+                vectorFields(component.transform.scale) { newScale in
+                    var t = component.transform
+                    t.scale = simd_max(newScale, SIMD3<Float>(repeating: DocumentLimits.scaleFloor))
+                    workspace.updateComponentInstanceTransform(id: component.id, transform: t)
+                }
+            }
+        } header: {
+            sectionHeader("3D Transform")
+        }
+    }
+
+    private func vectorFields(
+        _ value: SIMD3<Float>,
+        unit: LengthUnit? = nil,
+        onChange: @escaping (SIMD3<Float>) -> Void
+    ) -> some View {
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { axis in
+                let name = ["X", "Y", "Z"][axis]
+                let rawValue = Double(value[axis])
+                let displayValue = unit.map { InspectorUnitConversion.displayLength(rawValue, unit: $0) } ?? rawValue
+                let spoken = unit.map { InspectorUnitConversion.lengthAccessibilityValue(displayValue, unit: $0) }
+                    ?? "\(displayValue.formatted(.number.precision(.fractionLength(1))))"
+                VStack(spacing: 2) {
+                    CommitNumberField(
+                        label: name,
+                        value: displayValue,
+                        step: unit?.defaultStep ?? 1.0,
+                        parameterResolver: { paramName in
+                            workspace.document.parameter(named: paramName)?.value
+                        },
+                        evaluator: { expr in
+                            let res = try workspace.document.evaluateExpression(expr)
+                            return unit.map { InspectorUnitConversion.displayLength(res.value, unit: $0) } ?? res.value
+                        }
+                    ) { newValue in
+                        var v = value
+                        v[axis] = unit.map { InspectorUnitConversion.commitLength(newValue, unit: $0) } ?? Float(newValue)
+                        onChange(v)
+                    }
+                    .accessibilityLabel(name)
+                    .accessibilityValue(spoken)
+                    Text(name)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .labelsHidden()
+    }
+
+    private func rotationFields(
+        _ eulerDegrees: SIMD3<Float>,
+        onChange: @escaping (SIMD3<Float>) -> Void
+    ) -> some View {
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { axis in
+                let name = ["X", "Y", "Z"][axis]
+                let rawValue = Double(eulerDegrees[axis])
+                let angleUnit = workspace.document.settings.units.angleUnit
+                let displayValue = InspectorUnitConversion.displayAngle(rawValue, unit: angleUnit)
+                let spoken = InspectorUnitConversion.angleAccessibilityValue(displayValue, unit: angleUnit)
+                VStack(spacing: 2) {
+                    CommitNumberField(
+                        label: name,
+                        value: displayValue,
+                        step: angleUnit == .radians ? 0.1 : 1.0,
+                        parameterResolver: { paramName in
+                            workspace.document.parameter(named: paramName)?.value
+                        },
+                        evaluator: { expr in
+                            let res = try workspace.document.evaluateExpression(expr)
+                            return InspectorUnitConversion.displayAngle(res.value, unit: angleUnit)
+                        }
+                    ) { newValue in
+                        var v = eulerDegrees
+                        v[axis] = Float(InspectorUnitConversion.commitAngle(newValue, unit: angleUnit))
+                        onChange(v)
+                    }
+                    .accessibilityLabel("Rotation \(name)")
+                    .accessibilityValue(spoken)
+                    Text(name)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .labelsHidden()
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
 struct DocumentSettingsInspectorView: View {
     @Environment(WorkspaceModel.self) private var workspace
     @State private var parameterError: String? = nil
@@ -1202,6 +1405,7 @@ struct DocumentSettingsInspectorView: View {
     var body: some View {
         ScrollView {
             Form {
+                documentTypeSection
                 parametersSection
                 unitsSection
                 tolerancesSection
@@ -1215,6 +1419,17 @@ struct DocumentSettingsInspectorView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(parameterError ?? "")
+        }
+    }
+
+    private var documentTypeSection: some View {
+        Section {
+            LabeledContent("Type", value: workspace.document.documentType.displayName)
+            if workspace.document.documentType == .assembly {
+                LabeledContent("Components", value: "\(workspace.document.componentInstances.count)")
+            }
+        } header: {
+            sectionHeader("Document Type", isFirst: true)
         }
     }
 
@@ -1255,7 +1470,7 @@ struct DocumentSettingsInspectorView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
         } header: {
-            sectionHeader("Parameters", isFirst: true)
+            sectionHeader("Parameters", isFirst: false)
         }
     }
 

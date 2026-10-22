@@ -33,7 +33,7 @@ public enum ModelEdgeEvaluator {
         case .edge(let topRef):
             return evaluateTopologicalEdge(reference: topRef, in: document)
 
-        case .feature, .body, .face, .vertex:
+        case .feature, .body, .face, .vertex, .component:
             return .failure(.typeMismatch(expected: "edge or sketchEntity", actual: "\(reference.target)"))
         }
     }

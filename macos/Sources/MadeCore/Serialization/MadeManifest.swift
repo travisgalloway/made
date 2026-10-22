@@ -10,6 +10,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
     public var units: UnitSettings
     public var tolerances: KernelTolerances
     public var defaultMaterial: MaterialAttributes
+    public var documentType: DocumentType
     public var metadata: [String: String]
 
     public init(
@@ -18,6 +19,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
         units: UnitSettings = UnitSettings(),
         tolerances: KernelTolerances = KernelTolerances(),
         defaultMaterial: MaterialAttributes = MaterialAttributes(),
+        documentType: DocumentType = .part,
         metadata: [String: String] = [:]
     ) {
         self.schemaVersion = schemaVersion
@@ -25,6 +27,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
         self.units = units
         self.tolerances = tolerances.clamped()
         self.defaultMaterial = defaultMaterial
+        self.documentType = documentType
         self.metadata = metadata
     }
 
@@ -32,6 +35,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
         schemaVersion: Int = MadeManifest.currentSchemaVersion,
         appVersion: String = "0.1",
         documentSettings: DocumentSettings,
+        documentType: DocumentType = .part,
         metadata: [String: String] = [:]
     ) {
         self.init(
@@ -40,6 +44,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
             units: documentSettings.units,
             tolerances: documentSettings.tolerances,
             defaultMaterial: documentSettings.defaultMaterial,
+            documentType: documentType,
             metadata: metadata
         )
     }
@@ -61,6 +66,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
         case units
         case tolerances
         case defaultMaterial
+        case documentType
         case metadata
     }
 
@@ -72,6 +78,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
         let decodedTolerances = try container.decodeIfPresent(KernelTolerances.self, forKey: .tolerances) ?? KernelTolerances()
         self.tolerances = decodedTolerances.clamped()
         self.defaultMaterial = try container.decodeIfPresent(MaterialAttributes.self, forKey: .defaultMaterial) ?? MaterialAttributes()
+        self.documentType = try container.decodeIfPresent(DocumentType.self, forKey: .documentType) ?? .part
         self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
     }
 
@@ -82,6 +89,7 @@ public struct MadeManifest: Codable, Sendable, Equatable {
         try container.encode(units, forKey: .units)
         try container.encode(tolerances.clamped(), forKey: .tolerances)
         try container.encode(defaultMaterial, forKey: .defaultMaterial)
+        try container.encode(documentType, forKey: .documentType)
         try container.encode(metadata, forKey: .metadata)
     }
 }
