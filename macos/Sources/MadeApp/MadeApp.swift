@@ -90,12 +90,7 @@ struct MadeApp: App {
             AssemblyMenuCommands(workspace: workspace)
             ViewNavigationCommands(workspace: workspace)
             ToolsMenuCommands(workspace: workspace)
-            CommandGroup(after: .appInfo) {
-                OpenSourceLicensesMenuButton()
-            }
-            CommandGroup(after: .help) {
-                OpenSourceLicensesMenuButton()
-            }
+            OpenSourceLicensesCommands()
             #if DEBUG
             CommandMenu("Debug") {
                 Button("Fail Next Recompute") { workspace.failNextRecompute() }
@@ -115,6 +110,17 @@ struct MadeApp: App {
     }
 }
 
+private struct OpenSourceLicensesCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            OpenSourceLicensesMenuButton()
+        }
+        CommandGroup(after: .help) {
+            OpenSourceLicensesMenuButton()
+        }
+    }
+}
+
 private struct OpenSourceLicensesMenuButton: View {
     @Environment(\.openWindow) private var openWindow
 
@@ -124,4 +130,3 @@ private struct OpenSourceLicensesMenuButton: View {
         }
     }
 }
-
