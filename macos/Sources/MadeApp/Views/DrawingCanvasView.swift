@@ -813,15 +813,89 @@ struct DrawingCanvasView: View {
         return fitScale
     }
 
-    private func appendArrowhead(to path: inout Path, tip: CGPoint, angle: Double, length: CGFloat = 8.0, width: CGFloat = 4.0) {
+    private func appendArrowhead(
+        to path: inout Path,
+        tip: CGPoint,
+        angle: Double,
+        length: CGFloat = 8.0,
+        width: CGFloat = 4.0,
+        style: ArrowheadStyle = .closedFilled
+    ) {
         let leftAngle = angle + .pi - atan2(width, length)
         let rightAngle = angle + .pi + atan2(width, length)
         let leftPt = CGPoint(x: tip.x + cos(leftAngle) * length, y: tip.y + sin(leftAngle) * length)
         let rightPt = CGPoint(x: tip.x + cos(rightAngle) * length, y: tip.y + sin(rightAngle) * length)
-        path.move(to: tip)
-        path.addLine(to: leftPt)
-        path.addLine(to: rightPt)
-        path.closeSubpath()
+
+        switch style {
+        case .closedFilled:
+            path.move(to: tip)
+            path.addLine(to: leftPt)
+            path.addLine(to: rightPt)
+            path.closeSubpath()
+        case .open:
+            path.move(to: leftPt)
+            path.addLine(to: tip)
+            path.addLine(to: rightPt)
+        case .tick:
+            let tickAngle = angle + .pi * 0.25
+            let half = length * 0.6
+            path.move(to: CGPoint(x: tip.x - cos(tickAngle) * half, y: tip.y - sin(tickAngle) * half))
+            path.addLine(to: CGPoint(x: tip.x + cos(tickAngle) * half, y: tip.y + sin(tickAngle) * half))
+        }
+    }
+
+    @ViewBuilder
+    private func renderArrowhead(
+        tip: CGPoint,
+        angle: Double,
+        arrows: DraftingArrowDefaults,
+        fitScale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let length = max(4.0, CGFloat(arrows.lengthPoints) * fitScale)
+        let width = max(2.0, CGFloat(arrows.widthPoints) * fitScale)
+        let style = arrows.style
+        if style == .closedFilled {
+            Path { path in
+                appendArrowhead(to: &path, tip: tip, angle: angle, length: length, width: width, style: .closedFilled)
+            }
+            .fill(strokeColor)
+        } else {
+            Path { path in
+                appendArrowhead(to: &path, tip: tip, angle: angle, length: length, width: width, style: style)
+            }
+            .stroke(strokeColor, lineWidth: max(1.0, lineWidth))
+        }
+    }
+
+    @ViewBuilder
+    private func renderArrowheads(
+        tip1: CGPoint,
+        angle1: Double,
+        tip2: CGPoint,
+        angle2: Double,
+        arrows: DraftingArrowDefaults,
+        fitScale: Double,
+        strokeColor: Color,
+        lineWidth: CGFloat
+    ) -> some View {
+        let length = max(4.0, CGFloat(arrows.lengthPoints) * fitScale)
+        let width = max(2.0, CGFloat(arrows.widthPoints) * fitScale)
+        let style = arrows.style
+        if style == .closedFilled {
+            Path { path in
+                appendArrowhead(to: &path, tip: tip1, angle: angle1, length: length, width: width, style: .closedFilled)
+                appendArrowhead(to: &path, tip: tip2, angle: angle2, length: length, width: width, style: .closedFilled)
+            }
+            .fill(strokeColor)
+        } else {
+            Path { path in
+                appendArrowhead(to: &path, tip: tip1, angle: angle1, length: length, width: width, style: style)
+                appendArrowhead(to: &path, tip: tip2, angle: angle2, length: length, width: width, style: style)
+            }
+            .stroke(strokeColor, lineWidth: max(1.0, lineWidth))
+        }
     }
 
     @ViewBuilder
@@ -941,6 +1015,22 @@ struct DrawingCanvasView: View {
         let p2 = toCanvasPoint(data.endPointMM, viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
         let geom = computeLinearPoints(data: data, p1: p1, p2: p2, scale: scale)
 
+        let isAligned = sheet.draftingStandards.text.placement == .aligned
+        let (textAngle, textPos): (Double, CGPoint) = {
+            if isAligned {
+                let normAngle = DraftingStandardSettings.normalizeTextAngle(geom.angle)
+                let gap = max(4.0, CGFloat(sheet.draftingStandards.text.textGapPoints) * fitScale + 4.0)
+                let nx = -sin(normAngle)
+                let ny = cos(normAngle)
+                return (normAngle, CGPoint(x: geom.midPt.x + nx * gap, y: geom.midPt.y + ny * gap))
+            } else {
+                return (0.0, geom.midPt)
+            }
+        }()
+
+        let formattedStr = data.formattedText(using: sheet.draftingStandards)
+        let fontSize = max(8.0, CGFloat(sheet.draftingStandards.text.textHeightPoints) * fitScale)
+
         ZStack {
             Path { path in
                 path.move(to: p1)
@@ -952,18 +1042,24 @@ struct DrawingCanvasView: View {
             }
             .stroke(strokeColor, lineWidth: lineWidth)
 
-            Path { path in
-                appendArrowhead(to: &path, tip: geom.d1, angle: geom.angle)
-                appendArrowhead(to: &path, tip: geom.d2, angle: geom.angle + .pi)
-            }
-            .fill(strokeColor)
+            renderArrowheads(
+                tip1: geom.d1,
+                angle1: geom.angle,
+                tip2: geom.d2,
+                angle2: geom.angle + .pi,
+                arrows: sheet.draftingStandards.arrows,
+                fitScale: fitScale,
+                strokeColor: strokeColor,
+                lineWidth: lineWidth
+            )
 
-            Text(data.formattedText)
-                .font(.system(size: 9, weight: .medium))
+            Text(formattedStr)
+                .font(.system(size: fontSize, weight: .medium))
                 .padding(.horizontal, 3)
                 .background(Color.white)
                 .foregroundStyle(strokeColor)
-                .position(geom.midPt)
+                .rotationEffect(Angle(radians: textAngle))
+                .position(textPos)
         }
     }
 
@@ -988,6 +1084,8 @@ struct DrawingCanvasView: View {
         let endPt = CGPoint(x: vCenter.x + cos(angle2) * arcRadius, y: vCenter.y + sin(angle2) * arcRadius)
         let midAngle = (angle1 + angle2) * 0.5
         let textPos = CGPoint(x: vCenter.x + cos(midAngle) * (arcRadius + 10), y: vCenter.y + sin(midAngle) * (arcRadius + 10))
+        let tangent1 = angle1 + .pi * 0.5
+        let tangent2 = angle2 - .pi * 0.5
 
         ZStack {
             Path { path in
@@ -1000,15 +1098,18 @@ struct DrawingCanvasView: View {
             }
             .stroke(strokeColor, lineWidth: lineWidth)
 
-            Path { path in
-                let tangent1 = angle1 + .pi * 0.5
-                let tangent2 = angle2 - .pi * 0.5
-                appendArrowhead(to: &path, tip: startPt, angle: tangent1)
-                appendArrowhead(to: &path, tip: endPt, angle: tangent2)
-            }
-            .fill(strokeColor)
+            renderArrowheads(
+                tip1: startPt,
+                angle1: tangent1,
+                tip2: endPt,
+                angle2: tangent2,
+                arrows: sheet.draftingStandards.arrows,
+                fitScale: fitScale,
+                strokeColor: strokeColor,
+                lineWidth: lineWidth
+            )
 
-            Text(data.formattedText)
+            Text(data.formattedText(using: sheet.draftingStandards))
                 .font(.system(size: 9, weight: .medium))
                 .padding(.horizontal, 3)
                 .background(Color.white)
@@ -1045,12 +1146,16 @@ struct DrawingCanvasView: View {
             }
             .stroke(strokeColor, lineWidth: lineWidth)
 
-            Path { path in
-                appendArrowhead(to: &path, tip: arcPt, angle: angle)
-            }
-            .fill(strokeColor)
+            renderArrowhead(
+                tip: arcPt,
+                angle: angle,
+                arrows: sheet.draftingStandards.arrows,
+                fitScale: fitScale,
+                strokeColor: strokeColor,
+                lineWidth: lineWidth
+            )
 
-            Text(data.formattedText)
+            Text(data.formattedText(using: sheet.draftingStandards))
                 .font(.system(size: 9, weight: .medium))
                 .padding(.horizontal, 2)
                 .foregroundStyle(strokeColor)
@@ -1099,7 +1204,7 @@ struct DrawingCanvasView: View {
                 }
                 .stroke(strokeColor, lineWidth: lineWidth)
 
-                Text(data.formattedText)
+                Text(data.formattedText(using: sheet.draftingStandards))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(strokeColor)
                     .position(x: endPt.x, y: endPt.y - 8)
@@ -1111,7 +1216,7 @@ struct DrawingCanvasView: View {
                 }
                 .stroke(strokeColor, lineWidth: lineWidth)
 
-                Text(data.formattedText)
+                Text(data.formattedText(using: sheet.draftingStandards))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(strokeColor)
                     .position(x: endPt.x + 14, y: endPt.y)
@@ -1150,13 +1255,18 @@ struct DrawingCanvasView: View {
                 }
                 .stroke(strokeColor, lineWidth: lineWidth)
 
-                Path { path in
-                    appendArrowhead(to: &path, tip: d1, angle: 0.0)
-                    appendArrowhead(to: &path, tip: d2, angle: .pi)
-                }
-                .fill(strokeColor)
+                renderArrowheads(
+                    tip1: d1,
+                    angle1: 0.0,
+                    tip2: d2,
+                    angle2: .pi,
+                    arrows: sheet.draftingStandards.arrows,
+                    fitScale: fitScale,
+                    strokeColor: strokeColor,
+                    lineWidth: lineWidth
+                )
 
-                Text(data.formattedText(forTargetIndex: index))
+                Text(data.formattedText(forTargetIndex: index, using: sheet.draftingStandards))
                     .font(.system(size: 9, weight: .medium))
                     .padding(.horizontal, 2)
                     .background(Color.white)
@@ -1212,10 +1322,14 @@ struct DrawingCanvasView: View {
             }
             .stroke(strokeColor, lineWidth: lineWidth)
 
-            Path { path in
-                appendArrowhead(to: &path, tip: arrowPt, angle: angle + .pi)
-            }
-            .fill(strokeColor)
+            renderArrowhead(
+                tip: arrowPt,
+                angle: angle + .pi,
+                arrows: sheet.draftingStandards.arrows,
+                fitScale: fitScale,
+                strokeColor: strokeColor,
+                lineWidth: lineWidth
+            )
 
             Text(data.text)
                 .font(.system(size: CGFloat(data.fontSizePt), weight: .medium))
@@ -1303,10 +1417,14 @@ struct DrawingCanvasView: View {
             }
             .stroke(strokeColor, lineWidth: lineWidth)
 
-            Path { path in
-                appendArrowhead(to: &path, tip: anchor, angle: angle + .pi)
-            }
-            .fill(strokeColor)
+            renderArrowhead(
+                tip: anchor,
+                angle: angle + .pi,
+                arrows: sheet.draftingStandards.arrows,
+                fitScale: fitScale,
+                strokeColor: strokeColor,
+                lineWidth: lineWidth
+            )
 
             Text(data.formattedCalloutText)
                 .font(.system(size: 8, weight: .medium))
@@ -1468,10 +1586,14 @@ struct DrawingCanvasView: View {
             .stroke(strokeColor, lineWidth: lineWidth)
 
             // Arrowhead at anchor
-            Path { path in
-                appendArrowhead(to: &path, tip: anchorPt, angle: angle + .pi)
-            }
-            .fill(strokeColor)
+            renderArrowhead(
+                tip: anchorPt,
+                angle: angle + .pi,
+                arrows: sheet.draftingStandards.arrows,
+                fitScale: fitScale,
+                strokeColor: strokeColor,
+                lineWidth: lineWidth
+            )
 
             // Bubble shape & text
             Group {

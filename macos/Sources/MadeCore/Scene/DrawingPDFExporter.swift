@@ -775,6 +775,10 @@ public enum DrawingPDFExporter {
         context.setLineWidth(dimensionLineWidthPt)
         context.setFillColor(CGColor(gray: 0.0, alpha: 1.0))
 
+        let arrowLen = CGFloat(sheet.draftingStandards.arrows.lengthPoints)
+        let arrowWidth = CGFloat(sheet.draftingStandards.arrows.widthPoints)
+        let arrowStyle = sheet.draftingStandards.arrows.style
+
         switch annotation.data {
         case .linear(let d):
             let p1 = toPDF(d.startPointMM)
@@ -803,14 +807,14 @@ public enum DrawingPDFExporter {
             context.strokeLineSegments(between: [dimP1, dimP2])
 
             // Arrowheads pointing outward from inside
-            drawArrowhead(in: context, tip: dimP1, from: dimP2)
-            drawArrowhead(in: context, tip: dimP2, from: dimP1)
+            drawArrowhead(in: context, tip: dimP1, from: dimP2, length: arrowLen, width: arrowWidth, style: arrowStyle)
+            drawArrowhead(in: context, tip: dimP2, from: dimP1, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             // Dimension text with white cutout
             let midPt = CGPoint(x: (dimP1.x + dimP2.x) * 0.5, y: (dimP1.y + dimP2.y) * 0.5)
             drawText(
                 in: context,
-                text: d.formattedText,
+                text: d.formattedText(using: sheet.draftingStandards),
                 at: midPt,
                 fontSize: 8.0,
                 bold: false,
@@ -840,15 +844,15 @@ public enum DrawingPDFExporter {
             // Arc arrowheads
             let tip1 = CGPoint(x: v.x + cos(a1) * rPt, y: v.y + sin(a1) * rPt)
             let tip2 = CGPoint(x: v.x + cos(a2) * rPt, y: v.y + sin(a2) * rPt)
-            drawArrowhead(in: context, tip: tip1, angle: a1 + .pi / 2.0)
-            drawArrowhead(in: context, tip: tip2, angle: a2 - .pi / 2.0)
+            drawArrowhead(in: context, tip: tip1, angle: a1 + .pi / 2.0, length: arrowLen, width: arrowWidth, style: arrowStyle)
+            drawArrowhead(in: context, tip: tip2, angle: a2 - .pi / 2.0, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             // Text
             let midAngle = (a1 + a2) * 0.5
             let textPt = CGPoint(x: v.x + cos(midAngle) * (rPt + 6.0), y: v.y + sin(midAngle) * (rPt + 6.0))
             drawText(
                 in: context,
-                text: d.formattedText,
+                text: d.formattedText(using: sheet.draftingStandards),
                 at: textPt,
                 fontSize: 8.0,
                 color: CGColor(gray: 0.0, alpha: 1.0),
@@ -870,12 +874,12 @@ public enum DrawingPDFExporter {
             let endPt = CGPoint(x: shoulderPt.x + (dir.x >= 0 ? shoulderLen : -shoulderLen), y: shoulderPt.y)
 
             context.strokeLineSegments(between: [arcPt, shoulderPt, shoulderPt, endPt])
-            drawArrowhead(in: context, tip: arcPt, from: shoulderPt)
+            drawArrowhead(in: context, tip: arcPt, from: shoulderPt, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             let textX = dir.x >= 0 ? endPt.x + 4.0 : endPt.x - 4.0
             drawText(
                 in: context,
-                text: d.formattedText,
+                text: d.formattedText(using: sheet.draftingStandards),
                 at: CGPoint(x: textX, y: endPt.y),
                 fontSize: 8.0,
                 color: CGColor(gray: 0.0, alpha: 1.0),
@@ -905,7 +909,7 @@ public enum DrawingPDFExporter {
 
             drawText(
                 in: context,
-                text: d.formattedText,
+                text: d.formattedText(using: sheet.draftingStandards),
                 at: textPt,
                 fontSize: 8.0,
                 color: CGColor(gray: 0.0, alpha: 1.0),
@@ -922,10 +926,10 @@ public enum DrawingPDFExporter {
                 let tDim = CGPoint(x: tPt.x, y: tPt.y + stepOffset)
 
                 context.strokeLineSegments(between: [base, bDim, tPt, tDim, bDim, tDim])
-                drawArrowhead(in: context, tip: bDim, from: tDim)
-                drawArrowhead(in: context, tip: tDim, from: bDim)
+                drawArrowhead(in: context, tip: bDim, from: tDim, length: arrowLen, width: arrowWidth, style: arrowStyle)
+                drawArrowhead(in: context, tip: tDim, from: bDim, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
-                let text = d.formattedText(forTargetIndex: idx)
+                let text = d.formattedText(forTargetIndex: idx, using: sheet.draftingStandards)
                 drawText(
                     in: context,
                     text: text,
@@ -958,7 +962,7 @@ public enum DrawingPDFExporter {
             let shoulder = toPDF(shoulderPtMM)
 
             context.strokeLineSegments(between: [arrow, elbow, elbow, shoulder])
-            drawArrowhead(in: context, tip: arrow, from: elbow)
+            drawArrowhead(in: context, tip: arrow, from: elbow, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             drawText(
                 in: context,
@@ -1008,7 +1012,7 @@ public enum DrawingPDFExporter {
             let landingPt = CGPoint(x: elbow.x + CGFloat(d.landingLengthMM * pointsPerMM), y: elbow.y)
 
             context.strokeLineSegments(between: [anchor, elbow, elbow, landingPt])
-            drawArrowhead(in: context, tip: anchor, from: elbow)
+            drawArrowhead(in: context, tip: anchor, from: elbow, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             let lines = d.formattedCalloutLines
             for (idx, line) in lines.enumerated() {
@@ -1042,7 +1046,7 @@ public enum DrawingPDFExporter {
 
             // Leader
             context.strokeLineSegments(between: [anchor, contactPt])
-            drawArrowhead(in: context, tip: anchor, from: contactPt)
+            drawArrowhead(in: context, tip: anchor, from: contactPt, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             // Balloon bubble
             context.saveGState()
@@ -1278,12 +1282,13 @@ public enum DrawingPDFExporter {
         tip: CGPoint,
         from base: CGPoint,
         length: CGFloat = 8.0,
-        width: CGFloat = 2.8
+        width: CGFloat = 2.8,
+        style: ArrowheadStyle = .closedFilled
     ) {
         let dx = tip.x - base.x
         let dy = tip.y - base.y
         let angle = atan2(dy, dx)
-        drawArrowhead(in: context, tip: tip, angle: angle, length: length, width: width)
+        drawArrowhead(in: context, tip: tip, angle: angle, length: length, width: width, style: style)
     }
 
     private static func drawArrowhead(
@@ -1291,7 +1296,8 @@ public enum DrawingPDFExporter {
         tip: CGPoint,
         angle: CGFloat,
         length: CGFloat = 8.0,
-        width: CGFloat = 2.8
+        width: CGFloat = 2.8,
+        style: ArrowheadStyle = .closedFilled
     ) {
         let p1 = CGPoint(
             x: tip.x - (cos(angle) * length) + (sin(angle) * (width * 0.5)),
@@ -1303,13 +1309,33 @@ public enum DrawingPDFExporter {
         )
 
         context.saveGState()
-        context.setFillColor(CGColor(gray: 0.0, alpha: 1.0))
-        context.beginPath()
-        context.move(to: tip)
-        context.addLine(to: p1)
-        context.addLine(to: p2)
-        context.closePath()
-        context.fillPath()
+        switch style {
+        case .closedFilled:
+            context.setFillColor(CGColor(gray: 0.0, alpha: 1.0))
+            context.beginPath()
+            context.move(to: tip)
+            context.addLine(to: p1)
+            context.addLine(to: p2)
+            context.closePath()
+            context.fillPath()
+        case .open:
+            context.setStrokeColor(CGColor(gray: 0.0, alpha: 1.0))
+            context.setLineWidth(1.0)
+            context.beginPath()
+            context.move(to: p1)
+            context.addLine(to: tip)
+            context.addLine(to: p2)
+            context.strokePath()
+        case .tick:
+            let tickAngle = angle + .pi * 0.25
+            let half = length * 0.6
+            context.setStrokeColor(CGColor(gray: 0.0, alpha: 1.0))
+            context.setLineWidth(1.2)
+            context.beginPath()
+            context.move(to: CGPoint(x: tip.x - cos(tickAngle) * half, y: tip.y - sin(tickAngle) * half))
+            context.addLine(to: CGPoint(x: tip.x + cos(tickAngle) * half, y: tip.y + sin(tickAngle) * half))
+            context.strokePath()
+        }
         context.restoreGState()
     }
 

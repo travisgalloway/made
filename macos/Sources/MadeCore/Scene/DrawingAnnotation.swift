@@ -86,6 +86,7 @@ public struct LinearDimensionData: Sendable, Codable, Equatable {
     public var suffix: String
     public var textOverride: String?
     public var precision: Int
+    public var tolerance: DimensionTolerance?
 
     public init(
         startPointMM: SIMD2<Double>,
@@ -95,7 +96,8 @@ public struct LinearDimensionData: Sendable, Codable, Equatable {
         prefix: String = "",
         suffix: String = "",
         textOverride: String? = nil,
-        precision: Int = 2
+        precision: Int = 2,
+        tolerance: DimensionTolerance? = nil
     ) {
         self.startPointMM = startPointMM
         self.endPointMM = endPointMM
@@ -105,6 +107,7 @@ public struct LinearDimensionData: Sendable, Codable, Equatable {
         self.suffix = suffix
         self.textOverride = textOverride
         self.precision = precision
+        self.tolerance = tolerance
     }
 
     /// Measured distance in millimeters according to the dimension orientation.
@@ -119,14 +122,38 @@ public struct LinearDimensionData: Sendable, Codable, Equatable {
         }
     }
 
-    /// Formatted dimension text string including prefix, suffix, and precision formatting.
-    public var formattedText: String {
+    /// Formatted dimension text string using sheet drafting standard settings when provided.
+    public func formattedText(using settings: DraftingStandardSettings? = nil) -> String {
         if let textOverride = textOverride, !textOverride.isEmpty {
             return textOverride
+        }
+        if let settings = settings {
+            return settings.formatDimension(
+                nominal: measuredValue,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: suffix
+            )
+        }
+        if let tolerance = tolerance, tolerance.type != .none {
+            let defaults = DraftingStandardSettings.ansi
+            return defaults.formatDimension(
+                nominal: measuredValue,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: suffix
+            )
         }
         let clampedPrecision = max(0, min(6, precision))
         let numStr = String(format: "%.\(clampedPrecision)f", measuredValue)
         return "\(prefix)\(numStr)\(suffix)"
+    }
+
+    /// Default formatted dimension text string.
+    public var formattedText: String {
+        formattedText(using: nil)
     }
 }
 
@@ -140,6 +167,7 @@ public struct AngularDimensionData: Sendable, Codable, Equatable {
     public var suffix: String
     public var textOverride: String?
     public var precision: Int
+    public var tolerance: DimensionTolerance?
 
     public init(
         vertexMM: SIMD2<Double>,
@@ -149,7 +177,8 @@ public struct AngularDimensionData: Sendable, Codable, Equatable {
         prefix: String = "",
         suffix: String = "",
         textOverride: String? = nil,
-        precision: Int = 1
+        precision: Int = 1,
+        tolerance: DimensionTolerance? = nil
     ) {
         self.vertexMM = vertexMM
         self.startPointMM = startPointMM
@@ -159,6 +188,7 @@ public struct AngularDimensionData: Sendable, Codable, Equatable {
         self.suffix = suffix
         self.textOverride = textOverride
         self.precision = precision
+        self.tolerance = tolerance
     }
 
     /// Measured angle in degrees between start ray and end ray.
@@ -174,14 +204,39 @@ public struct AngularDimensionData: Sendable, Codable, Equatable {
         return radians * 180.0 / .pi
     }
 
-    /// Formatted angular dimension text string.
-    public var formattedText: String {
+    /// Formatted angular dimension text string using sheet drafting standard settings when provided.
+    public func formattedText(using settings: DraftingStandardSettings? = nil) -> String {
         if let textOverride = textOverride, !textOverride.isEmpty {
             return textOverride
+        }
+        let degSuffix = "°\(suffix)"
+        if let settings = settings {
+            return settings.formatDimension(
+                nominal: measuredDegrees,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: degSuffix
+            )
+        }
+        if let tolerance = tolerance, tolerance.type != .none {
+            let defaults = DraftingStandardSettings.ansi
+            return defaults.formatDimension(
+                nominal: measuredDegrees,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: degSuffix
+            )
         }
         let clampedPrecision = max(0, min(6, precision))
         let numStr = String(format: "%.\(clampedPrecision)f", measuredDegrees)
         return "\(prefix)\(numStr)°\(suffix)"
+    }
+
+    /// Default formatted angular dimension text string.
+    public var formattedText: String {
+        formattedText(using: nil)
     }
 }
 
@@ -195,6 +250,7 @@ public struct RadialDimensionData: Sendable, Codable, Equatable {
     public var suffix: String
     public var textOverride: String?
     public var precision: Int
+    public var tolerance: DimensionTolerance?
 
     public init(
         centerMM: SIMD2<Double>,
@@ -204,7 +260,8 @@ public struct RadialDimensionData: Sendable, Codable, Equatable {
         prefix: String = "",
         suffix: String = "",
         textOverride: String? = nil,
-        precision: Int = 2
+        precision: Int = 2,
+        tolerance: DimensionTolerance? = nil
     ) {
         self.centerMM = centerMM
         self.arcPointMM = arcPointMM
@@ -214,6 +271,7 @@ public struct RadialDimensionData: Sendable, Codable, Equatable {
         self.suffix = suffix
         self.textOverride = textOverride
         self.precision = precision
+        self.tolerance = tolerance
     }
 
     /// Measured radius or diameter in millimeters.
@@ -222,16 +280,40 @@ public struct RadialDimensionData: Sendable, Codable, Equatable {
         return isDiameter ? (radius * 2.0) : radius
     }
 
-    /// Formatted radial or diameter dimension text.
-    public var formattedText: String {
+    /// Formatted radial or diameter dimension text using sheet drafting standard settings when provided.
+    public func formattedText(using settings: DraftingStandardSettings? = nil) -> String {
         if let textOverride = textOverride, !textOverride.isEmpty {
             return textOverride
         }
         let defaultSymbol = isDiameter ? "Ø" : "R"
         let effectivePrefix = prefix.isEmpty ? defaultSymbol : prefix
+        if let settings = settings {
+            return settings.formatDimension(
+                nominal: measuredValue,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: effectivePrefix,
+                suffix: suffix
+            )
+        }
+        if let tolerance = tolerance, tolerance.type != .none {
+            let defaults = DraftingStandardSettings.ansi
+            return defaults.formatDimension(
+                nominal: measuredValue,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: effectivePrefix,
+                suffix: suffix
+            )
+        }
         let clampedPrecision = max(0, min(6, precision))
         let numStr = String(format: "%.\(clampedPrecision)f", measuredValue)
         return "\(effectivePrefix)\(numStr)\(suffix)"
+    }
+
+    /// Default formatted radial or diameter dimension text.
+    public var formattedText: String {
+        formattedText(using: nil)
     }
 }
 
@@ -245,6 +327,7 @@ public struct OrdinateDimensionData: Sendable, Codable, Equatable {
     public var suffix: String
     public var textOverride: String?
     public var precision: Int
+    public var tolerance: DimensionTolerance?
 
     public init(
         datumOriginMM: SIMD2<Double>,
@@ -254,7 +337,8 @@ public struct OrdinateDimensionData: Sendable, Codable, Equatable {
         prefix: String = "",
         suffix: String = "",
         textOverride: String? = nil,
-        precision: Int = 2
+        precision: Int = 2,
+        tolerance: DimensionTolerance? = nil
     ) {
         self.datumOriginMM = datumOriginMM
         self.locationMM = locationMM
@@ -264,6 +348,7 @@ public struct OrdinateDimensionData: Sendable, Codable, Equatable {
         self.suffix = suffix
         self.textOverride = textOverride
         self.precision = precision
+        self.tolerance = tolerance
     }
 
     /// Offset distance from datum origin along the measurement axis.
@@ -281,17 +366,41 @@ public struct OrdinateDimensionData: Sendable, Codable, Equatable {
         measuredValue < 1e-6
     }
 
-    /// Formatted ordinate dimension text.
-    public var formattedText: String {
+    /// Formatted ordinate dimension text using sheet drafting standard settings when provided.
+    public func formattedText(using settings: DraftingStandardSettings? = nil) -> String {
         if let textOverride = textOverride, !textOverride.isEmpty {
             return textOverride
         }
         if isDatum {
             return "0"
         }
+        if let settings = settings {
+            return settings.formatDimension(
+                nominal: measuredValue,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: suffix
+            )
+        }
+        if let tolerance = tolerance, tolerance.type != .none {
+            let defaults = DraftingStandardSettings.ansi
+            return defaults.formatDimension(
+                nominal: measuredValue,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: suffix
+            )
+        }
         let clampedPrecision = max(0, min(6, precision))
         let numStr = String(format: "%.\(clampedPrecision)f", measuredValue)
         return "\(prefix)\(numStr)\(suffix)"
+    }
+
+    /// Default formatted ordinate dimension text.
+    public var formattedText: String {
+        formattedText(using: nil)
     }
 }
 
@@ -305,6 +414,7 @@ public struct BaselineDimensionData: Sendable, Codable, Equatable {
     public var prefix: String
     public var suffix: String
     public var precision: Int
+    public var tolerance: DimensionTolerance?
 
     public init(
         basePointMM: SIMD2<Double>,
@@ -314,7 +424,8 @@ public struct BaselineDimensionData: Sendable, Codable, Equatable {
         orientation: LinearDimensionOrientation = .horizontal,
         prefix: String = "",
         suffix: String = "",
-        precision: Int = 2
+        precision: Int = 2,
+        tolerance: DimensionTolerance? = nil
     ) {
         self.basePointMM = basePointMM
         self.targetPointsMM = targetPointsMM
@@ -324,6 +435,7 @@ public struct BaselineDimensionData: Sendable, Codable, Equatable {
         self.prefix = prefix
         self.suffix = suffix
         self.precision = precision
+        self.tolerance = tolerance
     }
 
     /// Measured distance for a specific target point index.
@@ -345,12 +457,36 @@ public struct BaselineDimensionData: Sendable, Codable, Equatable {
         initialOffsetMM + (Double(index) * stackSpacingMM)
     }
 
-    /// Formatted text string for a specific target point index.
-    public func formattedText(forTargetIndex index: Int) -> String {
+    /// Formatted text string for a specific target point index using sheet drafting standard settings when provided.
+    public func formattedText(forTargetIndex index: Int, using settings: DraftingStandardSettings? = nil) -> String {
         let val = measuredValue(forTargetIndex: index)
+        if let settings = settings {
+            return settings.formatDimension(
+                nominal: val,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: suffix
+            )
+        }
+        if let tolerance = tolerance, tolerance.type != .none {
+            let defaults = DraftingStandardSettings.ansi
+            return defaults.formatDimension(
+                nominal: val,
+                tolerance: tolerance,
+                precision: precision,
+                prefix: prefix,
+                suffix: suffix
+            )
+        }
         let clampedPrecision = max(0, min(6, precision))
         let numStr = String(format: "%.\(clampedPrecision)f", val)
         return "\(prefix)\(numStr)\(suffix)"
+    }
+
+    /// Default formatted text string for a specific target point index.
+    public func formattedText(forTargetIndex index: Int) -> String {
+        formattedText(forTargetIndex: index, using: nil)
     }
 }
 

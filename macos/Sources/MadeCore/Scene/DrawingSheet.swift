@@ -276,6 +276,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
     public var annotations: [DrawingAnnotation]
     public var bomTables: [DrawingBOMTable]
     public var customProperties: [String: String]
+    public var draftingStandards: DraftingStandardSettings
 
     public init(
         id: UUID = UUID(),
@@ -285,6 +286,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         scale: String = "1:1",
         titleBlockTemplate: TitleBlockTemplate = .isoStandard,
         projectionAngle: DrawingProjectionAngle? = nil,
+        draftingStandards: DraftingStandardSettings? = nil,
         views: [DrawingView] = [],
         annotations: [DrawingAnnotation] = [],
         bomTables: [DrawingBOMTable] = [],
@@ -297,6 +299,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         self.scale = scale
         self.titleBlockTemplate = titleBlockTemplate
         self.projectionAngle = projectionAngle ?? (size.standard == .iso ? .firstAngle : .thirdAngle)
+        self.draftingStandards = draftingStandards ?? (size.standard == .ansi ? .ansi : .iso)
         self.views = views
         self.annotations = annotations
         self.bomTables = bomTables
@@ -315,6 +318,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         case views
         case annotations
         case bomTables
+        case draftingStandards
     }
 
     public init(from decoder: Decoder) throws {
@@ -328,6 +332,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         self.titleBlockTemplate = try container.decodeIfPresent(TitleBlockTemplate.self, forKey: .titleBlockTemplate) ?? .isoStandard
         self.customProperties = try container.decodeIfPresent([String: String].self, forKey: .customProperties) ?? [:]
         self.projectionAngle = try container.decodeIfPresent(DrawingProjectionAngle.self, forKey: .projectionAngle) ?? (decodedSize.standard == .iso ? .firstAngle : .thirdAngle)
+        self.draftingStandards = try container.decodeIfPresent(DraftingStandardSettings.self, forKey: .draftingStandards) ?? (decodedSize.standard == .ansi ? .ansi : .iso)
         self.views = try container.decodeIfPresent([DrawingView].self, forKey: .views) ?? []
         self.annotations = try container.decodeIfPresent([DrawingAnnotation].self, forKey: .annotations) ?? []
         self.bomTables = try container.decodeIfPresent([DrawingBOMTable].self, forKey: .bomTables) ?? []
@@ -343,6 +348,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         try container.encode(titleBlockTemplate, forKey: .titleBlockTemplate)
         try container.encode(customProperties, forKey: .customProperties)
         try container.encode(projectionAngle, forKey: .projectionAngle)
+        try container.encode(draftingStandards, forKey: .draftingStandards)
         try container.encode(views, forKey: .views)
         try container.encode(annotations, forKey: .annotations)
         try container.encode(bomTables, forKey: .bomTables)

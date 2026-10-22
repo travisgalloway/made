@@ -410,6 +410,10 @@ public enum DrawingDXFExporter {
             }
         }
 
+        let arrowLen = sheet.draftingStandards.arrows.lengthMM
+        let arrowWidth = sheet.draftingStandards.arrows.widthMM
+        let arrowStyle = sheet.draftingStandards.arrows.style
+
         switch annotation.data {
         case .linear(let d):
             let p1 = toCADPoint(d.startPointMM)
@@ -434,11 +438,11 @@ public enum DrawingDXFExporter {
             writer.writeLine(layer: "DIMENSIONS", start: p2, end: extP2End)
             writer.writeLine(layer: "DIMENSIONS", start: dimP1, end: dimP2)
 
-            writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: dimP1, from: dimP2)
-            writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: dimP2, from: dimP1)
+            writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: dimP1, from: dimP2, length: arrowLen, width: arrowWidth, style: arrowStyle)
+            writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: dimP2, from: dimP1, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             let midPt = (dimP1 + dimP2) * 0.5
-            writer.writeText(layer: "DIMENSIONS", text: d.formattedText, point: midPt, height: 2.5, hAlign: 1, vAlign: 2)
+            writer.writeText(layer: "DIMENSIONS", text: d.formattedText(using: sheet.draftingStandards), point: midPt, height: 2.5, hAlign: 1, vAlign: 2)
 
         case .angular(let d):
             let v = toCADPoint(d.vertexMM)
@@ -458,7 +462,7 @@ public enum DrawingDXFExporter {
 
             let midAngleRad = ((a1 + a2) * 0.5) * .pi / 180.0
             let textPt = SIMD2<Double>(v.x + cos(midAngleRad) * (r + 3.0), v.y + sin(midAngleRad) * (r + 3.0))
-            writer.writeText(layer: "DIMENSIONS", text: d.formattedText, point: textPt, height: 2.5, hAlign: 1, vAlign: 2)
+            writer.writeText(layer: "DIMENSIONS", text: d.formattedText(using: sheet.draftingStandards), point: textPt, height: 2.5, hAlign: 1, vAlign: 2)
 
         case .radial(let d):
             let center = toCADPoint(d.centerMM)
@@ -472,10 +476,10 @@ public enum DrawingDXFExporter {
 
             writer.writeLine(layer: "DIMENSIONS", start: arcPt, end: shoulder)
             writer.writeLine(layer: "DIMENSIONS", start: shoulder, end: endPt)
-            writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: arcPt, from: shoulder)
+            writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: arcPt, from: shoulder, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             let textPt = SIMD2<Double>(endPt.x + (dir.x >= 0 ? 2.0 : -2.0), endPt.y)
-            writer.writeText(layer: "DIMENSIONS", text: d.formattedText, point: textPt, height: 2.5, hAlign: dir.x >= 0 ? 0 : 2, vAlign: 2)
+            writer.writeText(layer: "DIMENSIONS", text: d.formattedText(using: sheet.draftingStandards), point: textPt, height: 2.5, hAlign: dir.x >= 0 ? 0 : 2, vAlign: 2)
 
         case .ordinate(let d):
             let datum = toCADPoint(d.datumOriginMM)
@@ -492,7 +496,7 @@ public enum DrawingDXFExporter {
                 writer.writeLine(layer: "DIMENSIONS", start: loc, end: extEnd)
                 textPt = SIMD2<Double>(extEnd.x + 2.0, extEnd.y)
             }
-            writer.writeText(layer: "DIMENSIONS", text: d.formattedText, point: textPt, height: 2.5, hAlign: 1, vAlign: 2)
+            writer.writeText(layer: "DIMENSIONS", text: d.formattedText(using: sheet.draftingStandards), point: textPt, height: 2.5, hAlign: 1, vAlign: 2)
 
         case .baseline(let d):
             let base = toCADPoint(d.basePointMM)
@@ -505,10 +509,10 @@ public enum DrawingDXFExporter {
                 writer.writeLine(layer: "DIMENSIONS", start: base, end: bDim)
                 writer.writeLine(layer: "DIMENSIONS", start: tPt, end: tDim)
                 writer.writeLine(layer: "DIMENSIONS", start: bDim, end: tDim)
-                writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: bDim, from: tDim)
-                writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: tDim, from: bDim)
+                writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: bDim, from: tDim, length: arrowLen, width: arrowWidth, style: arrowStyle)
+                writeDXFArrowhead(writer: writer, layer: "DIMENSIONS", tip: tDim, from: bDim, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
-                let text = d.formattedText(forTargetIndex: idx)
+                let text = d.formattedText(forTargetIndex: idx, using: sheet.draftingStandards)
                 writer.writeText(layer: "DIMENSIONS", text: text, point: (bDim + tDim) * 0.5, height: 2.2, hAlign: 1, vAlign: 2)
             }
 
@@ -525,7 +529,7 @@ public enum DrawingDXFExporter {
 
             writer.writeLine(layer: "ANNOTATIONS", start: arrow, end: elbow)
             writer.writeLine(layer: "ANNOTATIONS", start: elbow, end: shoulder)
-            writeDXFArrowhead(writer: writer, layer: "ANNOTATIONS", tip: arrow, from: elbow)
+            writeDXFArrowhead(writer: writer, layer: "ANNOTATIONS", tip: arrow, from: elbow, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             let textPt = SIMD2<Double>(shoulder.x + (isRight ? 2.0 : -2.0), shoulder.y)
             writer.writeText(layer: "ANNOTATIONS", text: d.text, point: textPt, height: d.fontSizePt * 0.35, hAlign: isRight ? 0 : 2, vAlign: 2)
@@ -557,7 +561,7 @@ public enum DrawingDXFExporter {
 
             writer.writeLine(layer: "ANNOTATIONS", start: anchor, end: elbow)
             writer.writeLine(layer: "ANNOTATIONS", start: elbow, end: landingPt)
-            writeDXFArrowhead(writer: writer, layer: "ANNOTATIONS", tip: anchor, from: elbow)
+            writeDXFArrowhead(writer: writer, layer: "ANNOTATIONS", tip: anchor, from: elbow, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             let lines = d.formattedCalloutLines
             for (idx, line) in lines.enumerated() {
@@ -575,7 +579,7 @@ public enum DrawingDXFExporter {
             let contact = dist > r ? center - ((delta / dist) * r) : center
 
             writer.writeLine(layer: "ANNOTATIONS", start: anchor, end: contact)
-            writeDXFArrowhead(writer: writer, layer: "ANNOTATIONS", tip: anchor, from: contact)
+            writeDXFArrowhead(writer: writer, layer: "ANNOTATIONS", tip: anchor, from: contact, length: arrowLen, width: arrowWidth, style: arrowStyle)
 
             switch d.shape {
             case .circular:
@@ -721,7 +725,8 @@ public enum DrawingDXFExporter {
         tip: SIMD2<Double>,
         from base: SIMD2<Double>,
         length: Double = 3.0,
-        width: Double = 1.0
+        width: Double = 1.0,
+        style: ArrowheadStyle = .closedFilled
     ) {
         let delta = tip - base
         let dist = hypot(delta.x, delta.y)
@@ -737,21 +742,33 @@ public enum DrawingDXFExporter {
             tip.y - (sin(angle) * length) + (cos(angle) * (width * 0.5))
         )
 
-        // DXF SOLID triangular entity
-        writer.writeCode(0, "SOLID")
-        writer.writeCode(8, layer)
-        writer.writeCode(10, tip.x)
-        writer.writeCode(20, tip.y)
-        writer.writeCode(30, 0.0)
-        writer.writeCode(11, p1.x)
-        writer.writeCode(21, p1.y)
-        writer.writeCode(31, 0.0)
-        writer.writeCode(12, p2.x)
-        writer.writeCode(22, p2.y)
-        writer.writeCode(32, 0.0)
-        writer.writeCode(13, p2.x)
-        writer.writeCode(23, p2.y)
-        writer.writeCode(33, 0.0)
+        switch style {
+        case .closedFilled:
+            // DXF SOLID triangular entity
+            writer.writeCode(0, "SOLID")
+            writer.writeCode(8, layer)
+            writer.writeCode(10, tip.x)
+            writer.writeCode(20, tip.y)
+            writer.writeCode(30, 0.0)
+            writer.writeCode(11, p1.x)
+            writer.writeCode(21, p1.y)
+            writer.writeCode(31, 0.0)
+            writer.writeCode(12, p2.x)
+            writer.writeCode(22, p2.y)
+            writer.writeCode(32, 0.0)
+            writer.writeCode(13, p2.x)
+            writer.writeCode(23, p2.y)
+            writer.writeCode(33, 0.0)
+        case .open:
+            writer.writeLine(layer: layer, start: p1, end: tip)
+            writer.writeLine(layer: layer, start: tip, end: p2)
+        case .tick:
+            let tickAngle = angle + .pi * 0.25
+            let half = length * 0.6
+            let pt1 = SIMD2<Double>(tip.x - cos(tickAngle) * half, tip.y - sin(tickAngle) * half)
+            let pt2 = SIMD2<Double>(tip.x + cos(tickAngle) * half, tip.y + sin(tickAngle) * half)
+            writer.writeLine(layer: layer, start: pt1, end: pt2)
+        }
     }
 }
 
