@@ -4329,6 +4329,124 @@ final class WorkspaceModel {
         }
     }
 
+    // MARK: - 2D Drawing Export (BL-DRW-09, #216)
+
+    public var canExportDrawing: Bool {
+        !document.sheets.isEmpty
+    }
+
+    public func promptExportDrawingPDF(sheetId: UUID? = nil) {
+        guard canExportDrawing else { return }
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.pdf]
+        let baseName = currentDocumentURL?.deletingPathExtension().lastPathComponent ?? "drawing"
+        if let sheetId, let targetSheet = document.sheets.first(where: { $0.id == sheetId }) {
+            panel.title = "Export Drawing Sheet as PDF"
+            let sanitizedSheet = targetSheet.name.replacingOccurrences(of: " ", with: "-").lowercased()
+            panel.nameFieldStringValue = "\(baseName)-\(sanitizedSheet).pdf"
+        } else {
+            panel.title = "Export Drawing PDF"
+            panel.nameFieldStringValue = "\(baseName)-drawing.pdf"
+        }
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await exportDrawingPDF(sheetId: sheetId, to: url)
+        }
+    }
+
+    @discardableResult
+    public func exportDrawingPDF(sheetId: UUID? = nil, to url: URL) async -> Bool {
+        guard canExportDrawing else {
+            let msg = "No drawing sheets to export as PDF"
+            log(.error, "Export", msg)
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: msg)
+            isShowingExportErrorAlert = true
+            return false
+        }
+        let sheetsToExport: [DrawingSheet]
+        if let sheetId {
+            guard let targetSheet = document.sheets.first(where: { $0.id == sheetId }) else {
+                let msg = "Sheet with ID \(sheetId) not found"
+                log(.error, "Export", msg)
+                pendingExportError = ExportErrorInfo(destinationURL: url, reason: msg)
+                isShowingExportErrorAlert = true
+                return false
+            }
+            sheetsToExport = [targetSheet]
+        } else {
+            sheetsToExport = document.sheets
+        }
+
+        do {
+            try DrawingPDFExporter.exportPDF(sheets: sheetsToExport, document: document, to: url)
+            pendingExportError = nil
+            isShowingExportErrorAlert = false
+            log(.info, "Export", "Exported drawing PDF (\(sheetsToExport.count) sheet(s)) to \(url.lastPathComponent)")
+            return true
+        } catch {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            log(.error, "Export", "Failed to export drawing PDF: \(error.localizedDescription)")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.localizedDescription)
+            isShowingExportErrorAlert = true
+            return false
+        }
+    }
+
+    public func promptExportDrawingDXF(sheetId: UUID? = nil) {
+        guard canExportDrawing else { return }
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [UTType.dxf]
+        panel.title = "Export Drawing Sheet as DXF"
+        let baseName = currentDocumentURL?.deletingPathExtension().lastPathComponent ?? "drawing"
+        let targetSheet = (sheetId != nil ? document.sheets.first(where: { $0.id == sheetId }) : (document.activeSheet ?? document.sheets.first))
+        let sanitizedSheet = targetSheet?.name.replacingOccurrences(of: " ", with: "-").lowercased() ?? "sheet"
+        panel.nameFieldStringValue = "\(baseName)-\(sanitizedSheet).dxf"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await exportDrawingDXF(sheetId: targetSheet?.id, to: url)
+        }
+    }
+
+    @discardableResult
+    public func exportDrawingDXF(sheetId: UUID? = nil, to url: URL) async -> Bool {
+        guard canExportDrawing else {
+            let msg = "No drawing sheets to export as DXF"
+            log(.error, "Export", msg)
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: msg)
+            isShowingExportErrorAlert = true
+            return false
+        }
+        guard let targetSheet = (sheetId != nil ? document.sheets.first(where: { $0.id == sheetId }) : (document.activeSheet ?? document.sheets.first)) else {
+            let msg = "Target drawing sheet not found for DXF export"
+            log(.error, "Export", msg)
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: msg)
+            isShowingExportErrorAlert = true
+            return false
+        }
+
+        do {
+            try DrawingDXFExporter.exportDXF(sheet: targetSheet, document: document, to: url)
+            pendingExportError = nil
+            isShowingExportErrorAlert = false
+            log(.info, "Export", "Exported drawing sheet '\(targetSheet.name)' as DXF to \(url.lastPathComponent)")
+            return true
+        } catch {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            log(.error, "Export", "Failed to export drawing DXF: \(error.localizedDescription)")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.localizedDescription)
+            isShowingExportErrorAlert = true
+            return false
+        }
+    }
+
     @discardableResult
     func importStepFile(at url: URL) async -> ObjectId? {
         let data: Data

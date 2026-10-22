@@ -9,4 +9,8 @@ extension UTType {
 
     /// 3D Manufacturing Format (.3mf) Uniform Type Identifier.
     public static let threeMF = UTType(importedAs: "org.3mf.3mf", conformingTo: .data)
+
+    /// AutoCAD Drawing Interchange Format (.dxf) Uniform Type Identifier.
+    public static let dxf = UTType(filenameExtension: "dxf", conformingTo: .plainText)
+        ?? UTType(importedAs: "com.autodesk.dxf", conformingTo: .plainText)
 }

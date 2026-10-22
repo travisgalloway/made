@@ -85,8 +85,20 @@ struct FileMenuCommands: Commands {
                     }
                 }
                 .disabled(!workspace.canExportBillOfMaterials)
+
+                Divider()
+
+                Menu("Drawing") {
+                    Button("PDF…") {
+                        workspace.promptExportDrawingPDF()
+                    }
+                    Button("DXF…") {
+                        workspace.promptExportDrawingDXF()
+                    }
+                }
+                .disabled(!workspace.canExportDrawing)
             }
-            .disabled(workspace.document.objects.isEmpty && !workspace.canExportBillOfMaterials)
+            .disabled(workspace.document.objects.isEmpty && !workspace.canExportBillOfMaterials && !workspace.canExportDrawing)
 
             Button("Reload Part Scripts") {
                 workspace.reloadAllParts()
