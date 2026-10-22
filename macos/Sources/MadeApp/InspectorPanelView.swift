@@ -74,6 +74,7 @@ struct InspectorPanelView: View {
             ScrollView {
                 Form {
                     identitySection(selected)
+                    partPropertiesSection(selected)
                     transformSection(selected)
                         .disabled(selected.isLocked)
                     dimensionsSection(selected)
@@ -227,6 +228,17 @@ struct InspectorPanelView: View {
         } header: {
             sectionHeader("Identity", isFirst: true)
         }
+    }
+
+    private func partPropertiesSection(_ obj: SceneObject) -> some View {
+        MetadataPropertiesView(
+            metadata: obj.metadata,
+            idPrefix: "inspector-part",
+            isLocked: obj.isLocked,
+            onSetProperty: { key, val in
+                workspace.setBodyProperty(id: obj.id, key: key, value: val)
+            }
+        )
     }
 
     private func transformSection(_ obj: SceneObject) -> some View {
@@ -1215,6 +1227,7 @@ struct InspectorComponentInstanceView: View {
     var body: some View {
         Form {
             identitySection
+            componentPropertiesSection
             if component.isSubassembly {
                 subassemblySection
             }
@@ -1351,6 +1364,17 @@ struct InspectorComponentInstanceView: View {
         } header: {
             sectionHeader("Component Identity", isFirst: true)
         }
+    }
+
+    private var componentPropertiesSection: some View {
+        MetadataPropertiesView(
+            metadata: component.metadata,
+            idPrefix: "inspector-component",
+            isLocked: component.isLocked,
+            onSetProperty: { key, val in
+                workspace.setComponentProperty(id: component.id, key: key, value: val)
+            }
+        )
     }
 
     private var referenceSection: some View {
@@ -1748,6 +1772,120 @@ struct InspectorAssemblyConstraintView: View {
     }
 }
 
+/// Reusable inspector view for standard and custom key/value metadata properties (BL-FND-14, #172).
+struct MetadataPropertiesView: View {
+    let metadata: [String: String]
+    var idPrefix: String = "inspector-doc"
+    var isLocked: Bool = false
+    var onSetProperty: (String, String?) -> Void
+
+    @State private var newKey: String = ""
+    @State private var newValue: String = ""
+
+    var body: some View {
+        Section {
+            TextField("Part Number", text: Binding(
+                get: { metadata[CustomPropertyKey.partNumber] ?? "" },
+                set: { onSetProperty(CustomPropertyKey.partNumber, $0) }
+            ))
+            .disabled(isLocked)
+            .accessibilityIdentifier("\(idPrefix)-part-number")
+
+            TextField("Description", text: Binding(
+                get: { metadata[CustomPropertyKey.description] ?? "" },
+                set: { onSetProperty(CustomPropertyKey.description, $0) }
+            ))
+            .disabled(isLocked)
+            .accessibilityIdentifier("\(idPrefix)-description")
+
+            TextField("Revision", text: Binding(
+                get: { metadata[CustomPropertyKey.revision] ?? "" },
+                set: { onSetProperty(CustomPropertyKey.revision, $0) }
+            ))
+            .disabled(isLocked)
+            .accessibilityIdentifier("\(idPrefix)-revision")
+
+            TextField("Vendor", text: Binding(
+                get: { metadata[CustomPropertyKey.vendor] ?? "" },
+                set: { onSetProperty(CustomPropertyKey.vendor, $0) }
+            ))
+            .disabled(isLocked)
+            .accessibilityIdentifier("\(idPrefix)-vendor")
+        } header: {
+            sectionHeader("Standard Properties")
+        }
+
+        Section {
+            let customKeys = metadata.keys.filter { !CustomPropertyKey.standardKeys.contains($0) }.sorted()
+            if customKeys.isEmpty {
+                Text("No custom properties defined.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(customKeys, id: \.self) { key in
+                    HStack(spacing: 6) {
+                        Text(key)
+                            .accessibilityIdentifier("\(idPrefix)-custom-key-\(key)")
+                            .font(.caption)
+                            .frame(width: 80, alignment: .leading)
+                            .lineLimit(1)
+                        TextField("Value", text: Binding(
+                            get: { metadata[key] ?? "" },
+                            set: { onSetProperty(key, $0) }
+                        ))
+                        .disabled(isLocked)
+                        .accessibilityIdentifier("\(idPrefix)-custom-val-\(key)")
+                        Button(role: .destructive) {
+                            onSetProperty(key, nil)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isLocked)
+                        .accessibilityIdentifier("\(idPrefix)-custom-delete-\(key)")
+                    }
+                }
+            }
+
+            if !isLocked {
+                HStack(spacing: 6) {
+                    TextField("Key", text: $newKey)
+                        .accessibilityIdentifier("\(idPrefix)-new-key")
+                        .onSubmit(commitNewProperty)
+                    TextField("Value", text: $newValue)
+                        .accessibilityIdentifier("\(idPrefix)-new-val")
+                        .onSubmit(commitNewProperty)
+                    Button {
+                        commitNewProperty()
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .disabled(newKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("\(idPrefix)-add-property")
+                }
+            }
+        } header: {
+            sectionHeader("Custom Properties")
+        }
+    }
+
+    private func commitNewProperty() {
+        let trimmedKey = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        onSetProperty(trimmedKey, newValue)
+        newKey = ""
+        newValue = ""
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
 struct DocumentSettingsInspectorView: View {
     @Environment(WorkspaceModel.self) private var workspace
     @State private var parameterError: String? = nil
@@ -1757,6 +1895,7 @@ struct DocumentSettingsInspectorView: View {
         ScrollView {
             Form {
                 documentTypeSection
+                documentPropertiesSection
                 parametersSection
                 unitsSection
                 tolerancesSection
@@ -1782,6 +1921,17 @@ struct DocumentSettingsInspectorView: View {
         } header: {
             sectionHeader("Document Type", isFirst: true)
         }
+    }
+
+    private var documentPropertiesSection: some View {
+        MetadataPropertiesView(
+            metadata: workspace.document.metadata,
+            idPrefix: "inspector-doc",
+            isLocked: false,
+            onSetProperty: { key, val in
+                workspace.setDocumentProperty(key: key, value: val)
+            }
+        )
     }
 
     private var parametersSection: some View {

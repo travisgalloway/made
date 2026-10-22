@@ -885,7 +885,7 @@ public enum FeatureOperation: Sendable, Codable, Equatable {
 }
 
 /// Canonical parametric modeling feature in an ordered linear history (ADR-D2).
-public struct Feature: Identifiable, Sendable, Codable, Equatable {
+public struct Feature: Identifiable, Sendable, Codable, Equatable, PropertyContainer {
     public let id: UUID
     public var name: String
     public var operation: FeatureOperation
@@ -901,6 +901,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
     public var isVisible: Bool
     public var isLocked: Bool
     public var material: MaterialAttributes
+    public var metadata: [String: String]
 
     public init(
         id: UUID = UUID(),
@@ -917,7 +918,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         transform: Transform = .identity,
         isVisible: Bool = true,
         isLocked: Bool = false,
-        material: MaterialAttributes = MaterialAttributes()
+        material: MaterialAttributes = MaterialAttributes(),
+        metadata: [String: String] = [:]
     ) {
         self.id = id
         self.name = name
@@ -934,6 +936,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.material = material
+        self.metadata = metadata
     }
 
     /// Looks up an input reference by semantic role.
@@ -968,6 +971,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         case isVisible
         case isLocked
         case material
+        case metadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -987,6 +991,7 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
         self.material = try container.decodeIfPresent(MaterialAttributes.self, forKey: .material) ?? MaterialAttributes()
+        self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -1006,6 +1011,9 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
         try container.encode(isVisible, forKey: .isVisible)
         try container.encode(isLocked, forKey: .isLocked)
         try container.encode(material, forKey: .material)
+        if !metadata.isEmpty {
+            try container.encode(metadata, forKey: .metadata)
+        }
     }
 
     /// Converts this feature into a `SceneObject` if active, non-suppressed, and producing an output solid.
@@ -1096,7 +1104,8 @@ public struct Feature: Identifiable, Sendable, Codable, Equatable {
             transform: transform,
             isVisible: isVisible,
             isLocked: isLocked,
-            material: material
+            material: material,
+            metadata: metadata
         )
     }
 }
@@ -2261,6 +2270,7 @@ extension Feature {
                 material: object.material
             )
         }
+        self.metadata = object.metadata
     }
 }
 

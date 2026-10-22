@@ -2443,6 +2443,7 @@ final class WorkspaceModel {
             isShowingImportErrorAlert = false
 
             let docSettings = package.manifest.documentSettings
+            let docMetadata = package.manifest.metadata
             let restoredSelection: Set<Reference>? = {
                 if let sel = package.documentData.selection {
                     return Set(sel)
@@ -2463,7 +2464,8 @@ final class WorkspaceModel {
                     settings: docSettings,
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
-                    componentInstances: componentInstances
+                    componentInstances: componentInstances,
+                    metadata: docMetadata
                 )
             } else {
                 document.reset(
@@ -2474,7 +2476,8 @@ final class WorkspaceModel {
                     settings: docSettings,
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
-                    componentInstances: componentInstances
+                    componentInstances: componentInstances,
+                    metadata: docMetadata
                 )
             }
             currentDocumentURL = url
@@ -2502,7 +2505,8 @@ final class WorkspaceModel {
             schemaVersion: MadeManifest.currentSchemaVersion,
             appVersion: "0.1",
             documentSettings: document.settings,
-            documentType: document.documentType
+            documentType: document.documentType,
+            metadata: document.metadata
         )
         let docData = DocumentData(
             schemaVersion: DocumentData.currentSchemaVersion,
@@ -2703,6 +2707,7 @@ final class WorkspaceModel {
             autosaveTask = nil
 
             let docSettings = package.manifest.documentSettings
+            let docMetadata = package.manifest.metadata
             let restoredSelection: Set<Reference>? = {
                 if let sel = package.documentData.selection {
                     return Set(sel)
@@ -2718,7 +2723,8 @@ final class WorkspaceModel {
                     selection: restoredSelection,
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
-                    settings: docSettings
+                    settings: docSettings,
+                    metadata: docMetadata
                 )
             } else {
                 document.reset(
@@ -2726,7 +2732,8 @@ final class WorkspaceModel {
                     selection: restoredSelection,
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
-                    settings: docSettings
+                    settings: docSettings,
+                    metadata: docMetadata
                 )
             }
             currentDocumentURL = record.metadata.originalDocumentURL
@@ -3954,6 +3961,23 @@ final class WorkspaceModel {
         var mat = b.material
         mat.color = color
         setBodyMaterial(id: id, material: mat)
+    }
+
+    // MARK: - Custom Properties & Metadata (BL-FND-14, #172)
+
+    public func setDocumentProperty(key: String, value: String?) {
+        document.setDocumentProperty(key: key, value: value)
+        markDocumentModified()
+    }
+
+    public func setBodyProperty(id: BodyId, key: String, value: String?) {
+        document.setBodyProperty(id: id, key: key, value: value)
+        markDocumentModified()
+    }
+
+    public func setComponentProperty(id: ComponentInstanceId, key: String, value: String?) {
+        document.setComponentInstanceProperty(id: id, key: key, value: value)
+        markDocumentModified()
     }
 
     // MARK: - Viewport Hidden State Synchronization (BL-FND-13)

@@ -290,11 +290,33 @@ Both `setParam` and `addObject` apply the size ranges via `DocumentLimits`. The 
 Implemented (#83, [ADR-D7](./adr/ADR-D7-made-encoding.md)): the document model integrates with Apple's `FileDocument` protocol via `MadeDocument` and `MadePackage` as a directory package (`FileWrapper`):
 - **Uniform Type Identifier**: `com.made.cad.document` (extension: `.made`, conforming to `com.apple.package` and `public.composite-content`). Registered in `Info.plist` and declared via `UTType.madeDocument`.
 - **Package Bundle Architecture** ([ADR-D7](./adr/ADR-D7-made-encoding.md), #376):
-  - `manifest.json`: Schema version (`schemaVersion: 1`), application version, unit settings, and kernel tolerances.
-  - `document.json`: Serialized `DocumentData` (canonical JSON with sorted keys, 2-space indentation, trailing newline, clamping `DocumentLimits` on decode).
+  - `manifest.json`: Schema version (`schemaVersion: 2`), application version, unit settings, kernel tolerances, and document-level metadata (`partNumber`, `description`, `revision`, `vendor`, and arbitrary key and value custom properties, BL-FND-14, #172).
+  - `document.json`: Serialized `DocumentData` (canonical JSON with sorted keys, 2-space indentation, trailing newline, clamping `DocumentLimits` on decode, and feature-level and component-instance metadata, BL-FND-14, #172).
   - `parts/`: Plain-text `.part.ts` and `.part.js` part source files that external agents edit directly ([ADR-D6](./adr/ADR-D6-scripting-runtime.md), #435, #427).
   - `assets/`: Embedded STEP/IGES binary data (#38) and external reference descriptors (#160).
   - `cache/`: Regenerable B-rep caches, display meshes, simulation results, and `thumbnail.png` (#248), ignored by Git via `cache/.gitignore` containing `*` (#376).
+
+---
+
+## Custom Properties and Metadata (BL-FND-14, #172)
+
+`DocumentModel`, `Feature`, `Body`, and `ComponentInstance` implement the `PropertyContainer` protocol defined in `CustomProperties.swift`. This protocol provides unified storage and mutation accessors for standard properties and arbitrary key and value custom properties:
+
+1. **Standard Keys**:
+   - `partNumber`: Part or component number identifier.
+   - `description`: Item description text.
+   - `revision`: Revision or version tag.
+   - `vendor`: Vendor or manufacturer name.
+
+2. **Persistence and Serialization**:
+   - Document-level metadata is persisted in `manifest.json` under `MadeManifest.metadata`.
+   - Feature-level and body-level metadata is persisted in `document.json` under `Feature.metadata`.
+   - Component instance metadata in assembly documents is persisted in `document.json` under `ComponentInstance.metadata`.
+   - Metadata dictionaries omit empty fields on encode and default to empty dictionaries on decode for backward compatibility with legacy schema version 1 and 2 files.
+
+3. **Inspector Editing and Undo / Redo**:
+   - `MetadataPropertiesView` in `InspectorPanelView.swift` renders standard text fields and custom property rows in `DocumentSettingsInspectorView` (Document tab), solid body inspector (Properties tab), and `InspectorComponentInstanceView` (Properties tab).
+   - Modifications validate non-empty keys, trim whitespace, and register symmetric single-step undo and redo actions on `UndoManager`.
 - **Workspace Integration & Autosave**:
   - `WorkspaceModel` manages document lifecycle: New (⌘N), Open (⌘O), Save (⌘S), Save As (⇧⌘S).
   - Window title tracks document filename (or "Untitled CAD Document" when unsaved), displaying document modification state in the window close button and proxy icon.

@@ -190,7 +190,7 @@ public struct MaterialAttributes: Sendable, Equatable, Codable {
     }
 }
 
-public struct SceneObject: Identifiable, Sendable, Equatable {
+public struct SceneObject: Identifiable, Sendable, Equatable, PropertyContainer {
     public let id: ObjectId
     public var name: String
     public var def: ObjectDef
@@ -198,6 +198,7 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
     public var isVisible: Bool
     public var isLocked: Bool
     public var material: MaterialAttributes
+    public var metadata: [String: String]
     
     public init(
         id: ObjectId,
@@ -206,7 +207,8 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
         transform: Transform = .identity,
         isVisible: Bool = true,
         isLocked: Bool = false,
-        material: MaterialAttributes = MaterialAttributes()
+        material: MaterialAttributes = MaterialAttributes(),
+        metadata: [String: String] = [:]
     ) {
         self.id = id
         self.name = name ?? id.rawValue
@@ -215,6 +217,7 @@ public struct SceneObject: Identifiable, Sendable, Equatable {
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.material = material
+        self.metadata = metadata
     }
 }
 
@@ -447,6 +450,7 @@ extension SceneObject: Codable {
         case isVisible
         case isLocked
         case material
+        case metadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -458,6 +462,7 @@ extension SceneObject: Codable {
         self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
         self.material = try container.decodeIfPresent(MaterialAttributes.self, forKey: .material) ?? MaterialAttributes()
+        self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -469,6 +474,9 @@ extension SceneObject: Codable {
         try container.encode(isVisible, forKey: .isVisible)
         try container.encode(isLocked, forKey: .isLocked)
         try container.encode(material, forKey: .material)
+        if !metadata.isEmpty {
+            try container.encode(metadata, forKey: .metadata)
+        }
     }
 }
 
@@ -825,6 +833,7 @@ public final class DocumentModel {
     public private(set) var assemblyConstraints: [AssemblyConstraint] = []
     public private(set) var componentPatterns: [ComponentPattern] = []
     public private(set) var componentMirrors: [ComponentMirror] = []
+    public private(set) var metadata: [String: String] = [:]
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
@@ -1216,7 +1225,7 @@ public final class DocumentModel {
         }
     }
     
-    public init(settings: DocumentSettings = DocumentSettings()) {
+    public init(settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
         // Initialize with default box and cylinder scene.
         let boxFeature = Feature.makeBox(
             solidId: boxSolidId,
@@ -1233,12 +1242,13 @@ public final class DocumentModel {
         self._selection = [Reference.body(boxSolidId)]
         self._selectedId = boxSolidId
         self.settings = settings
+        self.metadata = metadata
         syncObjectsFromFeatures()
         self.seq = Self.computeMaxSequence(features: self.features)
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], settings: DocumentSettings = DocumentSettings()) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
@@ -1247,6 +1257,7 @@ public final class DocumentModel {
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
         self.settings = settings
+        self.metadata = metadata
         self._selection = []
         self._selectedId = nil
         syncObjectsFromFeatures()
@@ -1254,13 +1265,14 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = []) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], metadata: [String: String] = [:]) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
+        self.metadata = metadata
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
             self.rollbackIndex = (clamped >= features.count) ? nil : clamped
@@ -1285,9 +1297,10 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil) {
+    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, metadata: [String: String] = [:]) {
         let convertedFeatures = objects.map { Feature(from: $0) }
         self.features = convertedFeatures
+        self.metadata = metadata
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), convertedFeatures.count)
             self.rollbackIndex = (clamped >= convertedFeatures.count) ? nil : clamped
@@ -1312,7 +1325,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = []) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], metadata: [String: String] = [:]) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1320,6 +1333,7 @@ public final class DocumentModel {
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
         self.parameters = parameters
+        self.metadata = metadata
         rebuildParameterGraph()
         features = newFeatures
         if let idx = rollbackIndex {
@@ -1348,7 +1362,7 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = []) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], metadata: [String: String] = [:]) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1356,6 +1370,7 @@ public final class DocumentModel {
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
         self.parameters = parameters
+        self.metadata = metadata
         rebuildParameterGraph()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
         features = convertedFeatures
@@ -1526,7 +1541,8 @@ public final class DocumentModel {
                     transform: worldTransform,
                     isVisible: instance.isVisible,
                     isLocked: instance.isLocked || instance.isGrounded,
-                    material: instance.material
+                    material: instance.material,
+                    metadata: instance.metadata
                 )
                 currentObjects.append(obj)
             } else {
@@ -1723,6 +1739,158 @@ public final class DocumentModel {
         var newSettings = settings
         newSettings.defaultMaterial = material
         setSettings(newSettings, actionName: "Change Document Settings")
+    }
+
+    // MARK: - Metadata & Custom Properties (BL-FND-14, #172)
+
+    public var partNumber: String? {
+        metadata[CustomPropertyKey.partNumber]
+    }
+
+    public var itemDescription: String? {
+        metadata[CustomPropertyKey.description]
+    }
+
+    public var revision: String? {
+        metadata[CustomPropertyKey.revision]
+    }
+
+    public var vendor: String? {
+        metadata[CustomPropertyKey.vendor]
+    }
+
+    public var customProperties: [String: String] {
+        metadata.customProperties
+    }
+
+    public func property(forKey key: String) -> String? {
+        metadata.property(forKey: key)
+    }
+
+    public func setDocumentMetadata(_ newMetadata: [String: String], actionName: String? = nil, registerUndo: Bool = true) {
+        guard metadata != newMetadata else { return }
+        let oldMetadata = metadata
+        if registerUndo {
+            let undoName = actionName ?? "Edit Document Metadata"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setDocumentMetadata(oldMetadata, actionName: undoName, registerUndo: true)
+                    target.undoManager?.setActionName(undoName)
+                }
+            }
+            undoManager?.setActionName(undoName)
+            undoStateVersion += 1
+        }
+        metadata = newMetadata
+    }
+
+    public func setDocumentProperty(key: String, value: String?) {
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        var newMetadata = metadata
+        if let value, !value.isEmpty {
+            newMetadata[trimmedKey] = value
+        } else {
+            newMetadata.removeValue(forKey: trimmedKey)
+        }
+        guard newMetadata != metadata else { return }
+        let oldMetadata = metadata
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setDocumentMetadata(oldMetadata, actionName: "Edit Document Property", registerUndo: true)
+                target.undoManager?.setActionName("Edit Document Property")
+            }
+        }
+        undoManager?.setActionName("Edit Document Property")
+        undoStateVersion += 1
+        metadata = newMetadata
+    }
+
+    public func setFeatureMetadata(id: UUID, metadata newMetadata: [String: String], actionName: String? = nil, registerUndo: Bool = true) {
+        guard let index = features.firstIndex(where: { $0.id == id }) else { return }
+        guard features[index].metadata != newMetadata else { return }
+        let oldMetadata = features[index].metadata
+        if registerUndo {
+            let undoName = actionName ?? "Edit Feature Metadata"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setFeatureMetadata(id: id, metadata: oldMetadata, actionName: undoName, registerUndo: true)
+                    target.undoManager?.setActionName(undoName)
+                }
+            }
+            undoManager?.setActionName(undoName)
+            undoStateVersion += 1
+        }
+        features[index].metadata = newMetadata
+        syncObjectsFromFeatures()
+    }
+
+    public func setFeatureProperty(id: UUID, key: String, value: String?) {
+        guard let index = features.firstIndex(where: { $0.id == id }) else { return }
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        var newMetadata = features[index].metadata
+        if let value, !value.isEmpty {
+            newMetadata[trimmedKey] = value
+        } else {
+            newMetadata.removeValue(forKey: trimmedKey)
+        }
+        guard newMetadata != features[index].metadata else { return }
+        let oldMetadata = features[index].metadata
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.setFeatureMetadata(id: id, metadata: oldMetadata, actionName: "Edit Feature Property", registerUndo: true)
+                target.undoManager?.setActionName("Edit Feature Property")
+            }
+        }
+        undoManager?.setActionName("Edit Feature Property")
+        undoStateVersion += 1
+        features[index].metadata = newMetadata
+        syncObjectsFromFeatures()
+    }
+
+    public func setComponentInstanceMetadata(id: ComponentInstanceId, metadata newMetadata: [String: String], actionName: String? = nil, registerUndo: Bool = true) {
+        guard var comp = findComponentInstance(id: id) else { return }
+        guard comp.metadata != newMetadata else { return }
+        comp.metadata = newMetadata
+        _ = updateComponentInstance(comp, actionName: actionName ?? "Edit Component Metadata", registerUndo: registerUndo)
+    }
+
+    public func setComponentInstanceProperty(id: ComponentInstanceId, key: String, value: String?) {
+        guard var comp = findComponentInstance(id: id) else { return }
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        var newMetadata = comp.metadata
+        if let value, !value.isEmpty {
+            newMetadata[trimmedKey] = value
+        } else {
+            newMetadata.removeValue(forKey: trimmedKey)
+        }
+        guard newMetadata != comp.metadata else { return }
+        comp.metadata = newMetadata
+        _ = updateComponentInstance(comp, actionName: "Edit Component Property", registerUndo: true)
+    }
+
+    public func setBodyMetadata(id: BodyId, metadata newMetadata: [String: String], actionName: String? = nil, registerUndo: Bool = true) {
+        if let comp = findComponentInstance(solidId: id) {
+            setComponentInstanceMetadata(id: comp.id, metadata: newMetadata, actionName: actionName, registerUndo: registerUndo)
+            return
+        }
+        if let featIndex = features.firstIndex(where: { $0.outputSolidId == id }) {
+            setFeatureMetadata(id: features[featIndex].id, metadata: newMetadata, actionName: actionName, registerUndo: registerUndo)
+            return
+        }
+    }
+
+    public func setBodyProperty(id: BodyId, key: String, value: String?) {
+        if let comp = findComponentInstance(solidId: id) {
+            setComponentInstanceProperty(id: comp.id, key: key, value: value)
+            return
+        }
+        if let featIndex = features.firstIndex(where: { $0.outputSolidId == id }) {
+            setFeatureProperty(id: features[featIndex].id, key: key, value: value)
+            return
+        }
     }
 
     // MARK: - Rollback Marker (BL-FND-05)
