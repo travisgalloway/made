@@ -1642,6 +1642,7 @@ public final class DocumentModel {
         objects = currentObjects
         bodies = objects.map { Body(from: $0) }
         pruneInvalidSelection()
+        updateDrawingAssociativity()
     }
 
     public func validateTimelineFeatureErrors() {
@@ -2243,6 +2244,7 @@ public final class DocumentModel {
         isSyncingObjects = true
         features[index].errorState = error
         isSyncingObjects = prevSyncing
+        updateDrawingAssociativity()
     }
 
     @discardableResult
@@ -8097,7 +8099,8 @@ public final class DocumentModel {
         id viewId: UUID,
         from sheetId: UUID? = nil,
         actionName: String? = nil,
-        registerUndo: Bool = true
+        registerUndo: Bool = true,
+        preserveAnnotationsAsDangling: Bool = false
     ) -> Bool {
         let targetSheetId = sheetId ?? activeSheetId
         guard let sIdx = sheets.firstIndex(where: { sheet in
@@ -8124,10 +8127,20 @@ public final class DocumentModel {
         }
 
         // Collect and detach/remove attached annotations
+        let oldAnnotations = sheets[sIdx].annotations
         let attachedAnnotations = sheets[sIdx].annotations.filter { $0.viewId == viewId }
-        sheets[sIdx].annotations.removeAll { $0.viewId == viewId }
-        if let selAnnId = selectedDrawingAnnotationId, attachedAnnotations.contains(where: { $0.id == selAnnId }) {
-            selectedDrawingAnnotationId = nil
+
+        if preserveAnnotationsAsDangling {
+            for aIdx in sheets[sIdx].annotations.indices {
+                if sheets[sIdx].annotations[aIdx].viewId == viewId {
+                    sheets[sIdx].annotations[aIdx].isDangling = true
+                }
+            }
+        } else {
+            sheets[sIdx].annotations.removeAll { $0.viewId == viewId }
+            if let selAnnId = selectedDrawingAnnotationId, attachedAnnotations.contains(where: { $0.id == selAnnId }) {
+                selectedDrawingAnnotationId = nil
+            }
         }
 
         let oldSelectedId = selectedDrawingViewId
@@ -8148,11 +8161,11 @@ public final class DocumentModel {
                                 target.sheets[child.sheetIndex].views[childViewIdx] = child.view
                             }
                         }
-                        target.sheets[targetSheetIdx].annotations.append(contentsOf: attachedAnnotations)
+                        target.sheets[targetSheetIdx].annotations = oldAnnotations
                         target.selectedDrawingViewId = oldSelectedId ?? removedView.id
                         target.undoManager?.registerUndo(withTarget: target) { redoTarget in
                             MainActor.assumeIsolated {
-                                _ = redoTarget.removeDrawingView(id: removedView.id, from: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                                _ = redoTarget.removeDrawingView(id: removedView.id, from: sheetUUID, actionName: effectiveActionName, registerUndo: true, preserveAnnotationsAsDangling: preserveAnnotationsAsDangling)
                                 redoTarget.undoManager?.setActionName(effectiveActionName)
                             }
                         }
@@ -8360,6 +8373,160 @@ public final class DocumentModel {
         }
         undoStateVersion += 1
         return true
+    }
+
+    // MARK: - Drawing Associativity & Synchronization (BL-DRW-07, #214)
+
+    /// Recomputes hidden line removal projections for drawing views and updates parametric annotation
+    /// associativity across all drawing sheets when 3D model geometry or features change.
+    public func updateDrawingAssociativity() {
+        guard !sheets.isEmpty else { return }
+
+        for sIdx in sheets.indices {
+            // 1. Recompute view HLR projections if document contains 3D objects
+            if !objects.isEmpty {
+                for vIdx in sheets[sIdx].views.indices {
+                    let view = sheets[sIdx].views[vIdx]
+                    let direction = view.effectiveViewDirection
+                    let baseHLR = HLREngine.computeHLR(
+                        objects: objects,
+                        direction: direction,
+                        options: view.displayStyle.hlrOptions
+                    )
+                    var finalHLR = baseHLR
+                    switch view.kind {
+                    case .base, .projected, .auxiliary:
+                        finalHLR = baseHLR
+                    case .section:
+                        if let hatchDef = view.hatchPattern, let bounds = baseHLR.bounds2D {
+                            let hatchEdges = DrawingHatchGenerator.generateHatchLines(in: bounds, pattern: hatchDef)
+                            finalHLR = HLRResult(edges: baseHLR.edges + hatchEdges, viewDirection: direction)
+                        }
+                    case .detail:
+                        if let detailDef = view.detailDefinition {
+                            let clipped = DrawingDetailProcessor.clipEdgesToCircle(
+                                edges: baseHLR.edges,
+                                centerMM: detailDef.centerMM,
+                                radiusMM: detailDef.radiusMM
+                            )
+                            finalHLR = HLRResult(edges: clipped, viewDirection: direction)
+                        }
+                    case .broken:
+                        if let breakDef = view.breakDefinition {
+                            finalHLR = DrawingBreakProcessor.applyBreak(to: baseHLR, definition: breakDef)
+                        }
+                    }
+                    sheets[sIdx].views[vIdx].cachedHLR = finalHLR
+                }
+            }
+
+            // 2. Validate and synchronize annotations
+            for aIdx in sheets[sIdx].annotations.indices {
+                let annotation = sheets[sIdx].annotations[aIdx]
+
+                // Check attached view
+                if let viewId = annotation.viewId {
+                    guard let attachedView = sheets[sIdx].views.first(where: { $0.id == viewId }) else {
+                        sheets[sIdx].annotations[aIdx].isDangling = true
+                        continue
+                    }
+
+                    let featureRefId = annotation.sourceFeatureId ?? annotation.attachment?.featureId ?? annotation.attachment?.topologicalReference?.sourceFeatureId
+                    if let fId = featureRefId {
+                        guard let feat = features.first(where: { $0.id == fId }) else {
+                            sheets[sIdx].annotations[aIdx].isDangling = true
+                            continue
+                        }
+
+                        if feat.isSuppressed || feat.errorState != nil {
+                            sheets[sIdx].annotations[aIdx].isDangling = true
+                            continue
+                        }
+
+                        // Feature is active: synchronize Hole Wizard callout or dimension
+                        if case .hole(let holeParams) = feat.operation,
+                           case .holeCallout(var holeData) = annotation.data {
+                            holeData.holeType = holeParams.holeType
+                            holeData.standard = holeParams.standard
+                            holeData.sizeDesignation = holeParams.sizeDesignation
+                            holeData.diameter = holeParams.diameter
+                            holeData.depth = holeParams.depth
+                            holeData.isThrough = holeParams.isThrough
+                            holeData.counterboreDiameter = holeParams.counterboreDiameter
+                            holeData.counterboreDepth = holeParams.counterboreDepth
+                            holeData.countersinkDiameter = holeParams.countersinkDiameter
+                            holeData.countersinkAngle = holeParams.countersinkAngle
+                            if let thread = holeParams.threadMetadata?.designation ?? holeParams.sizeDesignation {
+                                holeData.threadDesignation = thread
+                            }
+                            if !holeParams.points.isEmpty {
+                                holeData.holeCount = holeParams.points.count
+                            }
+                            sheets[sIdx].annotations[aIdx].data = .holeCallout(holeData)
+                            sheets[sIdx].annotations[aIdx].isDangling = false
+                            continue
+                        }
+
+                        // Check model points reprojection
+                        if let attachment = sheets[sIdx].annotations[aIdx].attachment, !attachment.modelPoints.isEmpty {
+                            if case .linear(var linData) = sheets[sIdx].annotations[aIdx].data,
+                               attachment.modelPoints.count >= 2 {
+                                linData.startPointMM = attachedView.project(point3D: attachment.modelPoints[0])
+                                linData.endPointMM = attachedView.project(point3D: attachment.modelPoints[1])
+                                sheets[sIdx].annotations[aIdx].data = .linear(linData)
+                            }
+                        }
+
+                        sheets[sIdx].annotations[aIdx].isDangling = false
+                    } else if let attachment = annotation.attachment, !attachment.modelPoints.isEmpty {
+                        // Dimension attached to 3D points without specific feature reference
+                        if case .linear(var linData) = annotation.data,
+                           attachment.modelPoints.count >= 2 {
+                            linData.startPointMM = attachedView.project(point3D: attachment.modelPoints[0])
+                            linData.endPointMM = attachedView.project(point3D: attachment.modelPoints[1])
+                            sheets[sIdx].annotations[aIdx].data = .linear(linData)
+                        }
+                        sheets[sIdx].annotations[aIdx].isDangling = false
+                    } else {
+                        sheets[sIdx].annotations[aIdx].isDangling = false
+                    }
+                } else {
+                    // Sheet-level annotation
+                    let featureRefId = annotation.sourceFeatureId ?? annotation.attachment?.featureId ?? annotation.attachment?.topologicalReference?.sourceFeatureId
+                    if let fId = featureRefId {
+                        guard let feat = features.first(where: { $0.id == fId }) else {
+                            sheets[sIdx].annotations[aIdx].isDangling = true
+                            continue
+                        }
+                        if feat.isSuppressed || feat.errorState != nil {
+                            sheets[sIdx].annotations[aIdx].isDangling = true
+                            continue
+                        }
+                        if case .hole(let holeParams) = feat.operation,
+                           case .holeCallout(var holeData) = annotation.data {
+                            holeData.holeType = holeParams.holeType
+                            holeData.standard = holeParams.standard
+                            holeData.sizeDesignation = holeParams.sizeDesignation
+                            holeData.diameter = holeParams.diameter
+                            holeData.depth = holeParams.depth
+                            holeData.isThrough = holeParams.isThrough
+                            holeData.counterboreDiameter = holeParams.counterboreDiameter
+                            holeData.counterboreDepth = holeParams.counterboreDepth
+                            holeData.countersinkDiameter = holeParams.countersinkDiameter
+                            holeData.countersinkAngle = holeParams.countersinkAngle
+                            if let thread = holeParams.threadMetadata?.designation ?? holeParams.sizeDesignation {
+                                holeData.threadDesignation = thread
+                            }
+                            if !holeParams.points.isEmpty {
+                                holeData.holeCount = holeParams.points.count
+                            }
+                            sheets[sIdx].annotations[aIdx].data = .holeCallout(holeData)
+                        }
+                        sheets[sIdx].annotations[aIdx].isDangling = false
+                    }
+                }
+            }
+        }
     }
 }
 

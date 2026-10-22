@@ -795,7 +795,7 @@ struct DrawingCanvasView: View {
     @ViewBuilder
     private func drawingAnnotationItem(annotation: DrawingAnnotation, sheet: DrawingSheet, fitScale: Double) -> some View {
         let isSelected = workspace.selectedDrawingAnnotationId == annotation.id
-        let strokeColor = isSelected ? Color.accentColor : Color.black
+        let strokeColor = annotation.isDangling ? Color.orange : (isSelected ? Color.accentColor : Color.black)
         let lineWidth: CGFloat = isSelected ? 1.5 : 1.0
         let scale = toCanvasScale(viewId: annotation.viewId, sheet: sheet, fitScale: fitScale)
 

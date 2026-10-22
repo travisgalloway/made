@@ -570,6 +570,37 @@ public struct DrawingView: Identifiable, Sendable, Codable, Equatable {
     ) -> [HLREdge] {
         DrawingDetailProcessor.clipEdgesToCircle(edges: edges, centerMM: centerMM, radiusMM: radiusMM)
     }
+
+    /// Orthographically projects a 3D point in model coordinates to 2D view coordinates (BL-DRW-07).
+    public func project(point3D: SIMD3<Double>) -> SIMD2<Double> {
+        if customViewDirection != nil {
+            let dir = effectiveViewDirection
+            let up = (abs(dir.z) > 0.99) ? SIMD3<Double>(0, 1, 0) : SIMD3<Double>(0, 0, 1)
+            let right = simd_normalize(simd_cross(up, dir))
+            let trueUp = simd_normalize(simd_cross(dir, right))
+            return SIMD2<Double>(simd_dot(point3D, right), simd_dot(point3D, trueUp))
+        }
+        switch standardView {
+        case .top:
+            return SIMD2<Double>(point3D.x, point3D.y)
+        case .bottom:
+            return SIMD2<Double>(point3D.x, -point3D.y)
+        case .front:
+            return SIMD2<Double>(point3D.x, point3D.z)
+        case .back:
+            return SIMD2<Double>(-point3D.x, point3D.z)
+        case .right:
+            return SIMD2<Double>(-point3D.y, point3D.z)
+        case .left:
+            return SIMD2<Double>(point3D.y, point3D.z)
+        case .isometric, .isometricNE, .isometricNW, .isometricSE, .isometricSW:
+            let dir = effectiveViewDirection
+            let up = (abs(dir.z) > 0.99) ? SIMD3<Double>(0, 1, 0) : SIMD3<Double>(0, 0, 1)
+            let right = simd_normalize(simd_cross(up, dir))
+            let trueUp = simd_normalize(simd_cross(dir, right))
+            return SIMD2<Double>(simd_dot(point3D, right), simd_dot(point3D, trueUp))
+        }
+    }
 }
 
 public extension HLRStandardView {
