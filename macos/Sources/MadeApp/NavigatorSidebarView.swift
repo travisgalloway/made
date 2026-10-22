@@ -1911,50 +1911,88 @@ struct NavigatorSheetRow: View {
     let sheet: DrawingSheet
     @State private var isRenaming: Bool = false
     @State private var renameText: String = ""
+    @State private var isExpanded: Bool = true
 
     private var isActive: Bool {
         workspace.document.activeSheetId == sheet.id
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "doc.text")
-                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
-                .frame(width: 16)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                if !sheet.views.isEmpty {
+                    Button {
+                        isExpanded.toggle()
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 12, height: 12)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isExpanded ? "Collapse Sheet Views" : "Expand Sheet Views")
+                } else {
+                    Spacer().frame(width: 12)
+                }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(sheet.name)
-                    .fontWeight(isActive ? .semibold : .regular)
-                Text("\(sheet.size.displayName) · \(sheet.orientation.displayName)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Image(systemName: "doc.text")
+                    .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(sheet.name)
+                        .fontWeight(isActive ? .semibold : .regular)
+                    Text("\(sheet.size.displayName) · \(sheet.orientation.displayName)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .imageScale(.small)
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                workspace.setActiveSheetId(sheet.id)
+            }
+            .contextMenu {
+                Menu("Add Base View") {
+                    Button("Front") { _ = workspace.addBaseView(standardView: .front) }
+                    Button("Top") { _ = workspace.addBaseView(standardView: .top) }
+                    Button("Right") { _ = workspace.addBaseView(standardView: .right) }
+                    Button("Back") { _ = workspace.addBaseView(standardView: .back) }
+                    Button("Bottom") { _ = workspace.addBaseView(standardView: .bottom) }
+                    Button("Left") { _ = workspace.addBaseView(standardView: .left) }
+                    Divider()
+                    Button("Isometric") { _ = workspace.addBaseView(standardView: .isometric) }
+                }
+                Divider()
+                Button("Duplicate") {
+                    _ = workspace.duplicateSheet(id: sheet.id)
+                }
+                Button("Rename…") {
+                    renameText = sheet.name
+                    isRenaming = true
+                }
+                Divider()
+                Button("Delete Sheet", role: .destructive) {
+                    _ = workspace.removeSheet(id: sheet.id)
+                }
+                .disabled(workspace.document.sheets.count <= 1)
             }
 
-            Spacer()
-
-            if isActive {
-                Image(systemName: "checkmark.circle.fill")
-                    .imageScale(.small)
-                    .foregroundStyle(Color.accentColor)
+            if isExpanded && !sheet.views.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(sheet.views) { v in
+                        NavigatorDrawingViewRow(view: v, sheet: sheet)
+                    }
+                }
+                .padding(.leading, 24)
             }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            workspace.setActiveSheetId(sheet.id)
-        }
-        .contextMenu {
-            Button("Duplicate") {
-                _ = workspace.duplicateSheet(id: sheet.id)
-            }
-            Button("Rename…") {
-                renameText = sheet.name
-                isRenaming = true
-            }
-            Divider()
-            Button("Delete Sheet", role: .destructive) {
-                _ = workspace.removeSheet(id: sheet.id)
-            }
-            .disabled(workspace.document.sheets.count <= 1)
         }
         .sheet(isPresented: $isRenaming) {
             VStack(spacing: 16) {
@@ -1982,6 +2020,110 @@ struct NavigatorSheetRow: View {
             .padding()
         }
         .accessibilityIdentifier("navigator-sheet-row-\(sheet.name)")
+    }
+}
+
+/// Outline row for a drawing view inside a drawing sheet (BL-DRW-03, #210).
+struct NavigatorDrawingViewRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let view: DrawingView
+    let sheet: DrawingSheet
+    @State private var isRenaming: Bool = false
+    @State private var renameText: String = ""
+
+    private var isSelected: Bool {
+        workspace.selectedDrawingViewId == view.id
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "rectangle.inset.filled")
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(view.name)
+                    .font(.callout)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                Text("\(view.standardView.rawValue.capitalized) · [\(view.scale.displayString)]")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.caption2)
+                    .foregroundStyle(Color.accentColor)
+            }
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectDrawingView(view.id)
+            if workspace.document.activeSheetId != sheet.id {
+                workspace.setActiveSheetId(sheet.id)
+            }
+        }
+        .contextMenu {
+            Menu("Add Projected View") {
+                Button("Right") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .right)
+                }
+                Button("Left") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .left)
+                }
+                Button("Above") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .above)
+                }
+                Button("Below") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .below)
+                }
+                Divider()
+                Button("Isometric") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
+                }
+            }
+            Divider()
+            Button("Rename…") {
+                renameText = view.name
+                isRenaming = true
+            }
+            Divider()
+            Button("Delete View", role: .destructive) {
+                _ = workspace.removeDrawingView(id: view.id)
+            }
+        }
+        .sheet(isPresented: $isRenaming) {
+            VStack(spacing: 16) {
+                Text("Rename View")
+                    .font(.headline)
+                TextField("View Name", text: $renameText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 240)
+                HStack {
+                    Button("Cancel") { isRenaming = false }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Rename") {
+                        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            var updated = view
+                            updated.name = trimmed
+                            _ = workspace.updateDrawingView(updated)
+                        }
+                        isRenaming = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding()
+        }
+        .accessibilityIdentifier("navigator-drawing-view-\(view.id.uuidString)")
     }
 }
 

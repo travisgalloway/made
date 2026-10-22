@@ -843,6 +843,16 @@ public final class DocumentModel {
         }
         return sheets.first
     }
+    public private(set) var selectedDrawingViewId: UUID? = nil
+    public var selectedDrawingView: DrawingView? {
+        guard let selectedDrawingViewId else { return nil }
+        for sheet in sheets {
+            if let view = sheet.views.first(where: { $0.id == selectedDrawingViewId }) {
+                return view
+            }
+        }
+        return nil
+    }
     public private(set) var metadata: [String: String] = [:]
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
@@ -7883,6 +7893,9 @@ public final class DocumentModel {
             let fallbackIndex = min(index, sheets.count - 1)
             activeSheetId = sheets[fallbackIndex].id
         }
+        if let selected = selectedDrawingViewId, removedSheet.views.contains(where: { $0.id == selected }) {
+            selectedDrawingViewId = nil
+        }
 
         if registerUndo {
             let effectiveActionName = actionName ?? "Delete Sheet"
@@ -7964,6 +7977,8 @@ public final class DocumentModel {
             orientation: original.orientation,
             scale: original.scale,
             titleBlockTemplate: original.titleBlockTemplate,
+            projectionAngle: original.projectionAngle,
+            views: original.views,
             customProperties: original.customProperties
         )
         let insertionIndex = index + 1
@@ -8028,6 +8043,181 @@ public final class DocumentModel {
         }
         undoStateVersion += 1
         return true
+    }
+
+    // MARK: - Drawing View Mutators (BL-DRW-03, #210)
+
+    @discardableResult
+    public func addDrawingView(
+        _ view: DrawingView,
+        at index: Int? = nil,
+        to sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> DrawingView? {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { targetSheetId != nil ? $0.id == targetSheetId : true }) else {
+            return nil
+        }
+        let sheetUUID = sheets[sIdx].id
+        let insertionIndex = min(max(0, index ?? sheets[sIdx].views.count), sheets[sIdx].views.count)
+        sheets[sIdx].views.insert(view, at: insertionIndex)
+        selectedDrawingViewId = view.id
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Drawing View"
+            let viewId = view.id
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeDrawingView(id: viewId, from: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return view
+    }
+
+    @discardableResult
+    public func removeDrawingView(
+        id viewId: UUID,
+        from sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            (targetSheetId != nil ? sheet.id == targetSheetId : true) && sheet.views.contains(where: { $0.id == viewId })
+        }) else {
+            return false
+        }
+        guard let vIdx = sheets[sIdx].views.firstIndex(where: { $0.id == viewId }) else {
+            return false
+        }
+        let sheetUUID = sheets[sIdx].id
+        let removedView = sheets[sIdx].views.remove(at: vIdx)
+
+        // Detach projected views whose parent was this view
+        var unlinkedChildren: [(sheetIndex: Int, viewIndex: Int, view: DrawingView)] = []
+        for currentSheetIdx in sheets.indices {
+            for currentViewIdx in sheets[currentSheetIdx].views.indices {
+                if sheets[currentSheetIdx].views[currentViewIdx].parentViewId == viewId {
+                    unlinkedChildren.append((currentSheetIdx, currentViewIdx, sheets[currentSheetIdx].views[currentViewIdx]))
+                    sheets[currentSheetIdx].views[currentViewIdx].parentViewId = nil
+                    sheets[currentSheetIdx].views[currentViewIdx].kind = .base
+                }
+            }
+        }
+
+        let oldSelectedId = selectedDrawingViewId
+        if selectedDrawingViewId == viewId {
+            selectedDrawingViewId = nil
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Delete Drawing View"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    if let targetSheetIdx = target.sheets.firstIndex(where: { $0.id == sheetUUID }) {
+                        let insertIdx = min(vIdx, target.sheets[targetSheetIdx].views.count)
+                        target.sheets[targetSheetIdx].views.insert(removedView, at: insertIdx)
+                        for child in unlinkedChildren {
+                            if child.sheetIndex < target.sheets.count,
+                               let childViewIdx = target.sheets[child.sheetIndex].views.firstIndex(where: { $0.id == child.view.id }) {
+                                target.sheets[child.sheetIndex].views[childViewIdx] = child.view
+                            }
+                        }
+                        target.selectedDrawingViewId = oldSelectedId ?? removedView.id
+                        target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                            MainActor.assumeIsolated {
+                                _ = redoTarget.removeDrawingView(id: removedView.id, from: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                                redoTarget.undoManager?.setActionName(effectiveActionName)
+                            }
+                        }
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    @discardableResult
+    public func updateDrawingView(
+        _ view: DrawingView,
+        on sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            (targetSheetId != nil ? sheet.id == targetSheetId : true) && sheet.views.contains(where: { $0.id == view.id })
+        }) else {
+            return false
+        }
+        guard let vIdx = sheets[sIdx].views.firstIndex(where: { $0.id == view.id }) else {
+            return false
+        }
+        let sheetUUID = sheets[sIdx].id
+        let oldView = sheets[sIdx].views[vIdx]
+        guard oldView != view else { return true }
+        sheets[sIdx].views[vIdx] = view
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Drawing View"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateDrawingView(oldView, on: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    @discardableResult
+    public func repositionDrawingView(
+        id viewId: UUID,
+        positionMM: SIMD2<Double>,
+        on sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            (targetSheetId != nil ? sheet.id == targetSheetId : true) && sheet.views.contains(where: { $0.id == viewId })
+        }) else {
+            return false
+        }
+        guard let vIdx = sheets[sIdx].views.firstIndex(where: { $0.id == viewId }) else {
+            return false
+        }
+        let sheetUUID = sheets[sIdx].id
+        let oldPosition = sheets[sIdx].views[vIdx].positionMM
+        guard oldPosition != positionMM else { return true }
+        sheets[sIdx].views[vIdx].positionMM = positionMM
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Reposition Drawing View"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.repositionDrawingView(id: viewId, positionMM: oldPosition, on: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    public func setSelectedDrawingViewId(_ id: UUID?) {
+        selectedDrawingViewId = id
     }
 }
 

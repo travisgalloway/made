@@ -6,6 +6,7 @@ struct DrawingCanvasView: View {
     @Environment(WorkspaceModel.self) private var workspace
     @State private var sheetToRename: DrawingSheet?
     @State private var renameText: String = ""
+    @State private var dragTranslations: [UUID: CGSize] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,6 +75,11 @@ struct DrawingCanvasView: View {
                 )
                 .offset(x: marginPt, y: marginPt)
 
+            // Placed drawing views
+            ForEach(sheet.views) { view in
+                drawingViewItem(view: view, sheet: sheet, fitScale: fitScale)
+            }
+
             // Zone reference marks (1-4 on top & bottom, A-D on left & right)
             zoneMarks(
                 paperWidth: paperWidth,
@@ -96,6 +102,176 @@ struct DrawingCanvasView: View {
         }
         .frame(width: paperWidth, height: paperHeight)
         .position(x: containerSize.width / 2, y: containerSize.height / 2)
+        .contextMenu {
+            Menu("Add Base View") {
+                Button("Front") { _ = workspace.addBaseView(standardView: .front) }
+                Button("Top") { _ = workspace.addBaseView(standardView: .top) }
+                Button("Right") { _ = workspace.addBaseView(standardView: .right) }
+                Button("Back") { _ = workspace.addBaseView(standardView: .back) }
+                Button("Bottom") { _ = workspace.addBaseView(standardView: .bottom) }
+                Button("Left") { _ = workspace.addBaseView(standardView: .left) }
+                Divider()
+                Button("Isometric") { _ = workspace.addBaseView(standardView: .isometric) }
+            }
+        }
+    }
+
+    // MARK: - Drawing View Item Rendering
+
+    @ViewBuilder
+    private func drawingViewItem(view: DrawingView, sheet: DrawingSheet, fitScale: Double) -> some View {
+        let isSelected = workspace.selectedDrawingViewId == view.id
+        let effectiveScale = view.scale.scaleFactor * fitScale
+        let dragOffset = dragTranslations[view.id] ?? .zero
+        let viewCenterX = (view.positionMM.x * fitScale) + dragOffset.width
+        let viewCenterY = (view.positionMM.y * fitScale) + dragOffset.height
+
+        let hlr = view.cachedHLR
+        let visibleEdges = hlr?.visibleEdges ?? []
+        let hiddenEdges = (view.displayStyle == .hiddenLinesVisible) ? (hlr?.hiddenEdges ?? []) : []
+
+        let box = computeBoundingBox(for: hlr, viewCenterX: viewCenterX, viewCenterY: viewCenterY, effectiveScale: effectiveScale)
+        let boxWidth = box.width
+        let boxHeight = box.height
+        let boxCenterX = box.centerX
+        let boxCenterY = box.centerY
+
+        ZStack {
+            // Visible edges
+            if !visibleEdges.isEmpty {
+                Path { path in
+                    for edge in visibleEdges {
+                        guard let first = edge.points2D.first else { continue }
+                        path.move(to: CGPoint(
+                            x: viewCenterX + (first.x * effectiveScale),
+                            y: viewCenterY - (first.y * effectiveScale)
+                        ))
+                        for pt in edge.points2D.dropFirst() {
+                            path.addLine(to: CGPoint(
+                                x: viewCenterX + (pt.x * effectiveScale),
+                                y: viewCenterY - (pt.y * effectiveScale)
+                            ))
+                        }
+                    }
+                }
+                .stroke(Color.black, lineWidth: 1.0)
+            }
+
+            // Hidden edges
+            if !hiddenEdges.isEmpty {
+                Path { path in
+                    for edge in hiddenEdges {
+                        guard let first = edge.points2D.first else { continue }
+                        path.move(to: CGPoint(
+                            x: viewCenterX + (first.x * effectiveScale),
+                            y: viewCenterY - (first.y * effectiveScale)
+                        ))
+                        for pt in edge.points2D.dropFirst() {
+                            path.addLine(to: CGPoint(
+                                x: viewCenterX + (pt.x * effectiveScale),
+                                y: viewCenterY - (pt.y * effectiveScale)
+                            ))
+                        }
+                    }
+                }
+                .stroke(Color.secondary, style: StrokeStyle(lineWidth: 0.8, dash: [4, 3]))
+            }
+
+            // Empty placeholder when no edges exist
+            if visibleEdges.isEmpty && hiddenEdges.isEmpty {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    .frame(width: boxWidth, height: boxHeight)
+                    .position(x: boxCenterX, y: boxCenterY)
+                    .overlay(
+                        Text("Empty View")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.secondary)
+                            .position(x: boxCenterX, y: boxCenterY)
+                    )
+            }
+
+            // Selection highlight and badge
+            if isSelected {
+                Rectangle()
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.2, dash: [4, 2]))
+                    .frame(width: boxWidth, height: boxHeight)
+                    .position(x: boxCenterX, y: boxCenterY)
+
+                Text("\(view.name) [\(view.scale.displayString)]")
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.18))
+                    .foregroundStyle(Color.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .position(x: boxCenterX, y: max(10, boxCenterY - (boxHeight / 2) - 10))
+            }
+        }
+        .contentShape(Rectangle().path(in: CGRect(
+            x: boxCenterX - boxWidth / 2,
+            y: boxCenterY - boxHeight / 2,
+            width: boxWidth,
+            height: boxHeight
+        )))
+        .onTapGesture {
+            workspace.selectDrawingView(view.id)
+        }
+        .gesture(
+            DragGesture()
+                .onChanged { gesture in
+                    dragTranslations[view.id] = gesture.translation
+                    if workspace.selectedDrawingViewId != view.id {
+                        workspace.selectDrawingView(view.id)
+                    }
+                }
+                .onEnded { gesture in
+                    let translation = gesture.translation
+                    dragTranslations.removeValue(forKey: view.id)
+                    let deltaXMM = translation.width / fitScale
+                    let deltaYMM = translation.height / fitScale
+                    let targetX = max(10.0, min(sheet.dimensionsMM.width - 10.0, view.positionMM.x + deltaXMM))
+                    let targetY = max(10.0, min(sheet.dimensionsMM.height - 10.0, view.positionMM.y + deltaYMM))
+                    _ = workspace.repositionDrawingView(id: view.id, positionMM: SIMD2<Double>(targetX, targetY))
+                }
+        )
+        .contextMenu {
+            Menu("Add Projected View") {
+                Button("Right") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .right)
+                }
+                Button("Left") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .left)
+                }
+                Button("Above") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .above)
+                }
+                Button("Below") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .below)
+                }
+                Divider()
+                Button("Isometric") {
+                    _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
+                }
+            }
+            Divider()
+            Button("Delete View", role: .destructive) {
+                _ = workspace.removeDrawingView(id: view.id)
+            }
+        }
+        .accessibilityIdentifier("drawing-view-\(view.id.uuidString)")
+    }
+
+    private func computeBoundingBox(for hlr: HLRResult?, viewCenterX: Double, viewCenterY: Double, effectiveScale: Double) -> (width: Double, height: Double, centerX: Double, centerY: Double) {
+        if let b = hlr?.bounds2D, (b.width > 0 || b.height > 0) {
+            let width = max(24.0, b.width * effectiveScale + 16.0)
+            let height = max(24.0, b.height * effectiveScale + 16.0)
+            let centerX = viewCenterX + (b.center.x * effectiveScale)
+            let centerY = viewCenterY - (b.center.y * effectiveScale)
+            return (width, height, centerX, centerY)
+        } else {
+            return (60.0, 40.0, viewCenterX, viewCenterY)
+        }
     }
 
     // MARK: - Zone Reference Marks
