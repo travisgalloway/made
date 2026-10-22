@@ -1,7 +1,7 @@
 import Foundation
 
 /// Canonical manifest stored as `manifest.json` inside a `.made` package.
-public struct MadeManifest: Codable, Sendable, Equatable {
+public struct MadeManifest: Codable, Sendable, Equatable, PropertyContainer {
     public static let currentSchemaVersion: Int = 2
     public static let minimumSupportedSchemaVersion: Int = 1
 

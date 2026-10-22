@@ -43,7 +43,7 @@ extension BodyOperation {
 }
 
 /// A first-class solid or surface body within a part document (BL-FND-12).
-public struct Body: Identifiable, Sendable, Codable, Equatable {
+public struct Body: Identifiable, Sendable, Codable, Equatable, PropertyContainer {
     public let id: BodyId
     public var name: String
     public var type: BodyType
@@ -51,6 +51,7 @@ public struct Body: Identifiable, Sendable, Codable, Equatable {
     public var isLocked: Bool
     public var material: MaterialAttributes
     public var transform: Transform
+    public var metadata: [String: String]
 
     public var color: SIMD4<Float> {
         get { material.color }
@@ -64,7 +65,8 @@ public struct Body: Identifiable, Sendable, Codable, Equatable {
         isVisible: Bool = true,
         isLocked: Bool = false,
         material: MaterialAttributes = MaterialAttributes(),
-        transform: Transform = .identity
+        transform: Transform = .identity,
+        metadata: [String: String] = [:]
     ) {
         self.id = id
         self.name = name
@@ -73,6 +75,7 @@ public struct Body: Identifiable, Sendable, Codable, Equatable {
         self.isLocked = isLocked
         self.material = material
         self.transform = transform
+        self.metadata = metadata
     }
 
     public init(from object: SceneObject) {
@@ -83,6 +86,7 @@ public struct Body: Identifiable, Sendable, Codable, Equatable {
         self.isLocked = object.isLocked
         self.material = object.material
         self.transform = object.transform
+        self.metadata = object.metadata
     }
 
     public func toSceneObject(def: ObjectDef) -> SceneObject {
@@ -93,7 +97,46 @@ public struct Body: Identifiable, Sendable, Codable, Equatable {
             transform: transform,
             isVisible: isVisible,
             isLocked: isLocked,
-            material: material
+            material: material,
+            metadata: metadata
         )
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case type
+        case isVisible
+        case isLocked
+        case material
+        case transform
+        case metadata
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(BodyId.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.type = try container.decodeIfPresent(BodyType.self, forKey: .type) ?? .solid
+        self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        self.material = try container.decodeIfPresent(MaterialAttributes.self, forKey: .material) ?? MaterialAttributes()
+        self.transform = try container.decodeIfPresent(Transform.self, forKey: .transform) ?? .identity
+        self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(type, forKey: .type)
+        try container.encode(isVisible, forKey: .isVisible)
+        try container.encode(isLocked, forKey: .isLocked)
+        try container.encode(material, forKey: .material)
+        try container.encode(transform, forKey: .transform)
+        if !metadata.isEmpty {
+            try container.encode(metadata, forKey: .metadata)
+        }
+    }
 }
+
