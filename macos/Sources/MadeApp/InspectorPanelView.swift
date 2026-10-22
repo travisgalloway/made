@@ -30,6 +30,7 @@ enum InspectorUnitConversion {
 
 struct InspectorPanelView: View {
     @Environment(WorkspaceModel.self) private var workspace
+    @Environment(\.openWindow) private var openWindow
 
     nonisolated static let deleteConstraintAccessibilityLabel = InspectorSketchConstraintRow.deleteConstraintAccessibilityLabel
     nonisolated static let deleteConstraintHelpText = InspectorSketchConstraintRow.deleteConstraintHelpText
@@ -576,6 +577,15 @@ struct InspectorPanelView: View {
                 }
             ), supportsOpacity: false)
             .accessibilityIdentifier("inspector-body-color-picker")
+
+            Button {
+                openWindow(id: MaterialLibraryView.windowID)
+            } label: {
+                Label("Browse Material Library…", systemImage: "books.vertical")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("browse-material-library-button")
         } header: {
             sectionHeader("Material")
         }
@@ -2125,6 +2135,7 @@ struct MetadataPropertiesView: View {
 
 struct DocumentSettingsInspectorView: View {
     @Environment(WorkspaceModel.self) private var workspace
+    @Environment(\.openWindow) private var openWindow
     @State private var parameterError: String? = nil
     @State private var showingErrorAlert = false
 
@@ -2365,6 +2376,15 @@ struct DocumentSettingsInspectorView: View {
                     workspace.setDocumentDefaultMaterial(MaterialAttributes(color: simdColor))
                 }
             ), supportsOpacity: false)
+
+            Button {
+                openWindow(id: MaterialLibraryView.windowID)
+            } label: {
+                Label("Browse Material Library…", systemImage: "books.vertical")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("browse-document-material-library-button")
 
             Button("Reset Material to Default") {
                 workspace.setDocumentDefaultMaterial(MaterialAttributes())

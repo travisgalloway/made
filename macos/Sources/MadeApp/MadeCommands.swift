@@ -497,6 +497,8 @@ struct ToolsMenuCommands: Commands {
                 workspace.startMeasureCommand()
             }
 
+            MaterialLibraryMenuButton()
+
             Divider()
 
             Button(workspace.mcpServerToggleTitle) {
@@ -619,6 +621,16 @@ struct ToolsMenuCommands: Commands {
                 }
             }
             .disabled(workspace.selectedSketchFeature == nil)
+        }
+    }
+}
+
+private struct MaterialLibraryMenuButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Material Library…") {
+            openWindow(id: MaterialLibraryView.windowID)
         }
     }
 }
