@@ -156,6 +156,13 @@ struct DrawingCanvasView: View {
             Button("Add BOM Table") {
                 _ = workspace.addBOMTable()
             }
+            Divider()
+            Button("Export Sheet as PDF…") {
+                workspace.promptExportDrawingPDF(sheetId: sheet.id)
+            }
+            Button("Export Sheet as DXF…") {
+                workspace.promptExportDrawingDXF(sheetId: sheet.id)
+            }
         }
     }
 
@@ -731,6 +738,13 @@ struct DrawingCanvasView: View {
             Button("Rename…") {
                 renameText = sheet.name
                 sheetToRename = sheet
+            }
+            Divider()
+            Button("Export Sheet as PDF…") {
+                workspace.promptExportDrawingPDF(sheetId: sheet.id)
+            }
+            Button("Export Sheet as DXF…") {
+                workspace.promptExportDrawingDXF(sheetId: sheet.id)
             }
             Divider()
             Button("Delete Sheet", role: .destructive) {
