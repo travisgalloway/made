@@ -4202,6 +4202,259 @@ final class WorkspaceModel {
         return setSubassemblyBehavior(id: id, behavior: nextBehavior)
     }
 
+    // MARK: - Component Patterns & Mirrors (BL-ASM-08, #169)
+
+    @discardableResult
+    public func patternComponentLinear(
+        id: UUID,
+        count: Int = 3,
+        spacing: Float = 20.0,
+        direction: SIMD3<Float> = SIMD3<Float>(1, 0, 0),
+        isSymmetric: Bool = false,
+        skippedIndices: Set<Int> = []
+    ) -> ComponentPattern? {
+        let params = AssemblyPatternParams(
+            sourceInstanceId: id,
+            patternType: .linear,
+            count: count,
+            linearSpacing: spacing,
+            linearDirection: direction,
+            isSymmetric: isSymmetric,
+            skippedIndices: skippedIndices
+        )
+        let result = document.patternComponentInstance(params: params)
+        switch result {
+        case .success(let pattern):
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Created linear pattern '\(pattern.name)' with \(pattern.replicaInstanceIds.count) replicas")
+            return pattern
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to create linear pattern: \(err)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    public func patternSelectedComponentLinear(
+        count: Int = 3,
+        spacing: Float = 20.0,
+        direction: SIMD3<Float> = SIMD3<Float>(1, 0, 0),
+        isSymmetric: Bool = false,
+        skippedIndices: Set<Int> = []
+    ) -> ComponentPattern? {
+        guard let selected = selectedComponentInstance else {
+            log(.warning, "Assembly", "No component selected for linear pattern")
+            return nil
+        }
+        return patternComponentLinear(
+            id: selected.id,
+            count: count,
+            spacing: spacing,
+            direction: direction,
+            isSymmetric: isSymmetric,
+            skippedIndices: skippedIndices
+        )
+    }
+
+    @discardableResult
+    public func patternComponentCircular(
+        id: UUID,
+        count: Int = 4,
+        totalAngle: Float = 360.0,
+        isFullCircle: Bool = true,
+        axisOrigin: SIMD3<Float> = .zero,
+        axisDirection: SIMD3<Float> = SIMD3<Float>(0, 0, 1),
+        skippedIndices: Set<Int> = []
+    ) -> ComponentPattern? {
+        let params = AssemblyPatternParams(
+            sourceInstanceId: id,
+            patternType: .circular,
+            count: count,
+            axisOrigin: axisOrigin,
+            axisDirection: axisDirection,
+            totalAngle: totalAngle,
+            isFullCircle: isFullCircle,
+            skippedIndices: skippedIndices
+        )
+        let result = document.patternComponentInstance(params: params)
+        switch result {
+        case .success(let pattern):
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Created circular pattern '\(pattern.name)' with \(pattern.replicaInstanceIds.count) replicas")
+            return pattern
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to create circular pattern: \(err)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    public func patternSelectedComponentCircular(
+        count: Int = 4,
+        totalAngle: Float = 360.0,
+        isFullCircle: Bool = true,
+        axisOrigin: SIMD3<Float> = .zero,
+        axisDirection: SIMD3<Float> = SIMD3<Float>(0, 0, 1),
+        skippedIndices: Set<Int> = []
+    ) -> ComponentPattern? {
+        guard let selected = selectedComponentInstance else {
+            log(.warning, "Assembly", "No component selected for circular pattern")
+            return nil
+        }
+        return patternComponentCircular(
+            id: selected.id,
+            count: count,
+            totalAngle: totalAngle,
+            isFullCircle: isFullCircle,
+            axisOrigin: axisOrigin,
+            axisDirection: axisDirection,
+            skippedIndices: skippedIndices
+        )
+    }
+
+    @discardableResult
+    public func patternComponentByFeaturePattern(
+        id: UUID,
+        featurePatternId: UUID? = nil
+    ) -> ComponentPattern? {
+        let driverId: UUID
+        if let featurePatternId {
+            driverId = featurePatternId
+        } else if let firstPatternFeat = document.features.first(where: {
+            if case .pattern = $0.operation { return true }
+            return false
+        }) {
+            driverId = firstPatternFeat.id
+        } else {
+            log(.warning, "Assembly", "No driver pattern feature found in document")
+            return nil
+        }
+
+        let result = document.patternComponentInstanceByFeaturePattern(
+            instanceId: id,
+            featurePatternId: driverId
+        )
+        switch result {
+        case .success(let pattern):
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Created feature-driven pattern '\(pattern.name)' with \(pattern.replicaInstanceIds.count) replicas")
+            return pattern
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to create feature-driven pattern: \(err)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    public func patternSelectedComponentByFeaturePattern(
+        featurePatternId: UUID? = nil
+    ) -> ComponentPattern? {
+        guard let selected = selectedComponentInstance else {
+            log(.warning, "Assembly", "No component selected for feature-driven pattern")
+            return nil
+        }
+        let driverId: UUID
+        if let featurePatternId {
+            driverId = featurePatternId
+        } else if let firstPatternFeat = document.features.first(where: {
+            if case .pattern = $0.operation { return true }
+            return false
+        }) {
+            driverId = firstPatternFeat.id
+        } else {
+            log(.warning, "Assembly", "No driver pattern feature found in document")
+            return nil
+        }
+        return patternComponentByFeaturePattern(id: selected.id, featurePatternId: driverId)
+    }
+
+    @discardableResult
+    public func mirrorComponent(
+        id: UUID,
+        planeNormal: SIMD3<Float> = SIMD3<Float>(1, 0, 0),
+        planeOrigin: SIMD3<Float> = .zero,
+        keepOriginal: Bool = true,
+        mode: ComponentMirrorMode = .symmetricReorient
+    ) -> ComponentMirror? {
+        let params = AssemblyMirrorParams(
+            sourceInstanceId: id,
+            planeNormal: planeNormal,
+            planeOrigin: planeOrigin,
+            keepOriginal: keepOriginal,
+            mirrorMode: mode
+        )
+        let result = document.mirrorComponentInstance(params: params)
+        switch result {
+        case .success(let mirror):
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Mirrored component '\(id)' -> '\(mirror.name)'")
+            return mirror
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to mirror component: \(err)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    public func mirrorSelectedComponent(
+        planeNormal: SIMD3<Float> = SIMD3<Float>(1, 0, 0),
+        planeOrigin: SIMD3<Float> = .zero,
+        keepOriginal: Bool = true,
+        mode: ComponentMirrorMode = .symmetricReorient
+    ) -> ComponentMirror? {
+        guard let selected = selectedComponentInstance else {
+            log(.warning, "Assembly", "No component selected to mirror")
+            return nil
+        }
+        return mirrorComponent(
+            id: selected.id,
+            planeNormal: planeNormal,
+            planeOrigin: planeOrigin,
+            keepOriginal: keepOriginal,
+            mode: mode
+        )
+    }
+
+    @discardableResult
+    public func removeComponentPattern(id: UUID) -> Bool {
+        let result = document.removeComponentPattern(id: id)
+        switch result {
+        case .success:
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Removed component pattern \(id)")
+            return true
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to remove component pattern: \(err)")
+            return false
+        }
+    }
+
+    @discardableResult
+    public func removeComponentMirror(id: UUID) -> Bool {
+        let result = document.removeComponentMirror(id: id)
+        switch result {
+        case .success:
+            clearAssemblySolverDiagnostics()
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Removed component mirror \(id)")
+            return true
+        case .failure(let err):
+            log(.warning, "Assembly", "Failed to remove component mirror: \(err)")
+            return false
+        }
+    }
+
     // MARK: - Component Insertion (BL-ASM-02)
 
     public func beginInsertComponent(name: String, reference: ComponentReference, material: MaterialAttributes? = nil) {

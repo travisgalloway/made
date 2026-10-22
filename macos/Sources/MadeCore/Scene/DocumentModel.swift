@@ -823,6 +823,8 @@ public final class DocumentModel {
     public private(set) var documentType: DocumentType = .part
     public private(set) var componentInstances: [ComponentInstance] = []
     public private(set) var assemblyConstraints: [AssemblyConstraint] = []
+    public private(set) var componentPatterns: [ComponentPattern] = []
+    public private(set) var componentMirrors: [ComponentMirror] = []
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
@@ -1236,12 +1238,14 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], settings: DocumentSettings = DocumentSettings()) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], settings: DocumentSettings = DocumentSettings()) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
+        self.componentPatterns = componentPatterns
+        self.componentMirrors = componentMirrors
         self.settings = settings
         self._selection = []
         self._selectedId = nil
@@ -1250,11 +1254,13 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = []) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = []) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
+        self.componentPatterns = componentPatterns
+        self.componentMirrors = componentMirrors
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
             self.rollbackIndex = (clamped >= features.count) ? nil : clamped
@@ -1306,11 +1312,13 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = []) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
+        self.componentPatterns = componentPatterns
+        self.componentMirrors = componentMirrors
         self.parameters = parameters
         rebuildParameterGraph()
         features = newFeatures
@@ -1340,11 +1348,13 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = []) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
+        self.componentPatterns = componentPatterns
+        self.componentMirrors = componentMirrors
         self.parameters = parameters
         rebuildParameterGraph()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
@@ -6879,6 +6889,364 @@ public final class DocumentModel {
             }
         }
         return result
+    }
+
+    // MARK: - Assembly Component Patterns & Mirrors (BL-ASM-08, #169)
+
+    public func findComponentInstanceLocation(id: UUID) -> (instance: ComponentInstance, parentId: UUID?, isTopLevel: Bool, topLevelIndex: Int?, childIndex: Int?)? {
+        if let idx = componentInstances.firstIndex(where: { $0.id == id }) {
+            return (componentInstances[idx], nil, true, idx, nil)
+        }
+        for subIdx in 0..<componentInstances.count {
+            if let childIdx = componentInstances[subIdx].childInstances.firstIndex(where: { $0.id == id }) {
+                return (componentInstances[subIdx].childInstances[childIdx], componentInstances[subIdx].id, false, subIdx, childIdx)
+            }
+        }
+        return nil
+    }
+
+    private func insertComponentInstanceReplica(_ replica: ComponentInstance, parentId: UUID?) {
+        if let parentId, let subIdx = componentInstances.firstIndex(where: { $0.id == parentId }) {
+            componentInstances[subIdx].childInstances.append(replica)
+        } else {
+            componentInstances.append(replica)
+        }
+    }
+
+    private func removeComponentInstanceReplica(id: UUID) {
+        if let idx = componentInstances.firstIndex(where: { $0.id == id }) {
+            componentInstances.remove(at: idx)
+            return
+        }
+        for subIdx in 0..<componentInstances.count {
+            if let childIdx = componentInstances[subIdx].childInstances.firstIndex(where: { $0.id == id }) {
+                componentInstances[subIdx].childInstances.remove(at: childIdx)
+                return
+            }
+        }
+    }
+
+    @discardableResult
+    public func patternComponentInstance(
+        params: AssemblyPatternParams,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<ComponentPattern, DocumentMutationError> {
+        guard params.count > 0 else {
+            return .failure(.invalidOperation("Pattern count must be greater than zero"))
+        }
+        guard let (sourceInstance, parentId, _, _, _) = findComponentInstanceLocation(id: params.sourceInstanceId) else {
+            return .failure(.objectNotFound(SolidId("component-\(params.sourceInstanceId.uuidString)")))
+        }
+
+        let isLinear: Bool
+        switch params.patternType {
+        case .linear:
+            guard simd_length_squared(params.linearDirection) > 1e-12 else {
+                return .failure(.invalidOperation("Linear pattern direction vector cannot be zero-length"))
+            }
+            isLinear = true
+        case .circular:
+            guard simd_length_squared(params.axisDirection) > 1e-12 else {
+                return .failure(.invalidOperation("Circular pattern axis direction vector cannot be zero-length"))
+            }
+            isLinear = false
+        case .featureDriven:
+            if let fId = params.featurePatternId,
+               let feat = features.first(where: { $0.id == fId }),
+               case .pattern(let pParams) = feat.operation {
+                isLinear = (pParams.patternType == .linear)
+            } else {
+                isLinear = simd_length_squared(params.linearDirection) > 1e-6
+            }
+        }
+
+        let patternId = UUID()
+        var replicaIds: [UUID] = []
+
+        if params.count > 1 {
+            for i in 1..<params.count {
+                if params.skippedIndices.contains(i) {
+                    continue
+                }
+
+                let stepTransform: Transform
+                if isLinear {
+                    let normDir = simd_normalize(params.linearDirection)
+                    let spacing = params.linearSpacing
+                    let stepInt: Int = params.isSymmetric ? ((i % 2 == 1) ? (i + 1) / 2 : -(i + 1) / 2) : i
+                    stepTransform = Transform.linearStepTransform(direction: normDir, spacing: spacing, index: stepInt)
+                } else {
+                    let angularStep: Float
+                    if params.isFullCircle || params.totalAngle >= 360.0 {
+                        angularStep = 360.0 / Float(params.count)
+                    } else {
+                        angularStep = params.totalAngle / Float(max(1, params.count - 1))
+                    }
+                    let rad = Float(Double(i) * Double(angularStep) * .pi / 180.0)
+                    stepTransform = Transform.circularStepTransform(
+                        axisOrigin: params.axisOrigin,
+                        axisDirection: params.axisDirection,
+                        angleRadians: rad
+                    )
+                }
+
+                let replicaTransform = stepTransform * sourceInstance.transform
+                let replicaId = UUID()
+                let replicaName = "\(sourceInstance.name) (Pattern \(i + 1))"
+                let replica = ComponentInstance(
+                    id: replicaId,
+                    name: replicaName,
+                    reference: sourceInstance.reference,
+                    transform: replicaTransform,
+                    isVisible: sourceInstance.isVisible,
+                    isLocked: false,
+                    isGrounded: false,
+                    material: sourceInstance.material,
+                    subassemblyBehavior: sourceInstance.subassemblyBehavior,
+                    childInstances: sourceInstance.childInstances,
+                    childConstraints: sourceInstance.childConstraints,
+                    patternId: patternId,
+                    mirrorId: nil
+                )
+
+                insertComponentInstanceReplica(replica, parentId: parentId)
+                replicaIds.append(replicaId)
+            }
+        }
+
+        let pattern = ComponentPattern(
+            id: patternId,
+            name: "Pattern \(componentPatterns.count + 1)",
+            sourceInstanceId: sourceInstance.id,
+            replicaInstanceIds: replicaIds,
+            params: params
+        )
+        componentPatterns.append(pattern)
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Pattern Component"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeComponentPattern(id: pattern.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(pattern)
+    }
+
+    @discardableResult
+    public func patternComponentInstanceByFeaturePattern(
+        instanceId: UUID,
+        featurePatternId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<ComponentPattern, DocumentMutationError> {
+        guard let feat = features.first(where: { $0.id == featurePatternId }) else {
+            return .failure(.objectNotFound(ObjectId(featurePatternId.uuidString)))
+        }
+        guard case .pattern(let pParams) = feat.operation else {
+            return .failure(.invalidOperation("Feature '\(feat.name)' is not a pattern feature"))
+        }
+
+        let params = AssemblyPatternParams(
+            sourceInstanceId: instanceId,
+            patternType: .featureDriven,
+            count: pParams.count,
+            linearSpacing: Float(pParams.linearSpacing),
+            linearDirection: SIMD3<Float>(pParams.linearDirection),
+            isSymmetric: pParams.isSymmetric,
+            axisOrigin: SIMD3<Float>(pParams.axisOrigin),
+            axisDirection: SIMD3<Float>(pParams.axisDirection),
+            totalAngle: Float(pParams.totalAngle),
+            isFullCircle: pParams.isFullCircle,
+            featurePatternId: featurePatternId,
+            skippedIndices: pParams.skippedIndices
+        )
+
+        return patternComponentInstance(
+            params: params,
+            actionName: actionName ?? "Pattern Component by Feature",
+            registerUndo: registerUndo
+        )
+    }
+
+    @discardableResult
+    public func removeComponentPattern(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let pIdx = componentPatterns.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(SolidId("pattern-\(id.uuidString)")))
+        }
+        let pattern = componentPatterns[pIdx]
+        var savedReplicas: [(instance: ComponentInstance, parentId: UUID?)] = []
+        for replicaId in pattern.replicaInstanceIds {
+            if let loc = findComponentInstanceLocation(id: replicaId) {
+                savedReplicas.append((loc.instance, loc.parentId))
+                removeComponentInstanceReplica(id: replicaId)
+            }
+        }
+        componentPatterns.remove(at: pIdx)
+        pruneInvalidSelection()
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Component Pattern"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    for saved in savedReplicas {
+                        target.insertComponentInstanceReplica(saved.instance, parentId: saved.parentId)
+                    }
+                    target.componentPatterns.append(pattern)
+                    target.syncObjectsFromFeatures()
+                    target.undoStateVersion += 1
+                    target.undoManager?.setActionName(effectiveActionName)
+                    target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                        MainActor.assumeIsolated {
+                            _ = redoTarget.removeComponentPattern(id: pattern.id, actionName: effectiveActionName, registerUndo: true)
+                        }
+                    }
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func mirrorComponentInstance(
+        params: AssemblyMirrorParams,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<ComponentMirror, DocumentMutationError> {
+        guard let (sourceInstance, parentId, _, _, _) = findComponentInstanceLocation(id: params.sourceInstanceId) else {
+            return .failure(.objectNotFound(SolidId("component-\(params.sourceInstanceId.uuidString)")))
+        }
+        guard simd_length_squared(params.planeNormal) > 1e-12 else {
+            return .failure(.invalidOperation("Mirror plane normal vector cannot be zero-length"))
+        }
+
+        let mirroredTransform = sourceInstance.transform.mirrored(
+            planeOrigin: params.planeOrigin,
+            planeNormal: params.planeNormal,
+            mode: params.mirrorMode
+        )
+
+        let mirrorId = UUID()
+        let replicaId = UUID()
+        let replicaName = "\(sourceInstance.name) (Mirrored)"
+        let replica = ComponentInstance(
+            id: replicaId,
+            name: replicaName,
+            reference: sourceInstance.reference,
+            transform: mirroredTransform,
+            isVisible: true,
+            isLocked: false,
+            isGrounded: false,
+            material: sourceInstance.material,
+            subassemblyBehavior: sourceInstance.subassemblyBehavior,
+            childInstances: sourceInstance.childInstances,
+            childConstraints: sourceInstance.childConstraints,
+            patternId: nil,
+            mirrorId: mirrorId
+        )
+
+        insertComponentInstanceReplica(replica, parentId: parentId)
+
+        if !params.keepOriginal {
+            var updatedSource = sourceInstance
+            updatedSource.isVisible = false
+            _ = updateComponentInstance(updatedSource, registerUndo: false)
+        }
+
+        let mirror = ComponentMirror(
+            id: mirrorId,
+            name: "Mirror \(componentMirrors.count + 1)",
+            sourceInstanceId: sourceInstance.id,
+            replicaInstanceIds: [replicaId],
+            params: params
+        )
+        componentMirrors.append(mirror)
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Mirror Component"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeComponentMirror(id: mirror.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(mirror)
+    }
+
+    @discardableResult
+    public func removeComponentMirror(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let mIdx = componentMirrors.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(SolidId("mirror-\(id.uuidString)")))
+        }
+        let mirror = componentMirrors[mIdx]
+        var savedReplicas: [(instance: ComponentInstance, parentId: UUID?)] = []
+        for replicaId in mirror.replicaInstanceIds {
+            if let loc = findComponentInstanceLocation(id: replicaId) {
+                savedReplicas.append((loc.instance, loc.parentId))
+                removeComponentInstanceReplica(id: replicaId)
+            }
+        }
+        if !mirror.params.keepOriginal {
+            if let srcLoc = findComponentInstanceLocation(id: mirror.sourceInstanceId) {
+                var copy = srcLoc.instance
+                copy.isVisible = true
+                _ = updateComponentInstance(copy, registerUndo: false)
+            }
+        }
+        componentMirrors.remove(at: mIdx)
+        pruneInvalidSelection()
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Component Mirror"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    for saved in savedReplicas {
+                        target.insertComponentInstanceReplica(saved.instance, parentId: saved.parentId)
+                    }
+                    if !mirror.params.keepOriginal {
+                        if let sLoc = target.findComponentInstanceLocation(id: mirror.sourceInstanceId) {
+                            var c = sLoc.instance
+                            c.isVisible = false
+                            _ = target.updateComponentInstance(c, registerUndo: false)
+                        }
+                    }
+                    target.componentMirrors.append(mirror)
+                    target.syncObjectsFromFeatures()
+                    target.undoStateVersion += 1
+                    target.undoManager?.setActionName(effectiveActionName)
+                    target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                        MainActor.assumeIsolated {
+                            _ = redoTarget.removeComponentMirror(id: mirror.id, actionName: effectiveActionName, registerUndo: true)
+                        }
+                    }
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
     }
 }
 

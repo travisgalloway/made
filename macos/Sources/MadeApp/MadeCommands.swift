@@ -694,6 +694,26 @@ struct AssemblyMenuCommands: Commands {
                 }
             }
             .disabled(selected?.isSubassembly != true)
+
+            Divider()
+
+            Menu("Pattern Component") {
+                Button("Linear Pattern…") {
+                    _ = workspace.patternSelectedComponentLinear()
+                }
+                Button("Circular Pattern…") {
+                    _ = workspace.patternSelectedComponentCircular()
+                }
+                Button("Pattern by Part Feature…") {
+                    _ = workspace.patternSelectedComponentByFeaturePattern()
+                }
+            }
+            .disabled(selected == nil)
+
+            Button("Mirror Component…") {
+                _ = workspace.mirrorSelectedComponent()
+            }
+            .disabled(selected == nil)
         }
     }
 }

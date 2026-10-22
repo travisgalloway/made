@@ -711,5 +711,445 @@ import simd
         #expect(doc.findComponentInstance(solidId: leaf.solidId)?.name == "LeafPart")
         #expect(doc.allComponentInstances.count == 2)
     }
+
+    // MARK: - Component Patterns & Mirrors Tests (BL-ASM-08, #169)
+
+    @Test func testLinearComponentPatternCreationAndTransforms() {
+        let doc = DocumentModel(documentType: .assembly)
+        let source = ComponentInstance(
+            name: "Bolt",
+            reference: .internalPart(name: "BoltPart"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0)),
+            isGrounded: true
+        )
+        _ = doc.addComponentInstance(source)
+        #expect(doc.componentInstances.count == 1)
+
+        let params = AssemblyPatternParams(
+            sourceInstanceId: source.id,
+            patternType: .linear,
+            count: 4,
+            linearSpacing: 25.0,
+            linearDirection: SIMD3<Float>(1, 0, 0)
+        )
+        let result = doc.patternComponentInstance(params: params)
+        guard case .success(let pattern) = result else {
+            Issue.record("Expected successful linear pattern creation")
+            return
+        }
+
+        #expect(doc.componentPatterns.count == 1)
+        #expect(doc.componentPatterns.first?.id == pattern.id)
+        #expect(pattern.replicaInstanceIds.count == 3)
+        #expect(doc.componentInstances.count == 4)
+
+        // Verify replicas are ungrounded by default and correctly spaced
+        let replicas = doc.componentInstances.filter { $0.patternId == pattern.id }
+        #expect(replicas.count == 3)
+        for (idx, replica) in replicas.enumerated() {
+            #expect(!replica.isGrounded)
+            #expect(replica.name == "Bolt (Pattern \(idx + 2))")
+            let expectedX = Float(10 + (idx + 1) * 25)
+            #expect(abs(replica.transform.position.x - expectedX) < 1e-4)
+            #expect(abs(replica.transform.position.y) < 1e-4)
+            #expect(abs(replica.transform.position.z) < 1e-4)
+        }
+    }
+
+    @Test func testLinearComponentPatternSymmetricAndSkippedIndices() {
+        let doc = DocumentModel(documentType: .assembly)
+        let source = ComponentInstance(
+            name: "Bracket",
+            reference: .internalPart(name: "BracketPart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        _ = doc.addComponentInstance(source)
+
+        // Symmetric pattern with count = 3: index 1 is +1 step (+20), index 2 is -1 step (-20)
+        // Skip index 2 -> only index 1 should be generated
+        let params = AssemblyPatternParams(
+            sourceInstanceId: source.id,
+            patternType: .linear,
+            count: 3,
+            linearSpacing: 20.0,
+            linearDirection: SIMD3<Float>(0, 1, 0),
+            isSymmetric: true,
+            skippedIndices: [2]
+        )
+        let result = doc.patternComponentInstance(params: params)
+        guard case .success(let pattern) = result else {
+            Issue.record("Expected successful pattern creation with skipped indices")
+            return
+        }
+
+        #expect(pattern.replicaInstanceIds.count == 1)
+        #expect(doc.componentInstances.count == 2)
+        let replica = doc.componentInstances.first(where: { $0.id == pattern.replicaInstanceIds.first })
+        #expect(replica != nil)
+        #expect(replica?.name == "Bracket (Pattern 2)")
+        #expect(abs((replica?.transform.position.y ?? 0) - 20.0) < 1e-4)
+    }
+
+    @Test func testLinearComponentPatternCountOneNoOp() {
+        let doc = DocumentModel(documentType: .assembly)
+        let source = ComponentInstance(name: "SolePart", reference: .internalPart(name: "Sole"))
+        _ = doc.addComponentInstance(source)
+
+        let params = AssemblyPatternParams(
+            sourceInstanceId: source.id,
+            patternType: .linear,
+            count: 1
+        )
+        let result = doc.patternComponentInstance(params: params)
+        guard case .success(let pattern) = result else {
+            Issue.record("Expected success for count = 1 no-op")
+            return
+        }
+
+        #expect(pattern.replicaInstanceIds.isEmpty)
+        #expect(doc.componentInstances.count == 1)
+        #expect(doc.componentPatterns.count == 1)
+    }
+
+    @Test func testCircularComponentPatternFullCircleAndArc() {
+        let doc = DocumentModel(documentType: .assembly)
+        let source = ComponentInstance(
+            name: "Spoke",
+            reference: .internalPart(name: "SpokePart"),
+            transform: Transform(position: SIMD3<Float>(20, 0, 0))
+        )
+        _ = doc.addComponentInstance(source)
+
+        // 4 instances around Z axis centered at (0, 0, 0)
+        let params = AssemblyPatternParams(
+            sourceInstanceId: source.id,
+            patternType: .circular,
+            count: 4,
+            axisOrigin: SIMD3<Float>(0, 0, 0),
+            axisDirection: SIMD3<Float>(0, 0, 1),
+            totalAngle: 360.0,
+            isFullCircle: true
+        )
+        let result = doc.patternComponentInstance(params: params)
+        guard case .success(let pattern) = result else {
+            Issue.record("Expected circular pattern creation")
+            return
+        }
+
+        #expect(pattern.replicaInstanceIds.count == 3)
+        #expect(doc.componentInstances.count == 4)
+
+        // 90 degrees around Z -> (0, 20, 0)
+        let rep1 = doc.componentInstances.first(where: { $0.name == "Spoke (Pattern 2)" })
+        #expect(rep1 != nil)
+        #expect(abs(rep1!.transform.position.x - 0.0) < 1e-3)
+        #expect(abs(rep1!.transform.position.y - 20.0) < 1e-3)
+
+        // 180 degrees around Z -> (-20, 0, 0)
+        let rep2 = doc.componentInstances.first(where: { $0.name == "Spoke (Pattern 3)" })
+        #expect(rep2 != nil)
+        #expect(abs(rep2!.transform.position.x - (-20.0)) < 1e-3)
+        #expect(abs(rep2!.transform.position.y - 0.0) < 1e-3)
+
+        // 270 degrees around Z -> (0, -20, 0)
+        let rep3 = doc.componentInstances.first(where: { $0.name == "Spoke (Pattern 4)" })
+        #expect(rep3 != nil)
+        #expect(abs(rep3!.transform.position.x - 0.0) < 1e-3)
+        #expect(abs(rep3!.transform.position.y - (-20.0)) < 1e-3)
+    }
+
+    @Test func testFeatureDrivenComponentPattern() {
+        let driverPatternFeat = Feature(
+            name: "Hole Pattern",
+            operation: .pattern(PatternParams(
+                targetSolidId: SolidId("hole-solid"),
+                patternType: .linear,
+                count: 3,
+                linearSpacing: 15.0,
+                linearDirection: SIMD3<Double>(0, 0, 1)
+            )),
+            outputSolidId: ObjectId("hole-solid")
+        )
+        let source = ComponentInstance(
+            name: "Pin",
+            reference: .internalPart(name: "PinPart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 5))
+        )
+        let doc = DocumentModel(
+            features: [driverPatternFeat],
+            documentType: .assembly,
+            componentInstances: [source]
+        )
+
+        let result = doc.patternComponentInstanceByFeaturePattern(
+            instanceId: source.id,
+            featurePatternId: driverPatternFeat.id
+        )
+        guard case .success(let pattern) = result else {
+            Issue.record("Expected successful feature-driven pattern creation")
+            return
+        }
+
+        #expect(pattern.params.patternType == .featureDriven)
+        #expect(pattern.params.featurePatternId == driverPatternFeat.id)
+        #expect(pattern.replicaInstanceIds.count == 2)
+        #expect(doc.componentInstances.count == 3)
+
+        let rep1 = doc.componentInstances.first(where: { $0.name == "Pin (Pattern 2)" })
+        #expect(rep1 != nil)
+        #expect(abs(rep1!.transform.position.z - 20.0) < 1e-4) // 5 + 15
+
+        let rep2 = doc.componentInstances.first(where: { $0.name == "Pin (Pattern 3)" })
+        #expect(rep2 != nil)
+        #expect(abs(rep2!.transform.position.z - 35.0) < 1e-4) // 5 + 30
+    }
+
+    @Test func testComponentMirrorSymmetricReorient() {
+        let doc = DocumentModel(documentType: .assembly)
+        let source = ComponentInstance(
+            name: "Wing Left",
+            reference: .internalPart(name: "WingPart"),
+            transform: Transform(position: SIMD3<Float>(15, 25, 35)),
+            isGrounded: true
+        )
+        _ = doc.addComponentInstance(source)
+
+        // Mirror across YZ plane (normal X = 1, origin = (0, 0, 0))
+        let params = AssemblyMirrorParams(
+            sourceInstanceId: source.id,
+            planeNormal: SIMD3<Float>(1, 0, 0),
+            planeOrigin: .zero,
+            keepOriginal: true,
+            mirrorMode: .symmetricReorient
+        )
+        let result = doc.mirrorComponentInstance(params: params)
+        guard case .success(let mirror) = result else {
+            Issue.record("Expected successful mirror creation")
+            return
+        }
+
+        #expect(doc.componentMirrors.count == 1)
+        #expect(mirror.replicaInstanceIds.count == 1)
+        #expect(doc.componentInstances.count == 2)
+
+        let replica = doc.componentInstances.first(where: { $0.id == mirror.replicaInstanceIds.first })
+        #expect(replica != nil)
+        #expect(replica?.name == "Wing Left (Mirrored)")
+        #expect(replica?.mirrorId == mirror.id)
+        #expect(!replica!.isGrounded)
+
+        // Reflected position: X becomes -15, Y and Z unchanged
+        #expect(abs(replica!.transform.position.x - (-15.0)) < 1e-4)
+        #expect(abs(replica!.transform.position.y - 25.0) < 1e-4)
+        #expect(abs(replica!.transform.position.z - 35.0) < 1e-4)
+        #expect(replica!.transform.scale == SIMD3<Float>(1, 1, 1))
+    }
+
+    @Test func testComponentMirrorOppositeHandAndKeepOriginalFalse() {
+        let doc = DocumentModel(documentType: .assembly)
+        let source = ComponentInstance(
+            name: "Glove Left",
+            reference: .internalPart(name: "GlovePart"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        _ = doc.addComponentInstance(source)
+
+        let params = AssemblyMirrorParams(
+            sourceInstanceId: source.id,
+            planeNormal: SIMD3<Float>(1, 0, 0),
+            planeOrigin: .zero,
+            keepOriginal: false,
+            mirrorMode: .oppositeHand
+        )
+        let result = doc.mirrorComponentInstance(params: params)
+        guard case .success(let mirror) = result else {
+            Issue.record("Expected successful opposite-hand mirror")
+            return
+        }
+
+        let replica = doc.componentInstances.first(where: { $0.id == mirror.replicaInstanceIds.first })
+        #expect(replica != nil)
+        #expect(abs(replica!.transform.position.x - (-10.0)) < 1e-4)
+        #expect(replica!.transform.scale.z < 0) // inverted local Z for opposite hand
+
+        // Source component should be hidden when keepOriginal is false
+        let updatedSource = doc.componentInstances.first(where: { $0.id == source.id })
+        #expect(updatedSource?.isVisible == false)
+    }
+
+    @Test func testComponentMirrorZeroNormalValidation() {
+        let doc = DocumentModel(documentType: .assembly)
+        let source = ComponentInstance(name: "Cube", reference: .internalPart(name: "CubePart"))
+        _ = doc.addComponentInstance(source)
+
+        let params = AssemblyMirrorParams(
+            sourceInstanceId: source.id,
+            planeNormal: SIMD3<Float>(0, 0, 0)
+        )
+        let result = doc.mirrorComponentInstance(params: params)
+        guard case .failure(let err) = result else {
+            Issue.record("Expected failure on zero-length normal")
+            return
+        }
+        if case .invalidOperation(let msg) = err {
+            #expect(msg.contains("zero-length"))
+        } else {
+            Issue.record("Unexpected error type: \(err)")
+        }
+    }
+
+    @Test func testPatternAndMirrorInSubassemblyHierarchy() {
+        let doc = DocumentModel(documentType: .assembly)
+        let child = ComponentInstance(
+            name: "SubChild",
+            reference: .internalPart(name: "ChildPart"),
+            transform: Transform(position: SIMD3<Float>(5, 0, 0))
+        )
+        let sub = ComponentInstance(
+            name: "EngineAssembly",
+            reference: .subassembly(name: "Engine"),
+            transform: Transform(position: SIMD3<Float>(100, 0, 0)),
+            childInstances: [child]
+        )
+        _ = doc.addComponentInstance(sub)
+
+        #expect(doc.componentInstances.count == 1)
+        #expect(doc.componentInstances.first?.childInstances.count == 1)
+
+        // Pattern the child component inside the subassembly
+        let patParams = AssemblyPatternParams(
+            sourceInstanceId: child.id,
+            patternType: .linear,
+            count: 3,
+            linearSpacing: 10.0,
+            linearDirection: SIMD3<Float>(1, 0, 0)
+        )
+        let patResult = doc.patternComponentInstance(params: patParams)
+        guard case .success(let pattern) = patResult else {
+            Issue.record("Failed to pattern child in subassembly")
+            return
+        }
+
+        // Child replicas should be inside subassembly childInstances
+        let updatedSub = doc.componentInstances.first(where: { $0.id == sub.id })
+        #expect(updatedSub != nil)
+        #expect(updatedSub?.childInstances.count == 3)
+        #expect(pattern.replicaInstanceIds.count == 2)
+
+        // Mirror the child component inside the subassembly
+        let mirParams = AssemblyMirrorParams(
+            sourceInstanceId: child.id,
+            planeNormal: SIMD3<Float>(1, 0, 0),
+            planeOrigin: .zero
+        )
+        let mirResult = doc.mirrorComponentInstance(params: mirParams)
+        guard case .success = mirResult else {
+            Issue.record("Failed to mirror child in subassembly")
+            return
+        }
+
+        let updatedSubAfterMirror = doc.componentInstances.first(where: { $0.id == sub.id })
+        #expect(updatedSubAfterMirror?.childInstances.count == 4)
+    }
+
+    @Test func testComponentPatternMultiStepUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let source = ComponentInstance(
+            name: "Stanchion",
+            reference: .internalPart(name: "StanchionPart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        _ = doc.addComponentInstance(source)
+        undoManager.removeAllActions()
+
+        let params = AssemblyPatternParams(
+            sourceInstanceId: source.id,
+            patternType: .linear,
+            count: 3,
+            linearSpacing: 15.0,
+            linearDirection: SIMD3<Float>(1, 0, 0)
+        )
+        let result = doc.patternComponentInstance(params: params)
+        guard case .success(let pattern) = result else {
+            Issue.record("Expected successful pattern")
+            return
+        }
+
+        #expect(doc.componentInstances.count == 3)
+        #expect(doc.componentPatterns.count == 1)
+
+        // Undo pattern creation
+        undoManager.undo()
+        #expect(doc.componentInstances.count == 1)
+        #expect(doc.componentPatterns.isEmpty)
+
+        // Redo pattern creation
+        undoManager.redo()
+        #expect(doc.componentInstances.count == 3)
+        #expect(doc.componentPatterns.count == 1)
+        #expect(doc.componentPatterns.first?.id == pattern.id)
+
+        // Undo again
+        undoManager.undo()
+        #expect(doc.componentInstances.count == 1)
+        #expect(doc.componentPatterns.isEmpty)
+    }
+
+    @Test func testComponentMirrorMultiStepUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let source = ComponentInstance(
+            name: "Arm",
+            reference: .internalPart(name: "ArmPart"),
+            transform: Transform(position: SIMD3<Float>(20, 10, 0))
+        )
+        _ = doc.addComponentInstance(source)
+        undoManager.removeAllActions()
+
+        let params = AssemblyMirrorParams(
+            sourceInstanceId: source.id,
+            planeNormal: SIMD3<Float>(1, 0, 0),
+            planeOrigin: .zero,
+            keepOriginal: true
+        )
+        let result = doc.mirrorComponentInstance(params: params)
+        guard case .success(let mirror) = result else {
+            Issue.record("Expected successful mirror")
+            return
+        }
+
+        #expect(doc.componentInstances.count == 2)
+        #expect(doc.componentMirrors.count == 1)
+
+        // Undo mirror
+        undoManager.undo()
+        #expect(doc.componentInstances.count == 1)
+        #expect(doc.componentMirrors.isEmpty)
+
+        // Redo mirror
+        undoManager.redo()
+        #expect(doc.componentInstances.count == 2)
+        #expect(doc.componentMirrors.count == 1)
+        #expect(doc.componentMirrors.first?.id == mirror.id)
+
+        // Remove mirror explicitly
+        let removeResult = doc.removeComponentMirror(id: mirror.id)
+        guard case .success = removeResult else {
+            Issue.record("Failed to remove mirror")
+            return
+        }
+        #expect(doc.componentInstances.count == 1)
+        #expect(doc.componentMirrors.isEmpty)
+
+        // Undo removal restores mirror
+        undoManager.undo()
+        #expect(doc.componentInstances.count == 2)
+        #expect(doc.componentMirrors.count == 1)
+    }
 }
 
