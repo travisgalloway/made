@@ -44,6 +44,28 @@ struct NavigatorSidebarView: View {
                         }
                     }
 
+                    if workspace.document.documentType == .assembly || !workspace.document.assemblyConstraints.isEmpty {
+                        Section {
+                            ForEach(filteredConstraints) { constraint in
+                                NavigatorConstraintRow(constraint: constraint)
+                            }
+                        } header: {
+                            HStack {
+                                Text("Mates & Joints")
+                                Spacer()
+                                Button {
+                                    _ = workspace.solveAssemblyConstraints()
+                                } label: {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                }
+                                .buttonStyle(.borderless)
+                                .frame(width: 16, height: 16)
+                                .help("Solve Assembly")
+                                .disabled(workspace.document.assemblyConstraints.isEmpty)
+                            }
+                        }
+                    }
+
                     if workspace.document.documentType != .assembly || !filteredBodies.isEmpty {
                         Section("Bodies") {
                             ForEach(filteredBodies) { body in
@@ -104,7 +126,7 @@ struct NavigatorSidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty {
+                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty {
                         ContentUnavailableView {
                             Label(workspace.document.documentType == .assembly ? "No Components" : "No Objects", systemImage: workspace.document.documentType == .assembly ? "square.3.layers.3d" : "cube.transparent")
                         } description: {
@@ -134,7 +156,7 @@ struct NavigatorSidebarView: View {
                                 .controlSize(.small)
                             }
                         }
-                    } else if filteredBodies.isEmpty && filteredComponents.isEmpty {
+                    } else if !filterText.isEmpty && filteredBodies.isEmpty && filteredComponents.isEmpty && filteredConstraints.isEmpty {
                         ContentUnavailableView.search(text: filterText)
                     }
                 }
@@ -359,6 +381,16 @@ struct NavigatorSidebarView: View {
             case .externalDocument(let url, let partName):
                 return url.lastPathComponent.localizedCaseInsensitiveContains(trimmed) || (partName?.localizedCaseInsensitiveContains(trimmed) ?? false)
             }
+        }
+    }
+
+    private var filteredConstraints: [AssemblyConstraint] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return workspace.document.assemblyConstraints }
+        return workspace.document.assemblyConstraints.filter { constraint in
+            constraint.name.localizedCaseInsensitiveContains(trimmed) ||
+            constraint.kind.displayName.localizedCaseInsensitiveContains(trimmed) ||
+            constraint.kind.rawValue.localizedCaseInsensitiveContains(trimmed)
         }
     }
 
@@ -738,6 +770,94 @@ private struct NavigatorComponentRow: View {
             } else {
                 return url.lastPathComponent
             }
+        }
+    }
+}
+
+/// Outline row for an assembly mate or joint in the Navigator sidebar (BL-ASM-04, #165).
+struct NavigatorConstraintRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let constraint: AssemblyConstraint
+    @State private var isHovered = false
+
+    var body: some View {
+        let isSelected = workspace.selectedAssemblyConstraintId == constraint.id
+
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: constraint.kind.systemImageName)
+                .foregroundStyle(constraint.isSuppressed ? Color.secondary : (constraint.kind.isJoint ? Color.purple : Color.blue))
+                .frame(width: 16)
+                .help(constraint.kind.displayName)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(constraint.name)
+                        .font(.body)
+                        .lineLimit(1)
+                        .strikethrough(constraint.isSuppressed)
+                        .foregroundStyle(constraint.isSuppressed ? .secondary : .primary)
+
+                    Text(constraint.kind.displayName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+
+                    if constraint.isSuppressed {
+                        Text("Suppressed")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.orange.opacity(0.12))
+                            )
+                    }
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            if isHovered || constraint.isSuppressed {
+                Button(constraint.isSuppressed ? "Unsuppress Constraint" : "Suppress Constraint",
+                       systemImage: constraint.isSuppressed ? "eye.slash.fill" : "eye") {
+                    workspace.toggleAssemblyConstraintSuppressed(id: constraint.id)
+                }
+                .foregroundStyle(constraint.isSuppressed ? .orange : .secondary)
+                .help(constraint.isSuppressed ? "Unsuppress Constraint" : "Suppress Constraint")
+                .barControl()
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            workspace.selectAssemblyConstraint(constraint.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .contextMenu {
+            Button(constraint.isSuppressed ? "Unsuppress" : "Suppress") {
+                workspace.toggleAssemblyConstraintSuppressed(id: constraint.id)
+            }
+            Button("Solve Assembly") {
+                _ = workspace.solveAssemblyConstraints()
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                workspace.removeAssemblyConstraint(id: constraint.id)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(constraint.name), \(constraint.kind.displayName)\(constraint.isSuppressed ? ", Suppressed" : "")")
+        .accessibilityIdentifier("navigator-constraint-\(constraint.id.uuidString)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityAction(named: constraint.isSuppressed ? "Unsuppress Constraint" : "Suppress Constraint") {
+            workspace.toggleAssemblyConstraintSuppressed(id: constraint.id)
         }
     }
 }

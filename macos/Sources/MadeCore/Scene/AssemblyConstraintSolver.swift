@@ -380,6 +380,28 @@ public struct AssemblyConstraintSolver: Sendable {
             let theta = constraint.value ?? 0.0
             return [simd_dot(A1, A2) - cos(theta)]
 
+        case .tangent:
+            let d = constraint.value ?? 0.0
+            if constraint.firstFeature.hasExplicitAxis && constraint.secondFeature.hasExplicitAxis {
+                // Cylinder-to-plane: cylinder axis A1 is perpendicular to plane normal A2
+                // Distance from cylinder origin P1 to plane (P2, A2) equals offset d
+                let rPos = simd_dot(P1 - P2, A2) - d
+                let rPerp = simd_dot(A1, A2)
+                return [rPos, rPerp]
+            } else if constraint.secondFeature.hasExplicitAxis {
+                // Point/sphere to plane (feature 2 has normal A2)
+                let rPos = simd_dot(P1 - P2, A2) - d
+                return [rPos]
+            } else if constraint.firstFeature.hasExplicitAxis {
+                // Plane (feature 1 has normal A1) to point/sphere
+                let rPos = simd_dot(P2 - P1, A1) - d
+                return [rPos]
+            } else {
+                // Sphere-to-sphere / distance
+                let dist = simd_length(P1 - P2)
+                return [dist - d]
+            }
+
         case .fastened:
             // Rigidly locks translation and orientation (6 DOF: 3 translation, 3 rotation)
             let posDiff = P1 - P2
@@ -391,6 +413,74 @@ public struct AssemblyConstraintSolver: Sendable {
             let alignA = 1.0 - simd_dot(A1, A2)
             let alignB = 1.0 - simd_dot(B1, B2)
             return [posDiff.x, posDiff.y, posDiff.z, rotErr.x, rotErr.y, rotErr.z, alignA, alignB]
+
+        case .revolute:
+            // Rotational joint: 1 rotational DOF free around A1, 5 constrained (3 translation, 2 rotation)
+            let posDiff = P1 - P2
+            let u1 = perpendicularVector(primary: A1, hint: B1)
+            let v1 = simd_cross(A1, u1)
+            let rAng1 = simd_dot(A2, u1)
+            let rAng2 = simd_dot(A2, v1)
+            let alignA = 1.0 - simd_dot(A1, A2)
+            return [posDiff.x, posDiff.y, posDiff.z, rAng1, rAng2, alignA]
+
+        case .slider:
+            // Prismatic joint: 1 translational DOF free along A1, 5 constrained (2 translation, 3 rotation)
+            let D = P1 - P2
+            let u1 = perpendicularVector(primary: A1, hint: B1)
+            let v1 = simd_cross(A1, u1)
+            let rPos1 = simd_dot(D, u1)
+            let rPos2 = simd_dot(D, v1)
+
+            let C1 = simd_cross(A1, B1)
+            let C2 = simd_cross(A2, B2)
+            let rotErr = 0.5 * (simd_cross(A1, A2) + simd_cross(B1, B2) + simd_cross(C1, C2))
+            let alignA = 1.0 - simd_dot(A1, A2)
+            let alignB = 1.0 - simd_dot(B1, B2)
+            return [rPos1, rPos2, rotErr.x, rotErr.y, rotErr.z, alignA, alignB]
+
+        case .cylindrical:
+            // 2 DOFs free: 1 axial translation + 1 axial rotation along A1, 4 constrained (2 translation, 2 rotation)
+            let D = P2 - P1
+            let u1 = perpendicularVector(primary: A1, hint: B1)
+            let v1 = simd_cross(A1, u1)
+            let rAng1 = simd_dot(A2, u1)
+            let rAng2 = simd_dot(A2, v1)
+            let alignA = 1.0 - simd_dot(A1, A2)
+            let rPos1 = simd_dot(D, u1)
+            let rPos2 = simd_dot(D, v1)
+            return [rAng1, rAng2, alignA, rPos1, rPos2]
+
+        case .pinSlot:
+            // 2 DOFs free: 1 translation along slot B1 + 1 rotation around pin axis A1, 4 constrained
+            let u1 = perpendicularVector(primary: A1, hint: B1)
+            let v1 = simd_cross(A1, u1)
+            let rAng1 = simd_dot(A2, u1)
+            let rAng2 = simd_dot(A2, v1)
+            let alignA = 1.0 - simd_dot(A1, A2)
+
+            let D = P2 - P1
+            // Normal displacement out of slot plane (along A1)
+            let rPosNorm = simd_dot(D, A1)
+            // Transverse displacement across slot width (along v1)
+            let rPosTrans = simd_dot(D, v1)
+            return [rAng1, rAng2, alignA, rPosNorm, rPosTrans]
+
+        case .planar:
+            // 3 DOFs free: 2 planar translations in u1, v1 + 1 rotation around normal A1, 3 constrained
+            let u1 = perpendicularVector(primary: A1, hint: B1)
+            let v1 = simd_cross(A1, u1)
+            let rAng1 = simd_dot(A2, u1)
+            let rAng2 = simd_dot(A2, v1)
+            let alignA = 1.0 - simd_dot(A1, A2)
+            let d = constraint.value ?? 0.0
+            let rPos = simd_dot(P2 - P1, A1) - d
+            return [rAng1, rAng2, alignA, rPos]
+
+        case .ball:
+            // Spherical joint: 3 translation constrained, 3 rotation free
+            let posDiff = P1 - P2
+            return [posDiff.x, posDiff.y, posDiff.z]
         }
     }
 
@@ -400,6 +490,11 @@ public struct AssemblyConstraintSolver: Sendable {
         var secondaryAxis: SIMD3<Float>
     }
 
+    private static func safeNormalize(_ v: SIMD3<Float>, fallback: SIMD3<Float>) -> SIMD3<Float> {
+        let len = simd_length(v)
+        return len > 1e-6 ? v / len : fallback
+    }
+
     private static func worldFeature(
         _ feature: AssemblyFeature,
         currentTransforms: [UUID: Transform]
@@ -407,13 +502,13 @@ public struct AssemblyConstraintSolver: Sendable {
         guard let id = feature.componentInstanceId, let transform = currentTransforms[id] else {
             return WorldFeatureFrame(
                 origin: feature.localOrigin,
-                primaryAxis: feature.localAxis,
-                secondaryAxis: feature.localSecondaryAxis
+                primaryAxis: safeNormalize(feature.localAxis, fallback: SIMD3<Float>(0, 0, 1)),
+                secondaryAxis: safeNormalize(feature.localSecondaryAxis, fallback: SIMD3<Float>(1, 0, 0))
             )
         }
         let worldOrigin = transform.transformPoint(feature.localOrigin)
-        let worldAxis = simd_normalize(transform.rotation.act(feature.localAxis))
-        let worldSec = simd_normalize(transform.rotation.act(feature.localSecondaryAxis))
+        let worldAxis = safeNormalize(transform.rotation.act(feature.localAxis), fallback: SIMD3<Float>(0, 0, 1))
+        let worldSec = safeNormalize(transform.rotation.act(feature.localSecondaryAxis), fallback: SIMD3<Float>(1, 0, 0))
         return WorldFeatureFrame(
             origin: worldOrigin,
             primaryAxis: worldAxis,
@@ -422,15 +517,17 @@ public struct AssemblyConstraintSolver: Sendable {
     }
 
     private static func perpendicularVector(primary: SIMD3<Double>, hint: SIMD3<Double>) -> SIMD3<Double> {
-        let proj = hint - simd_dot(hint, primary) * primary
+        let pLen = simd_length(primary)
+        let pNorm = pLen > 1e-6 ? primary / pLen : SIMD3<Double>(0, 0, 1)
+        let proj = hint - simd_dot(hint, pNorm) * pNorm
         let len = simd_length(proj)
         if len > 1e-4 {
             return proj / len
         }
-        if abs(primary.x) < 0.9 {
-            return simd_normalize(simd_cross(primary, SIMD3<Double>(1, 0, 0)))
+        if abs(pNorm.x) < 0.9 {
+            return simd_normalize(simd_cross(pNorm, SIMD3<Double>(1, 0, 0)))
         } else {
-            return simd_normalize(simd_cross(primary, SIMD3<Double>(0, 1, 0)))
+            return simd_normalize(simd_cross(pNorm, SIMD3<Double>(0, 1, 0)))
         }
     }
 

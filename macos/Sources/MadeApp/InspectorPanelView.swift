@@ -62,6 +62,10 @@ struct InspectorPanelView: View {
     private var properties: some View {
         if workspace.document.selection.count > 1 {
             multiSelectionView
+        } else if let constraint = workspace.selectedAssemblyConstraint {
+            ScrollView {
+                InspectorAssemblyConstraintView(constraint: constraint)
+            }
         } else if let component = selectedComponentInstance {
             ScrollView {
                 InspectorComponentInstanceView(component: component)
@@ -1214,6 +1218,7 @@ struct InspectorComponentInstanceView: View {
             referenceSection
             transformSection
                 .disabled(component.isLocked || component.isGrounded)
+            matesAndJointsSection
         }
         .formStyle(.columns)
         .controlSize(.small)
@@ -1392,6 +1397,188 @@ struct InspectorComponentInstanceView: View {
             }
         }
         .labelsHidden()
+    }
+
+    private var matesAndJointsSection: some View {
+        Section {
+            matesAndJointsList
+        } header: {
+            sectionHeader("Mates & Joints")
+        }
+    }
+
+    @ViewBuilder
+    private var matesAndJointsList: some View {
+        let attached = workspace.document.assemblyConstraints.filter {
+            $0.firstFeature.componentInstanceId == component.id ||
+            $0.secondFeature.componentInstanceId == component.id
+        }
+        if attached.isEmpty {
+            Text("No mates or joints attached")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(attached) { mate in
+                attachedMateRow(mate)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func attachedMateRow(_ mate: AssemblyConstraint) -> some View {
+        Button {
+            workspace.selectAssemblyConstraint(mate.id)
+        } label: {
+            HStack {
+                Image(systemName: mate.kind.systemImageName)
+                    .foregroundStyle(mate.isSuppressed ? Color.secondary : (mate.kind.isJoint ? Color.purple : Color.blue))
+                Text(mate.name)
+                Spacer()
+                Text(mate.kind.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector panel view for inspecting and editing an assembly constraint or joint (BL-ASM-04, #165).
+struct InspectorAssemblyConstraintView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let constraint: AssemblyConstraint
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Name", text: Binding(
+                    get: { constraint.name },
+                    set: { newName in
+                        var copy = constraint
+                        copy.name = newName
+                        workspace.updateAssemblyConstraint(copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-constraint-name-field")
+
+                Picker("Kind", selection: Binding(
+                    get: { constraint.kind },
+                    set: { newKind in
+                        var copy = constraint
+                        copy.kind = newKind
+                        workspace.updateAssemblyConstraint(copy)
+                    }
+                )) {
+                    Section("Mates") {
+                        ForEach(AssemblyConstraintKind.allCases.filter { !$0.isJoint }, id: \.self) { kind in
+                            Label(kind.displayName, systemImage: kind.systemImageName).tag(kind)
+                        }
+                    }
+                    Section("Joints") {
+                        ForEach(AssemblyConstraintKind.allCases.filter { $0.isJoint }, id: \.self) { kind in
+                            Label(kind.displayName, systemImage: kind.systemImageName).tag(kind)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("inspector-constraint-kind-picker")
+
+                Toggle("Suppressed", isOn: Binding(
+                    get: { constraint.isSuppressed },
+                    set: { _ in
+                        workspace.toggleAssemblyConstraintSuppressed(id: constraint.id)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-constraint-suppressed-toggle")
+            } header: {
+                sectionHeader("Constraint Identity", isFirst: true)
+            }
+
+            if constraint.kind == .distance || constraint.kind == .angle || constraint.kind == .tangent || constraint.kind == .planar {
+                Section {
+                    let isAngle = constraint.kind == .angle
+                    let unitLabel = isAngle ? "rad" : "mm"
+                    LabeledContent(isAngle ? "Angle" : "Offset") {
+                        HStack(spacing: 4) {
+                            TextField(
+                                isAngle ? "Angle" : "Offset",
+                                value: Binding(
+                                    get: { constraint.value ?? 0.0 },
+                                    set: { newValue in
+                                        var copy = constraint
+                                        copy.value = newValue
+                                        workspace.updateAssemblyConstraint(copy)
+                                    }
+                                ),
+                                format: .number
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .accessibilityIdentifier("inspector-constraint-value-field")
+                            Text(unitLabel)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    sectionHeader("Parameters")
+                }
+            }
+
+            Section {
+                featureSummaryRow(title: "First Feature", feature: constraint.firstFeature)
+                featureSummaryRow(title: "Second Feature", feature: constraint.secondFeature)
+            } header: {
+                sectionHeader("Features")
+            }
+
+            Section {
+                Button("Solve Assembly", systemImage: "arrow.triangle.2.circlepath") {
+                    _ = workspace.solveAssemblyConstraints()
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("inspector-solve-assembly-button")
+
+                Button("Delete Constraint", role: .destructive) {
+                    workspace.removeAssemblyConstraint(id: constraint.id)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("inspector-delete-constraint-button")
+            } header: {
+                sectionHeader("Actions")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    @ViewBuilder
+    private func featureSummaryRow(title: String, feature: AssemblyFeature) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let instId = feature.componentInstanceId,
+               let comp = workspace.document.componentInstances.first(where: { $0.id == instId }) {
+                Text(comp.name)
+                    .font(.body)
+            } else {
+                Text("Ground (World Frame)")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Origin: (\(String(format: "%.1f", feature.localOrigin.x)), \(String(format: "%.1f", feature.localOrigin.y)), \(String(format: "%.1f", feature.localOrigin.z)))")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
