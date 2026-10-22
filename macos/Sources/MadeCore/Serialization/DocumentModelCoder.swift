@@ -35,7 +35,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
-        let projectedCompObjects: [SceneObject] = (componentInstances ?? []).map { $0.toSceneObject() }
+        let projectedCompObjects: [SceneObject] = (componentInstances ?? []).flatMap { $0.toSceneObjects() }
         if let features {
             self.features = features
             let effectiveIndex = rollbackIndex ?? features.count
@@ -86,7 +86,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.documentType = try container.decodeIfPresent(DocumentType.self, forKey: .documentType)
         let decodedInstances = try container.decodeIfPresent([ComponentInstance].self, forKey: .componentInstances)
         self.componentInstances = decodedInstances
-        let projectedCompObjects: [SceneObject] = (decodedInstances ?? []).map { $0.toSceneObject() }
+        let projectedCompObjects: [SceneObject] = (decodedInstances ?? []).flatMap { $0.toSceneObjects() }
         let decodedFeatures = try container.decodeIfPresent([Feature].self, forKey: .features)
         let rawObjects = try container.decodeIfPresent([SceneObject].self, forKey: .objects)
         let rawBodies = try container.decodeIfPresent([Body].self, forKey: .bodies)

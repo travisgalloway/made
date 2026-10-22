@@ -149,6 +149,8 @@ public enum ReferenceResolver {
                 return .success(ResolvedReference(reference: reference, target: .body(solidId: solidId, feature: targetFeature)))
             } else if document.objects.contains(where: { $0.id == solidId }) {
                 return .success(ResolvedReference(reference: reference, target: .body(solidId: solidId, feature: nil)))
+            } else if let comp = document.findComponentInstance(solidId: solidId) {
+                return .success(ResolvedReference(reference: reference, target: .component(comp)))
             } else {
                 return .failure(.bodyNotFound(solidId))
             }
@@ -178,7 +180,7 @@ public enum ReferenceResolver {
             }
 
         case .component(let componentId):
-            if let comp = document.componentInstances.first(where: { $0.id == componentId }) {
+            if let comp = document.findComponentInstance(id: componentId) {
                 return .success(ResolvedReference(reference: reference, target: .component(comp)))
             } else {
                 return .failure(.componentNotFound(componentId))

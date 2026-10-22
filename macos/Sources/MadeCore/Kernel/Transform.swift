@@ -57,6 +57,18 @@ public struct Transform: Sendable, Equatable, Codable {
         let newScale = lhs.scale * rhs.scale
         return Transform(position: newPos, rotation: newRot, scale: newScale)
     }
+
+    /// Computes the inverse transform.
+    public var inverse: Transform {
+        let invRot = rotation.conjugate
+        let invScale = SIMD3<Float>(
+            abs(scale.x) > 1e-6 ? 1.0 / scale.x : 1.0,
+            abs(scale.y) > 1e-6 ? 1.0 / scale.y : 1.0,
+            abs(scale.z) > 1e-6 ? 1.0 / scale.z : 1.0
+        )
+        let invPos = invRot.act(-position) * invScale
+        return Transform(position: invPos, rotation: invRot, scale: invScale)
+    }
 }
 
 extension simd_quatf: @retroactive Codable {

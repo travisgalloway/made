@@ -675,6 +675,25 @@ struct AssemblyMenuCommands: Commands {
                 }
             }
             .disabled(selected == nil)
+
+            Divider()
+
+            Button("Group as Subassembly") {
+                _ = workspace.groupSelectedAsSubassembly()
+            }
+            .disabled(!workspace.canGroupSelectedAsSubassembly)
+
+            Button("Dissolve Subassembly") {
+                _ = workspace.dissolveSelectedSubassembly()
+            }
+            .disabled(selected?.isSubassembly != true)
+
+            Button(selected?.subassemblyBehavior == .flexible ? "Make Subassembly Rigid" : "Make Subassembly Flexible") {
+                if let selected, selected.isSubassembly {
+                    _ = workspace.toggleSubassemblyBehavior(id: selected.id)
+                }
+            }
+            .disabled(selected?.isSubassembly != true)
         }
     }
 }

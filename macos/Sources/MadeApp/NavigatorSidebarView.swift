@@ -410,6 +410,8 @@ struct NavigatorSidebarView: View {
                 return name.localizedCaseInsensitiveContains(trimmed)
             case .externalDocument(let url, let partName):
                 return url.lastPathComponent.localizedCaseInsensitiveContains(trimmed) || (partName?.localizedCaseInsensitiveContains(trimmed) ?? false)
+            case .subassembly(let name):
+                return name.localizedCaseInsensitiveContains(trimmed)
             }
         }
     }
@@ -669,126 +671,195 @@ private struct NavigatorRow: View {
 private struct NavigatorComponentRow: View {
     @Environment(WorkspaceModel.self) private var workspace
     let component: ComponentInstance
+    var indentLevel: Int = 0
     @State private var isHovered = false
+    @State private var isExpanded = true
 
     var body: some View {
         let isSelected = workspace.document.isSelected(solidId: component.solidId)
         let dof = workspace.remainingAssemblyDOF(for: component.id)
 
-        HStack(alignment: .center, spacing: 8) {
-            Image(systemName: "square.3.layers.3d")
-                .foregroundStyle(.blue)
-                .frame(width: 16)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 6) {
+                if indentLevel > 0 {
+                    Spacer().frame(width: CGFloat(indentLevel * 12))
+                }
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(component.name)
-                        .font(.body)
-                        .lineLimit(1)
+                if component.isSubassembly && (!component.childInstances.isEmpty || !component.childConstraints.isEmpty) {
+                    Button {
+                        isExpanded.toggle()
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 12, height: 12)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isExpanded ? "Collapse Subassembly" : "Expand Subassembly")
+                } else if indentLevel > 0 {
+                    Spacer().frame(width: 12)
+                }
 
-                    Text("Component")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(Color.secondary.opacity(0.12))
-                        )
+                Image(systemName: component.isSubassembly ? "square.stack.3d.down.right" : "square.3.layers.3d")
+                    .foregroundStyle(component.isSubassembly ? .purple : .blue)
+                    .frame(width: 16)
 
-                    if component.isGrounded {
-                        Text("Grounded")
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(component.name)
+                            .font(.body)
+                            .lineLimit(1)
+
+                        if component.isSubassembly {
+                            Text("Subassembly")
+                                .font(.caption2)
+                                .foregroundStyle(.purple)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.purple.opacity(0.12))
+                                )
+                                .accessibilityIdentifier("navigator-subassembly-badge-\(component.id.uuidString)")
+
+                            Text(component.subassemblyBehavior == .flexible ? "Flexible" : "Rigid")
+                                .font(.caption2)
+                                .foregroundStyle(component.subassemblyBehavior == .flexible ? .indigo : .secondary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(component.subassemblyBehavior == .flexible ? Color.indigo.opacity(0.15) : Color.secondary.opacity(0.12))
+                                )
+                                .accessibilityIdentifier("navigator-subassembly-behavior-badge-\(component.id.uuidString)")
+                        } else {
+                            Text("Component")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.secondary.opacity(0.12))
+                                )
+                        }
+
+                        if component.isGrounded {
+                            Text("Grounded")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.orange.opacity(0.15))
+                                )
+                        } else {
+                            Text("\(dof) DOF")
+                                .font(.caption2)
+                                .foregroundStyle(dof == 0 ? .green : .secondary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(dof == 0 ? Color.green.opacity(0.12) : Color.secondary.opacity(0.12))
+                                )
+                                .accessibilityIdentifier("navigator-component-dof-badge-\(component.id.uuidString)")
+                        }
+                    }
+
+                    HStack(spacing: 6) {
+                        Text(component.solidId.rawValue)
                             .font(.caption2)
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.orange.opacity(0.15))
-                            )
-                    } else {
-                        Text("\(dof) DOF")
+                            .monospaced()
+                            .foregroundStyle(.secondary)
+
+                        Text("•")
                             .font(.caption2)
-                            .foregroundStyle(dof == 0 ? .green : .secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(dof == 0 ? Color.green.opacity(0.12) : Color.secondary.opacity(0.12))
-                            )
-                            .accessibilityIdentifier("navigator-component-dof-badge-\(component.id.uuidString)")
+                            .foregroundStyle(.tertiary)
+
+                        Text(referenceDescription)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
 
-                HStack(spacing: 6) {
-                    Text(component.solidId.rawValue)
-                        .font(.caption2)
-                        .monospaced()
+                Spacer(minLength: 4)
+
+                Group {
+                    if isHovered || component.isGrounded {
+                        Button(component.isGrounded ? "Float Component" : "Ground Component",
+                               systemImage: component.isGrounded ? "pin.fill" : "pin") {
+                            workspace.toggleComponentInstanceGrounded(id: component.id)
+                        }
+                        .foregroundStyle(component.isGrounded ? .orange : .secondary)
+                        .help(component.isGrounded ? "Float Component" : "Ground Component")
+                    }
+                    if isHovered || !component.isVisible {
+                        Button(component.isVisible ? "Hide Component" : "Show Component",
+                               systemImage: component.isVisible ? "eye" : "eye.slash") {
+                            workspace.toggleBodyVisibility(component.solidId)
+                        }
                         .foregroundStyle(.secondary)
-
-                    Text("•")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-
-                    Text(referenceDescription)
-                        .font(.caption2)
+                        .help(component.isVisible ? "Hide Component" : "Show Component")
+                    }
+                    if isHovered || component.isLocked {
+                        Button(component.isLocked ? "Unlock Component" : "Lock Component",
+                               systemImage: component.isLocked ? "lock.fill" : "lock.open") {
+                            workspace.toggleBodyLocked(component.solidId)
+                        }
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .help(component.isLocked ? "Unlock Component" : "Lock Component")
+                    }
+                }
+                .barControl()
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .contextMenu {
+                if component.isSubassembly {
+                    Button(component.subassemblyBehavior == .flexible ? "Make Subassembly Rigid" : "Make Subassembly Flexible") {
+                        workspace.toggleSubassemblyBehavior(id: component.id)
+                    }
+                    Button("Dissolve Subassembly") {
+                        workspace.dissolveSubassembly(id: component.id)
+                    }
+                    Divider()
+                }
+                Button(component.isGrounded ? "Float Component" : "Ground Component") {
+                    workspace.toggleComponentInstanceGrounded(id: component.id)
+                }
+                Button(component.isVisible ? "Hide Component" : "Show Component") {
+                    workspace.toggleBodyVisibility(component.solidId)
+                }
+                Button(component.isLocked ? "Unlock Component" : "Lock Component") {
+                    workspace.toggleBodyLocked(component.solidId)
+                }
+                Divider()
+                Button(role: .destructive) {
+                    workspace.removeComponentInstance(id: component.id)
+                } label: {
+                    Text(component.isSubassembly ? "Remove Subassembly" : "Remove Component")
                 }
             }
 
-            Spacer(minLength: 4)
-
-            Group {
-                if isHovered || component.isGrounded {
-                    Button(component.isGrounded ? "Float Component" : "Ground Component",
-                           systemImage: component.isGrounded ? "pin.fill" : "pin") {
-                        workspace.toggleComponentInstanceGrounded(id: component.id)
-                    }
-                    .foregroundStyle(component.isGrounded ? .orange : .secondary)
-                    .help(component.isGrounded ? "Float Component" : "Ground Component")
+            if component.isSubassembly && isExpanded {
+                ForEach(component.childInstances) { child in
+                    NavigatorComponentRow(component: child, indentLevel: indentLevel + 1)
+                        .tag(child.solidId)
                 }
-                if isHovered || !component.isVisible {
-                    Button(component.isVisible ? "Hide Component" : "Show Component",
-                           systemImage: component.isVisible ? "eye" : "eye.slash") {
-                        workspace.toggleBodyVisibility(component.solidId)
+                ForEach(component.childConstraints) { constraint in
+                    HStack(spacing: 0) {
+                        Spacer().frame(width: CGFloat((indentLevel + 1) * 12 + 16))
+                        NavigatorConstraintRow(constraint: constraint)
                     }
-                    .foregroundStyle(.secondary)
-                    .help(component.isVisible ? "Hide Component" : "Show Component")
                 }
-                if isHovered || component.isLocked {
-                    Button(component.isLocked ? "Unlock Component" : "Lock Component",
-                           systemImage: component.isLocked ? "lock.fill" : "lock.open") {
-                        workspace.toggleBodyLocked(component.solidId)
-                    }
-                    .foregroundStyle(.secondary)
-                    .help(component.isLocked ? "Unlock Component" : "Lock Component")
-                }
-            }
-            .barControl()
-        }
-        .padding(.vertical, 2)
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-        .contextMenu {
-            Button(component.isGrounded ? "Float Component" : "Ground Component") {
-                workspace.toggleComponentInstanceGrounded(id: component.id)
-            }
-            Button(component.isVisible ? "Hide Component" : "Show Component") {
-                workspace.toggleBodyVisibility(component.solidId)
-            }
-            Button(component.isLocked ? "Unlock Component" : "Lock Component") {
-                workspace.toggleBodyLocked(component.solidId)
-            }
-            Divider()
-            Button(role: .destructive) {
-                workspace.removeComponentInstance(id: component.id)
-            } label: {
-                Text("Remove Component")
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(component.name), Component\(component.isGrounded ? ", Grounded" : ", \(dof) degrees of freedom"), ID \(component.solidId.rawValue), \(referenceDescription)")
+        .accessibilityLabel("\(component.name), \(component.isSubassembly ? "Subassembly" : "Component")\(component.isGrounded ? ", Grounded" : ", \(dof) degrees of freedom"), ID \(component.solidId.rawValue), \(referenceDescription)")
         .accessibilityValue(component.isGrounded ? "Grounded" : "\(dof) DOF")
         .accessibilityIdentifier("navigator-component-\(component.solidId.rawValue)")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
@@ -813,6 +884,8 @@ private struct NavigatorComponentRow: View {
             } else {
                 return url.lastPathComponent
             }
+        case .subassembly(let name):
+            return "Subassembly: \(name)"
         }
     }
 }

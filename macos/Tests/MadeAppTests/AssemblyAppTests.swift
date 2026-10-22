@@ -614,4 +614,91 @@ import simd
         #expect(abs(redoPos.z) < 1e-3)
         #expect(abs(redoPos.x - 30) < 1.0)
     }
+
+    // MARK: - Workspace Subassemblies (BL-ASM-07)
+
+    @Test func testWorkspaceSubassemblyGroupingAndDissolving() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+        ws.document.undoManager?.groupsByEvent = false
+
+        ws.document.undoManager?.beginUndoGrouping()
+        let part1 = ws.addComponentInstance(
+            name: "Part 1",
+            reference: .internalPart(name: "P1"),
+            transform: .identity
+        )
+        let part2 = ws.addComponentInstance(
+            name: "Part 2",
+            reference: .internalPart(name: "P2"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        ws.document.undoManager?.endUndoGrouping()
+
+        // Select both parts
+        ws.selectedIds = [part1.solidId, part2.solidId]
+        #expect(ws.canGroupSelectedAsSubassembly == true)
+
+        ws.document.undoManager?.beginUndoGrouping()
+        let subassembly = ws.groupSelectedAsSubassembly(name: "Widget Assembly")
+        ws.document.undoManager?.endUndoGrouping()
+
+        #expect(subassembly != nil)
+        #expect(ws.document.componentInstances.count == 1)
+        #expect(ws.document.componentInstances.first?.name == "Widget Assembly")
+        #expect(ws.document.componentInstances.first?.isSubassembly == true)
+        #expect(ws.document.componentInstances.first?.childInstances.count == 2)
+        #expect(ws.selectedId == subassembly?.solidId)
+
+        // Dissolve selected subassembly
+        ws.document.undoManager?.beginUndoGrouping()
+        let dissolved = ws.dissolveSelectedSubassembly()
+        ws.document.undoManager?.endUndoGrouping()
+
+        #expect(dissolved == true)
+        #expect(ws.document.componentInstances.count == 2)
+
+        // Undo dissolve
+        ws.undo()
+        #expect(ws.document.componentInstances.count == 1)
+        #expect(ws.document.componentInstances.first?.name == "Widget Assembly")
+
+        // Undo grouping
+        ws.undo()
+        #expect(ws.document.componentInstances.count == 2)
+        #expect(ws.document.componentInstances.contains(where: { $0.id == part1.id }))
+        #expect(ws.document.componentInstances.contains(where: { $0.id == part2.id }))
+    }
+
+    @Test func testWorkspaceSubassemblyBehaviorToggleAndDOF() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let child1 = ComponentInstance(name: "C1", reference: .internalPart(name: "P1"))
+        let child2 = ComponentInstance(name: "C2", reference: .internalPart(name: "P2"))
+        let sub = ComponentInstance(
+            name: "Sub",
+            reference: .subassembly(name: "Sub"),
+            subassemblyBehavior: .rigid,
+            childInstances: [child1, child2]
+        )
+        _ = ws.document.addComponentInstance(sub)
+
+        #expect(ws.remainingAssemblyDOF(for: sub.id) == 6)
+
+        // Ground the subassembly
+        _ = ws.setComponentInstanceGrounded(id: sub.id, isGrounded: true)
+        #expect(ws.remainingAssemblyDOF(for: sub.id) == 0)
+
+        ws.document.undoManager?.removeAllActions()
+
+        // Toggle behavior
+        let toggled = ws.toggleSubassemblyBehavior(id: sub.id)
+        #expect(toggled == true)
+        #expect(ws.document.componentInstances.first?.subassemblyBehavior == .flexible)
+
+        ws.undo()
+        #expect(ws.document.componentInstances.first?.subassemblyBehavior == .rigid)
+    }
 }
+

@@ -266,4 +266,90 @@ import simd
         #expect(decoded[1].kind == .pinSlot)
         #expect(decoded[2].kind == .fastened)
     }
+
+    // MARK: - Subassemblies (BL-ASM-07)
+
+    @Test func testNestedSubassemblyDocumentCoderRoundTrip() throws {
+        let childA = ComponentInstance(name: "A", reference: .internalPart(name: "PartA"), transform: Transform(position: SIMD3<Float>(10, 0, 0)))
+        let childB = ComponentInstance(name: "B", reference: .internalPart(name: "PartB"), transform: Transform(position: SIMD3<Float>(20, 0, 0)))
+        let internalMate = AssemblyConstraint(
+            name: "Mate AB",
+            kind: .coincident,
+            firstFeature: AssemblyFeature(componentInstanceId: childA.id, origin: .zero),
+            secondFeature: AssemblyFeature(componentInstanceId: childB.id, origin: .zero)
+        )
+        let subassembly = ComponentInstance(
+            name: "Subassembly AB",
+            reference: .subassembly(name: "Subassembly AB"),
+            transform: Transform(position: SIMD3<Float>(5, 10, 15)),
+            subassemblyBehavior: .flexible,
+            childInstances: [childA, childB],
+            childConstraints: [internalMate]
+        )
+
+        let sourceDoc = DocumentModel(
+            documentType: .assembly,
+            componentInstances: [subassembly]
+        )
+
+        let data = try DocumentModelCoder.encode(document: sourceDoc)
+        let decodedDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: decodedDoc, from: data)
+
+        #expect(decodedDoc.documentType == .assembly)
+        #expect(decodedDoc.componentInstances.count == 1)
+
+        guard let decodedSub = decodedDoc.componentInstances.first else {
+            Issue.record("Missing decoded subassembly")
+            return
+        }
+
+        #expect(decodedSub.name == "Subassembly AB")
+        #expect(decodedSub.isSubassembly == true)
+        #expect(decodedSub.subassemblyBehavior == .flexible)
+        #expect(decodedSub.transform.position == SIMD3<Float>(5, 10, 15))
+        #expect(decodedSub.childInstances.count == 2)
+        #expect(decodedSub.childConstraints.count == 1)
+        #expect(decodedSub.childConstraints.first?.name == "Mate AB")
+
+        // Ensure child scene objects are projected into decodedDoc.objects
+        #expect(decodedDoc.objects.contains(where: { $0.id == childA.solidId }))
+        #expect(decodedDoc.objects.contains(where: { $0.id == childB.solidId }))
+    }
+
+    @Test func testSubassemblyPackageRoundTrip() throws {
+        let child = ComponentInstance(name: "Link", reference: .internalPart(name: "LinkPart"))
+        let sub = ComponentInstance(
+            name: "ArmSub",
+            reference: .subassembly(name: "ArmSub"),
+            subassemblyBehavior: .rigid,
+            childInstances: [child]
+        )
+
+        let docData = DocumentData(
+            schemaVersion: DocumentData.currentSchemaVersion,
+            objects: sub.toSceneObjects(),
+            documentType: .assembly,
+            componentInstances: [sub]
+        )
+
+        let package = MadePackage(manifest: MadeManifest(documentType: .assembly), documentData: docData)
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("SubPackage-\(UUID().uuidString).made")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let wrapper = try package.makeFileWrapper()
+        try wrapper.write(to: tempDir, options: .atomic, originalContentsURL: nil)
+
+        let reopened = try MadePackage(directoryURL: tempDir)
+        let targetDoc = DocumentModel()
+        let encodedData = try DocumentModelCoder.encode(reopened.documentData)
+        try DocumentModelCoder.decode(into: targetDoc, from: encodedData)
+
+        #expect(targetDoc.documentType == .assembly)
+        #expect(targetDoc.componentInstances.count == 1)
+        #expect(targetDoc.componentInstances.first?.isSubassembly == true)
+        #expect(targetDoc.componentInstances.first?.childInstances.count == 1)
+        #expect(targetDoc.objects.contains(where: { $0.id == child.solidId }))
+    }
 }
+

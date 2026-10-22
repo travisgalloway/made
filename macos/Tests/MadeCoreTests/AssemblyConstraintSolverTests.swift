@@ -964,4 +964,245 @@ import simd
         #expect(abs(solved.position.z - targetPos.z) < 1e-3)
         #expect(abs(solved.rotation.real - targetRot.real) < 1e-3)
     }
+
+    // MARK: - Subassemblies (BL-ASM-07)
+
+    @Test func testRigidSubassemblySolvesAsSingleRigidBody() {
+        let base = ComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "BasePart"),
+            transform: .identity,
+            isGrounded: true
+        )
+
+        // Subassembly contains Child1 at (0, 0, 0) and Child2 at (10, 0, 0) relative to subassembly
+        let child1 = ComponentInstance(
+            name: "Child 1",
+            reference: .internalPart(name: "Child1Part"),
+            transform: .identity
+        )
+        let child2 = ComponentInstance(
+            name: "Child 2",
+            reference: .internalPart(name: "Child2Part"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        let sub = ComponentInstance(
+            name: "RigidSub",
+            reference: .subassembly(name: "RigidSub"),
+            transform: Transform(position: SIMD3<Float>(50, 50, 0)),
+            subassemblyBehavior: .rigid,
+            childInstances: [child1, child2]
+        )
+
+        // Mate in parent assembly: Child1 coincident with Base at (5, 5, 5)
+        let targetPos = SIMD3<Float>(5, 5, 5)
+        let fBase = AssemblyFeature(componentInstanceId: base.id, origin: targetPos)
+        let fChild1 = AssemblyFeature(componentInstanceId: child1.id, origin: .zero)
+        let mate = AssemblyConstraint(
+            kind: .coincident,
+            firstFeature: fBase,
+            secondFeature: fChild1
+        )
+
+        let system = AssemblyConstraintSystem(instances: [base, sub], constraints: [mate])
+        let result = AssemblyConstraintSolver.solve(system: system)
+
+        #expect(result.status.isConverged)
+        #expect(result.instanceDOF[sub.id] == 3) // 3 translational constraints satisfied, leaves 3 rotational DOFs
+
+        guard let solvedSub = result.solvedTransforms[sub.id],
+              let solvedChild1 = result.solvedTransforms[child1.id],
+              let solvedChild2 = result.solvedTransforms[child2.id] else {
+            Issue.record("Missing solved transforms for subassembly or children")
+            return
+        }
+
+        // Child1 origin was at local (0, 0, 0), so subassembly origin should now be at targetPos (5, 5, 5)
+        #expect(abs(solvedSub.position.x - targetPos.x) < 1e-3)
+        #expect(abs(solvedSub.position.y - targetPos.y) < 1e-3)
+        #expect(abs(solvedSub.position.z - targetPos.z) < 1e-3)
+
+        // Child1 world position should match targetPos
+        #expect(abs(solvedChild1.position.x - targetPos.x) < 1e-3)
+        #expect(abs(solvedChild1.position.y - targetPos.y) < 1e-3)
+        #expect(abs(solvedChild1.position.z - targetPos.z) < 1e-3)
+
+        // Child2 world position should maintain relative offset of (10, 0, 0)
+        #expect(abs(solvedChild2.position.x - (targetPos.x + 10)) < 1e-3)
+        #expect(abs(solvedChild2.position.y - targetPos.y) < 1e-3)
+        #expect(abs(solvedChild2.position.z - targetPos.z) < 1e-3)
+    }
+
+    @Test func testFlexibleSubassemblyArticulatesInternalJoint() {
+        // Link1 is grounded at origin
+        let link1 = ComponentInstance(
+            name: "Link1",
+            reference: .internalPart(name: "Link1Part"),
+            transform: .identity,
+            isGrounded: true
+        )
+        // Link2 initially at (10, 0, 0)
+        let link2 = ComponentInstance(
+            name: "Link2",
+            reference: .internalPart(name: "Link2Part"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        // Internal slider joint along X axis between Link1 and Link2
+        let fLink1 = AssemblyFeature(componentInstanceId: link1.id, origin: .zero, axis: SIMD3<Float>(1, 0, 0))
+        let fLink2 = AssemblyFeature(componentInstanceId: link2.id, origin: .zero, axis: SIMD3<Float>(1, 0, 0))
+        let internalSlider = AssemblyConstraint(
+            name: "Internal Slider",
+            kind: .slider,
+            firstFeature: fLink1,
+            secondFeature: fLink2,
+            value: 0.0
+        )
+
+        let flexibleSub = ComponentInstance(
+            name: "FlexibleActuator",
+            reference: .subassembly(name: "FlexibleActuator"),
+            transform: .identity,
+            subassemblyBehavior: .flexible,
+            childInstances: [link1, link2],
+            childConstraints: [internalSlider]
+        )
+
+        // Parent constraint: Target block at (25, 0, 0), coincident with Link2
+        let targetPos = SIMD3<Float>(25, 0, 0)
+        let parentBase = ComponentInstance(
+            name: "ParentBase",
+            reference: .internalPart(name: "ParentBase"),
+            transform: .identity,
+            isGrounded: true
+        )
+        let fParent = AssemblyFeature(componentInstanceId: parentBase.id, origin: targetPos)
+        let fChild2 = AssemblyFeature(componentInstanceId: link2.id, origin: .zero)
+        let parentMate = AssemblyConstraint(
+            kind: .coincident,
+            firstFeature: fParent,
+            secondFeature: fChild2
+        )
+
+        let system = AssemblyConstraintSystem(
+            instances: [parentBase, flexibleSub],
+            constraints: [parentMate]
+        )
+        let result = AssemblyConstraintSolver.solve(system: system)
+
+        #expect(result.status.isConverged)
+        guard let solvedLink2 = result.solvedTransforms[link2.id] else {
+            Issue.record("Missing solved transform for Link2")
+            return
+        }
+
+        // Link2 slid along the slider axis to satisfy the parent constraint at (25, 0, 0)
+        #expect(abs(solvedLink2.position.x - targetPos.x) < 1e-2)
+        #expect(abs(solvedLink2.position.y - targetPos.y) < 1e-2)
+        #expect(abs(solvedLink2.position.z - targetPos.z) < 1e-2)
+    }
+
+    @Test func testDragTargetOnChildOfRigidSubassemblyMovesEntireSubassembly() {
+        let child1 = ComponentInstance(
+            name: "Child 1",
+            reference: .internalPart(name: "P1"),
+            transform: .identity
+        )
+        let child2 = ComponentInstance(
+            name: "Child 2",
+            reference: .internalPart(name: "P2"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0))
+        )
+        let sub = ComponentInstance(
+            name: "RigidSub",
+            reference: .subassembly(name: "RigidSub"),
+            transform: .identity,
+            subassemblyBehavior: .rigid,
+            childInstances: [child1, child2]
+        )
+
+        // Drag child2 to (50, 60, 70)
+        let dragTarget = AssemblyDragTarget(
+            instanceId: child2.id,
+            targetPosition: SIMD3<Float>(50, 60, 70)
+        )
+
+        let system = AssemblyConstraintSystem(instances: [sub], constraints: [])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        guard let solvedSub = result.solvedTransforms[sub.id],
+              let solvedChild1 = result.solvedTransforms[child1.id],
+              let solvedChild2 = result.solvedTransforms[child2.id] else {
+            Issue.record("Missing solved transforms")
+            return
+        }
+
+        // Child2 was at local (10, 0, 0). When dragged to (50, 60, 70), subassembly origin moves to (40, 60, 70)
+        #expect(abs(solvedSub.position.x - 40) < 1e-2)
+        #expect(abs(solvedSub.position.y - 60) < 1e-2)
+        #expect(abs(solvedSub.position.z - 70) < 1e-2)
+
+        // Child1 should be at subassembly origin (40, 60, 70)
+        #expect(abs(solvedChild1.position.x - 40) < 1e-2)
+        #expect(abs(solvedChild1.position.y - 60) < 1e-2)
+        #expect(abs(solvedChild1.position.z - 70) < 1e-2)
+
+        // Child2 should be at target (50, 60, 70)
+        #expect(abs(solvedChild2.position.x - 50) < 1e-2)
+        #expect(abs(solvedChild2.position.y - 60) < 1e-2)
+        #expect(abs(solvedChild2.position.z - 70) < 1e-2)
+    }
+
+    @Test func testNestedSubassemblyTransforms() {
+        let leaf = ComponentInstance(
+            name: "Leaf",
+            reference: .internalPart(name: "LeafPart"),
+            transform: Transform(position: SIMD3<Float>(1, 2, 3))
+        )
+        let innerSub = ComponentInstance(
+            name: "InnerSub",
+            reference: .subassembly(name: "Inner"),
+            transform: Transform(position: SIMD3<Float>(10, 0, 0)),
+            subassemblyBehavior: .rigid,
+            childInstances: [leaf]
+        )
+        let outerSub = ComponentInstance(
+            name: "OuterSub",
+            reference: .subassembly(name: "Outer"),
+            transform: Transform(position: SIMD3<Float>(0, 20, 0)),
+            subassemblyBehavior: .rigid,
+            childInstances: [innerSub]
+        )
+
+        // Outer sub dragged to (100, 200, 300)
+        let dragTarget = AssemblyDragTarget(
+            instanceId: outerSub.id,
+            targetPosition: SIMD3<Float>(100, 200, 300)
+        )
+        let system = AssemblyConstraintSystem(instances: [outerSub], constraints: [])
+        let result = AssemblyConstraintSolver.solve(system: system, dragTarget: dragTarget)
+
+        #expect(result.status.isConverged)
+        guard let solvedOuter = result.solvedTransforms[outerSub.id],
+              let solvedInner = result.solvedTransforms[innerSub.id],
+              let solvedLeaf = result.solvedTransforms[leaf.id] else {
+            Issue.record("Missing solved transforms in nested hierarchy")
+            return
+        }
+
+        #expect(abs(solvedOuter.position.x - 100) < 1e-2)
+        #expect(abs(solvedOuter.position.y - 200) < 1e-2)
+        #expect(abs(solvedOuter.position.z - 300) < 1e-2)
+
+        // Inner: Outer (100, 200, 300) + Inner (10, 0, 0) = (110, 200, 300)
+        #expect(abs(solvedInner.position.x - 110) < 1e-2)
+        #expect(abs(solvedInner.position.y - 200) < 1e-2)
+        #expect(abs(solvedInner.position.z - 300) < 1e-2)
+
+        // Leaf: Inner (110, 200, 300) + Leaf (1, 2, 3) = (111, 202, 303)
+        #expect(abs(solvedLeaf.position.x - 111) < 1e-2)
+        #expect(abs(solvedLeaf.position.y - 202) < 1e-2)
+        #expect(abs(solvedLeaf.position.z - 303) < 1e-2)
+    }
 }
+
