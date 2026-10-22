@@ -68,8 +68,20 @@ struct FileMenuCommands: Commands {
                     workspace.promptExportStepFile(selectedOnly: false)
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
+
+                Divider()
+
+                Menu("Bill of Materials (CSV)") {
+                    Button("Flat BOM…") {
+                        workspace.promptExportBillOfMaterials(structure: .flat)
+                    }
+                    Button("Hierarchical BOM…") {
+                        workspace.promptExportBillOfMaterials(structure: .hierarchical)
+                    }
+                }
+                .disabled(!workspace.canExportBillOfMaterials)
             }
-            .disabled(workspace.document.objects.isEmpty)
+            .disabled(workspace.document.objects.isEmpty && !workspace.canExportBillOfMaterials)
 
             Button("Reload Part Scripts") {
                 workspace.reloadAllParts()
@@ -714,6 +726,18 @@ struct AssemblyMenuCommands: Commands {
                 _ = workspace.mirrorSelectedComponent()
             }
             .disabled(selected == nil)
+
+            Divider()
+
+            Menu("Export Bill of Materials") {
+                Button("Flat BOM (CSV)…") {
+                    workspace.promptExportBillOfMaterials(structure: .flat)
+                }
+                Button("Hierarchical BOM (CSV)…") {
+                    workspace.promptExportBillOfMaterials(structure: .hierarchical)
+                }
+            }
+            .disabled(!workspace.canExportBillOfMaterials)
         }
     }
 }

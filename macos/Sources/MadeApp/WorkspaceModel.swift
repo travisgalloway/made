@@ -3251,6 +3251,55 @@ final class WorkspaceModel {
         }
     }
 
+    // MARK: - Bill of Materials Export (BL-ASM-10, #173)
+
+    public var canExportBillOfMaterials: Bool {
+        !document.componentInstances.isEmpty
+    }
+
+    public func promptExportBillOfMaterials(structure: BOMStructure = .flat) {
+        guard canExportBillOfMaterials else { return }
+        let panel = NSSavePanel()
+        panel.title = "Export \(structure.displayName) Bill of Materials"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.commaSeparatedText]
+        let baseName = currentDocumentURL?.deletingPathExtension().lastPathComponent ?? "assembly"
+        let suffix = structure == .flat ? "flat" : "hierarchical"
+        panel.nameFieldStringValue = "\(baseName)-bom-\(suffix).csv"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            await exportBillOfMaterials(to: url, structure: structure)
+        }
+    }
+
+    @discardableResult
+    public func exportBillOfMaterials(to url: URL, structure: BOMStructure = .flat) async -> Bool {
+        guard canExportBillOfMaterials else {
+            let msg = "No component instances to export in bill of materials"
+            log(.error, "Export", msg)
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: msg)
+            isShowingExportErrorAlert = true
+            return false
+        }
+        do {
+            let bom = BillOfMaterials.generate(from: document, structure: structure)
+            try bom.exportCSV(to: url)
+            pendingExportError = nil
+            isShowingExportErrorAlert = false
+            log(.info, "Export", "Exported \(structure.displayName) Bill of Materials (\(bom.items.count) items) to \(url.lastPathComponent)")
+            return true
+        } catch {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            log(.error, "Export", "Failed to export Bill of Materials: \(error.localizedDescription)")
+            pendingExportError = ExportErrorInfo(destinationURL: url, reason: error.localizedDescription)
+            isShowingExportErrorAlert = true
+            return false
+        }
+    }
+
     @discardableResult
     func importStepFile(at url: URL) async -> ObjectId? {
         let data: Data
