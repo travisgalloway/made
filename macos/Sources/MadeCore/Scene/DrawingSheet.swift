@@ -273,6 +273,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
     public var titleBlockTemplate: TitleBlockTemplate
     public var projectionAngle: DrawingProjectionAngle
     public var views: [DrawingView]
+    public var annotations: [DrawingAnnotation]
     public var customProperties: [String: String]
 
     public init(
@@ -284,6 +285,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         titleBlockTemplate: TitleBlockTemplate = .isoStandard,
         projectionAngle: DrawingProjectionAngle? = nil,
         views: [DrawingView] = [],
+        annotations: [DrawingAnnotation] = [],
         customProperties: [String: String] = [:]
     ) {
         self.id = id
@@ -294,6 +296,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         self.titleBlockTemplate = titleBlockTemplate
         self.projectionAngle = projectionAngle ?? (size.standard == .iso ? .firstAngle : .thirdAngle)
         self.views = views
+        self.annotations = annotations
         self.customProperties = customProperties
     }
 
@@ -307,6 +310,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         case customProperties
         case projectionAngle
         case views
+        case annotations
     }
 
     public init(from decoder: Decoder) throws {
@@ -321,6 +325,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         self.customProperties = try container.decodeIfPresent([String: String].self, forKey: .customProperties) ?? [:]
         self.projectionAngle = try container.decodeIfPresent(DrawingProjectionAngle.self, forKey: .projectionAngle) ?? (decodedSize.standard == .iso ? .firstAngle : .thirdAngle)
         self.views = try container.decodeIfPresent([DrawingView].self, forKey: .views) ?? []
+        self.annotations = try container.decodeIfPresent([DrawingAnnotation].self, forKey: .annotations) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -334,6 +339,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         try container.encode(customProperties, forKey: .customProperties)
         try container.encode(projectionAngle, forKey: .projectionAngle)
         try container.encode(views, forKey: .views)
+        try container.encode(annotations, forKey: .annotations)
     }
 
     /// Millimeter dimensions adjusted for the sheet orientation.

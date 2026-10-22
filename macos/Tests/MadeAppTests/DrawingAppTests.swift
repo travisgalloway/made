@@ -279,4 +279,152 @@ import SwiftUI
         #expect(restoredDet?.kind == .detail)
         #expect(restoredDet?.parentViewId == baseId)
     }
+
+    @Test func testWorkspaceAnnotationActionsAndUndoRedo() {
+        let ws = WorkspaceModel()
+        ws.newDrawingDocument()
+
+        let base = ws.addBaseView(standardView: .front, scale: .full, displayStyle: .visibleLinesOnly)
+        guard let baseId = base?.id else {
+            Issue.record("Failed to create base view")
+            return
+        }
+
+        // 1. Add linear dimension
+        let linear = ws.addLinearDimension(
+            viewId: baseId,
+            start: SIMD2(0, 0),
+            end: SIMD2(100, 0),
+            offset: 20
+        )
+        #expect(linear != nil)
+        #expect(ws.document.activeSheet?.annotations.count == 1)
+        #expect(ws.selectedDrawingAnnotationId == linear?.id)
+
+        // 2. Add angular dimension
+        let angular = ws.addAngularDimension(
+            viewId: baseId,
+            vertex: SIMD2(0, 0),
+            start: SIMD2(50, 0),
+            end: SIMD2(0, 50),
+            radius: 30
+        )
+        #expect(angular != nil)
+        #expect(ws.document.activeSheet?.annotations.count == 2)
+
+        // 3. Add note
+        let note = ws.addNote(
+            viewId: baseId,
+            position: SIMD2(50, 80),
+            text: "FINISH: ALL OVER"
+        )
+        #expect(note != nil)
+        #expect(ws.document.activeSheet?.annotations.count == 3)
+
+        // 4. Select and update annotation
+        ws.selectDrawingAnnotation(linear?.id)
+        #expect(ws.selectedDrawingAnnotationId == linear?.id)
+        #expect(ws.selectedDrawingAnnotation?.kind == .linear)
+
+        if var ann = ws.selectedDrawingAnnotation, case .linear(var linearData) = ann.data {
+            linearData.textOverride = "100.0 REF"
+            linearData.prefix = "TYP "
+            ann.data = .linear(linearData)
+            let updated = ws.updateDrawingAnnotation(ann)
+            #expect(updated)
+            if case .linear(let updatedData) = ws.selectedDrawingAnnotation?.data {
+                #expect(updatedData.textOverride == "100.0 REF")
+                #expect(updatedData.prefix == "TYP ")
+            }
+        }
+
+        // 5. Remove annotation with undo/redo
+        ws.document.undoManager?.removeAllActions()
+        guard let noteId = note?.id else {
+            Issue.record("Missing note ID")
+            return
+        }
+        let removedNote = ws.removeDrawingAnnotation(id: noteId)
+        #expect(removedNote)
+        #expect(ws.document.activeSheet?.annotations.count == 2)
+        #expect(ws.document.activeSheet?.annotations.contains(where: { $0.id == noteId }) == false)
+
+        ws.undo()
+        #expect(ws.document.activeSheet?.annotations.count == 3)
+        #expect(ws.document.activeSheet?.annotations.contains(where: { $0.id == noteId }) == true)
+
+        ws.redo()
+        #expect(ws.document.activeSheet?.annotations.count == 2)
+        #expect(ws.document.activeSheet?.annotations.contains(where: { $0.id == noteId }) == false)
+
+        // 6. Removing parent view cleans up attached annotations and undo restores them
+        ws.document.undoManager?.removeAllActions()
+        let removedBase = ws.removeDrawingView(id: baseId)
+        #expect(removedBase)
+        #expect(ws.document.activeSheet?.annotations.isEmpty == true)
+
+        ws.undo()
+        #expect(ws.document.activeSheet?.views.count == 1)
+        #expect(ws.document.activeSheet?.annotations.count == 2)
+    }
+
+    @Test func testWorkspaceHoleCalloutFromHoleWizard() {
+        let ws = WorkspaceModel()
+        ws.newDrawingDocument()
+
+        let base = ws.addBaseView(standardView: .top, scale: .full, displayStyle: .visibleLinesOnly)
+        guard let baseId = base?.id else {
+            Issue.record("Failed to create base view")
+            return
+        }
+
+        let faceRef = TopologicalReference(
+            sourceFeatureId: UUID(),
+            elementType: .face,
+            historyPath: [HistoryStep(kind: .generated, label: "face:top")]
+        )
+
+        let holeParams = HoleParams(
+            targetSolidId: SolidId("solid_test"),
+            faceReference: faceRef,
+            holeType: .counterbore,
+            standard: .isoMetric,
+            sizeDesignation: "M8",
+            diameter: 9.0,
+            depth: 25.0,
+            isThrough: false,
+            counterboreDiameter: 15.0,
+            counterboreDepth: 8.6
+        )
+
+        let callout = ws.addHoleCalloutFromHoleWizard(
+            viewId: baseId,
+            anchor: SIMD2(20, 20),
+            elbow: SIMD2(35, 30),
+            holeParams: holeParams,
+            count: 2
+        )
+
+        guard let callout else {
+            Issue.record("Callout creation returned nil")
+            return
+        }
+        #expect(callout.kind == DrawingAnnotationKind.holeCallout)
+
+        guard case .holeCallout(let calloutData) = callout.data else {
+            Issue.record("Expected holeCallout annotation payload")
+            return
+        }
+
+        #expect(calloutData.sizeDesignation == "M8")
+        #expect(calloutData.counterboreDiameter == 15.0)
+        #expect(calloutData.holeCount == 2)
+
+        let formatted = calloutData.formattedCalloutText
+        #expect(formatted.contains("2x Ø9"))
+        #expect(formatted.contains("⌴ Ø15"))
+        #expect(formatted.contains("↧ 8.6"))
+        #expect(formatted.contains("↧ 25"))
+    }
 }
+

@@ -1920,7 +1920,7 @@ struct NavigatorSheetRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
-                if !sheet.views.isEmpty {
+                if !sheet.views.isEmpty || !sheet.annotations.isEmpty {
                     Button {
                         isExpanded.toggle()
                     } label: {
@@ -1930,7 +1930,7 @@ struct NavigatorSheetRow: View {
                             .frame(width: 12, height: 12)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(isExpanded ? "Collapse Sheet Views" : "Expand Sheet Views")
+                    .accessibilityLabel(isExpanded ? "Collapse Sheet Contents" : "Expand Sheet Contents")
                 } else {
                     Spacer().frame(width: 12)
                 }
@@ -1985,13 +1985,24 @@ struct NavigatorSheetRow: View {
                 .disabled(workspace.document.sheets.count <= 1)
             }
 
-            if isExpanded && !sheet.views.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(sheet.views) { v in
-                        NavigatorDrawingViewRow(view: v, sheet: sheet)
+            if isExpanded {
+                if !sheet.views.isEmpty {
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(sheet.views) { v in
+                            NavigatorDrawingViewRow(view: v, sheet: sheet)
+                        }
                     }
+                    .padding(.leading, 24)
                 }
-                .padding(.leading, 24)
+
+                if !sheet.annotations.isEmpty {
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(sheet.annotations) { a in
+                            NavigatorDrawingAnnotationRow(annotation: a, sheet: sheet)
+                        }
+                    }
+                    .padding(.leading, 24)
+                }
             }
         }
         .sheet(isPresented: $isRenaming) {
@@ -2157,4 +2168,109 @@ struct NavigatorDrawingViewRow: View {
         .accessibilityIdentifier("navigator-drawing-view-\(view.id.uuidString)")
     }
 }
+
+/// Outline row for a drawing annotation or dimension inside a drawing sheet (BL-DRW-05, #212).
+struct NavigatorDrawingAnnotationRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let annotation: DrawingAnnotation
+    let sheet: DrawingSheet
+
+    private var isSelected: Bool {
+        workspace.selectedDrawingAnnotationId == annotation.id
+    }
+
+    private var iconName: String {
+        switch annotation.kind {
+        case .linear:
+            return "ruler"
+        case .angular:
+            return "angle"
+        case .radial:
+            return "circle.circle"
+        case .ordinate:
+            return "arrow.left.and.right"
+        case .baseline:
+            return "chart.bar"
+        case .note:
+            return "text.alignleft"
+        case .leader:
+            return "arrow.up.left"
+        case .centerMark:
+            return "plus"
+        case .centerline:
+            return "line.diagonal"
+        case .holeCallout:
+            return "circle.dotted"
+        }
+    }
+
+    private var summaryText: String {
+        switch annotation.data {
+        case .linear(let d):
+            return d.formattedText
+        case .angular(let d):
+            return d.formattedText
+        case .radial(let d):
+            return d.formattedText
+        case .ordinate(let d):
+            return d.formattedText
+        case .baseline(let d):
+            return "\(d.targetPointsMM.count) items"
+        case .note(let d):
+            return d.text
+        case .leader(let d):
+            return d.text
+        case .centerMark:
+            return "Mark"
+        case .centerline:
+            return "Centerline"
+        case .holeCallout(let d):
+            return d.formattedCalloutLines.first ?? "Callout"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: iconName)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(annotation.name)
+                    .font(.caption)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                Text(summaryText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if !annotation.isVisible {
+                Image(systemName: "eye.slash")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if workspace.document.activeSheetId != sheet.id {
+                workspace.setActiveSheetId(sheet.id)
+            }
+            workspace.selectDrawingAnnotation(annotation.id)
+        }
+        .contextMenu {
+            Button("Delete Annotation", role: .destructive) {
+                _ = workspace.removeDrawingAnnotation(id: annotation.id)
+            }
+        }
+        .accessibilityIdentifier("navigator-annotation-\(annotation.id.uuidString)")
+    }
+}
+
 
