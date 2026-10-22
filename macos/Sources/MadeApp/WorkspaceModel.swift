@@ -2908,8 +2908,8 @@ final class WorkspaceModel {
     }
 
     @discardableResult
-    func removeDrawingView(id: UUID) -> Bool {
-        let result = document.removeDrawingView(id: id)
+    func removeDrawingView(id: UUID, preserveAnnotationsAsDangling: Bool = false) -> Bool {
+        let result = document.removeDrawingView(id: id, preserveAnnotationsAsDangling: preserveAnnotationsAsDangling)
         if result {
             isDocumentModified = true
         }
@@ -2944,7 +2944,9 @@ final class WorkspaceModel {
         offset: Double = 10.0,
         orientation: LinearDimensionOrientation = .aligned,
         prefix: String = "",
-        suffix: String = ""
+        suffix: String = "",
+        sourceFeatureId: UUID? = nil,
+        attachment: DrawingAnnotationAttachment? = nil
     ) -> DrawingAnnotation? {
         guard let sheet = document.activeSheet else { return nil }
         let count = sheet.annotations.filter({ $0.kind == .linear }).count + 1
@@ -2959,7 +2961,9 @@ final class WorkspaceModel {
         let annotation = DrawingAnnotation(
             name: "Linear Dim \(count)",
             viewId: viewId,
-            data: .linear(data)
+            data: .linear(data),
+            sourceFeatureId: sourceFeatureId,
+            attachment: attachment
         )
         guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
         isDocumentModified = true
@@ -3163,7 +3167,9 @@ final class WorkspaceModel {
         viewId: UUID? = nil,
         anchor: SIMD2<Double>,
         elbow: SIMD2<Double>,
-        holeData: HoleCalloutAnnotationData
+        holeData: HoleCalloutAnnotationData,
+        sourceFeatureId: UUID? = nil,
+        attachment: DrawingAnnotationAttachment? = nil
     ) -> DrawingAnnotation? {
         guard let sheet = document.activeSheet else { return nil }
         let count = sheet.annotations.filter({ $0.kind == .holeCallout }).count + 1
@@ -3173,7 +3179,9 @@ final class WorkspaceModel {
         let annotation = DrawingAnnotation(
             name: "Hole Callout \(count)",
             viewId: viewId,
-            data: .holeCallout(configuredData)
+            data: .holeCallout(configuredData),
+            sourceFeatureId: sourceFeatureId,
+            attachment: attachment
         )
         guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
         isDocumentModified = true
@@ -3186,7 +3194,9 @@ final class WorkspaceModel {
         anchor: SIMD2<Double>,
         elbow: SIMD2<Double>,
         holeParams: HoleParams,
-        count: Int = 1
+        count: Int = 1,
+        sourceFeatureId: UUID? = nil,
+        attachment: DrawingAnnotationAttachment? = nil
     ) -> DrawingAnnotation? {
         let holeData = HoleCalloutAnnotationData(
             anchorPointMM: anchor,
@@ -3194,7 +3204,39 @@ final class WorkspaceModel {
             holeParams: holeParams,
             holeCount: count
         )
-        return addHoleCallout(viewId: viewId, anchor: anchor, elbow: elbow, holeData: holeData)
+        return addHoleCallout(
+            viewId: viewId,
+            anchor: anchor,
+            elbow: elbow,
+            holeData: holeData,
+            sourceFeatureId: sourceFeatureId,
+            attachment: attachment
+        )
+    }
+
+    @discardableResult
+    public func addHoleCalloutFromFeature(
+        featureId: UUID,
+        viewId: UUID? = nil,
+        anchor: SIMD2<Double>,
+        elbow: SIMD2<Double>
+    ) -> DrawingAnnotation? {
+        guard let feature = document.features.first(where: { $0.id == featureId }) else {
+            return nil
+        }
+        guard case .hole(let holeParams) = feature.operation else {
+            return nil
+        }
+        let attachment = DrawingAnnotationAttachment(featureId: featureId)
+        return addHoleCalloutFromHoleWizard(
+            viewId: viewId,
+            anchor: anchor,
+            elbow: elbow,
+            holeParams: holeParams,
+            count: max(1, holeParams.points.count),
+            sourceFeatureId: featureId,
+            attachment: attachment
+        )
     }
 
     @discardableResult
@@ -3216,54 +3258,8 @@ final class WorkspaceModel {
     }
 
     func recomputeDrawingViewHLR(viewId: UUID) {
-        for sheet in document.sheets {
-            guard let view = sheet.views.first(where: { $0.id == viewId }) else { continue }
-
-            let direction = view.effectiveViewDirection
-            let baseHLR = HLREngine.computeHLR(
-                objects: document.objects,
-                direction: direction,
-                options: view.displayStyle.hlrOptions
-            )
-
-            var finalHLR = baseHLR
-
-            switch view.kind {
-            case .base, .projected, .auxiliary:
-                finalHLR = baseHLR
-
-            case .section:
-                if let hatchDef = view.hatchPattern, let bounds = baseHLR.bounds2D {
-                    let hatchEdges = DrawingHatchGenerator.generateHatchLines(in: bounds, pattern: hatchDef)
-                    finalHLR = HLRResult(edges: baseHLR.edges + hatchEdges, viewDirection: direction)
-                }
-
-            case .detail:
-                if let detailDef = view.detailDefinition {
-                    let clipped = DrawingDetailProcessor.clipEdgesToCircle(
-                        edges: baseHLR.edges,
-                        centerMM: detailDef.centerMM,
-                        radiusMM: detailDef.radiusMM
-                    )
-                    finalHLR = HLRResult(edges: clipped, viewDirection: direction)
-                }
-
-            case .broken:
-                if let breakDef = view.breakDefinition {
-                    finalHLR = DrawingBreakProcessor.applyBreak(to: baseHLR, definition: breakDef)
-                }
-            }
-
-            var updated = view
-            updated.cachedHLR = finalHLR
-            _ = updateDrawingView(updated)
-
-            // Recompute any dependent views
-            for child in sheet.views where child.parentViewId == viewId {
-                recomputeDrawingViewHLR(viewId: child.id)
-            }
-            break
-        }
+        document.updateDrawingAssociativity()
+        isDocumentModified = true
     }
 
     @discardableResult

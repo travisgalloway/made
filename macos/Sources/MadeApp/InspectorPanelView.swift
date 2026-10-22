@@ -3978,6 +3978,14 @@ struct DrawingAnnotationInspectorView: View {
 
     var body: some View {
         Form {
+            if annotation.isDangling {
+                Section {
+                    Label("Annotation reference is dangling. Referenced feature or view was removed or suppressed.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                }
+            }
+
             Section("Annotation Details") {
                 LabeledContent("Kind") {
                     Text(annotation.kind.displayName)

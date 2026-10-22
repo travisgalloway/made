@@ -2245,6 +2245,12 @@ struct NavigatorDrawingAnnotationRow: View {
                     .lineLimit(1)
             }
 
+            if annotation.isDangling {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(.orange)
+            }
+
             Spacer()
 
             if !annotation.isVisible {

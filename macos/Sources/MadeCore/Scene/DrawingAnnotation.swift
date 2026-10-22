@@ -638,6 +638,23 @@ public enum DrawingAnnotationData: Sendable, Codable, Equatable {
     }
 }
 
+/// Parametric attachment metadata associating a drawing annotation with 3D model geometry or features (BL-DRW-07).
+public struct DrawingAnnotationAttachment: Sendable, Codable, Equatable {
+    public var modelPoints: [SIMD3<Double>]
+    public var featureId: UUID?
+    public var topologicalReference: TopologicalReference?
+
+    public init(
+        modelPoints: [SIMD3<Double>] = [],
+        featureId: UUID? = nil,
+        topologicalReference: TopologicalReference? = nil
+    ) {
+        self.modelPoints = modelPoints
+        self.featureId = featureId
+        self.topologicalReference = topologicalReference
+    }
+}
+
 /// An annotation or dimension placed on a drawing sheet or attached to a drawing view.
 public struct DrawingAnnotation: Identifiable, Sendable, Codable, Equatable {
     public var id: UUID
@@ -647,6 +664,9 @@ public struct DrawingAnnotation: Identifiable, Sendable, Codable, Equatable {
     public var data: DrawingAnnotationData
     public var isVisible: Bool
     public var customProperties: [String: String]
+    public var isDangling: Bool
+    public var sourceFeatureId: UUID?
+    public var attachment: DrawingAnnotationAttachment?
 
     public init(
         id: UUID = UUID(),
@@ -654,7 +674,10 @@ public struct DrawingAnnotation: Identifiable, Sendable, Codable, Equatable {
         viewId: UUID? = nil,
         data: DrawingAnnotationData,
         isVisible: Bool = true,
-        customProperties: [String: String] = [:]
+        customProperties: [String: String] = [:],
+        isDangling: Bool = false,
+        sourceFeatureId: UUID? = nil,
+        attachment: DrawingAnnotationAttachment? = nil
     ) {
         self.id = id
         self.name = name
@@ -662,6 +685,47 @@ public struct DrawingAnnotation: Identifiable, Sendable, Codable, Equatable {
         self.data = data
         self.isVisible = isVisible
         self.customProperties = customProperties
+        self.isDangling = isDangling
+        self.sourceFeatureId = sourceFeatureId
+        self.attachment = attachment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case viewId
+        case data
+        case isVisible
+        case customProperties
+        case isDangling
+        case sourceFeatureId
+        case attachment
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.viewId = try container.decodeIfPresent(UUID.self, forKey: .viewId)
+        self.data = try container.decode(DrawingAnnotationData.self, forKey: .data)
+        self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        self.customProperties = try container.decodeIfPresent([String: String].self, forKey: .customProperties) ?? [:]
+        self.isDangling = try container.decodeIfPresent(Bool.self, forKey: .isDangling) ?? false
+        self.sourceFeatureId = try container.decodeIfPresent(UUID.self, forKey: .sourceFeatureId)
+        self.attachment = try container.decodeIfPresent(DrawingAnnotationAttachment.self, forKey: .attachment)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(viewId, forKey: .viewId)
+        try container.encode(data, forKey: .data)
+        try container.encode(isVisible, forKey: .isVisible)
+        try container.encode(customProperties, forKey: .customProperties)
+        try container.encode(isDangling, forKey: .isDangling)
+        try container.encodeIfPresent(sourceFeatureId, forKey: .sourceFeatureId)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
     }
 
     public var kind: DrawingAnnotationKind {
