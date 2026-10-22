@@ -274,6 +274,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
     public var projectionAngle: DrawingProjectionAngle
     public var views: [DrawingView]
     public var annotations: [DrawingAnnotation]
+    public var bomTables: [DrawingBOMTable]
     public var customProperties: [String: String]
 
     public init(
@@ -286,6 +287,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         projectionAngle: DrawingProjectionAngle? = nil,
         views: [DrawingView] = [],
         annotations: [DrawingAnnotation] = [],
+        bomTables: [DrawingBOMTable] = [],
         customProperties: [String: String] = [:]
     ) {
         self.id = id
@@ -297,6 +299,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         self.projectionAngle = projectionAngle ?? (size.standard == .iso ? .firstAngle : .thirdAngle)
         self.views = views
         self.annotations = annotations
+        self.bomTables = bomTables
         self.customProperties = customProperties
     }
 
@@ -311,6 +314,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         case projectionAngle
         case views
         case annotations
+        case bomTables
     }
 
     public init(from decoder: Decoder) throws {
@@ -326,6 +330,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         self.projectionAngle = try container.decodeIfPresent(DrawingProjectionAngle.self, forKey: .projectionAngle) ?? (decodedSize.standard == .iso ? .firstAngle : .thirdAngle)
         self.views = try container.decodeIfPresent([DrawingView].self, forKey: .views) ?? []
         self.annotations = try container.decodeIfPresent([DrawingAnnotation].self, forKey: .annotations) ?? []
+        self.bomTables = try container.decodeIfPresent([DrawingBOMTable].self, forKey: .bomTables) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -340,6 +345,7 @@ public struct DrawingSheet: Identifiable, Sendable, Codable, Equatable {
         try container.encode(projectionAngle, forKey: .projectionAngle)
         try container.encode(views, forKey: .views)
         try container.encode(annotations, forKey: .annotations)
+        try container.encode(bomTables, forKey: .bomTables)
     }
 
     /// Millimeter dimensions adjusted for the sheet orientation.

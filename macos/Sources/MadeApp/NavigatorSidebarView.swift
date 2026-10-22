@@ -2003,6 +2003,15 @@ struct NavigatorSheetRow: View {
                     }
                     .padding(.leading, 24)
                 }
+
+                if !sheet.bomTables.isEmpty {
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(sheet.bomTables) { table in
+                            NavigatorDrawingBOMTableRow(table: table, sheet: sheet)
+                        }
+                    }
+                    .padding(.leading, 24)
+                }
             }
         }
         .sheet(isPresented: $isRenaming) {
@@ -2201,6 +2210,8 @@ struct NavigatorDrawingAnnotationRow: View {
             return "line.diagonal"
         case .holeCallout:
             return "circle.dotted"
+        case .balloon:
+            return "circle.circle"
         }
     }
 
@@ -2226,6 +2237,8 @@ struct NavigatorDrawingAnnotationRow: View {
             return "Centerline"
         case .holeCallout(let d):
             return d.formattedCalloutLines.first ?? "Callout"
+        case .balloon(let d):
+            return "Item \(d.formattedText)"
         }
     }
 
@@ -2276,6 +2289,54 @@ struct NavigatorDrawingAnnotationRow: View {
             }
         }
         .accessibilityIdentifier("navigator-annotation-\(annotation.id.uuidString)")
+    }
+}
+
+/// Outline row for a BOM table placed on a drawing sheet (BL-DRW-08, #215).
+struct NavigatorDrawingBOMTableRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let table: DrawingBOMTable
+    let sheet: DrawingSheet
+
+    private var isSelected: Bool {
+        workspace.selectedDrawingBOMTableId == table.id
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "tablecells")
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(table.name)
+                    .font(.caption)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                Text("\(table.columns.count) columns • \(table.structure.displayName)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if workspace.document.activeSheetId != sheet.id {
+                workspace.setActiveSheetId(sheet.id)
+            }
+            workspace.selectDrawingBOMTable(table.id)
+        }
+        .contextMenu {
+            Button("Delete BOM Table", role: .destructive) {
+                _ = workspace.removeBOMTable(id: table.id)
+            }
+        }
+        .accessibilityIdentifier("navigator-bom-table-\(table.id.uuidString)")
     }
 }
 

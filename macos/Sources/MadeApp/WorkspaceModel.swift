@@ -75,6 +75,7 @@ final class WorkspaceModel {
         if id != nil {
             selectedId = nil
             selectedDrawingAnnotationId = nil
+            selectedDrawingBOMTableId = nil
             selectedAssemblyConstraintId = nil
             selectedExplodedViewId = nil
         }
@@ -94,6 +95,27 @@ final class WorkspaceModel {
         if id != nil {
             selectedId = nil
             selectedDrawingViewId = nil
+            selectedDrawingBOMTableId = nil
+            selectedAssemblyConstraintId = nil
+            selectedExplodedViewId = nil
+        }
+    }
+
+    public var selectedDrawingBOMTableId: UUID? {
+        get { document.selectedDrawingBOMTableId }
+        set { document.setSelectedDrawingBOMTableId(newValue) }
+    }
+
+    public var selectedDrawingBOMTable: DrawingBOMTable? {
+        document.selectedDrawingBOMTable
+    }
+
+    public func selectDrawingBOMTable(_ id: UUID?) {
+        selectedDrawingBOMTableId = id
+        if id != nil {
+            selectedId = nil
+            selectedDrawingViewId = nil
+            selectedDrawingAnnotationId = nil
             selectedAssemblyConstraintId = nil
             selectedExplodedViewId = nil
         }
@@ -3255,6 +3277,161 @@ final class WorkspaceModel {
             isDocumentModified = true
         }
         return result
+    }
+
+    @discardableResult
+    public func addBOMTable(
+        to sheetId: UUID? = nil,
+        positionMM: SIMD2<Double> = SIMD2<Double>(20.0, 20.0),
+        structure: BOMStructure = .flat
+    ) -> DrawingBOMTable? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.bomTables.count + 1
+        let table = DrawingBOMTable(
+            name: "BOM Table \(count)",
+            positionMM: positionMM,
+            structure: structure
+        )
+        guard let added = document.addDrawingBOMTable(table, to: sheetId ?? sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func updateBOMTable(_ table: DrawingBOMTable) -> Bool {
+        let result = document.updateDrawingBOMTable(table)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    @discardableResult
+    public func removeBOMTable(id: UUID) -> Bool {
+        let result = document.removeDrawingBOMTable(id: id)
+        if result {
+            isDocumentModified = true
+        }
+        return result
+    }
+
+    @discardableResult
+    public func addBalloonAnnotation(
+        viewId: UUID? = nil,
+        anchorPoint: SIMD2<Double>,
+        balloonCenter: SIMD2<Double>,
+        shape: BalloonShape = .circular,
+        itemNumber: String? = nil,
+        quantity: Int? = nil,
+        componentInstanceId: UUID? = nil
+    ) -> DrawingAnnotation? {
+        guard let sheet = document.activeSheet else { return nil }
+        let count = sheet.annotations.filter({ $0.kind == .balloon }).count + 1
+
+        var resolvedItemNumber = itemNumber
+        var resolvedQuantity = quantity ?? 1
+        var resolvedCompName: String? = nil
+
+        // If componentInstanceId is provided, try to resolve from active document's BOM
+        if let compId = componentInstanceId {
+            let tableStructure = sheet.bomTables.first?.structure ?? .flat
+            let bom = BillOfMaterials.generate(from: document, structure: tableStructure)
+            if let comp = document.componentInstances.first(where: { $0.id == compId }) {
+                resolvedCompName = comp.name
+                let compPN = comp.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? comp.metadata.property(forKey: CustomPropertyKey.partNumber)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? ""
+                if let matchingItem = bom.items.first(where: { item in
+                    if !compPN.isEmpty && item.partNumber == compPN { return true }
+                    return item.name == comp.name
+                }) {
+                    if resolvedItemNumber == nil {
+                        resolvedItemNumber = matchingItem.itemNumber
+                    }
+                    if quantity == nil {
+                        resolvedQuantity = matchingItem.quantity
+                    }
+                } else if resolvedItemNumber == nil {
+                    if let idx = document.componentInstances.firstIndex(where: { $0.id == compId }) {
+                        resolvedItemNumber = "\(idx + 1)"
+                    }
+                }
+            }
+        }
+
+        let finalItemNumber = resolvedItemNumber ?? "\(count)"
+
+        let balloonData = BalloonAnnotationData(
+            anchorPointMM: anchorPoint,
+            balloonCenterMM: balloonCenter,
+            shape: shape,
+            itemNumber: finalItemNumber,
+            quantity: resolvedQuantity,
+            componentInstanceId: componentInstanceId,
+            componentName: resolvedCompName
+        )
+        let annotation = DrawingAnnotation(
+            name: "Balloon \(count)",
+            viewId: viewId,
+            data: .balloon(balloonData)
+        )
+        guard let added = document.addDrawingAnnotation(annotation, to: sheet.id) else { return nil }
+        isDocumentModified = true
+        return added
+    }
+
+    @discardableResult
+    public func autoBalloon(viewId: UUID) -> [DrawingAnnotation] {
+        guard let sheet = document.activeSheet,
+              let view = sheet.views.first(where: { $0.id == viewId }) else {
+            return []
+        }
+
+        let tableStructure = sheet.bomTables.first?.structure ?? .flat
+        let bom = BillOfMaterials.generate(from: document, structure: tableStructure)
+        guard !bom.items.isEmpty else { return [] }
+
+        var createdBalloons: [DrawingAnnotation] = []
+        let totalCount = bom.items.count
+
+        for (index, item) in bom.items.enumerated() {
+            let comp = document.componentInstances.first(where: { c in
+                let compPN = c.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? c.metadata.property(forKey: CustomPropertyKey.partNumber)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? ""
+                if !compPN.isEmpty && item.partNumber == compPN { return true }
+                return c.name == item.name
+            })
+
+            let anchorMM: SIMD2<Double>
+            if let comp = comp {
+                let compPos = SIMD3<Double>(Double(comp.transform.position.x), Double(comp.transform.position.y), Double(comp.transform.position.z))
+                let proj = view.project(point3D: compPos)
+                anchorMM = (abs(proj.x) < 1e-6 && abs(proj.y) < 1e-6)
+                    ? SIMD2<Double>(Double(index - totalCount / 2) * 12.0, 0.0)
+                    : proj
+            } else {
+                anchorMM = SIMD2<Double>(Double(index - totalCount / 2) * 12.0, 0.0)
+            }
+
+            let angle = (Double(index) / Double(max(1, totalCount))) * 2.0 * .pi - (.pi / 2.0)
+            let radiusMM = 35.0
+            let balloonCenterMM = anchorMM + SIMD2<Double>(cos(angle) * radiusMM, sin(angle) * radiusMM)
+
+            if let balloon = addBalloonAnnotation(
+                viewId: view.id,
+                anchorPoint: anchorMM,
+                balloonCenter: balloonCenterMM,
+                shape: .circular,
+                itemNumber: item.itemNumber,
+                quantity: item.quantity,
+                componentInstanceId: comp?.id
+            ) {
+                createdBalloons.append(balloon)
+            }
+        }
+
+        return createdBalloons
     }
 
     func recomputeDrawingViewHLR(viewId: UUID) {

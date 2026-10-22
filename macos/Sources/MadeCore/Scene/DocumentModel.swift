@@ -863,6 +863,16 @@ public final class DocumentModel {
         }
         return nil
     }
+    public private(set) var selectedDrawingBOMTableId: UUID? = nil
+    public var selectedDrawingBOMTable: DrawingBOMTable? {
+        guard let selectedDrawingBOMTableId else { return nil }
+        for sheet in sheets {
+            if let table = sheet.bomTables.first(where: { $0.id == selectedDrawingBOMTableId }) {
+                return table
+            }
+        }
+        return nil
+    }
     public private(set) var metadata: [String: String] = [:]
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
@@ -7911,6 +7921,9 @@ public final class DocumentModel {
         if let selectedAnn = selectedDrawingAnnotationId, removedSheet.annotations.contains(where: { $0.id == selectedAnn }) {
             selectedDrawingAnnotationId = nil
         }
+        if let selectedBOM = selectedDrawingBOMTableId, removedSheet.bomTables.contains(where: { $0.id == selectedBOM }) {
+            selectedDrawingBOMTableId = nil
+        }
 
         if registerUndo {
             let effectiveActionName = actionName ?? "Delete Sheet"
@@ -8375,7 +8388,140 @@ public final class DocumentModel {
         return true
     }
 
-    // MARK: - Drawing Associativity & Synchronization (BL-DRW-07, #214)
+    public func setSelectedDrawingBOMTableId(_ id: UUID?) {
+        selectedDrawingBOMTableId = id
+    }
+
+    @discardableResult
+    public func addDrawingBOMTable(
+        _ table: DrawingBOMTable,
+        to sheetId: UUID? = nil,
+        index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> DrawingBOMTable? {
+        let targetSheetId = sheetId ?? activeSheetId ?? sheets.first?.id
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            targetSheetId != nil ? sheet.id == targetSheetId : true
+        }) else {
+            return nil
+        }
+        let sheetUUID = sheets[sIdx].id
+        let insertionIndex = min(max(0, index ?? sheets[sIdx].bomTables.count), sheets[sIdx].bomTables.count)
+        sheets[sIdx].bomTables.insert(table, at: insertionIndex)
+        selectedDrawingBOMTableId = table.id
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add BOM Table"
+            let tableId = table.id
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeDrawingBOMTable(id: tableId, from: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return table
+    }
+
+    @discardableResult
+    public func removeDrawingBOMTable(
+        id tableId: UUID,
+        from sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            (targetSheetId != nil ? sheet.id == targetSheetId : true) && sheet.bomTables.contains(where: { $0.id == tableId })
+        }) else {
+            return false
+        }
+        guard let tIdx = sheets[sIdx].bomTables.firstIndex(where: { $0.id == tableId }) else {
+            return false
+        }
+        let sheetUUID = sheets[sIdx].id
+        let removedTable = sheets[sIdx].bomTables.remove(at: tIdx)
+
+        let oldSelectedId = selectedDrawingBOMTableId
+        if selectedDrawingBOMTableId == tableId {
+            selectedDrawingBOMTableId = nil
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Delete BOM Table"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    if let targetSheetIdx = target.sheets.firstIndex(where: { $0.id == sheetUUID }) {
+                        let insertIdx = min(tIdx, target.sheets[targetSheetIdx].bomTables.count)
+                        target.sheets[targetSheetIdx].bomTables.insert(removedTable, at: insertIdx)
+                        target.selectedDrawingBOMTableId = oldSelectedId ?? removedTable.id
+                        target.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                            MainActor.assumeIsolated {
+                                _ = redoTarget.removeDrawingBOMTable(id: removedTable.id, from: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                                redoTarget.undoManager?.setActionName(effectiveActionName)
+                            }
+                        }
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    @discardableResult
+    public func updateDrawingBOMTable(
+        _ table: DrawingBOMTable,
+        on sheetId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Bool {
+        let targetSheetId = sheetId ?? activeSheetId
+        guard let sIdx = sheets.firstIndex(where: { sheet in
+            (targetSheetId != nil ? sheet.id == targetSheetId : true) && sheet.bomTables.contains(where: { $0.id == table.id })
+        }) else {
+            return false
+        }
+        guard let tIdx = sheets[sIdx].bomTables.firstIndex(where: { $0.id == table.id }) else {
+            return false
+        }
+        let sheetUUID = sheets[sIdx].id
+        let oldTable = sheets[sIdx].bomTables[tIdx]
+        guard oldTable != table else { return true }
+        sheets[sIdx].bomTables[tIdx] = table
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update BOM Table"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateDrawingBOMTable(oldTable, on: sheetUUID, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return true
+    }
+
+    // MARK: - Drawing Associativity & Synchronization (BL-DRW-07, #214, BL-DRW-08, #215)
+
+    private func findComponentInstance(id: UUID, in instances: [ComponentInstance]) -> ComponentInstance? {
+        for instance in instances {
+            if instance.id == id { return instance }
+            if instance.isSubassembly {
+                if let found = findComponentInstance(id: id, in: instance.childInstances) {
+                    return found
+                }
+            }
+        }
+        return nil
+    }
 
     /// Recomputes hidden line removal projections for drawing views and updates parametric annotation
     /// associativity across all drawing sheets when 3D model geometry or features change.
@@ -8429,6 +8575,38 @@ public final class DocumentModel {
                     guard let attachedView = sheets[sIdx].views.first(where: { $0.id == viewId }) else {
                         sheets[sIdx].annotations[aIdx].isDangling = true
                         continue
+                    }
+
+                    // Balloon annotation associativity check
+                    if case .balloon(var balloonData) = annotation.data {
+                        if let compId = balloonData.componentInstanceId {
+                            if let comp = self.findComponentInstance(id: compId, in: self.componentInstances) {
+                                if !comp.isVisible || comp.metadata["isSuppressed"] == "true" {
+                                    sheets[sIdx].annotations[aIdx].isDangling = true
+                                } else {
+                                    sheets[sIdx].annotations[aIdx].isDangling = false
+                                    let tableStructure = sheets[sIdx].bomTables.first?.structure ?? .flat
+                                    let bom = BillOfMaterials.generate(from: self, structure: tableStructure)
+                                    let compPN = comp.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        ?? comp.metadata.property(forKey: CustomPropertyKey.partNumber)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        ?? ""
+                                    if let matchingItem = bom.items.first(where: { item in
+                                        if !compPN.isEmpty && item.partNumber == compPN {
+                                            return true
+                                        }
+                                        return item.name == comp.name
+                                    }) {
+                                        balloonData.itemNumber = matchingItem.itemNumber
+                                        balloonData.quantity = matchingItem.quantity
+                                        balloonData.componentName = comp.name
+                                        sheets[sIdx].annotations[aIdx].data = .balloon(balloonData)
+                                    }
+                                }
+                            } else {
+                                sheets[sIdx].annotations[aIdx].isDangling = true
+                            }
+                            continue
+                        }
                     }
 
                     let featureRefId = annotation.sourceFeatureId ?? annotation.attachment?.featureId ?? annotation.attachment?.topologicalReference?.sourceFeatureId
@@ -8492,6 +8670,37 @@ public final class DocumentModel {
                     }
                 } else {
                     // Sheet-level annotation
+                    if case .balloon(var balloonData) = annotation.data {
+                        if let compId = balloonData.componentInstanceId {
+                            if let comp = self.findComponentInstance(id: compId, in: self.componentInstances) {
+                                if !comp.isVisible || comp.metadata["isSuppressed"] == "true" {
+                                    sheets[sIdx].annotations[aIdx].isDangling = true
+                                } else {
+                                    sheets[sIdx].annotations[aIdx].isDangling = false
+                                    let tableStructure = sheets[sIdx].bomTables.first?.structure ?? .flat
+                                    let bom = BillOfMaterials.generate(from: self, structure: tableStructure)
+                                    let compPN = comp.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        ?? comp.metadata.property(forKey: CustomPropertyKey.partNumber)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        ?? ""
+                                    if let matchingItem = bom.items.first(where: { item in
+                                        if !compPN.isEmpty && item.partNumber == compPN {
+                                            return true
+                                        }
+                                        return item.name == comp.name
+                                    }) {
+                                        balloonData.itemNumber = matchingItem.itemNumber
+                                        balloonData.quantity = matchingItem.quantity
+                                        balloonData.componentName = comp.name
+                                        sheets[sIdx].annotations[aIdx].data = .balloon(balloonData)
+                                    }
+                                }
+                            } else {
+                                sheets[sIdx].annotations[aIdx].isDangling = true
+                            }
+                            continue
+                        }
+                    }
+
                     let featureRefId = annotation.sourceFeatureId ?? annotation.attachment?.featureId ?? annotation.attachment?.topologicalReference?.sourceFeatureId
                     if let fId = featureRefId {
                         guard let feat = features.first(where: { $0.id == fId }) else {

@@ -484,4 +484,192 @@ import simd
         #expect(hasDim)
         #expect(hasNote)
     }
+
+    @Test func testBalloonAnnotationDataFormattingAndShapes() {
+        var balloon = BalloonAnnotationData(
+            anchorPointMM: SIMD2(10.0, 10.0),
+            balloonCenterMM: SIMD2(30.0, 30.0),
+            sizeMM: 12.0,
+            shape: .circular,
+            itemNumber: "5",
+            quantity: 3,
+            showQuantity: true
+        )
+
+        #expect(balloon.formattedText == "5")
+        #expect(balloon.formattedQuantityText == "3")
+        #expect(balloon.shape == .circular)
+        #expect(balloon.sizeMM == 12.0)
+
+        // Text override
+        balloon.textOverride = "CUSTOM-ITEM"
+        #expect(balloon.formattedText == "CUSTOM-ITEM")
+
+        // Shape options
+        balloon.shape = .splitCircular
+        #expect(balloon.shape.displayName == "Split Circular")
+
+        balloon.shape = .box
+        #expect(balloon.shape.displayName == "Box")
+
+        balloon.shape = .hexagon
+        #expect(balloon.shape.displayName == "Hexagon")
+
+        balloon.shape = .none
+        #expect(balloon.shape.displayName == "None (Text Only)")
+
+        // Contact point calculation
+        let contact = balloon.boundaryContactPointMM()
+        let radius = balloon.sizeMM * 0.5
+        let dist = hypot(contact.x - balloon.balloonCenterMM.x, contact.y - balloon.balloonCenterMM.y)
+        #expect(abs(dist - radius) < 1e-4)
+    }
+
+    @Test func testBalloonDegenerateLeaderClamping() {
+        // Coincident center and anchor points
+        let coincident = BalloonAnnotationData(
+            anchorPointMM: SIMD2(40.0, 40.0),
+            balloonCenterMM: SIMD2(40.0, 40.0),
+            sizeMM: 10.0
+        )
+
+        let contact = coincident.boundaryContactPointMM()
+        #expect(!contact.x.isNaN && !contact.x.isInfinite)
+        #expect(!contact.y.isNaN && !contact.y.isInfinite)
+
+        let dist = hypot(contact.x - coincident.balloonCenterMM.x, contact.y - coincident.balloonCenterMM.y)
+        #expect(dist >= 2.5)
+    }
+
+    @Test func testLegacyAnnotationDecodingCompatibility() throws {
+        let legacyJson = """
+        {
+            "id": "\(UUID().uuidString)",
+            "name": "General Note",
+            "data": {
+                "note": {
+                    "_0": {
+                        "positionMM": [10.0, 20.0],
+                        "text": "DO NOT SCALE DRAWING",
+                        "fontSizePt": 9.0,
+                        "isBold": false,
+                        "hasBorder": false
+                    }
+                }
+            },
+            "isVisible": true,
+            "customProperties": {},
+            "isDangling": false
+        }
+        """
+
+        let data = Data(legacyJson.utf8)
+        let decoded = try JSONDecoder().decode(DrawingAnnotation.self, from: data)
+
+        #expect(decoded.name == "General Note")
+        #expect(decoded.kind == .note)
+        #expect(decoded.isDangling == false)
+    }
+
+    @Test func testBalloonAnnotationCodableRoundTrip() throws {
+        let compId = UUID()
+        let balloonData = BalloonAnnotationData(
+            anchorPointMM: SIMD2(25.0, 35.0),
+            balloonCenterMM: SIMD2(50.0, 60.0),
+            sizeMM: 11.0,
+            shape: .splitCircular,
+            itemNumber: "7",
+            quantity: 2,
+            showQuantity: true,
+            textOverride: "7A",
+            componentInstanceId: compId,
+            componentName: "Motor Mount"
+        )
+        let annotation = DrawingAnnotation(
+            name: "Balloon Callout 1",
+            data: .balloon(balloonData)
+        )
+
+        let encoded = try JSONEncoder().encode(annotation)
+        let decoded = try JSONDecoder().decode(DrawingAnnotation.self, from: encoded)
+
+        #expect(decoded.name == "Balloon Callout 1")
+        #expect(decoded.kind == .balloon)
+
+        if case .balloon(let d) = decoded.data {
+            #expect(d.anchorPointMM == SIMD2(25.0, 35.0))
+            #expect(d.balloonCenterMM == SIMD2(50.0, 60.0))
+            #expect(d.sizeMM == 11.0)
+            #expect(d.shape == .splitCircular)
+            #expect(d.itemNumber == "7")
+            #expect(d.quantity == 2)
+            #expect(d.showQuantity == true)
+            #expect(d.textOverride == "7A")
+            #expect(d.componentInstanceId == compId)
+            #expect(d.componentName == "Motor Mount")
+        } else {
+            Issue.record("Expected .balloon data")
+        }
+    }
+
+    @Test func testBalloonResolvesItemNumberWithoutPlacedTable() {
+        let comp1 = ComponentInstance(
+            name: "Baseplate",
+            reference: .internalPart(name: "Baseplate", bodyId: nil),
+            metadata: [CustomPropertyKey.partNumber: "BP-001"]
+        )
+        let comp2 = ComponentInstance(
+            name: "Shaft",
+            reference: .internalPart(name: "Shaft", bodyId: nil),
+            metadata: [CustomPropertyKey.partNumber: "SH-002"]
+        )
+
+        let doc = DocumentModel(documentType: .assembly, componentInstances: [comp1, comp2], sheets: [DrawingSheet()])
+        #expect(doc.sheets.first?.bomTables.isEmpty == true)
+
+        let bom = BillOfMaterials.generate(from: doc, structure: .flat)
+        #expect(bom.items.count == 2)
+
+        let baseplateItem = bom.items.first(where: { $0.partNumber == "BP-001" })
+        #expect(baseplateItem?.itemNumber == "1")
+
+        let shaftItem = bom.items.first(where: { $0.partNumber == "SH-002" })
+        #expect(shaftItem?.itemNumber == "2")
+    }
+
+    @Test func testBalloonAssociativityDanglingStateOnComponentRemoval() {
+        let compId = UUID()
+        let comp = ComponentInstance(
+            id: compId,
+            name: "Gear",
+            reference: .internalPart(name: "Gear", bodyId: nil),
+            metadata: [CustomPropertyKey.partNumber: "GR-001"]
+        )
+
+        var sheet = DrawingSheet(name: "Sheet 1")
+        let balloonData = BalloonAnnotationData(
+            anchorPointMM: SIMD2(10.0, 10.0),
+            balloonCenterMM: SIMD2(30.0, 30.0),
+            itemNumber: "1",
+            componentInstanceId: compId,
+            componentName: "Gear"
+        )
+        let annotation = DrawingAnnotation(
+            name: "Gear Balloon",
+            data: .balloon(balloonData),
+            isDangling: false
+        )
+        sheet.annotations = [annotation]
+
+        let doc = DocumentModel(documentType: .assembly, componentInstances: [comp], sheets: [sheet])
+        #expect(doc.sheets.first?.annotations.first?.isDangling == false)
+
+        // 1. Remove component instance -> triggers associativity update
+        _ = doc.removeComponentInstance(id: compId)
+        #expect(doc.sheets.first?.annotations.first?.isDangling == true)
+
+        // 2. Undo removal -> component restored, recovers dangling state
+        doc.undoManager?.undo()
+        #expect(doc.sheets.first?.annotations.first?.isDangling == false)
+    }
 }
