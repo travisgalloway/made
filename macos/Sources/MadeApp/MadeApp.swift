@@ -87,6 +87,7 @@ struct MadeApp: App {
             FileMenuCommands(workspace: workspace)
             EditMenuCommands(workspace: workspace)
             SolidMenuCommands(workspace: workspace)
+            AssemblyMenuCommands(workspace: workspace)
             ViewNavigationCommands(workspace: workspace)
             ToolsMenuCommands(workspace: workspace)
             CommandGroup(after: .appInfo) {

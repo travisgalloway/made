@@ -107,4 +107,134 @@ import simd
         #expect(spur != nil)
         #expect(spur?.transform.position == SIMD3<Float>(40, 50, 60))
     }
+
+    @Test func testBeginAndCancelPendingPlacement() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+        let initialModified = ws.isDocumentModified
+
+        ws.beginInsertComponent(
+            name: "Gear",
+            reference: .externalDocument(url: URL(fileURLWithPath: "/models/gear.step"))
+        )
+
+        #expect(ws.pendingComponentPlacement != nil)
+        #expect(ws.pendingComponentPlacement?.name == "Gear")
+        #expect(ws.isDocumentModified == initialModified)
+
+        ws.cancelPendingPlacement()
+
+        #expect(ws.pendingComponentPlacement == nil)
+        #expect(ws.document.componentInstances.isEmpty)
+        #expect(ws.isDocumentModified == initialModified)
+        #expect(!ws.canUndo)
+    }
+
+    @Test func testPlacePendingComponentAtPositionAndUndoRedo() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        ws.beginInsertComponent(
+            name: "Mount",
+            reference: .internalPart(name: "MountBody", bodyId: SolidId("part-1"))
+        )
+
+        let placed = ws.placePendingComponent(at: SIMD3<Float>(15, 25, 0))
+
+        #expect(placed != nil)
+        #expect(ws.pendingComponentPlacement == nil)
+        #expect(ws.document.componentInstances.count == 1)
+        #expect(ws.document.componentInstances.first?.name == "Mount")
+        #expect(ws.document.componentInstances.first?.transform.position == SIMD3<Float>(15, 25, 0))
+        #expect(ws.selectedId == placed?.solidId)
+        #expect(ws.canUndo)
+
+        ws.undo()
+        #expect(ws.document.componentInstances.isEmpty)
+
+        ws.redo()
+        #expect(ws.document.componentInstances.count == 1)
+        #expect(ws.document.componentInstances.first?.transform.position == SIMD3<Float>(15, 25, 0))
+    }
+
+    @Test func testPlacePendingComponentWithoutPendingReturnsNil() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let placed = ws.placePendingComponent(at: SIMD3<Float>(10, 20, 30))
+        #expect(placed == nil)
+        #expect(ws.document.componentInstances.isEmpty)
+    }
+
+    @Test func testPromptInsertComponentFromDocument_EmptyBodies() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+        #expect(ws.document.bodies.isEmpty)
+
+        ws.promptInsertComponentFromDocument()
+
+        #expect(ws.pendingComponentPlacement == nil)
+        #expect(!ws.isShowingBodyPickerForInsertion)
+    }
+
+    @Test func testPromptInsertComponentFromDocument_SingleBody() {
+        let ws = WorkspaceModel()
+        ws.document.reset(with: [
+            Feature.makeBox(solidId: SolidId("single-box"), params: BoxParams(width: 20, depth: 20, height: 20))
+        ])
+        #expect(ws.document.bodies.count == 1)
+
+        let body = ws.document.bodies[0]
+        ws.promptInsertComponentFromDocument()
+
+        #expect(ws.pendingComponentPlacement != nil)
+        #expect(ws.pendingComponentPlacement?.name == body.name)
+        #expect(ws.pendingComponentPlacement?.reference == .internalPart(name: body.name, bodyId: body.id))
+        #expect(!ws.isShowingBodyPickerForInsertion)
+    }
+
+    @Test func testPromptInsertComponentFromDocument_MultipleBodies() {
+        let ws = WorkspaceModel()
+        ws.document.reset(with: [
+            Feature.makeBox(solidId: SolidId("box-1"), params: BoxParams(width: 20, depth: 20, height: 20)),
+            Feature.makeCylinder(solidId: SolidId("cyl-1"), params: CylinderParams(radius: 10, height: 30))
+        ])
+        #expect(ws.document.bodies.count == 2)
+
+        ws.promptInsertComponentFromDocument()
+
+        #expect(ws.isShowingBodyPickerForInsertion)
+        #expect(ws.pendingComponentPlacement == nil)
+
+        let targetBody = ws.document.bodies[1]
+        ws.insertComponentFromInternalBody(targetBody)
+
+        #expect(!ws.isShowingBodyPickerForInsertion)
+        #expect(ws.pendingComponentPlacement != nil)
+        #expect(ws.pendingComponentPlacement?.name == targetBody.name)
+        #expect(ws.pendingComponentPlacement?.reference == .internalPart(name: targetBody.name, bodyId: targetBody.id))
+    }
+
+    @Test func testInsertMultipleInstancesOfSamePartPreservesUniqueIDsAndTransforms() {
+        let ws = WorkspaceModel()
+        ws.newAssemblyDocument()
+
+        let ref = ComponentReference.internalPart(name: "Bracket", bodyId: SolidId("bracket-part"))
+
+        ws.beginInsertComponent(name: "Bracket 1", reference: ref)
+        let inst1 = ws.placePendingComponent(at: SIMD3<Float>(0, 0, 0))
+
+        ws.beginInsertComponent(name: "Bracket 2", reference: ref)
+        let inst2 = ws.placePendingComponent(at: SIMD3<Float>(50, 100, 0))
+
+        #expect(inst1 != nil)
+        #expect(inst2 != nil)
+        guard let inst1, let inst2 else { return }
+
+        #expect(inst1.id != inst2.id)
+        #expect(inst1.solidId != inst2.solidId)
+        #expect(inst1.transform.position == SIMD3<Float>(0, 0, 0))
+        #expect(inst2.transform.position == SIMD3<Float>(50, 100, 0))
+        #expect(ws.document.componentInstances.count == 2)
+    }
 }

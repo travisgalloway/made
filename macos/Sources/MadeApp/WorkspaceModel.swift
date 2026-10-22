@@ -130,6 +130,10 @@ final class WorkspaceModel {
     var selectedSketchRegionId: UUID? = nil
     /// Detected closed planar regions for the active or selected sketch (BL-SKT-12).
     var detectedSketchRegions: [SketchRegion] = []
+    /// Current component pending interactive viewport placement (BL-ASM-02).
+    public var pendingComponentPlacement: PendingComponentPlacement? = nil
+    /// Whether the body picker sheet for document component insertion is displayed (BL-ASM-02).
+    public var isShowingBodyPickerForInsertion: Bool = false
     /// Duration of the most recent solid kernel recomputation (BL-WSP-10).
     private(set) var lastRegenerationDuration: Duration? = nil
 
@@ -4002,6 +4006,67 @@ final class WorkspaceModel {
         copy.name = name
         _ = document.updateComponentInstance(copy)
         markDocumentModified()
+    }
+
+    // MARK: - Component Insertion (BL-ASM-02)
+
+    public func beginInsertComponent(name: String, reference: ComponentReference, material: MaterialAttributes? = nil) {
+        pendingComponentPlacement = PendingComponentPlacement(name: name, reference: reference, material: material)
+        log(.info, "Assembly", "Began pending placement for '\(name)'")
+    }
+
+    @discardableResult
+    public func placePendingComponent(at position: SIMD3<Float>) -> ComponentInstance? {
+        guard let pending = pendingComponentPlacement else { return nil }
+        let instance = ComponentInstance(
+            name: pending.name,
+            reference: pending.reference,
+            transform: Transform(position: position),
+            material: pending.material ?? document.settings.defaultMaterial
+        )
+        addComponentInstance(instance)
+        pendingComponentPlacement = nil
+        return instance
+    }
+
+    public func cancelPendingPlacement() {
+        if let pending = pendingComponentPlacement {
+            log(.info, "Assembly", "Cancelled pending placement for '\(pending.name)'")
+            pendingComponentPlacement = nil
+        }
+    }
+
+    public func promptInsertComponentFromFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Insert Component from File"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [.madeDocument, .package, .folder, .data]
+        if let t1 = UTType(filenameExtension: "step") { contentTypes.append(t1) }
+        if let t2 = UTType(filenameExtension: "stp") { contentTypes.append(t2) }
+        panel.allowedContentTypes = contentTypes
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let name = url.deletingPathExtension().lastPathComponent
+        beginInsertComponent(name: name, reference: .externalDocument(url: url))
+    }
+
+    public func promptInsertComponentFromDocument() {
+        if document.bodies.isEmpty {
+            log(.warning, "Assembly", "Cannot insert component from document: no bodies available")
+            return
+        }
+        if document.bodies.count == 1 {
+            let body = document.bodies[0]
+            beginInsertComponent(name: body.name, reference: .internalPart(name: body.name, bodyId: body.id))
+        } else {
+            isShowingBodyPickerForInsertion = true
+        }
+    }
+
+    public func insertComponentFromInternalBody(_ body: Body) {
+        beginInsertComponent(name: body.name, reference: .internalPart(name: body.name, bodyId: body.id))
+        isShowingBodyPickerForInsertion = false
     }
 
     // MARK: - Document Settings (BL-FND-11)

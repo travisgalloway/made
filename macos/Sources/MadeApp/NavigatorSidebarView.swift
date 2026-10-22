@@ -18,11 +18,28 @@ struct NavigatorSidebarView: View {
             ScrollViewReader { proxy in
                 List(selection: $workspace.selectedIds) {
                     if workspace.document.documentType == .assembly || !workspace.document.componentInstances.isEmpty {
-                        Section("Components") {
+                        Section {
                             ForEach(filteredComponents) { component in
                                 NavigatorComponentRow(component: component)
                                     .tag(component.solidId)
                                     .id(component.solidId)
+                            }
+                        } header: {
+                            HStack {
+                                Text("Components")
+                                Spacer()
+                                Menu {
+                                    Button("Insert from File…") {
+                                        workspace.promptInsertComponentFromFile()
+                                    }
+                                    Button("Insert from Document…") {
+                                        workspace.promptInsertComponentFromDocument()
+                                    }
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .frame(width: 16, height: 16)
                             }
                         }
                     }
@@ -93,7 +110,18 @@ struct NavigatorSidebarView: View {
                         } description: {
                             Text(workspace.document.documentType == .assembly ? "Add components to begin assembling." : "Add a 3D solid primitive or open a part script to begin modeling.")
                         } actions: {
-                            if workspace.document.documentType != .assembly {
+                            if workspace.document.documentType == .assembly {
+                                VStack(spacing: 8) {
+                                    Button("Insert from File…", systemImage: "doc.badge.plus") {
+                                        workspace.promptInsertComponentFromFile()
+                                    }
+                                    Button("Insert from Document…", systemImage: "doc.on.doc") {
+                                        workspace.promptInsertComponentFromDocument()
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            } else {
                                 VStack(spacing: 8) {
                                     Button("Add Box", systemImage: "shippingbox") {
                                         workspace.addDefaultBox()
