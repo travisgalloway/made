@@ -476,4 +476,79 @@ import simd
         #expect(matedDOF.instanceDOF[base.id] == 0)
         #expect(matedDOF.instanceDOF[part.id] == 3)
     }
+
+    // MARK: - Interactive Drag Lifecycle and Undo Coalescing (BL-ASM-06)
+
+    @Test func testInteractiveAssemblyDragUndoCoalescing() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let instance = ComponentInstance(
+            name: "FreePart",
+            reference: .internalPart(name: "Part"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        _ = doc.addComponentInstance(instance)
+        undoManager.removeAllActions()
+
+        doc.beginInteractiveAssemblyDrag(instanceId: instance.id)
+        #expect(doc.activeAssemblyDragInitialTransforms != nil)
+
+        // Multiple solve passes during drag gesture
+        _ = doc.solveAssemblyConstraints(
+            dragTarget: AssemblyDragTarget(instanceId: instance.id, targetPosition: SIMD3<Float>(10, 0, 0)),
+            registerUndo: false
+        )
+        _ = doc.solveAssemblyConstraints(
+            dragTarget: AssemblyDragTarget(instanceId: instance.id, targetPosition: SIMD3<Float>(20, 0, 0)),
+            registerUndo: false
+        )
+        _ = doc.solveAssemblyConstraints(
+            dragTarget: AssemblyDragTarget(instanceId: instance.id, targetPosition: SIMD3<Float>(30, 0, 0)),
+            registerUndo: false
+        )
+
+        #expect(doc.componentInstances.first?.transform.position == SIMD3<Float>(30, 0, 0))
+        // No per-frame undo records were emitted during the drag
+        #expect(!undoManager.canUndo)
+
+        // End drag commits 1 coalesced undo record
+        doc.endInteractiveAssemblyDrag(instanceId: instance.id)
+        #expect(doc.activeAssemblyDragInitialTransforms == nil)
+        #expect(undoManager.canUndo)
+
+        undoManager.undo()
+        #expect(doc.componentInstances.first?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        undoManager.redo()
+        #expect(doc.componentInstances.first?.transform.position == SIMD3<Float>(30, 0, 0))
+    }
+
+    @Test func testCancelInteractiveAssemblyDragRestoresInitialTransforms() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let instance = ComponentInstance(
+            name: "FreePart",
+            reference: .internalPart(name: "Part"),
+            transform: Transform(position: SIMD3<Float>(5, 10, 15))
+        )
+        _ = doc.addComponentInstance(instance)
+        undoManager.removeAllActions()
+
+        doc.beginInteractiveAssemblyDrag(instanceId: instance.id)
+        _ = doc.solveAssemblyConstraints(
+            dragTarget: AssemblyDragTarget(instanceId: instance.id, targetPosition: SIMD3<Float>(50, 60, 70)),
+            registerUndo: false
+        )
+        #expect(doc.componentInstances.first?.transform.position == SIMD3<Float>(50, 60, 70))
+
+        // Canceling drag reverts back to initial position without undo pollution
+        doc.cancelInteractiveAssemblyDrag()
+        #expect(doc.activeAssemblyDragInitialTransforms == nil)
+        #expect(doc.componentInstances.first?.transform.position == SIMD3<Float>(5, 10, 15))
+        #expect(!undoManager.canUndo)
+    }
 }

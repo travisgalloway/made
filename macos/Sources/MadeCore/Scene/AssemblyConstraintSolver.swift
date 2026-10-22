@@ -15,7 +15,7 @@ public struct AssemblyConstraintSolver: Sendable {
     // MARK: - Public API
 
     /// Solves the given 3D assembly constraint system, updating transforms of free component instances.
-    public static func solve(system: AssemblyConstraintSystem) -> AssemblySolverResult {
+    public static func solve(system: AssemblyConstraintSystem, dragTarget: AssemblyDragTarget? = nil) -> AssemblySolverResult {
         let activeConstraints = system.constraints.filter { !$0.isSuppressed }
         let freeInstances = system.instances.filter { !$0.isGrounded }
         let groundedInstances = system.instances.filter { $0.isGrounded }
@@ -24,6 +24,14 @@ public struct AssemblyConstraintSolver: Sendable {
         var currentTransforms: [UUID: Transform] = [:]
         for inst in system.instances {
             currentTransforms[inst.id] = inst.transform
+        }
+
+        // If drag target targets a grounded instance, ignore it completely to guarantee grounded immutability
+        var effectiveDragTarget: AssemblyDragTarget? = nil
+        if let drag = dragTarget {
+            if let inst = system.instances.first(where: { $0.id == drag.instanceId }), !inst.isGrounded {
+                effectiveDragTarget = drag
+            }
         }
 
         // If there are no free instances, just evaluate existing residuals
@@ -56,6 +64,18 @@ public struct AssemblyConstraintSolver: Sendable {
 
         // If there are no active constraints, each free body has 6 DOF
         if activeConstraints.isEmpty {
+            var solvedTransforms = currentTransforms
+            if let drag = effectiveDragTarget, let freeIdx = freeInstances.firstIndex(where: { $0.id == drag.instanceId }) {
+                var targetTransform = currentTransforms[drag.instanceId] ?? freeInstances[freeIdx].transform
+                if let pos = drag.targetPosition {
+                    targetTransform.position = pos
+                }
+                if let rot = drag.targetRotation {
+                    targetTransform.rotation = rot
+                }
+                solvedTransforms[drag.instanceId] = targetTransform
+            }
+
             let totalDOF = freeInstances.count * 6
             var instDOF: [UUID: Int] = [:]
             for inst in freeInstances {
@@ -66,7 +86,7 @@ public struct AssemblyConstraintSolver: Sendable {
             }
             return AssemblySolverResult(
                 status: .converged,
-                solvedTransforms: currentTransforms,
+                solvedTransforms: solvedTransforms,
                 totalDOF: totalDOF,
                 instanceDOF: instDOF
             )
@@ -80,7 +100,8 @@ public struct AssemblyConstraintSolver: Sendable {
             freeInstances: freeInstances,
             groundedInstances: groundedInstances,
             constraints: activeConstraints,
-            initialX: initialX
+            initialX: initialX,
+            dragTarget: effectiveDragTarget
         )
 
         // Unpack final solved transforms
@@ -189,11 +210,20 @@ public struct AssemblyConstraintSolver: Sendable {
         var maxResidual: Double
     }
 
+    private static func unwrapAngle(_ target: Double, relativeTo initial: Double) -> Double {
+        let twoPi = 2.0 * Double.pi
+        var diff = (target - initial).truncatingRemainder(dividingBy: twoPi)
+        if diff > Double.pi { diff -= twoPi }
+        if diff < -Double.pi { diff += twoPi }
+        return initial + diff
+    }
+
     private static func solveInternal(
         freeInstances: [ComponentInstance],
         groundedInstances: [ComponentInstance],
         constraints: [AssemblyConstraint],
-        initialX: [Double]
+        initialX: [Double],
+        dragTarget: AssemblyDragTarget? = nil
     ) -> InternalSolveOutcome {
         let n = initialX.count
         var X = initialX
@@ -212,16 +242,66 @@ public struct AssemblyConstraintSolver: Sendable {
             return dict
         }
 
+        var dragTargets: [Int: Double] = [:]
+        if let drag = dragTarget, let freeIdx = freeInstances.firstIndex(where: { $0.id == drag.instanceId }) {
+            let base = freeIdx * 6
+            if let pos = drag.targetPosition {
+                dragTargets[base + 0] = Double(pos.x)
+                dragTargets[base + 1] = Double(pos.y)
+                dragTargets[base + 2] = Double(pos.z)
+            }
+            if let rot = drag.targetRotation {
+                let eulerDeg = rot.eulerAnglesDegrees
+                let degToRad = Double.pi / 180.0
+                let targetAngles = [
+                    Double(eulerDeg.x) * degToRad,
+                    Double(eulerDeg.y) * degToRad,
+                    Double(eulerDeg.z) * degToRad
+                ]
+                for axis in 0..<3 {
+                    let unwrapped = unwrapAngle(targetAngles[axis], relativeTo: initialX[base + 3 + axis])
+                    dragTargets[base + 3 + axis] = unwrapped
+                }
+            }
+        }
+
+        let isDragging = !dragTargets.isEmpty
+        let wHard: Double = isDragging ? 1e4 : 1.0
+        let wHardSq: Double = wHard * wHard
+        let dragWeight = dragTarget?.weight ?? 1.0
+        let effectiveDragWeight = (dragWeight > 0) ? dragWeight : 1.0
+        let wDragSq: Double = isDragging ? (effectiveDragWeight * effectiveDragWeight) : 0.0
+        let minWeight: Double = isDragging ? 1e-8 : regularizerWeight
+
         func computeCost(residuals: [Double], currentX: [Double]) -> Double {
             var cost = 0.0
             for r in residuals {
-                cost += r * r
+                cost += wHardSq * (r * r)
             }
             for i in 0..<n {
                 let diff = currentX[i] - initialX[i]
-                cost += regularizerWeight * diff * diff
+                cost += minWeight * diff * diff
+                if let targetVal = dragTargets[i] {
+                    let dragDiff = currentX[i] - targetVal
+                    cost += wDragSq * dragDiff * dragDiff
+                }
             }
             return cost
+        }
+
+        let initialTransforms = transformsForState(initialX)
+        let initialResiduals = evaluateResiduals(constraints: constraints, currentTransforms: initialTransforms)
+        let initialMaxRes = initialResiduals.map { abs($0) }.max() ?? 0.0
+
+        if initialMaxRes < convergenceTolerance {
+            bestResidual = initialMaxRes
+            bestX = initialX
+            if !isDragging {
+                return InternalSolveOutcome(converged: true, finalX: initialX, maxResidual: initialMaxRes)
+            }
+        } else {
+            bestResidual = initialMaxRes
+            bestX = initialX
         }
 
         for _ in 0..<maxIterations {
@@ -230,13 +310,15 @@ public struct AssemblyConstraintSolver: Sendable {
             let maxRes = residuals.map { abs($0) }.max() ?? 0.0
             let currentCost = computeCost(residuals: residuals, currentX: X)
 
-            if maxRes < bestResidual {
+            if maxRes < convergenceTolerance {
                 bestResidual = maxRes
                 bestX = X
-            }
-
-            if maxRes < convergenceTolerance {
-                return InternalSolveOutcome(converged: true, finalX: X, maxResidual: maxRes)
+                if !isDragging {
+                    return InternalSolveOutcome(converged: true, finalX: X, maxResidual: maxRes)
+                }
+            } else if maxRes < bestResidual {
+                bestResidual = maxRes
+                bestX = X
             }
 
             // Numerical Jacobian J in R^{M x N}
@@ -252,7 +334,7 @@ public struct AssemblyConstraintSolver: Sendable {
                 return InternalSolveOutcome(converged: true, finalX: X, maxResidual: 0.0)
             }
 
-            // Normal equations: (J^T J + (lambda + regularizerWeight) I) * deltaX = -J^T F - regularizerWeight * (X - X0)
+            // Normal equations
             var A = Array(repeating: Array(repeating: 0.0, count: n), count: n)
             var b = Array(repeating: 0.0, count: n)
 
@@ -262,16 +344,20 @@ public struct AssemblyConstraintSolver: Sendable {
                     for k in 0..<m {
                         sum += J[k][i] * J[k][j]
                     }
-                    A[i][j] = sum
+                    A[i][j] = wHardSq * sum
                 }
-                A[i][i] += lambda + regularizerWeight
+                let dragDiag = (dragTargets[i] != nil) ? wDragSq : 0.0
+                A[i][i] += lambda + minWeight + dragDiag
 
                 var jtf = 0.0
                 for k in 0..<m {
                     jtf += J[k][i] * residuals[k]
                 }
-                var rhs = -jtf
-                rhs -= regularizerWeight * (X[i] - initialX[i])
+                var rhs = -wHardSq * jtf
+                rhs -= minWeight * (X[i] - initialX[i])
+                if let targetVal = dragTargets[i] {
+                    rhs -= wDragSq * (X[i] - targetVal)
+                }
                 b[i] = rhs
             }
 
@@ -280,6 +366,8 @@ public struct AssemblyConstraintSolver: Sendable {
                 lambda = min(1e8, lambda * 10.0)
                 continue
             }
+
+            let maxStep = deltaX.map { abs($0) }.max() ?? 0.0
 
             // Candidate state
             var testX = X
@@ -296,10 +384,24 @@ public struct AssemblyConstraintSolver: Sendable {
                 X = testX
                 lambda = max(1e-7, lambda / 10.0)
                 if testMaxRes < convergenceTolerance {
-                    return InternalSolveOutcome(converged: true, finalX: X, maxResidual: testMaxRes)
+                    bestResidual = testMaxRes
+                    bestX = X
+                    if isDragging {
+                        if maxStep < 1e-4 {
+                            return InternalSolveOutcome(converged: true, finalX: X, maxResidual: testMaxRes)
+                        }
+                    } else {
+                        return InternalSolveOutcome(converged: true, finalX: X, maxResidual: testMaxRes)
+                    }
+                } else if testMaxRes < bestResidual {
+                    bestResidual = testMaxRes
+                    bestX = X
                 }
             } else {
                 lambda = min(1e8, lambda * 10.0)
+                if isDragging && maxStep < 1e-6 && bestResidual < convergenceTolerance {
+                    return InternalSolveOutcome(converged: true, finalX: bestX, maxResidual: bestResidual)
+                }
             }
         }
 
