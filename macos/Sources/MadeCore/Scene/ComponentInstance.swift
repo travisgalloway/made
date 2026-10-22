@@ -58,7 +58,13 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
     public var transform: Transform
     public var isVisible: Bool
     public var isLocked: Bool
+    public var isGrounded: Bool
     public var material: MaterialAttributes
+
+    public var isFixed: Bool {
+        get { isGrounded }
+        set { isGrounded = newValue }
+    }
 
     public var solidId: SolidId {
         SolidId("component-\(id.uuidString)")
@@ -71,6 +77,7 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         transform: Transform = .identity,
         isVisible: Bool = true,
         isLocked: Bool = false,
+        isGrounded: Bool = false,
         material: MaterialAttributes = MaterialAttributes()
     ) {
         self.id = id
@@ -79,6 +86,7 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         self.transform = transform
         self.isVisible = isVisible
         self.isLocked = isLocked
+        self.isGrounded = isGrounded
         self.material = material
     }
 
@@ -89,6 +97,7 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         case transform
         case isVisible
         case isLocked
+        case isGrounded
         case material
     }
 
@@ -100,6 +109,7 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         self.transform = try container.decodeIfPresent(Transform.self, forKey: .transform) ?? .identity
         self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         self.isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        self.isGrounded = try container.decodeIfPresent(Bool.self, forKey: .isGrounded) ?? false
         self.material = try container.decodeIfPresent(MaterialAttributes.self, forKey: .material) ?? MaterialAttributes()
     }
 
@@ -111,6 +121,7 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
         try container.encode(transform, forKey: .transform)
         try container.encode(isVisible, forKey: .isVisible)
         try container.encode(isLocked, forKey: .isLocked)
+        try container.encode(isGrounded, forKey: .isGrounded)
         try container.encode(material, forKey: .material)
     }
 
@@ -129,7 +140,7 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable {
             def: def,
             transform: transform,
             isVisible: isVisible,
-            isLocked: isLocked,
+            isLocked: isLocked || isGrounded,
             material: material
         )
     }

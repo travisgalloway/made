@@ -25,7 +25,25 @@ import simd
         #expect(instance.solidId == SolidId("component-\(id.uuidString)"))
         #expect(instance.isVisible == true)
         #expect(instance.isLocked == false)
+        #expect(instance.isGrounded == false)
+        #expect(instance.isFixed == false)
         #expect(instance.transform.position == SIMD3<Float>(10, 20, 30))
+    }
+
+    @Test func testIsFixedAlias() {
+        var instance = ComponentInstance(
+            name: "Pin",
+            reference: .internalPart(name: "PinPart")
+        )
+        #expect(instance.isGrounded == false)
+        #expect(instance.isFixed == false)
+
+        instance.isFixed = true
+        #expect(instance.isGrounded == true)
+        #expect(instance.isFixed == true)
+
+        instance.isGrounded = false
+        #expect(instance.isFixed == false)
     }
 
     @Test func testComponentReferenceVariations() {
@@ -76,7 +94,8 @@ import simd
             reference: ref,
             transform: transform,
             isVisible: true,
-            isLocked: false
+            isLocked: false,
+            isGrounded: true
         )
 
         let encoder = JSONEncoder()
@@ -91,9 +110,31 @@ import simd
         #expect(decoded.solidId == original.solidId)
         #expect(decoded.isVisible == original.isVisible)
         #expect(decoded.isLocked == original.isLocked)
+        #expect(decoded.isGrounded == true)
+        #expect(decoded.isFixed == true)
         #expect(decoded.transform.position == original.transform.position)
         #expect(decoded.transform.scale == original.transform.scale)
         #expect(decoded.reference == original.reference)
+    }
+
+    @Test func testLegacyComponentInstanceDecodingWithoutIsGrounded() throws {
+        let json = """
+        {
+            "id": "12345678-1234-1234-1234-123456789abc",
+            "name": "Legacy Part",
+            "reference": {
+                "type": "internalPart",
+                "name": "LegacyBody"
+            },
+            "isVisible": true,
+            "isLocked": false
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(ComponentInstance.self, from: data)
+        #expect(decoded.name == "LegacyPart" || decoded.name == "Legacy Part")
+        #expect(decoded.isGrounded == false)
+        #expect(decoded.isFixed == false)
     }
 
     @Test func testToSceneObjectProjection() {
@@ -111,5 +152,15 @@ import simd
         #expect(sceneObject.transform.position == SIMD3<Float>(5, 10, 15))
         #expect(sceneObject.isVisible == true)
         #expect(sceneObject.isLocked == false)
+
+        var groundedInstance = instance
+        groundedInstance.isGrounded = true
+        let groundedSceneObject = groundedInstance.toSceneObject()
+        #expect(groundedSceneObject.isLocked == true)
+
+        var lockedInstance = instance
+        lockedInstance.isLocked = true
+        let lockedSceneObject = lockedInstance.toSceneObject()
+        #expect(lockedSceneObject.isLocked == true)
     }
 }

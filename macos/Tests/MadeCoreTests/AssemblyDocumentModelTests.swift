@@ -193,4 +193,73 @@ import simd
         #expect(doc.componentInstances.count == 1)
         #expect(doc.objects.contains(where: { $0.id == instance.solidId }))
     }
+
+    @Test func testComponentGroundedAndFloatingToggles() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let instance = ComponentInstance(
+            name: "Base",
+            reference: .internalPart(name: "BasePart"),
+            isGrounded: false
+        )
+        _ = doc.addComponentInstance(instance)
+        undoManager.removeAllActions()
+
+        #expect(doc.componentInstances.first?.isGrounded == false)
+        #expect(doc.objects.first(where: { $0.id == instance.solidId })?.isLocked == false)
+
+        let groundResult = doc.setComponentInstanceGrounded(id: instance.id, isGrounded: true)
+        guard case .success = groundResult else {
+            Issue.record("Expected successful groundComponent")
+            return
+        }
+        #expect(doc.componentInstances.first?.isGrounded == true)
+        #expect(doc.objects.first(where: { $0.id == instance.solidId })?.isLocked == true)
+
+        let moveResult = doc.updateComponentInstanceTransform(id: instance.id, transform: Transform(position: SIMD3<Float>(10, 10, 10)))
+        guard case .failure(let err) = moveResult else {
+            Issue.record("Expected failure when moving grounded component")
+            return
+        }
+        #expect(err == .invalidOperation("Component 'Base' is grounded and cannot be moved"))
+
+        undoManager.undo()
+        #expect(doc.componentInstances.first?.isGrounded == false)
+        #expect(doc.objects.first(where: { $0.id == instance.solidId })?.isLocked == false)
+
+        let moveAfterUndo = doc.updateComponentInstanceTransform(id: instance.id, transform: Transform(position: SIMD3<Float>(10, 10, 10)))
+        guard case .success = moveAfterUndo else {
+            Issue.record("Expected successful move after floating component")
+            return
+        }
+        #expect(doc.componentInstances.first?.transform.position == SIMD3<Float>(10, 10, 10))
+    }
+
+    @Test func testComponentGroundedUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let instance = ComponentInstance(
+            name: "Anchor",
+            reference: .internalPart(name: "AnchorPart"),
+            isGrounded: false
+        )
+        _ = doc.addComponentInstance(instance)
+        undoManager.removeAllActions()
+
+        _ = doc.setComponentInstanceGrounded(id: instance.id, isGrounded: true)
+        #expect(doc.componentInstances.first?.isGrounded == true)
+        #expect(doc.objects.first(where: { $0.id == instance.solidId })?.isLocked == true)
+
+        undoManager.undo()
+        #expect(doc.componentInstances.first?.isGrounded == false)
+        #expect(doc.objects.first(where: { $0.id == instance.solidId })?.isLocked == false)
+
+        undoManager.redo()
+        #expect(doc.componentInstances.first?.isGrounded == true)
+        #expect(doc.objects.first(where: { $0.id == instance.solidId })?.isLocked == true)
+    }
 }

@@ -1500,7 +1500,7 @@ public final class DocumentModel {
                 def: def,
                 transform: instance.transform,
                 isVisible: instance.isVisible,
-                isLocked: instance.isLocked,
+                isLocked: instance.isLocked || instance.isGrounded,
                 material: instance.material
             )
             currentObjects.append(obj)
@@ -6201,6 +6201,9 @@ public final class DocumentModel {
         guard !componentInstances[index].isLocked else {
             return .failure(.objectLocked(componentInstances[index].solidId))
         }
+        guard !componentInstances[index].isGrounded else {
+            return .failure(.invalidOperation("Component '\(componentInstances[index].name)' is grounded and cannot be moved"))
+        }
         let oldTransform = componentInstances[index].transform
         guard oldTransform != transform else {
             return .success(())
@@ -6236,6 +6239,29 @@ public final class DocumentModel {
             undoManager?.registerUndo(withTarget: self) { target in
                 MainActor.assumeIsolated {
                     _ = target.updateComponentInstance(old, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func setComponentInstanceGrounded(id: UUID, isGrounded: Bool, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
+        guard let compIndex = componentInstances.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(SolidId("component-\(id.uuidString)")))
+        }
+        let oldGrounded = componentInstances[compIndex].isGrounded
+        guard oldGrounded != isGrounded else { return .success(()) }
+        componentInstances[compIndex].isGrounded = isGrounded
+        syncObjectsFromFeatures()
+        if registerUndo {
+            let effectiveActionName = actionName ?? (isGrounded ? "Ground Component" : "Float Component")
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setComponentInstanceGrounded(id: id, isGrounded: oldGrounded, actionName: effectiveActionName, registerUndo: true)
                     target.undoManager?.setActionName(effectiveActionName)
                 }
             }
