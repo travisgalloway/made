@@ -62,6 +62,10 @@ struct InspectorPanelView: View {
     private var properties: some View {
         if workspace.document.selection.count > 1 {
             multiSelectionView
+        } else if let view = workspace.selectedExplodedView {
+            ScrollView {
+                InspectorExplodedView(view: view)
+            }
         } else if let constraint = workspace.selectedAssemblyConstraint {
             ScrollView {
                 InspectorAssemblyConstraintView(constraint: constraint)
@@ -1760,6 +1764,225 @@ struct InspectorAssemblyConstraintView: View {
             Text("Origin: (\(String(format: "%.1f", feature.localOrigin.x)), \(String(format: "%.1f", feature.localOrigin.y)), \(String(format: "%.1f", feature.localOrigin.z)))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector panel view for inspecting and editing an exploded view and its steps (BL-ASM-12).
+struct InspectorExplodedView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let view: ExplodedView
+
+    var body: some View {
+        let isActive = workspace.activeExplodedViewId == view.id && !view.isCollapsed
+        let lengthUnit = workspace.document.settings.units.lengthUnit
+
+        Form {
+            Section {
+                TextField("Name", text: Binding(
+                    get: { view.name },
+                    set: { newName in
+                        workspace.renameExplodedView(id: view.id, name: newName)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-exploded-view-name-field")
+
+                Toggle("Active (Exploded)", isOn: Binding(
+                    get: { isActive },
+                    set: { _ in
+                        workspace.toggleExplodedView(id: view.id)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-exploded-view-active-toggle")
+
+                Toggle("Collapsed", isOn: Binding(
+                    get: { view.isCollapsed },
+                    set: { _ in
+                        workspace.toggleExplodedViewCollapsed(id: view.id)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-exploded-view-collapsed-toggle")
+            } header: {
+                sectionHeader("Exploded View Identity", isFirst: true)
+            }
+
+            Section {
+                if let selectedStep = workspace.selectedExplodeStep {
+                    stepConfigurationSection(selectedStep, lengthUnit: lengthUnit)
+                } else if let firstStep = view.steps.first {
+                    stepConfigurationSection(firstStep, lengthUnit: lengthUnit)
+                } else {
+                    Text("No steps added yet. Add a step to begin exploding components.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button {
+                    _ = workspace.addExplodeStep(viewId: view.id)
+                } label: {
+                    Label("Add Step", systemImage: "plus")
+                }
+                .accessibilityIdentifier("inspector-add-step-button")
+            } header: {
+                sectionHeader("Step Configuration")
+            }
+
+            if view.steps.count > 1 {
+                Section {
+                    ForEach(view.steps) { step in
+                        let isSelectedStep = (workspace.selectedExplodeStepId == step.id) || (workspace.selectedExplodeStepId == nil && view.steps.first?.id == step.id)
+                        let displayDist = InspectorUnitConversion.displayLength(Double(step.distance), unit: lengthUnit)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(step.name)
+                                    .font(.body)
+                                    .bold(isSelectedStep)
+                                Text("\(step.targetInstanceIds.count) parts, \(displayDist.formatted(.number.precision(.fractionLength(1)))) \(lengthUnit.symbol)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if isSelectedStep {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            workspace.selectExplodeStep(viewId: view.id, stepId: step.id)
+                        }
+                    }
+                } header: {
+                    sectionHeader("All Steps (\(view.steps.count))")
+                }
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    workspace.removeExplodedView(id: view.id)
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Delete Exploded View")
+                        Spacer()
+                    }
+                }
+                .accessibilityIdentifier("inspector-delete-exploded-view-button")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    @ViewBuilder
+    private func stepConfigurationSection(_ step: ExplodeStep, lengthUnit: LengthUnit) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Step Name", text: Binding(
+                get: { step.name },
+                set: { newName in
+                    var copy = step
+                    copy.name = newName
+                    workspace.updateExplodeStep(viewId: view.id, step: copy)
+                }
+            ))
+            .accessibilityIdentifier("inspector-explode-step-name-field")
+
+            let displayDist = InspectorUnitConversion.displayLength(Double(step.distance), unit: lengthUnit)
+            LabeledContent("Distance (\(lengthUnit.symbol))") {
+                HStack(spacing: 4) {
+                    TextField(
+                        "Distance",
+                        value: Binding(
+                            get: { displayDist },
+                            set: { userVal in
+                                var copy = step
+                                copy.distance = Float(InspectorUnitConversion.commitLength(userVal, unit: lengthUnit))
+                                workspace.updateExplodeStep(viewId: view.id, step: copy)
+                            }
+                        ),
+                        format: .number
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 80)
+                    .accessibilityIdentifier("inspector-explode-step-distance-field")
+                    Text(lengthUnit.symbol)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            LabeledContent("Direction (X, Y, Z)") {
+                HStack(spacing: 4) {
+                    ForEach(0..<3, id: \.self) { axis in
+                        let name = ["X", "Y", "Z"][axis]
+                        TextField(
+                            name,
+                            value: Binding(
+                                get: { Double(step.direction[axis]) },
+                                set: { newAxisVal in
+                                    var copy = step
+                                    copy.direction[axis] = Float(newAxisVal)
+                                    workspace.updateExplodeStep(viewId: view.id, step: copy)
+                                }
+                            ),
+                            format: .number
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 50)
+                    }
+                }
+            }
+
+            Toggle("Show Trail", isOn: Binding(
+                get: { step.hasTrail },
+                set: { hasTrail in
+                    var copy = step
+                    copy.hasTrail = hasTrail
+                    workspace.updateExplodeStep(viewId: view.id, step: copy)
+                }
+            ))
+            .accessibilityIdentifier("inspector-explode-step-trail-toggle")
+
+            let allComps = workspace.document.allComponentInstances
+            if !allComps.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Target Components (\(step.targetInstanceIds.count))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(allComps) { comp in
+                        let isTarget = step.targetInstanceIds.contains(comp.id)
+                        Toggle(comp.name, isOn: Binding(
+                            get: { isTarget },
+                            set: { shouldTarget in
+                                var copy = step
+                                if shouldTarget {
+                                    if !copy.targetInstanceIds.contains(comp.id) {
+                                        copy.targetInstanceIds.append(comp.id)
+                                    }
+                                } else {
+                                    copy.targetInstanceIds.removeAll(where: { $0 == comp.id })
+                                }
+                                workspace.updateExplodeStep(viewId: view.id, step: copy)
+                            }
+                        ))
+                    }
+                }
+            }
+
+            Button("Delete Step", role: .destructive) {
+                workspace.removeExplodeStep(viewId: view.id, stepId: step.id)
+            }
+            .accessibilityIdentifier("inspector-delete-step-button")
         }
     }
 

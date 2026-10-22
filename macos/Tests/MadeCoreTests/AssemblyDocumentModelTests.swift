@@ -1151,5 +1151,265 @@ import simd
         #expect(doc.componentInstances.count == 2)
         #expect(doc.componentMirrors.count == 1)
     }
+
+    // MARK: - Exploded Views (BL-ASM-12)
+
+    @Test func testExplodedViewLifecycleAndUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        // Add exploded view
+        let addRes = doc.addExplodedView(name: "Default Exploded")
+        guard case .success(let view) = addRes else {
+            Issue.record("Failed to add exploded view")
+            return
+        }
+        #expect(doc.explodedViews.count == 1)
+        #expect(doc.explodedViews.first?.name == "Default Exploded")
+        undoManager.removeAllActions()
+
+        // Rename
+        let renameRes = doc.renameExplodedView(id: view.id, name: "Disassembly View")
+        guard case .success = renameRes else {
+            Issue.record("Failed to rename exploded view")
+            return
+        }
+        #expect(doc.explodedViews.first?.name == "Disassembly View")
+
+        // Undo rename
+        undoManager.undo()
+        #expect(doc.explodedViews.first?.name == "Default Exploded")
+
+        // Redo rename
+        undoManager.redo()
+        #expect(doc.explodedViews.first?.name == "Disassembly View")
+        undoManager.removeAllActions()
+
+        // Remove
+        let removeRes = doc.removeExplodedView(id: view.id)
+        guard case .success = removeRes else {
+            Issue.record("Failed to remove exploded view")
+            return
+        }
+        #expect(doc.explodedViews.isEmpty)
+
+        // Undo removal
+        undoManager.undo()
+        #expect(doc.explodedViews.count == 1)
+        #expect(doc.explodedViews.first?.id == view.id)
+
+        // Redo removal
+        undoManager.redo()
+        #expect(doc.explodedViews.isEmpty)
+    }
+
+    @Test func testExplodedViewActiveAndCollapsedSceneObjectTransforms() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let comp = ComponentInstance(
+            name: "Shaft",
+            reference: .internalPart(name: "ShaftPart"),
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        _ = doc.addComponentInstance(comp)
+
+        let step = ExplodeStep(
+            name: "Pull Out",
+            targetInstanceIds: [comp.id],
+            direction: SIMD3<Float>(0, 0, 1),
+            distance: 80.0
+        )
+        let view = ExplodedView(name: "Assembly Explode", steps: [step], isCollapsed: false)
+        _ = doc.addExplodedView(view)
+
+        // Initial unexploded state: scene object is at (0, 0, 0)
+        let initialObj = doc.objects.first(where: { $0.id == comp.solidId })
+        #expect(initialObj?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        // Activate exploded view
+        _ = doc.setActiveExplodedView(id: view.id)
+        #expect(doc.activeExplodedViewId == view.id)
+        let explodedObj = doc.objects.first(where: { $0.id == comp.solidId })
+        #expect(explodedObj?.transform.position == SIMD3<Float>(0, 0, 80))
+
+        // Toggle collapsed
+        _ = doc.toggleExplodedViewCollapsed(id: view.id)
+        #expect(doc.explodedView(id: view.id)?.isCollapsed == true)
+        let collapsedObj = doc.objects.first(where: { $0.id == comp.solidId })
+        #expect(collapsedObj?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        // Toggle expanded
+        _ = doc.toggleExplodedViewCollapsed(id: view.id)
+        #expect(doc.explodedView(id: view.id)?.isCollapsed == false)
+        let reExpandedObj = doc.objects.first(where: { $0.id == comp.solidId })
+        #expect(reExpandedObj?.transform.position == SIMD3<Float>(0, 0, 80))
+
+        // Deactivate
+        undoManager.removeAllActions()
+        _ = doc.setActiveExplodedView(id: nil)
+        #expect(doc.activeExplodedViewId == nil)
+        let deactivatedObj = doc.objects.first(where: { $0.id == comp.solidId })
+        #expect(deactivatedObj?.transform.position == SIMD3<Float>(0, 0, 0))
+
+        // Undo deactivation
+        undoManager.undo()
+        #expect(doc.activeExplodedViewId == view.id)
+        #expect(doc.objects.first(where: { $0.id == comp.solidId })?.transform.position == SIMD3<Float>(0, 0, 80))
+    }
+
+    @Test func testExplodeStepMutationsAndUndoRedo() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let addViewRes = doc.addExplodedView(name: "Test View")
+        guard case .success(let view) = addViewRes else {
+            Issue.record("Failed to create view")
+            return
+        }
+
+        let step1 = ExplodeStep(name: "Step 1", distance: 10.0)
+        let step2 = ExplodeStep(name: "Step 2", distance: 20.0)
+
+        // Add step1
+        let addStep1Res = doc.addExplodeStep(viewId: view.id, step: step1)
+        guard case .success = addStep1Res else {
+            Issue.record("Failed to add step1")
+            return
+        }
+        #expect(doc.explodedView(id: view.id)?.steps.count == 1)
+
+        // Add step2
+        _ = doc.addExplodeStep(viewId: view.id, step: step2)
+        #expect(doc.explodedView(id: view.id)?.steps.count == 2)
+        undoManager.removeAllActions()
+
+        // Update step1 distance
+        var updatedStep1 = step1
+        updatedStep1.distance = 50.0
+        let updateRes = doc.updateExplodeStep(viewId: view.id, step: updatedStep1)
+        guard case .success = updateRes else {
+            Issue.record("Failed to update step1")
+            return
+        }
+        #expect(doc.explodedView(id: view.id)?.steps.first?.distance == 50.0)
+
+        // Undo update
+        undoManager.undo()
+        #expect(doc.explodedView(id: view.id)?.steps.first?.distance == 10.0)
+
+        // Redo update
+        undoManager.redo()
+        #expect(doc.explodedView(id: view.id)?.steps.first?.distance == 50.0)
+        undoManager.removeAllActions()
+
+        // Reorder steps
+        let reorderRes = doc.reorderExplodeSteps(viewId: view.id, stepIds: [step2.id, step1.id])
+        guard case .success = reorderRes else {
+            Issue.record("Failed to reorder steps")
+            return
+        }
+        #expect(doc.explodedView(id: view.id)?.steps.map(\.id) == [step2.id, step1.id])
+
+        // Undo reorder
+        undoManager.undo()
+        #expect(doc.explodedView(id: view.id)?.steps.map(\.id) == [step1.id, step2.id])
+
+        // Redo reorder
+        undoManager.redo()
+        #expect(doc.explodedView(id: view.id)?.steps.map(\.id) == [step2.id, step1.id])
+        undoManager.removeAllActions()
+
+        // Remove step2
+        let removeStepRes = doc.removeExplodeStep(viewId: view.id, stepId: step2.id)
+        guard case .success = removeStepRes else {
+            Issue.record("Failed to remove step2")
+            return
+        }
+        #expect(doc.explodedView(id: view.id)?.steps.count == 1)
+
+        // Undo remove step2
+        undoManager.undo()
+        #expect(doc.explodedView(id: view.id)?.steps.count == 2)
+    }
+
+    @Test func testPruningDeletedComponentFromExplodeSteps() {
+        let doc = DocumentModel(documentType: .assembly)
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let comp1 = ComponentInstance(name: "Pin 1", reference: .internalPart(name: "PinPart"))
+        let comp2 = ComponentInstance(name: "Pin 2", reference: .internalPart(name: "PinPart"))
+        _ = doc.addComponentInstance(comp1)
+        _ = doc.addComponentInstance(comp2)
+
+        let step = ExplodeStep(
+            name: "Extract Pins",
+            targetInstanceIds: [comp1.id, comp2.id],
+            distance: 30.0
+        )
+        let view = ExplodedView(steps: [step])
+        _ = doc.addExplodedView(view)
+
+        #expect(doc.explodedView(id: view.id)?.steps.first?.targetInstanceIds.count == 2)
+        undoManager.removeAllActions()
+
+        // Remove comp1
+        let removeRes = doc.removeComponentInstance(id: comp1.id)
+        guard case .success = removeRes else {
+            Issue.record("Failed to remove component")
+            return
+        }
+
+        // comp1.id should be pruned from step
+        let prunedStep = doc.explodedView(id: view.id)?.steps.first
+        #expect(prunedStep?.targetInstanceIds == [comp2.id])
+
+        // Undo component removal should restore comp1 into step targets
+        undoManager.undo()
+        let restoredStep = doc.explodedView(id: view.id)?.steps.first
+        #expect(restoredStep?.targetInstanceIds.contains(comp1.id) == true)
+        #expect(restoredStep?.targetInstanceIds.contains(comp2.id) == true)
+    }
+
+    @Test func testDrawingQueryAccessors() {
+        let doc = DocumentModel(documentType: .assembly)
+        let comp = ComponentInstance(
+            name: "Bracket",
+            reference: .internalPart(name: "BracketPart"),
+            transform: Transform(position: SIMD3<Float>(10, 20, 30))
+        )
+        _ = doc.addComponentInstance(comp)
+
+        let step = ExplodeStep(
+            name: "Pull Forward",
+            targetInstanceIds: [comp.id],
+            direction: SIMD3<Float>(0, 1, 0),
+            distance: 50.0,
+            hasTrail: true
+        )
+        let view = ExplodedView(steps: [step], isCollapsed: false)
+        _ = doc.addExplodedView(view)
+
+        // Query when no view is active
+        #expect(doc.effectiveTransform(for: comp.id)?.position == SIMD3<Float>(10, 20, 30))
+
+        // Query specific view
+        let specificTransform = doc.effectiveTransform(for: comp.id, in: view.id)
+        #expect(specificTransform?.position == SIMD3<Float>(10, 70, 30))
+
+        // Query when active
+        _ = doc.setActiveExplodedView(id: view.id)
+        #expect(doc.effectiveTransform(for: comp.id)?.position == SIMD3<Float>(10, 70, 30))
+
+        // Trails query
+        let trails = doc.computeTrails(for: view.id)
+        #expect(trails.count == 1)
+        #expect(trails.first?.startPoint == SIMD3<Float>(10, 20, 30))
+        #expect(trails.first?.endPoint == SIMD3<Float>(10, 70, 30))
+    }
 }
 

@@ -833,6 +833,8 @@ public final class DocumentModel {
     public private(set) var assemblyConstraints: [AssemblyConstraint] = []
     public private(set) var componentPatterns: [ComponentPattern] = []
     public private(set) var componentMirrors: [ComponentMirror] = []
+    public private(set) var explodedViews: [ExplodedView] = []
+    public private(set) var activeExplodedViewId: UUID? = nil
     public private(set) var metadata: [String: String] = [:]
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
@@ -1248,7 +1250,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
@@ -1256,6 +1258,8 @@ public final class DocumentModel {
         self.assemblyConstraints = assemblyConstraints
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
+        self.explodedViews = explodedViews
+        self.activeExplodedViewId = activeExplodedViewId
         self.settings = settings
         self.metadata = metadata
         self._selection = []
@@ -1265,13 +1269,15 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], metadata: [String: String] = [:]) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, metadata: [String: String] = [:]) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
+        self.explodedViews = explodedViews
+        self.activeExplodedViewId = activeExplodedViewId
         self.metadata = metadata
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
@@ -1325,13 +1331,15 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], metadata: [String: String] = [:]) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, metadata: [String: String] = [:]) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
+        self.explodedViews = explodedViews
+        self.activeExplodedViewId = activeExplodedViewId
         self.parameters = parameters
         self.metadata = metadata
         rebuildParameterGraph()
@@ -1362,13 +1370,15 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], metadata: [String: String] = [:]) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, metadata: [String: String] = [:]) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
         self.assemblyConstraints = assemblyConstraints
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
+        self.explodedViews = explodedViews
+        self.activeExplodedViewId = activeExplodedViewId
         self.parameters = parameters
         self.metadata = metadata
         rebuildParameterGraph()
@@ -1515,8 +1525,19 @@ public final class DocumentModel {
             }
         }
 
+        var cumulativeDisplacements: [UUID: SIMD3<Float>] = [:]
+        if let activeId = activeExplodedViewId,
+           let activeView = explodedViews.first(where: { $0.id == activeId }),
+           !activeView.isCollapsed {
+            cumulativeDisplacements = activeView.cumulativeDisplacements()
+        }
+
         func appendSceneObjects(for instance: ComponentInstance, parentTransform: Transform) {
-            let worldTransform = parentTransform * instance.transform
+            var instanceTransform = instance.transform
+            if let displacement = cumulativeDisplacements[instance.id] {
+                instanceTransform.position += displacement
+            }
+            let worldTransform = parentTransform * instanceTransform
             if instance.childInstances.isEmpty {
                 let def: ObjectDef
                 switch instance.reference {
@@ -6372,6 +6393,8 @@ public final class DocumentModel {
     public func removeComponentInstance(id: UUID, actionName: String? = nil, registerUndo: Bool = true) -> Result<Void, DocumentMutationError> {
         if let index = componentInstances.firstIndex(where: { $0.id == id }) {
             let instance = componentInstances[index]
+            let oldExplodedViews = explodedViews
+            pruneComponentFromExplodedViews(id: id)
             componentInstances.remove(at: index)
             if selectedId == instance.solidId {
                 selectedId = nil
@@ -6383,6 +6406,8 @@ public final class DocumentModel {
                 undoManager?.registerUndo(withTarget: self) { target in
                     MainActor.assumeIsolated {
                         _ = target.addComponentInstance(instance, actionName: effectiveActionName, registerUndo: true)
+                        target.explodedViews = oldExplodedViews
+                        target.syncObjectsFromFeatures()
                         target.undoManager?.setActionName(effectiveActionName)
                         target.onUndoRedoMutation?(.removed(instance.solidId))
                     }
@@ -6397,6 +6422,8 @@ public final class DocumentModel {
         for subIdx in 0..<componentInstances.count {
             if let childIdx = componentInstances[subIdx].childInstances.firstIndex(where: { $0.id == id }) {
                 let child = componentInstances[subIdx].childInstances[childIdx]
+                let oldExplodedViews = explodedViews
+                pruneComponentFromExplodedViews(id: id)
                 componentInstances[subIdx].childInstances.remove(at: childIdx)
                 if selectedId == child.solidId {
                     selectedId = nil
@@ -6409,6 +6436,7 @@ public final class DocumentModel {
                         MainActor.assumeIsolated {
                             if let sIdx = target.componentInstances.firstIndex(where: { $0.id == target.componentInstances[subIdx].id }) {
                                 target.componentInstances[sIdx].childInstances.insert(child, at: childIdx)
+                                target.explodedViews = oldExplodedViews
                                 target.syncObjectsFromFeatures()
                                 target.undoStateVersion += 1
                                 target.undoManager?.setActionName(effectiveActionName)
@@ -7409,6 +7437,354 @@ public final class DocumentModel {
                             _ = redoTarget.removeComponentMirror(id: mirror.id, actionName: effectiveActionName, registerUndo: true)
                         }
                     }
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    // MARK: - Exploded Views (BL-ASM-12)
+
+    private func pruneComponentFromExplodedViews(id: UUID) {
+        for vIdx in explodedViews.indices {
+            for sIdx in explodedViews[vIdx].steps.indices {
+                explodedViews[vIdx].steps[sIdx].targetInstanceIds.removeAll(where: { $0 == id })
+            }
+        }
+    }
+
+    public func explodedView(id: UUID) -> ExplodedView? {
+        explodedViews.first(where: { $0.id == id })
+    }
+
+    /// Recursively returns the unexploded world transform for a component instance.
+    public func worldTransform(for instanceId: UUID) -> Transform? {
+        func search(in instances: [ComponentInstance], parentTransform: Transform) -> Transform? {
+            for inst in instances {
+                let world = parentTransform * inst.transform
+                if inst.id == instanceId {
+                    return world
+                }
+                if let childWorld = search(in: inst.childInstances, parentTransform: world) {
+                    return childWorld
+                }
+            }
+            return nil
+        }
+        return search(in: componentInstances, parentTransform: .identity)
+    }
+
+    /// Returns the effective transform of a component instance taking into account the active exploded view.
+    public func effectiveTransform(for instanceId: UUID) -> Transform? {
+        guard let base = worldTransform(for: instanceId) else { return nil }
+        guard let activeId = activeExplodedViewId,
+              let view = explodedView(id: activeId),
+              !view.isCollapsed else {
+            return base
+        }
+        return view.transformedPosition(for: instanceId, baseTransform: base)
+    }
+
+    /// Returns the effective transform of a component instance in a specific exploded view.
+    public func effectiveTransform(for instanceId: UUID, in explodedViewId: UUID) -> Transform? {
+        guard let base = worldTransform(for: instanceId),
+              let view = explodedView(id: explodedViewId) else {
+            return nil
+        }
+        guard !view.isCollapsed else {
+            return base
+        }
+        return view.transformedPosition(for: instanceId, baseTransform: base)
+    }
+
+    /// Computes exploded view trail segments for a given exploded view.
+    public func computeTrails(for explodedViewId: UUID) -> [ExplodeTrail] {
+        guard let view = explodedView(id: explodedViewId) else { return [] }
+        return view.computeTrails(instances: componentInstances)
+    }
+
+    @discardableResult
+    public func addExplodedView(
+        _ view: ExplodedView? = nil,
+        name: String = "Exploded View",
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<ExplodedView, DocumentMutationError> {
+        let newView = view ?? ExplodedView(id: UUID(), name: name)
+        let insertionIndex = min(max(0, index ?? explodedViews.count), explodedViews.count)
+        explodedViews.insert(newView, at: insertionIndex)
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Exploded View"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeExplodedView(id: newView.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(newView)
+    }
+
+    @discardableResult
+    public func addExplodedView(
+        name: String,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<ExplodedView, DocumentMutationError> {
+        addExplodedView(nil, name: name, at: nil, actionName: actionName, registerUndo: registerUndo)
+    }
+
+    @discardableResult
+    public func removeExplodedView(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = explodedViews.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Exploded view with id \(id) not found"))
+        }
+        let removedView = explodedViews.remove(at: index)
+        let oldActiveId = activeExplodedViewId
+        if activeExplodedViewId == id {
+            activeExplodedViewId = nil
+        }
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Exploded View"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addExplodedView(removedView, at: index, actionName: effectiveActionName, registerUndo: true)
+                    if oldActiveId == id {
+                        _ = target.setActiveExplodedView(id: oldActiveId, actionName: effectiveActionName, registerUndo: false)
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func renameExplodedView(
+        id: UUID,
+        name: String,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = explodedViews.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Exploded view with id \(id) not found"))
+        }
+        let oldName = explodedViews[index].name
+        guard oldName != name else { return .success(()) }
+        explodedViews[index].name = name
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Rename Exploded View"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.renameExplodedView(id: id, name: oldName, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func setActiveExplodedView(
+        id: UUID?,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        if let id {
+            guard explodedViews.contains(where: { $0.id == id }) else {
+                return .failure(.invalidOperation("Exploded view with id \(id) not found"))
+            }
+        }
+        let oldActiveId = activeExplodedViewId
+        guard oldActiveId != id else { return .success(()) }
+        activeExplodedViewId = id
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? (id != nil ? "Activate Exploded View" : "Deactivate Exploded View")
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setActiveExplodedView(id: oldActiveId, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func toggleExplodedViewCollapsed(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = explodedViews.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Exploded view with id \(id) not found"))
+        }
+        explodedViews[index].isCollapsed.toggle()
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? (explodedViews[index].isCollapsed ? "Collapse Exploded View" : "Expand Exploded View")
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.toggleExplodedViewCollapsed(id: id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func addExplodeStep(
+        viewId: UUID,
+        step: ExplodeStep = ExplodeStep(),
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<ExplodeStep, DocumentMutationError> {
+        guard let viewIndex = explodedViews.firstIndex(where: { $0.id == viewId }) else {
+            return .failure(.invalidOperation("Exploded view with id \(viewId) not found"))
+        }
+        let insertionIndex = min(max(0, index ?? explodedViews[viewIndex].steps.count), explodedViews[viewIndex].steps.count)
+        explodedViews[viewIndex].steps.insert(step, at: insertionIndex)
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Explode Step"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeExplodeStep(viewId: viewId, stepId: step.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(step)
+    }
+
+    @discardableResult
+    public func removeExplodeStep(
+        viewId: UUID,
+        stepId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let viewIndex = explodedViews.firstIndex(where: { $0.id == viewId }) else {
+            return .failure(.invalidOperation("Exploded view with id \(viewId) not found"))
+        }
+        guard let stepIndex = explodedViews[viewIndex].steps.firstIndex(where: { $0.id == stepId }) else {
+            return .failure(.invalidOperation("Explode step with id \(stepId) not found"))
+        }
+        let removedStep = explodedViews[viewIndex].steps.remove(at: stepIndex)
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Explode Step"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addExplodeStep(viewId: viewId, step: removedStep, at: stepIndex, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateExplodeStep(
+        viewId: UUID,
+        step: ExplodeStep,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let viewIndex = explodedViews.firstIndex(where: { $0.id == viewId }) else {
+            return .failure(.invalidOperation("Exploded view with id \(viewId) not found"))
+        }
+        guard let stepIndex = explodedViews[viewIndex].steps.firstIndex(where: { $0.id == step.id }) else {
+            return .failure(.invalidOperation("Explode step with id \(step.id) not found"))
+        }
+        let oldStep = explodedViews[viewIndex].steps[stepIndex]
+        guard oldStep != step else { return .success(()) }
+        explodedViews[viewIndex].steps[stepIndex] = step
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Edit Explode Step"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateExplodeStep(viewId: viewId, step: oldStep, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func reorderExplodeSteps(
+        viewId: UUID,
+        stepIds: [UUID],
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let viewIndex = explodedViews.firstIndex(where: { $0.id == viewId }) else {
+            return .failure(.invalidOperation("Exploded view with id \(viewId) not found"))
+        }
+        let oldSteps = explodedViews[viewIndex].steps
+        let oldIds = oldSteps.map(\.id)
+        guard oldIds != stepIds else { return .success(()) }
+
+        var stepMap: [UUID: ExplodeStep] = [:]
+        for step in oldSteps {
+            stepMap[step.id] = step
+        }
+        var reordered: [ExplodeStep] = []
+        for id in stepIds {
+            if let step = stepMap.removeValue(forKey: id) {
+                reordered.append(step)
+            }
+        }
+        for remaining in oldSteps where stepMap[remaining.id] != nil {
+            reordered.append(remaining)
+        }
+        explodedViews[viewIndex].steps = reordered
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Reorder Explode Steps"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.reorderExplodeSteps(viewId: viewId, stepIds: oldIds, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
                 }
             }
             undoManager?.setActionName(effectiveActionName)

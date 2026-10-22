@@ -26,6 +26,41 @@ final class WorkspaceModel {
 
     public var selectedAssemblyConstraintId: UUID? = nil
 
+    public var selectedExplodedViewId: UUID? = nil
+    public var selectedExplodeStepId: UUID? = nil
+
+    public var selectedExplodedView: ExplodedView? {
+        guard let id = selectedExplodedViewId else { return nil }
+        return document.explodedView(id: id)
+    }
+
+    public var selectedExplodeStep: ExplodeStep? {
+        guard let view = selectedExplodedView, let stepId = selectedExplodeStepId else { return nil }
+        return view.steps.first(where: { $0.id == stepId })
+    }
+
+    public var activeExplodedViewId: UUID? {
+        document.activeExplodedViewId
+    }
+
+    public func selectExplodedView(_ id: UUID?) {
+        selectedExplodedViewId = id
+        selectedExplodeStepId = nil
+        if id != nil {
+            selectedId = nil
+            selectedAssemblyConstraintId = nil
+        }
+    }
+
+    public func selectExplodeStep(viewId: UUID, stepId: UUID?) {
+        selectedExplodedViewId = viewId
+        selectedExplodeStepId = stepId
+        if stepId != nil {
+            selectedId = nil
+            selectedAssemblyConstraintId = nil
+        }
+    }
+
     public var selectedAssemblyConstraint: AssemblyConstraint? {
         guard let id = selectedAssemblyConstraintId else { return nil }
         return document.assemblyConstraints.first(where: { $0.id == id })
@@ -77,6 +112,8 @@ final class WorkspaceModel {
         selectedAssemblyConstraintId = id
         if id != nil {
             selectedId = nil
+            selectedExplodedViewId = nil
+            selectedExplodeStepId = nil
         }
     }
 
@@ -88,6 +125,8 @@ final class WorkspaceModel {
             }
             if newValue != nil {
                 selectedAssemblyConstraintId = nil
+                selectedExplodedViewId = nil
+                selectedExplodeStepId = nil
             }
             if document.selectedId != newValue {
                 document.selectedId = newValue
@@ -107,6 +146,8 @@ final class WorkspaceModel {
             }
             if !newValue.isEmpty {
                 selectedAssemblyConstraintId = nil
+                selectedExplodedViewId = nil
+                selectedExplodeStepId = nil
             }
             if document.selectedIds != newValue {
                 document.selectedIds = newValue
@@ -120,6 +161,8 @@ final class WorkspaceModel {
             radialMenuState = nil
         }
         selectedAssemblyConstraintId = nil
+        selectedExplodedViewId = nil
+        selectedExplodeStepId = nil
         document.clearSelection()
         syncViewportSelection()
     }
@@ -128,6 +171,9 @@ final class WorkspaceModel {
         if radialMenuState != nil {
             radialMenuState = nil
         }
+        selectedAssemblyConstraintId = nil
+        selectedExplodedViewId = nil
+        selectedExplodeStepId = nil
         document.select(solidId: solidId)
         syncViewportSelection()
     }
@@ -136,6 +182,9 @@ final class WorkspaceModel {
         if radialMenuState != nil {
             radialMenuState = nil
         }
+        selectedAssemblyConstraintId = nil
+        selectedExplodedViewId = nil
+        selectedExplodeStepId = nil
         document.toggleSelection(solidId: solidId)
         syncViewportSelection()
     }
@@ -4726,6 +4775,105 @@ final class WorkspaceModel {
             return constraint
         }
         return nil
+    }
+
+    // MARK: - Exploded Views (BL-ASM-12)
+
+    @discardableResult
+    public func createExplodedView(name: String = "Exploded View") -> ExplodedView? {
+        let result = document.addExplodedView(name: name)
+        guard case .success(let view) = result else { return nil }
+        selectExplodedView(view.id)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Created exploded view '\(view.name)'")
+        return view
+    }
+
+    public func removeExplodedView(id: UUID) {
+        if selectedExplodedViewId == id {
+            selectedExplodedViewId = nil
+            selectedExplodeStepId = nil
+        }
+        let result = document.removeExplodedView(id: id)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Removed exploded view \(id)")
+        }
+    }
+
+    public func renameExplodedView(id: UUID, name: String) {
+        let result = document.renameExplodedView(id: id, name: name)
+        if case .success = result {
+            markDocumentModified()
+            log(.info, "Assembly", "Renamed exploded view \(id) to '\(name)'")
+        }
+    }
+
+    public func toggleExplodedView(id: UUID) {
+        if document.activeExplodedViewId == id {
+            _ = document.setActiveExplodedView(id: nil)
+            if let view = document.explodedView(id: id), !view.isCollapsed {
+                _ = document.toggleExplodedViewCollapsed(id: id)
+            }
+        } else {
+            _ = document.setActiveExplodedView(id: id)
+            if let view = document.explodedView(id: id), view.isCollapsed {
+                _ = document.toggleExplodedViewCollapsed(id: id)
+            }
+        }
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func toggleExplodedViewCollapsed(id: UUID) {
+        let result = document.toggleExplodedViewCollapsed(id: id)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+        }
+    }
+
+    @discardableResult
+    public func addExplodeStep(viewId: UUID, step: ExplodeStep = ExplodeStep()) -> ExplodeStep? {
+        let result = document.addExplodeStep(viewId: viewId, step: step)
+        guard case .success(let newStep) = result else { return nil }
+        selectExplodeStep(viewId: viewId, stepId: newStep.id)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "Assembly", "Added explode step '\(newStep.name)' to view \(viewId)")
+        return newStep
+    }
+
+    public func removeExplodeStep(viewId: UUID, stepId: UUID) {
+        if selectedExplodeStepId == stepId {
+            selectedExplodeStepId = nil
+        }
+        let result = document.removeExplodeStep(viewId: viewId, stepId: stepId)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Removed explode step \(stepId) from view \(viewId)")
+        }
+    }
+
+    public func updateExplodeStep(viewId: UUID, step: ExplodeStep) {
+        let result = document.updateExplodeStep(viewId: viewId, step: step)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Updated explode step '\(step.name)'")
+        }
+    }
+
+    public func reorderExplodeSteps(viewId: UUID, stepIds: [UUID]) {
+        let result = document.reorderExplodeSteps(viewId: viewId, stepIds: stepIds)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "Assembly", "Reordered explode steps in view \(viewId)")
+        }
     }
 
     // MARK: - Document Settings (BL-FND-11)

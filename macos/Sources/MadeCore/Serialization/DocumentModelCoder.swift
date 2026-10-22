@@ -17,6 +17,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var assemblyConstraints: [AssemblyConstraint]?
     public var componentPatterns: [ComponentPattern]?
     public var componentMirrors: [ComponentMirror]?
+    public var explodedViews: [ExplodedView]?
+    public var activeExplodedViewId: UUID?
 
     public init(
         schemaVersion: Int = DocumentData.currentSchemaVersion,
@@ -31,7 +33,9 @@ public struct DocumentData: Codable, Sendable, Equatable {
         componentInstances: [ComponentInstance]? = nil,
         assemblyConstraints: [AssemblyConstraint]? = nil,
         componentPatterns: [ComponentPattern]? = nil,
-        componentMirrors: [ComponentMirror]? = nil
+        componentMirrors: [ComponentMirror]? = nil,
+        explodedViews: [ExplodedView]? = nil,
+        activeExplodedViewId: UUID? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.rollbackIndex = rollbackIndex
@@ -41,6 +45,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.assemblyConstraints = assemblyConstraints
         self.componentPatterns = componentPatterns
         self.componentMirrors = componentMirrors
+        self.explodedViews = explodedViews
+        self.activeExplodedViewId = activeExplodedViewId
         let projectedCompObjects: [SceneObject] = (componentInstances ?? []).flatMap { $0.toSceneObjects() }
         if let features {
             self.features = features
@@ -67,8 +73,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.selection = selection
     }
 
-    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil, assemblyConstraints: [AssemblyConstraint]? = nil, componentPatterns: [ComponentPattern]? = nil, componentMirrors: [ComponentMirror]? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances, assemblyConstraints: assemblyConstraints, componentPatterns: componentPatterns, componentMirrors: componentMirrors)
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil, assemblyConstraints: [AssemblyConstraint]? = nil, componentPatterns: [ComponentPattern]? = nil, componentMirrors: [ComponentMirror]? = nil, explodedViews: [ExplodedView]? = nil, activeExplodedViewId: UUID? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances, assemblyConstraints: assemblyConstraints, componentPatterns: componentPatterns, componentMirrors: componentMirrors, explodedViews: explodedViews, activeExplodedViewId: activeExplodedViewId)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -85,6 +91,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case assemblyConstraints
         case componentPatterns
         case componentMirrors
+        case explodedViews
+        case activeExplodedViewId
     }
 
     public init(from decoder: Decoder) throws {
@@ -158,6 +166,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.assemblyConstraints = try container.decodeIfPresent([AssemblyConstraint].self, forKey: .assemblyConstraints)
         self.componentPatterns = try container.decodeIfPresent([ComponentPattern].self, forKey: .componentPatterns)
         self.componentMirrors = try container.decodeIfPresent([ComponentMirror].self, forKey: .componentMirrors)
+        self.explodedViews = try container.decodeIfPresent([ExplodedView].self, forKey: .explodedViews)
+        self.activeExplodedViewId = try container.decodeIfPresent(UUID.self, forKey: .activeExplodedViewId)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -177,6 +187,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encodeIfPresent(assemblyConstraints, forKey: .assemblyConstraints)
         try container.encodeIfPresent(componentPatterns, forKey: .componentPatterns)
         try container.encodeIfPresent(componentMirrors, forKey: .componentMirrors)
+        try container.encodeIfPresent(explodedViews, forKey: .explodedViews)
+        try container.encodeIfPresent(activeExplodedViewId, forKey: .activeExplodedViewId)
     }
 
     private static func sceneObjectsMatch(_ a: [SceneObject], _ b: [SceneObject]) -> Bool {
@@ -283,7 +295,9 @@ public enum DocumentModelCoder {
             componentInstances: document.componentInstances,
             assemblyConstraints: document.assemblyConstraints,
             componentPatterns: document.componentPatterns,
-            componentMirrors: document.componentMirrors
+            componentMirrors: document.componentMirrors,
+            explodedViews: document.explodedViews,
+            activeExplodedViewId: document.activeExplodedViewId
         )
         return try encode(docData, packageURL: packageURL)
     }
@@ -306,6 +320,8 @@ public enum DocumentModelCoder {
         let constraints = docData.assemblyConstraints ?? []
         let patterns = docData.componentPatterns ?? []
         let mirrors = docData.componentMirrors ?? []
+        let explodedViews = docData.explodedViews ?? []
+        let activeExplodedViewId = docData.activeExplodedViewId
         if let features = docData.features {
             document.reset(
                 with: features,
@@ -317,7 +333,9 @@ public enum DocumentModelCoder {
                 componentInstances: instances,
                 assemblyConstraints: constraints,
                 componentPatterns: patterns,
-                componentMirrors: mirrors
+                componentMirrors: mirrors,
+                explodedViews: explodedViews,
+                activeExplodedViewId: activeExplodedViewId
             )
         } else {
             document.reset(
@@ -330,7 +348,9 @@ public enum DocumentModelCoder {
                 componentInstances: instances,
                 assemblyConstraints: constraints,
                 componentPatterns: patterns,
-                componentMirrors: mirrors
+                componentMirrors: mirrors,
+                explodedViews: explodedViews,
+                activeExplodedViewId: activeExplodedViewId
             )
         }
     }
