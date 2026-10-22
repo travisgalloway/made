@@ -2035,9 +2035,26 @@ struct NavigatorDrawingViewRow: View {
         workspace.selectedDrawingViewId == view.id
     }
 
+    private var kindIconName: String {
+        switch view.kind {
+        case .base:
+            return "rectangle.inset.filled"
+        case .projected:
+            return "square.split.2x1"
+        case .section:
+            return "scissors"
+        case .detail:
+            return "magnifyingglass"
+        case .auxiliary:
+            return "arrow.up.right.square"
+        case .broken:
+            return "divide"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "rectangle.inset.filled")
+            Image(systemName: kindIconName)
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .frame(width: 14)
 
@@ -2045,7 +2062,7 @@ struct NavigatorDrawingViewRow: View {
                 Text(view.name)
                     .font(.callout)
                     .fontWeight(isSelected ? .semibold : .regular)
-                Text("\(view.standardView.rawValue.capitalized) · [\(view.scale.displayString)]")
+                Text("\(view.kind.displayName) · \(view.standardView.rawValue.capitalized) · [\(view.scale.displayString)]")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -2086,6 +2103,20 @@ struct NavigatorDrawingViewRow: View {
                 Divider()
                 Button("Isometric") {
                     _ = workspace.addProjectedView(parentViewId: view.id, direction: .isometricTopRight)
+                }
+            }
+            Menu("Add Derived View") {
+                Button("Section View") {
+                    _ = workspace.addSectionView(parentViewId: view.id)
+                }
+                Button("Detail View") {
+                    _ = workspace.addDetailView(parentViewId: view.id)
+                }
+                Button("Auxiliary View") {
+                    _ = workspace.addAuxiliaryView(parentViewId: view.id)
+                }
+                Button("Broken View") {
+                    _ = workspace.addBrokenView(parentViewId: view.id)
                 }
             }
             Divider()

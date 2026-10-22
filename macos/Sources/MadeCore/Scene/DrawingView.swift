@@ -245,6 +245,254 @@ public struct DrawingViewScale: Sendable, Codable, Equatable, Hashable {
 public enum DrawingViewKind: String, Sendable, Codable, CaseIterable, Equatable {
     case base
     case projected
+    case section
+    case detail
+    case auxiliary
+    case broken
+
+    public var displayName: String {
+        switch self {
+        case .base: return "Base"
+        case .projected: return "Projected"
+        case .section: return "Section"
+        case .detail: return "Detail"
+        case .auxiliary: return "Auxiliary"
+        case .broken: return "Broken"
+        }
+    }
+}
+
+/// Cutting plane line definition for section views.
+public struct SectionLineDefinition: Sendable, Codable, Equatable {
+    public var label: String
+    public var startPointMM: SIMD2<Double>
+    public var endPointMM: SIMD2<Double>
+    public var arrowDirection: SIMD2<Double>
+
+    public init(
+        label: String = "A",
+        startPointMM: SIMD2<Double> = SIMD2(-20, 0),
+        endPointMM: SIMD2<Double> = SIMD2(20, 0),
+        arrowDirection: SIMD2<Double> = SIMD2(0, 1)
+    ) {
+        self.label = label
+        if simd_distance(startPointMM, endPointMM) < 1e-6 {
+            self.startPointMM = SIMD2(-20, 0)
+            self.endPointMM = SIMD2(20, 0)
+        } else {
+            self.startPointMM = startPointMM
+            self.endPointMM = endPointMM
+        }
+        let len = simd_length(arrowDirection)
+        self.arrowDirection = len > 1e-6 ? arrowDirection / len : SIMD2(0, 1)
+    }
+}
+
+/// Cross-hatching pattern styles for sectioned regions.
+public enum HatchPatternStyle: String, Sendable, Codable, CaseIterable, Equatable {
+    case ansi31
+    case ansi32
+    case crossHatch
+    case solid
+
+    public var displayName: String {
+        switch self {
+        case .ansi31: return "ANSI31 (Cast Iron)"
+        case .ansi32: return "ANSI32 (Steel)"
+        case .crossHatch: return "Cross Hatch"
+        case .solid: return "Solid"
+        }
+    }
+}
+
+/// Hatch pattern configuration controlling angle, spacing, and stroke style.
+public struct HatchPatternDefinition: Sendable, Codable, Equatable {
+    public var style: HatchPatternStyle
+    public var angleDegrees: Double
+    public var spacingMM: Double
+
+    public init(
+        style: HatchPatternStyle = .ansi31,
+        angleDegrees: Double = 45.0,
+        spacingMM: Double = 3.0
+    ) {
+        self.style = style
+        self.angleDegrees = angleDegrees
+        self.spacingMM = max(0.5, spacingMM)
+    }
+
+    public static let standard = HatchPatternDefinition()
+}
+
+/// Circular callout boundary definition for detail views.
+public struct DetailCircleDefinition: Sendable, Codable, Equatable {
+    public var label: String
+    public var centerMM: SIMD2<Double>
+    public var radiusMM: Double
+
+    public init(
+        label: String = "B",
+        centerMM: SIMD2<Double> = .zero,
+        radiusMM: Double = 15.0
+    ) {
+        self.label = label
+        self.centerMM = centerMM
+        self.radiusMM = max(1.0, radiusMM)
+    }
+}
+
+/// Custom projection angle and direction definition for auxiliary views.
+public struct AuxiliaryViewDefinition: Sendable, Codable, Equatable {
+    public var label: String
+    public var angleDegrees: Double
+    public var customDirection: SIMD3<Double>?
+
+    public init(
+        label: String = "C",
+        angleDegrees: Double = 45.0,
+        customDirection: SIMD3<Double>? = nil
+    ) {
+        self.label = label
+        self.angleDegrees = angleDegrees
+        self.customDirection = customDirection
+    }
+}
+
+/// Break view orientation axis.
+public enum BreakOrientation: String, Sendable, Codable, CaseIterable, Equatable {
+    case horizontal
+    case vertical
+
+    public var displayName: String {
+        switch self {
+        case .horizontal: return "Horizontal"
+        case .vertical: return "Vertical"
+        }
+    }
+}
+
+/// Graphical style for break boundary lines.
+public enum BreakLineStyle: String, Sendable, Codable, CaseIterable, Equatable {
+    case straight
+    case zigzag
+    case wavy
+
+    public var displayName: String {
+        switch self {
+        case .straight: return "Straight"
+        case .zigzag: return "Zigzag"
+        case .wavy: return "Wavy"
+        }
+    }
+}
+
+/// Configuration defining an interrupted view region.
+public struct BreakViewDefinition: Sendable, Codable, Equatable {
+    public var orientation: BreakOrientation
+    public var startMM: Double
+    public var endMM: Double
+    public var gapMM: Double
+    public var style: BreakLineStyle
+
+    public init(
+        orientation: BreakOrientation = .horizontal,
+        startMM: Double = -10.0,
+        endMM: Double = 10.0,
+        gapMM: Double = 5.0,
+        style: BreakLineStyle = .zigzag
+    ) {
+        self.orientation = orientation
+        self.startMM = min(startMM, endMM)
+        self.endMM = max(startMM, endMM)
+        self.gapMM = max(1.0, gapMM)
+        self.style = style
+    }
+
+    public var breakSpan: Double {
+        max(0.0, endMM - startMM)
+    }
+
+    public var compressionOffset: Double {
+        max(0.0, breakSpan - gapMM)
+    }
+}
+
+/// Auxiliary viewing direction derivation helper.
+public enum DrawingAuxiliaryDerivation {
+    public static func deriveDirection(from baseDirection: SIMD3<Double>, angleDegrees: Double) -> SIMD3<Double> {
+        guard simd_length(baseDirection) >= 1e-9 else {
+            return SIMD3<Double>(0, 0, 1)
+        }
+        let dir = simd_normalize(baseDirection)
+        let rad = angleDegrees * .pi / 180.0
+        if abs(sin(rad)) < 1e-9 && cos(rad) > 0 {
+            return dir
+        }
+
+        let tempUp = abs(dir.z) > 0.99 ? SIMD3<Double>(0, 1, 0) : SIMD3<Double>(0, 0, 1)
+        let right = simd_normalize(simd_cross(dir, tempUp))
+        let up = simd_normalize(simd_cross(right, dir))
+
+        let rotated = dir * cos(rad) - up * sin(rad)
+        let len = simd_length(rotated)
+        return len > 1e-9 ? rotated / len : dir
+    }
+}
+
+/// Circular edge clipping processor for detail views.
+public enum DrawingDetailProcessor {
+    public static func clipEdgesToCircle(
+        edges: [HLREdge],
+        centerMM: SIMD2<Double>,
+        radiusMM: Double
+    ) -> [HLREdge] {
+        let r = max(1.0, radiusMM)
+        let rSq = r * r
+        var clippedEdges: [HLREdge] = []
+
+        for edge in edges {
+            guard edge.points2D.count >= 2 else { continue }
+            let shiftedPoints = edge.points2D.map { $0 - centerMM }
+
+            for i in 0..<(shiftedPoints.count - 1) {
+                let p1 = shiftedPoints[i]
+                let p2 = shiftedPoints[i + 1]
+                let d = p2 - p1
+                let dLenSq = simd_length_squared(d)
+
+                if dLenSq < 1e-12 {
+                    if simd_length_squared(p1) <= rSq {
+                        clippedEdges.append(HLREdge(category: edge.category, points2D: [p1, p1]))
+                    }
+                    continue
+                }
+
+                let a = dLenSq
+                let b = 2.0 * simd_dot(p1, d)
+                let c = simd_length_squared(p1) - rSq
+
+                let disc = b * b - 4.0 * a * c
+                if disc < 0 {
+                    continue
+                }
+
+                let sqrtDisc = sqrt(disc)
+                let t1 = (-b - sqrtDisc) / (2.0 * a)
+                let t2 = (-b + sqrtDisc) / (2.0 * a)
+
+                let tEnter = max(0.0, min(t1, t2))
+                let tExit = min(1.0, max(t1, t2))
+
+                if tEnter < tExit {
+                    let ptStart = p1 + d * tEnter
+                    let ptEnd = p1 + d * tExit
+                    clippedEdges.append(HLREdge(category: edge.category, points2D: [ptStart, ptEnd]))
+                }
+            }
+        }
+
+        return clippedEdges
+    }
 }
 
 /// Represents an individual 2D drawing view placed on a drawing sheet.
@@ -261,6 +509,19 @@ public struct DrawingView: Identifiable, Sendable, Codable, Equatable {
     public var projectionAngle: DrawingProjectionAngle?
     public var cachedHLR: HLRResult?
     public var customProperties: [String: String]
+    public var sectionDefinition: SectionLineDefinition?
+    public var hatchPattern: HatchPatternDefinition?
+    public var detailDefinition: DetailCircleDefinition?
+    public var auxiliaryDefinition: AuxiliaryViewDefinition?
+    public var breakDefinition: BreakViewDefinition?
+    public var customViewDirection: SIMD3<Double>?
+
+    public var effectiveViewDirection: SIMD3<Double> {
+        if let custom = customViewDirection, simd_length(custom) > 1e-6 {
+            return simd_normalize(custom)
+        }
+        return standardView.direction
+    }
 
     public init(
         id: UUID = UUID(),
@@ -274,7 +535,13 @@ public struct DrawingView: Identifiable, Sendable, Codable, Equatable {
         displayStyle: DrawingDisplayStyle = .visibleLinesOnly,
         projectionAngle: DrawingProjectionAngle? = nil,
         cachedHLR: HLRResult? = nil,
-        customProperties: [String: String] = [:]
+        customProperties: [String: String] = [:],
+        sectionDefinition: SectionLineDefinition? = nil,
+        hatchPattern: HatchPatternDefinition? = nil,
+        detailDefinition: DetailCircleDefinition? = nil,
+        auxiliaryDefinition: AuxiliaryViewDefinition? = nil,
+        breakDefinition: BreakViewDefinition? = nil,
+        customViewDirection: SIMD3<Double>? = nil
     ) {
         self.id = id
         self.name = name
@@ -288,6 +555,20 @@ public struct DrawingView: Identifiable, Sendable, Codable, Equatable {
         self.projectionAngle = projectionAngle
         self.cachedHLR = cachedHLR
         self.customProperties = customProperties
+        self.sectionDefinition = sectionDefinition
+        self.hatchPattern = hatchPattern
+        self.detailDefinition = detailDefinition
+        self.auxiliaryDefinition = auxiliaryDefinition
+        self.breakDefinition = breakDefinition
+        self.customViewDirection = customViewDirection
+    }
+
+    public static func clipEdgesToCircle(
+        edges: [HLREdge],
+        centerMM: SIMD2<Double>,
+        radiusMM: Double
+    ) -> [HLREdge] {
+        DrawingDetailProcessor.clipEdgesToCircle(edges: edges, centerMM: centerMM, radiusMM: radiusMM)
     }
 }
 
