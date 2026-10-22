@@ -45,10 +45,15 @@ public protocol KernelEngine: Actor {
     func terminate(jobId: JobId) async -> Bool
     /// Cache-loss events. One consumer.
     nonisolated func restarts() -> AsyncStream<KernelRestart>
+    func computeHLR(request: HLRRequest) async -> KernelResult<HLRResult>
     func storeCounts() async -> KernelEngineCounts
 }
 
 extension KernelEngine {
+    public func computeHLR(request: HLRRequest) async -> KernelResult<HLRResult> {
+        .failure(jobId: request.jobId, error: KernelError(code: .geometryFailed, message: "HLR not supported by this engine"))
+    }
+
     public func exportStep(objects: [SceneObject]) async -> KernelResult<Data> {
         .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "STEP export not supported by this engine"))
     }
@@ -61,3 +66,4 @@ extension KernelEngine {
         .failure(jobId: JobId("export"), error: KernelError(code: .geometryFailed, message: "3MF export not supported by this engine"))
     }
 }
+

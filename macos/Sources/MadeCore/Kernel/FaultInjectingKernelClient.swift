@@ -46,6 +46,14 @@ public actor FaultInjectingKernelClient: KernelClientProtocol {
         return await inner.exportThreeMF(objects: objects, tolerance: tolerance, unit: unit, to: url)
     }
 
+    public func computeHLR(request: HLRRequest) async -> KernelResult<HLRResult> {
+        if let code = pendingFault {
+            pendingFault = nil
+            return .failure(jobId: request.jobId, error: KernelError(code: code, message: "Forced failure"))
+        }
+        return await inner.computeHLR(request: request)
+    }
+
     public func cancel(jobId: JobId) async { await inner.cancel(jobId: jobId) }
     public func dispose(solidId: SolidId) async { await inner.dispose(solidId: solidId) }
     public func getStats() async -> KernelStats { await inner.getStats() }
