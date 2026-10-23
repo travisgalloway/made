@@ -2744,6 +2744,41 @@ struct InspectorSimulationMeshView: View {
     var body: some View {
         Form {
             Section {
+                let isMeshing = workspace.isStudyMeshing(study.id)
+                if isMeshing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating Mesh…")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") {
+                            workspace.cancelSimulationMesh(studyId: study.id)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("inspector-simulation-mesh-cancel-button")
+                    }
+                } else {
+                    Button {
+                        workspace.generateSimulationMesh(studyId: study.id)
+                    } label: {
+                        Label("Generate Mesh", systemImage: "cube.transparent")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("inspector-simulation-mesh-generate-button")
+                }
+
+                if let error = study.results.errorMessage, !error.isEmpty, study.results.status == .failed {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                sectionHeader("Mesh Generation", isFirst: true)
+            }
+
+            Section {
                 Picker("Element Order", selection: Binding(
                     get: { study.mesh.elementOrder },
                     set: { newOrder in
@@ -2794,7 +2829,7 @@ struct InspectorSimulationMeshView: View {
                     .accessibilityIdentifier("inspector-simulation-mesh-growth-rate")
                 }
             } header: {
-                sectionHeader("Volume Meshing Specification", isFirst: true)
+                sectionHeader("Volume Meshing Specification")
             }
 
             Section {
@@ -2804,6 +2839,35 @@ struct InspectorSimulationMeshView: View {
                 }
             } header: {
                 sectionHeader("Local Refinement")
+            }
+
+            if study.results.meshStatistics.elementCount > 0 {
+                Section {
+                    LabeledContent("Total Nodes") {
+                        Text("\(study.results.meshStatistics.nodeCount)")
+                            .accessibilityIdentifier("inspector-simulation-mesh-node-count")
+                    }
+                    LabeledContent("Total Elements") {
+                        Text("\(study.results.meshStatistics.elementCount)")
+                            .accessibilityIdentifier("inspector-simulation-mesh-element-count")
+                    }
+                    LabeledContent("Polynomial Order") {
+                        Text(study.mesh.elementOrder.displayName)
+                    }
+                    LabeledContent("Avg Quality") {
+                        Text(String(format: "%.3f", study.results.meshStatistics.avgElementQuality))
+                    }
+                    LabeledContent("Min Quality") {
+                        Text(String(format: "%.3f", study.results.meshStatistics.minElementQuality))
+                    }
+                    if let duration = study.results.runtimeDuration, duration > 0 {
+                        LabeledContent("Duration") {
+                            Text(String(format: "%.2f s", duration))
+                        }
+                    }
+                } header: {
+                    sectionHeader("Mesh Statistics")
+                }
             }
         }
         .formStyle(.columns)

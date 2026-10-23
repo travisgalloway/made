@@ -839,6 +839,22 @@ struct SimulationMenuCommands: Commands {
 
             let activeStudy = workspace.document.activeStudy
             let isRunning = activeStudy.map { workspace.isStudyRunning($0.id) } ?? false
+            let isMeshing = activeStudy.map { workspace.isStudyMeshing($0.id) } ?? false
+
+            if isMeshing {
+                Button("Cancel Simulation Mesh") {
+                    if let activeStudy {
+                        workspace.cancelSimulationMesh(studyId: activeStudy.id)
+                    }
+                }
+            } else {
+                Button("Generate Simulation Mesh") {
+                    if let activeStudy {
+                        workspace.generateSimulationMesh(studyId: activeStudy.id)
+                    }
+                }
+                .disabled(activeStudy == nil || isRunning)
+            }
 
             if isRunning {
                 Button("Cancel Active Study") {
@@ -854,7 +870,7 @@ struct SimulationMenuCommands: Commands {
                     }
                 }
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(activeStudy == nil)
+                .disabled(activeStudy == nil || isMeshing)
             }
         }
     }
