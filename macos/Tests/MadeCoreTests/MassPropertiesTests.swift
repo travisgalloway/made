@@ -409,4 +409,255 @@ import simd
         #expect(report.contains("Moments of Inertia (kg·mm²):"))
         #expect(report.contains("Principal Moments of Inertia (kg·mm²):"))
     }
+
+    // MARK: - 11. Mass Override Metadata Parsing
+
+    @Test func testMassOverrideInitializationFromMetadata() {
+        // Empty metadata
+        let empty = MassOverride(metadata: [:])
+        #expect(!empty.isPurchased)
+        #expect(empty.overrideMass == nil)
+        #expect(empty.overrideCenterOfMass == nil)
+        #expect(!empty.hasActiveOverride)
+
+        // Valid metadata
+        let validMetadata = [
+            CustomPropertyKey.isPurchased: "true",
+            CustomPropertyKey.overrideMass: "0.15",
+            CustomPropertyKey.overrideCenterOfMassX: "10.5",
+            CustomPropertyKey.overrideCenterOfMassY: "-5.0",
+            CustomPropertyKey.overrideCenterOfMassZ: "2.25"
+        ]
+        let override = MassOverride(metadata: validMetadata)
+        #expect(override.isPurchased)
+        #expect(override.overrideMass == 0.15)
+        #expect(override.overrideCenterOfMass == SIMD3<Double>(10.5, -5.0, 2.25))
+        #expect(override.hasActiveOverride)
+
+        // Partial center of mass coordinates
+        let partialMetadata = [
+            CustomPropertyKey.isPurchased: "yes",
+            CustomPropertyKey.overrideCenterOfMassX: "12.0"
+        ]
+        let partialOverride = MassOverride(metadata: partialMetadata)
+        #expect(partialOverride.isPurchased)
+        #expect(partialOverride.overrideMass == nil)
+        #expect(partialOverride.overrideCenterOfMass == SIMD3<Double>(12.0, 0.0, 0.0))
+        #expect(partialOverride.hasActiveOverride)
+
+        // Round-trip mutation via applying(to:)
+        var dict: [String: String] = [:]
+        override.applying(to: &dict)
+        #expect(dict[CustomPropertyKey.isPurchased] == "true")
+        #expect(dict[CustomPropertyKey.overrideMass] == "0.15")
+        #expect(dict[CustomPropertyKey.overrideCenterOfMassX] == "10.5")
+        #expect(dict[CustomPropertyKey.overrideCenterOfMassY] == "-5.0")
+        #expect(dict[CustomPropertyKey.overrideCenterOfMassZ] == "2.25")
+    }
+
+    @Test func testMassOverrideNegativeAndInvalidValuesIgnored() {
+        // Negative and zero mass ignored
+        let negMass = MassOverride(metadata: [
+            CustomPropertyKey.isPurchased: "true",
+            CustomPropertyKey.overrideMass: "-0.5"
+        ])
+        #expect(negMass.overrideMass == nil)
+
+        let zeroMass = MassOverride(metadata: [
+            CustomPropertyKey.isPurchased: "true",
+            CustomPropertyKey.overrideMass: "0"
+        ])
+        #expect(zeroMass.overrideMass == nil)
+
+        // NaN and Inf mass rejected
+        let nanMass = MassOverride(metadata: [
+            CustomPropertyKey.isPurchased: "true",
+            CustomPropertyKey.overrideMass: "NaN"
+        ])
+        #expect(nanMass.overrideMass == nil)
+
+        let infMass = MassOverride(metadata: [
+            CustomPropertyKey.isPurchased: "true",
+            CustomPropertyKey.overrideMass: "Inf"
+        ])
+        #expect(infMass.overrideMass == nil)
+
+        // Non-finite coordinates rejected
+        let nanCom = MassOverride(metadata: [
+            CustomPropertyKey.isPurchased: "true",
+            CustomPropertyKey.overrideCenterOfMassX: "NaN",
+            CustomPropertyKey.overrideCenterOfMassY: "10.0"
+        ])
+        #expect(nanCom.overrideCenterOfMass == nil)
+
+        let infCom = MassOverride(metadata: [
+            CustomPropertyKey.isPurchased: "true",
+            CustomPropertyKey.overrideCenterOfMassX: "10.0",
+            CustomPropertyKey.overrideCenterOfMassZ: "Infinity"
+        ])
+        #expect(infCom.overrideCenterOfMass == nil)
+    }
+
+    @Test func testMassOverrideOnlyMassScalesInertia() {
+        // Base box 10 x 20 x 30: mass = 0.006 kg
+        // Ixx = 0.65 kg·mm², Iyy = 0.50 kg·mm², Izz = 0.25 kg·mm²
+        // Override mass to 0.012 kg (factor = 2.0)
+        let override = MassOverride(isPurchased: true, overrideMass: 0.012)
+        let props = computeAnalyticBox(
+            width: 10,
+            depth: 20,
+            height: 30,
+            density: 1000.0,
+            coordinateSystem: .centroid,
+            override: override
+        )
+
+        #expect(props.isMassOverridden)
+        #expect(!props.isCenterOfMassOverridden)
+        #expect(abs(props.mass - 0.012) < 1e-9)
+
+        // Volume and surface area remain geometric
+        #expect(abs(props.volume - 6000.0) < 1e-6)
+        #expect(abs(props.surfaceArea - 2200.0) < 1e-6)
+
+        // Centroid remains unchanged at (0, 0, 0)
+        #expect(abs(props.centerOfMass.x) < 1e-9)
+        #expect(abs(props.centerOfMass.y) < 1e-9)
+        #expect(abs(props.centerOfMass.z) < 1e-9)
+
+        // Inertia scaled by 2.0:
+        // Ixx: 0.65 * 2 = 1.30
+        // Iyy: 0.50 * 2 = 1.00
+        // Izz: 0.25 * 2 = 0.50
+        #expect(abs(props.inertiaTensor.ixx - 1.30) < 1e-6)
+        #expect(abs(props.inertiaTensor.iyy - 1.00) < 1e-6)
+        #expect(abs(props.inertiaTensor.izz - 0.50) < 1e-6)
+
+        // Principal moments scaled accordingly: 0.50, 1.00, 1.30
+        #expect(abs(props.principalMoments.i1 - 0.50) < 1e-6)
+        #expect(abs(props.principalMoments.i2 - 1.00) < 1e-6)
+        #expect(abs(props.principalMoments.i3 - 1.30) < 1e-6)
+    }
+
+    @Test func testMassOverrideOnlyCenterOfMass() {
+        // Base box 10 x 20 x 30: mass = 0.006 kg
+        // Override center of mass to (10, 20, 30)
+        let override = MassOverride(isPurchased: true, overrideCenterOfMass: SIMD3<Double>(10, 20, 30))
+
+        // In .centroid frame: center of mass is at local centroid (0, 0, 0), inertia is intrinsic centroid inertia
+        let centroidProps = computeAnalyticBox(
+            width: 10,
+            depth: 20,
+            height: 30,
+            density: 1000.0,
+            coordinateSystem: .centroid,
+            override: override
+        )
+        #expect(!centroidProps.isMassOverridden)
+        #expect(centroidProps.isCenterOfMassOverridden)
+        #expect(abs(centroidProps.mass - 0.006) < 1e-9)
+        #expect(abs(centroidProps.centerOfMass.x) < 1e-9)
+        #expect(abs(centroidProps.inertiaTensor.ixx - 0.65) < 1e-6)
+
+        // In .bodyLocal frame: center of mass is (10, 20, 30), inertia shifted by parallel axis theorem
+        let localProps = computeAnalyticBox(
+            width: 10,
+            depth: 20,
+            height: 30,
+            density: 1000.0,
+            coordinateSystem: .bodyLocal,
+            override: override
+        )
+        #expect(abs(localProps.centerOfMass.x - 10.0) < 1e-9)
+        #expect(abs(localProps.centerOfMass.y - 20.0) < 1e-9)
+        #expect(abs(localProps.centerOfMass.z - 30.0) < 1e-9)
+
+        // Ixx_local = 0.65 + 0.006 * (20² + 30²) = 0.65 + 0.006 * 1300 = 8.45
+        // Iyy_local = 0.50 + 0.006 * (10² + 30²) = 0.50 + 0.006 * 1000 = 6.50
+        // Izz_local = 0.25 + 0.006 * (10² + 20²) = 0.25 + 0.006 * 500  = 3.25
+        #expect(abs(localProps.inertiaTensor.ixx - 8.45) < 1e-6)
+        #expect(abs(localProps.inertiaTensor.iyy - 6.50) < 1e-6)
+        #expect(abs(localProps.inertiaTensor.izz - 3.25) < 1e-6)
+    }
+
+    @Test func testMassOverrideBothMassAndCenterOfMass() {
+        // Override both mass (0.012 kg, factor 2) and center of mass (5, 10, 15)
+        let override = MassOverride(
+            isPurchased: true,
+            overrideMass: 0.012,
+            overrideCenterOfMass: SIMD3<Double>(5, 10, 15)
+        )
+
+        let bodyProps = computeAnalyticBox(
+            width: 10,
+            depth: 20,
+            height: 30,
+            density: 1000.0,
+            coordinateSystem: .bodyLocal,
+            override: override
+        )
+
+        #expect(bodyProps.isMassOverridden)
+        #expect(bodyProps.isCenterOfMassOverridden)
+        #expect(abs(bodyProps.mass - 0.012) < 1e-9)
+        #expect(abs(bodyProps.centerOfMass.x - 5.0) < 1e-9)
+        #expect(abs(bodyProps.centerOfMass.y - 10.0) < 1e-9)
+        #expect(abs(bodyProps.centerOfMass.z - 15.0) < 1e-9)
+
+        // Scaled centroid inertia: Ixx=1.30, Iyy=1.00, Izz=0.50
+        // Shifted to (5, 10, 15) with mass 0.012:
+        // Ixx_shifted = 1.30 + 0.012 * (10² + 15²) = 1.30 + 0.012 * 325 = 1.30 + 3.90 = 5.20
+        // Iyy_shifted = 1.00 + 0.012 * (5² + 15²)  = 1.00 + 0.012 * 250 = 1.00 + 3.00 = 4.00
+        // Izz_shifted = 0.50 + 0.012 * (5² + 10²)  = 0.50 + 0.012 * 125 = 0.50 + 1.50 = 2.00
+        #expect(abs(bodyProps.inertiaTensor.ixx - 5.20) < 1e-5)
+        #expect(abs(bodyProps.inertiaTensor.iyy - 4.00) < 1e-5)
+        #expect(abs(bodyProps.inertiaTensor.izz - 2.00) < 1e-5)
+    }
+
+    @Test func testMassOverrideDisabledWhenNotPurchased() {
+        // Values populated, but isPurchased is false
+        let override = MassOverride(
+            isPurchased: false,
+            overrideMass: 0.100,
+            overrideCenterOfMass: SIMD3<Double>(100, 100, 100)
+        )
+
+        let props = computeAnalyticBox(
+            width: 10,
+            depth: 20,
+            height: 30,
+            density: 1000.0,
+            coordinateSystem: .bodyLocal,
+            override: override
+        )
+
+        // Overrides must not be active
+        #expect(!props.isMassOverridden)
+        #expect(!props.isCenterOfMassOverridden)
+        #expect(abs(props.mass - 0.006) < 1e-9)
+        #expect(abs(props.centerOfMass.x) < 1e-9)
+        #expect(abs(props.inertiaTensor.ixx - 0.65) < 1e-6)
+    }
+
+    @Test func testMassOverrideFormattedReport() {
+        let override = MassOverride(
+            isPurchased: true,
+            overrideMass: 0.025,
+            overrideCenterOfMass: SIMD3<Double>(2, 4, 6)
+        )
+        let props = computeAnalyticBox(
+            width: 10,
+            depth: 20,
+            height: 30,
+            density: 1000.0,
+            coordinateSystem: .bodyLocal,
+            override: override
+        )
+        let units = UnitSettings(lengthUnit: .millimeters, decimalPrecision: 2)
+        let report = props.formattedReport(units: units)
+
+        #expect(report.contains("Status: Overridden (Purchased Part)"))
+        #expect(report.contains("Mass: 25.00 g (Overridden)"))
+        #expect(report.contains("Center of Mass: (Overridden)"))
+    }
 }

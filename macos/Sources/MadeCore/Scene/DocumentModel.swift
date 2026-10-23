@@ -1991,8 +1991,29 @@ public final class DocumentModel {
             setComponentInstanceMetadata(id: comp.id, metadata: newMetadata, actionName: actionName, registerUndo: registerUndo)
             return
         }
+        if let uuid = UUID(uuidString: id.rawValue), let comp = findComponentInstance(id: uuid) {
+            setComponentInstanceMetadata(id: comp.id, metadata: newMetadata, actionName: actionName, registerUndo: registerUndo)
+            return
+        }
         if let featIndex = features.firstIndex(where: { $0.outputSolidId == id }) {
             setFeatureMetadata(id: features[featIndex].id, metadata: newMetadata, actionName: actionName, registerUndo: registerUndo)
+            return
+        }
+        if let objIndex = objects.firstIndex(where: { $0.id == id }) {
+            guard objects[objIndex].metadata != newMetadata else { return }
+            let oldMetadata = objects[objIndex].metadata
+            if registerUndo {
+                let undoName = actionName ?? "Edit Body Metadata"
+                undoManager?.registerUndo(withTarget: self) { target in
+                    MainActor.assumeIsolated {
+                        target.setBodyMetadata(id: id, metadata: oldMetadata, actionName: undoName, registerUndo: true)
+                        target.undoManager?.setActionName(undoName)
+                    }
+                }
+                undoManager?.setActionName(undoName)
+                undoStateVersion += 1
+            }
+            objects[objIndex].metadata = newMetadata
             return
         }
     }
@@ -2002,8 +2023,34 @@ public final class DocumentModel {
             setComponentInstanceProperty(id: comp.id, key: key, value: value)
             return
         }
+        if let uuid = UUID(uuidString: id.rawValue), let comp = findComponentInstance(id: uuid) {
+            setComponentInstanceProperty(id: comp.id, key: key, value: value)
+            return
+        }
         if let featIndex = features.firstIndex(where: { $0.outputSolidId == id }) {
             setFeatureProperty(id: features[featIndex].id, key: key, value: value)
+            return
+        }
+        if let objIndex = objects.firstIndex(where: { $0.id == id }) {
+            let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedKey.isEmpty else { return }
+            var newMetadata = objects[objIndex].metadata
+            if let value, !value.isEmpty {
+                newMetadata[trimmedKey] = value
+            } else {
+                newMetadata.removeValue(forKey: trimmedKey)
+            }
+            guard newMetadata != objects[objIndex].metadata else { return }
+            let oldMetadata = objects[objIndex].metadata
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    target.setBodyMetadata(id: id, metadata: oldMetadata, actionName: "Edit Body Property", registerUndo: true)
+                    target.undoManager?.setActionName("Edit Body Property")
+                }
+            }
+            undoManager?.setActionName("Edit Body Property")
+            undoStateVersion += 1
+            objects[objIndex].metadata = newMetadata
             return
         }
     }

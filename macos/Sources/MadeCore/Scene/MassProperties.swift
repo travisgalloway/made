@@ -82,6 +82,18 @@ public struct InertiaTensor: Sendable, Equatable, Codable {
         )
     }
 
+    /// Returns a new inertia tensor scaled by a uniform scalar factor.
+    public func scaled(by factor: Double) -> InertiaTensor {
+        InertiaTensor(
+            ixx: ixx * factor,
+            iyy: iyy * factor,
+            izz: izz * factor,
+            ixy: ixy * factor,
+            ixz: ixz * factor,
+            iyz: iyz * factor
+        )
+    }
+
     /// Rotates the inertia tensor by an orthonormal 3x3 rotation matrix: I' = R * I * R^T.
     public func rotated(by matrix: simd_double3x3) -> InertiaTensor {
         let iPhys = self.matrix(physicsSignConvention: true)
@@ -148,6 +160,8 @@ public struct MassProperties: Sendable, Equatable, Codable {
     public var inertiaTensor: InertiaTensor
     public var principalMoments: PrincipalMoments
     public var coordinateSystem: MassPropertiesCoordinateSystem
+    public var isMassOverridden: Bool
+    public var isCenterOfMassOverridden: Bool
 
     public init(
         volume: Double,
@@ -157,7 +171,9 @@ public struct MassProperties: Sendable, Equatable, Codable {
         centerOfMass: SIMD3<Double>,
         inertiaTensor: InertiaTensor,
         principalMoments: PrincipalMoments,
-        coordinateSystem: MassPropertiesCoordinateSystem
+        coordinateSystem: MassPropertiesCoordinateSystem,
+        isMassOverridden: Bool = false,
+        isCenterOfMassOverridden: Bool = false
     ) {
         self.volume = volume
         self.surfaceArea = surfaceArea
@@ -167,20 +183,27 @@ public struct MassProperties: Sendable, Equatable, Codable {
         self.inertiaTensor = inertiaTensor
         self.principalMoments = principalMoments
         self.coordinateSystem = coordinateSystem
+        self.isMassOverridden = isMassOverridden
+        self.isCenterOfMassOverridden = isCenterOfMassOverridden
     }
 
     /// Produces a formatted text report suitable for clipboard copying.
     public func formattedReport(units: UnitSettings) -> String {
         var lines: [String] = []
         lines.append("Mass Properties Report")
+        if isMassOverridden || isCenterOfMassOverridden {
+            lines.append("Status: Overridden (Purchased Part)")
+        }
         lines.append("Coordinate System: \(coordinateSystem.displayName)")
         lines.append("----------------------------------------")
         lines.append("Density: \(String(format: "%.2f", density)) kg/m³")
-        lines.append("Mass: \(units.formatMass(mass))")
+        let massTag = isMassOverridden ? " (Overridden)" : ""
+        lines.append("Mass: \(units.formatMass(mass))\(massTag)")
         lines.append("Volume: \(units.formatVolume(volume))")
         lines.append("Surface Area: \(units.formatArea(surfaceArea))")
         lines.append("")
-        lines.append("Center of Mass:")
+        let cmTag = isCenterOfMassOverridden ? " (Overridden)" : ""
+        lines.append("Center of Mass:\(cmTag)")
         lines.append("  X: \(units.formatLength(centerOfMass.x))")
         lines.append("  Y: \(units.formatLength(centerOfMass.y))")
         lines.append("  Z: \(units.formatLength(centerOfMass.z))")
@@ -337,8 +360,21 @@ public func buildMassProperties(
     centerOfMassLocal: SIMD3<Double>,
     centroidInertia: InertiaTensor,
     transform: Transform,
-    coordinateSystem: MassPropertiesCoordinateSystem
+    coordinateSystem: MassPropertiesCoordinateSystem,
+    override: MassOverride? = nil
 ) -> MassProperties {
+    let isMassOverridden = (override?.isPurchased == true && override?.overrideMass != nil)
+    let isCmOverridden = (override?.isPurchased == true && override?.overrideCenterOfMass != nil)
+
+    let effectiveMass = isMassOverridden ? (override?.overrideMass ?? mass) : mass
+    let effectiveCmLocal = isCmOverridden ? (override?.overrideCenterOfMass ?? centerOfMassLocal) : centerOfMassLocal
+
+    var effectiveCentroidInertia = centroidInertia
+    if isMassOverridden && mass > 1e-12 {
+        let factor = effectiveMass / mass
+        effectiveCentroidInertia = centroidInertia.scaled(by: factor)
+    }
+
     let rot = transform.rotation
     let qx = Double(rot.imag.x)
     let qy = Double(rot.imag.y)
@@ -376,16 +412,16 @@ public func buildMassProperties(
     switch coordinateSystem {
     case .centroid:
         effectiveCm = SIMD3<Double>(0, 0, 0)
-        effectiveInertia = centroidInertia
+        effectiveInertia = effectiveCentroidInertia
 
     case .bodyLocal:
-        effectiveCm = centerOfMassLocal
-        effectiveInertia = centroidInertia.translated(by: centerOfMassLocal, mass: mass)
+        effectiveCm = effectiveCmLocal
+        effectiveInertia = effectiveCentroidInertia.translated(by: effectiveCmLocal, mass: effectiveMass)
 
     case .world:
-        effectiveCm = rMatrix * centerOfMassLocal + pos
-        let iCentroidWorld = centroidInertia.rotated(by: rMatrix)
-        effectiveInertia = iCentroidWorld.translated(by: effectiveCm, mass: mass)
+        effectiveCm = rMatrix * effectiveCmLocal + pos
+        let iCentroidWorld = effectiveCentroidInertia.rotated(by: rMatrix)
+        effectiveInertia = iCentroidWorld.translated(by: effectiveCm, mass: effectiveMass)
     }
 
     let (evals, axes) = JacobiEigensolver.decompose(matrix: effectiveInertia.matrix(physicsSignConvention: true))
@@ -402,11 +438,13 @@ public func buildMassProperties(
         volume: volume,
         surfaceArea: surfaceArea,
         density: density,
-        mass: mass,
+        mass: effectiveMass,
         centerOfMass: effectiveCm,
         inertiaTensor: effectiveInertia,
         principalMoments: principalMoments,
-        coordinateSystem: coordinateSystem
+        coordinateSystem: coordinateSystem,
+        isMassOverridden: isMassOverridden,
+        isCenterOfMassOverridden: isCmOverridden
     )
 }
 
@@ -416,7 +454,8 @@ public func computeMeshMassProperties(
     indices: [UInt32],
     transform: Transform = .identity,
     density: Double = 1000.0,
-    coordinateSystem: MassPropertiesCoordinateSystem = .centroid
+    coordinateSystem: MassPropertiesCoordinateSystem = .centroid,
+    override: MassOverride? = nil
 ) -> MassProperties? {
     guard !positions.isEmpty, indices.count >= 3 else { return nil }
 
@@ -514,7 +553,8 @@ public func computeMeshMassProperties(
         centerOfMassLocal: centerOfMassLocal,
         centroidInertia: centroidInertia,
         transform: transform,
-        coordinateSystem: coordinateSystem
+        coordinateSystem: coordinateSystem,
+        override: override
     )
 }
 
@@ -525,7 +565,8 @@ public func computeAnalyticBox(
     height: Float,
     density: Double = 1000.0,
     transform: Transform = .identity,
-    coordinateSystem: MassPropertiesCoordinateSystem = .centroid
+    coordinateSystem: MassPropertiesCoordinateSystem = .centroid,
+    override: MassOverride? = nil
 ) -> MassProperties {
     let w = Double(abs(width))
     let d = Double(abs(depth))
@@ -548,7 +589,8 @@ public func computeAnalyticBox(
         centerOfMassLocal: SIMD3<Double>(0, 0, 0),
         centroidInertia: centroidInertia,
         transform: transform,
-        coordinateSystem: coordinateSystem
+        coordinateSystem: coordinateSystem,
+        override: override
     )
 }
 
@@ -558,7 +600,8 @@ public func computeAnalyticCylinder(
     height: Float,
     density: Double = 1000.0,
     transform: Transform = .identity,
-    coordinateSystem: MassPropertiesCoordinateSystem = .centroid
+    coordinateSystem: MassPropertiesCoordinateSystem = .centroid,
+    override: MassOverride? = nil
 ) -> MassProperties {
     let r = Double(abs(radius))
     let h = Double(abs(height))
@@ -580,7 +623,8 @@ public func computeAnalyticCylinder(
         centerOfMassLocal: SIMD3<Double>(0, 0, 0),
         centroidInertia: centroidInertia,
         transform: transform,
-        coordinateSystem: coordinateSystem
+        coordinateSystem: coordinateSystem,
+        override: override
     )
 }
 
@@ -589,7 +633,8 @@ public func computeAnalyticSphere(
     radius: Float,
     density: Double = 1000.0,
     transform: Transform = .identity,
-    coordinateSystem: MassPropertiesCoordinateSystem = .centroid
+    coordinateSystem: MassPropertiesCoordinateSystem = .centroid,
+    override: MassOverride? = nil
 ) -> MassProperties {
     let r = Double(abs(radius))
     let volume = (4.0 / 3.0) * Double.pi * r * r * r
@@ -607,7 +652,8 @@ public func computeAnalyticSphere(
         centerOfMassLocal: SIMD3<Double>(0, 0, 0),
         centroidInertia: centroidInertia,
         transform: transform,
-        coordinateSystem: coordinateSystem
+        coordinateSystem: coordinateSystem,
+        override: override
     )
 }
 
@@ -618,7 +664,8 @@ public func computeAnalyticCone(
     height: Float,
     density: Double = 1000.0,
     transform: Transform = .identity,
-    coordinateSystem: MassPropertiesCoordinateSystem = .centroid
+    coordinateSystem: MassPropertiesCoordinateSystem = .centroid,
+    override: MassOverride? = nil
 ) -> MassProperties {
     let r1 = Double(abs(bottomRadius))
     let r2 = Double(abs(topRadius))
@@ -673,7 +720,8 @@ public func computeAnalyticCone(
         centerOfMassLocal: SIMD3<Double>(0, 0, zCm),
         centroidInertia: centroidInertia,
         transform: transform,
-        coordinateSystem: coordinateSystem
+        coordinateSystem: coordinateSystem,
+        override: override
     )
 }
 
@@ -683,7 +731,8 @@ public func computeAnalyticTorus(
     minorRadius: Float,
     density: Double = 1000.0,
     transform: Transform = .identity,
-    coordinateSystem: MassPropertiesCoordinateSystem = .centroid
+    coordinateSystem: MassPropertiesCoordinateSystem = .centroid,
+    override: MassOverride? = nil
 ) -> MassProperties {
     let bigR = Double(abs(majorRadius))
     let smallR = Double(abs(minorRadius))
@@ -706,12 +755,37 @@ public func computeAnalyticTorus(
         centerOfMassLocal: SIMD3<Double>(0, 0, 0),
         centroidInertia: centroidInertia,
         transform: transform,
-        coordinateSystem: coordinateSystem
+        coordinateSystem: coordinateSystem,
+        override: override
     )
 }
 
 /// Mass properties calculator resolving materials and evaluating body properties.
 public enum MassPropertiesCalculator {
+    /// Resolves metadata dictionary for a given solid ID.
+    @MainActor
+    public static func resolveMetadata(for solidId: SolidId, in document: DocumentModel) -> [String: String] {
+        if let comp = document.findComponentInstance(solidId: solidId) {
+            return comp.metadata
+        }
+        if let uuid = UUID(uuidString: solidId.rawValue), let comp = document.findComponentInstance(id: uuid) {
+            return comp.metadata
+        }
+        if let feat = document.features.last(where: { $0.outputSolidId == solidId }) ?? document.feature(for: solidId) {
+            return feat.metadata
+        }
+        if let obj = document.objects.first(where: { $0.id == solidId }) {
+            return obj.metadata
+        }
+        return [:]
+    }
+
+    /// Resolves mass override settings for a given solid ID.
+    @MainActor
+    public static func resolveMassOverride(for solidId: SolidId, in document: DocumentModel) -> MassOverride {
+        MassOverride(metadata: resolveMetadata(for: solidId, in: document))
+    }
+
     /// Resolves material name and mass density in kg/m³ for a given solid ID.
     @MainActor
     public static func resolveMaterialDensity(
@@ -722,7 +796,10 @@ public enum MassPropertiesCalculator {
         var materialDefId: String? = nil
         var directName: String? = nil
 
-        if let feat = document.features.last(where: { $0.outputSolidId == solidId }) ?? document.feature(for: solidId) {
+        if let comp = document.findComponentInstance(solidId: solidId) {
+            materialDefId = comp.material.materialDefinitionId
+            directName = comp.material.materialName
+        } else if let feat = document.features.last(where: { $0.outputSolidId == solidId }) ?? document.feature(for: solidId) {
             materialDefId = feat.material.materialDefinitionId
             directName = feat.material.materialName
         } else if let obj = document.objects.first(where: { $0.id == solidId }) {
@@ -786,20 +863,21 @@ public enum MassPropertiesCalculator {
     ) -> MassProperties? {
         let (matName, density) = resolveMaterialDensity(for: solidId, in: document, userMaterials: userMaterials)
         _ = matName
+        let massOverride = resolveMassOverride(for: solidId, in: document)
 
         // Check if primitive feature
         if let feat = document.features.last(where: { $0.outputSolidId == solidId }) ?? document.feature(for: solidId) {
             switch feat.operation {
             case .primitive(.box(let p)):
-                return computeAnalyticBox(width: p.width, depth: p.depth, height: p.height, density: density, transform: feat.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticBox(width: p.width, depth: p.depth, height: p.height, density: density, transform: feat.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .primitive(.cylinder(let p)):
-                return computeAnalyticCylinder(radius: p.radius, height: p.height, density: density, transform: feat.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticCylinder(radius: p.radius, height: p.height, density: density, transform: feat.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .primitive(.sphere(let p)):
-                return computeAnalyticSphere(radius: p.radius, density: density, transform: feat.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticSphere(radius: p.radius, density: density, transform: feat.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .primitive(.cone(let p)):
-                return computeAnalyticCone(bottomRadius: p.bottomRadius, topRadius: p.topRadius, height: p.height, density: density, transform: feat.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticCone(bottomRadius: p.bottomRadius, topRadius: p.topRadius, height: p.height, density: density, transform: feat.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .primitive(.torus(let p)):
-                return computeAnalyticTorus(majorRadius: p.majorRadius, minorRadius: p.minorRadius, density: density, transform: feat.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticTorus(majorRadius: p.majorRadius, minorRadius: p.minorRadius, density: density, transform: feat.transform, coordinateSystem: coordinateSystem, override: massOverride)
             default:
                 break
             }
@@ -809,15 +887,15 @@ public enum MassPropertiesCalculator {
         if let obj = document.objects.first(where: { $0.id == solidId }) {
             switch obj.def {
             case .box(let p):
-                return computeAnalyticBox(width: p.width, depth: p.depth, height: p.height, density: density, transform: obj.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticBox(width: p.width, depth: p.depth, height: p.height, density: density, transform: obj.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .cylinder(let p):
-                return computeAnalyticCylinder(radius: p.radius, height: p.height, density: density, transform: obj.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticCylinder(radius: p.radius, height: p.height, density: density, transform: obj.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .sphere(let p):
-                return computeAnalyticSphere(radius: p.radius, density: density, transform: obj.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticSphere(radius: p.radius, density: density, transform: obj.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .cone(let p):
-                return computeAnalyticCone(bottomRadius: p.bottomRadius, topRadius: p.topRadius, height: p.height, density: density, transform: obj.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticCone(bottomRadius: p.bottomRadius, topRadius: p.topRadius, height: p.height, density: density, transform: obj.transform, coordinateSystem: coordinateSystem, override: massOverride)
             case .torus(let p):
-                return computeAnalyticTorus(majorRadius: p.majorRadius, minorRadius: p.minorRadius, density: density, transform: obj.transform, coordinateSystem: coordinateSystem)
+                return computeAnalyticTorus(majorRadius: p.majorRadius, minorRadius: p.minorRadius, density: density, transform: obj.transform, coordinateSystem: coordinateSystem, override: massOverride)
             default:
                 break
             }
@@ -825,11 +903,11 @@ public enum MassPropertiesCalculator {
 
         // Evaluate from candidate mesh or resolved mesh
         if let mesh = candidateMeshes.first(where: { $0.id == solidId }) {
-            return computeMeshMassProperties(positions: mesh.positions, indices: mesh.indices, transform: mesh.transform, density: density, coordinateSystem: coordinateSystem)
+            return computeMeshMassProperties(positions: mesh.positions, indices: mesh.indices, transform: mesh.transform, density: density, coordinateSystem: coordinateSystem, override: massOverride)
         }
 
         if let resolved = MeasureTool.resolveMesh(for: solidId, in: document, candidateMeshes: candidateMeshes) {
-            return computeMeshMassProperties(positions: resolved.positions, indices: resolved.indices, transform: resolved.transform, density: density, coordinateSystem: coordinateSystem)
+            return computeMeshMassProperties(positions: resolved.positions, indices: resolved.indices, transform: resolved.transform, density: density, coordinateSystem: coordinateSystem, override: massOverride)
         }
 
         return nil
