@@ -5251,6 +5251,44 @@ final class WorkspaceModel {
         markDocumentModified()
     }
 
+    // MARK: - Mass Overrides (BL-MAT-05, #258)
+
+    public func setPurchasedOverride(id: SolidId, isPurchased: Bool) {
+        setBodyProperty(id: id, key: CustomPropertyKey.isPurchased, value: isPurchased ? "true" : nil)
+    }
+
+    public func setOverrideMass(id: SolidId, massKg: Double?) {
+        if let massKg, massKg > 0, massKg.isFinite {
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideMass, value: String(massKg))
+        } else {
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideMass, value: nil)
+        }
+    }
+
+    public func setOverrideCenterOfMass(id: SolidId, centerOfMassLocal: SIMD3<Double>?) {
+        document.undoManager?.beginUndoGrouping()
+        if let com = centerOfMassLocal, com.x.isFinite, com.y.isFinite, com.z.isFinite {
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideCenterOfMassX, value: String(com.x))
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideCenterOfMassY, value: String(com.y))
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideCenterOfMassZ, value: String(com.z))
+        } else {
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideCenterOfMassX, value: nil)
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideCenterOfMassY, value: nil)
+            setBodyProperty(id: id, key: CustomPropertyKey.overrideCenterOfMassZ, value: nil)
+        }
+        document.undoManager?.setActionName("Set Center of Mass Override")
+        document.undoManager?.endUndoGrouping()
+    }
+
+    public func clearMassOverrides(id: SolidId) {
+        document.undoManager?.beginUndoGrouping()
+        for key in CustomPropertyKey.massOverrideKeys {
+            setBodyProperty(id: id, key: key, value: nil)
+        }
+        document.undoManager?.setActionName("Clear Mass Overrides")
+        document.undoManager?.endUndoGrouping()
+    }
+
     // MARK: - Viewport Hidden State Synchronization (BL-FND-13)
 
     func syncHiddenSolidIds() {

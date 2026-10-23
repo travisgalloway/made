@@ -44,6 +44,18 @@ enum InspectorUnitConversion {
         }
     }
 
+    static func commitMass(_ displayValue: Double, unitSymbol: String) -> Double {
+        if unitSymbol.lowercased() == "g" {
+            return displayValue / 1000.0
+        } else {
+            return displayValue
+        }
+    }
+
+    static func commitLengthDouble(_ displayValue: Double, unit: LengthUnit) -> Double {
+        unit.toMillimeters(displayValue)
+    }
+
     static func massAccessibilityValue(_ valueInKilograms: Double) -> String {
         let (val, sym) = displayMass(valueInKilograms)
         return "\(val.formatted(.number.precision(.fractionLength(1...3)))) \(sym)"
@@ -622,103 +634,11 @@ struct InspectorPanelView: View {
 
     @ViewBuilder
     private func massPropertiesSection(_ obj: SceneObject) -> some View {
-        Section {
-            Picker("Coordinates", selection: $massPropertiesCoordSystem) {
-                ForEach(MassPropertiesCoordinateSystem.allCases) { sys in
-                    Text(sys.displayName).tag(sys)
-                }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("inspector-mass-properties-coordinate-system")
-
-            if let props = workspace.massProperties(for: obj.id, coordinateSystem: massPropertiesCoordSystem) {
-                let units = workspace.document.settings.units
-                let (matName, density) = MassPropertiesCalculator.resolveMaterialDensity(for: obj.id, in: workspace.document, userMaterials: workspace.userMaterials)
-                let densityStr = "\(matName ?? "Standard"): \(String(format: "%.1f", density)) kg/m³"
-                LabeledContent("Material & Density") {
-                    Text(densityStr)
-                        .accessibilityIdentifier("inspector-mass-density")
-                        .monospaced()
-                        .textSelection(.enabled)
-                }
-
-                let massStr = units.formatMass(props.mass)
-                LabeledContent("Mass") {
-                    Text(massStr)
-                        .accessibilityIdentifier("inspector-mass-value")
-                        .monospaced()
-                        .textSelection(.enabled)
-                }
-
-                let volStr = units.formatVolume(props.volume)
-                LabeledContent("Volume") {
-                    Text(volStr)
-                        .accessibilityIdentifier("inspector-volume-value")
-                        .monospaced()
-                        .textSelection(.enabled)
-                }
-
-                let areaStr = units.formatArea(props.surfaceArea)
-                LabeledContent("Surface Area") {
-                    Text(areaStr)
-                        .accessibilityIdentifier("inspector-surface-area-value")
-                        .monospaced()
-                        .textSelection(.enabled)
-                }
-
-                let cmX = units.formatLength(props.centerOfMass.x)
-                let cmY = units.formatLength(props.centerOfMass.y)
-                let cmZ = units.formatLength(props.centerOfMass.z)
-                let cmStr = "(\(cmX), \(cmY), \(cmZ))"
-                LabeledContent("Center of Mass") {
-                    Text(cmStr)
-                        .accessibilityIdentifier("inspector-center-of-mass")
-                        .monospaced()
-                        .textSelection(.enabled)
-                }
-
-                let ixxStr = String(format: "%.2e", props.inertiaTensor.ixx)
-                let iyyStr = String(format: "%.2e", props.inertiaTensor.iyy)
-                let izzStr = String(format: "%.2e", props.inertiaTensor.izz)
-                let inertiaStr = "\(ixxStr), \(iyyStr), \(izzStr) kg·mm²"
-                LabeledContent("Moments of Inertia") {
-                    Text(inertiaStr)
-                        .accessibilityIdentifier("inspector-moments-of-inertia")
-                        .monospaced()
-                        .textSelection(.enabled)
-                }
-
-                let i1Str = String(format: "%.2e", props.principalMoments.i1)
-                let i2Str = String(format: "%.2e", props.principalMoments.i2)
-                let i3Str = String(format: "%.2e", props.principalMoments.i3)
-                let principalStr = "\(i1Str), \(i2Str), \(i3Str) kg·mm²"
-                LabeledContent("Principal Moments") {
-                    Text(principalStr)
-                        .accessibilityIdentifier("inspector-principal-moments")
-                        .monospaced()
-                        .textSelection(.enabled)
-                }
-
-                Button {
-                    let report = props.formattedReport(units: units)
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(report, forType: .string)
-                } label: {
-                    Label("Copy Mass Properties", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("inspector-copy-mass-properties-button")
-            } else {
-                LabeledContent("Mass Properties") {
-                    Text("Unavailable")
-                        .accessibilityIdentifier("inspector-no-mass-properties")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } header: {
-            sectionHeader("Mass Properties")
-        }
+        InspectorMassPropertiesSection(
+            solidId: obj.id,
+            metadata: obj.metadata,
+            isLocked: obj.isLocked
+        )
     }
 
     private func sketchIdentitySection(_ sketch: Feature) -> some View {
@@ -1386,6 +1306,7 @@ struct InspectorComponentInstanceView: View {
         Form {
             identitySection
             componentPropertiesSection
+            massPropertiesSection
             if component.isSubassembly {
                 subassemblySection
             }
@@ -1532,6 +1453,14 @@ struct InspectorComponentInstanceView: View {
             onSetProperty: { key, val in
                 workspace.setComponentProperty(id: component.id, key: key, value: val)
             }
+        )
+    }
+
+    private var massPropertiesSection: some View {
+        InspectorMassPropertiesSection(
+            solidId: component.solidId,
+            metadata: component.metadata,
+            isLocked: component.isLocked
         )
     }
 
@@ -1739,6 +1668,255 @@ struct InspectorComponentInstanceView: View {
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector section for mass properties calculations and purchased part mass overrides (BL-MAT-04, BL-MAT-05, #257, #258).
+struct InspectorMassPropertiesSection: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let solidId: SolidId
+    let metadata: [String: String]
+    var isLocked: Bool = false
+
+    @State private var coordSystem: MassPropertiesCoordinateSystem = .centroid
+
+    private var massOverride: MassOverride {
+        MassOverride(metadata: metadata)
+    }
+
+    var body: some View {
+        Section {
+            Picker("Coordinates", selection: $coordSystem) {
+                ForEach(MassPropertiesCoordinateSystem.allCases) { sys in
+                    Text(sys.displayName).tag(sys)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("inspector-mass-properties-coordinate-system")
+
+            Toggle("Purchased Part Override", isOn: Binding(
+                get: { massOverride.isPurchased },
+                set: { workspace.setPurchasedOverride(id: solidId, isPurchased: $0) }
+            ))
+            .disabled(isLocked)
+            .accessibilityIdentifier("inspector-mass-override-toggle")
+
+            if massOverride.isPurchased {
+                let lengthUnit = workspace.document.settings.units.lengthUnit
+
+                LabeledContent("Override Mass (kg)") {
+                    TextField("Mass", text: Binding(
+                        get: {
+                            if let m = massOverride.overrideMass {
+                                return String(m)
+                            }
+                            return ""
+                        },
+                        set: { newText in
+                            let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                            if trimmed.isEmpty {
+                                workspace.setOverrideMass(id: solidId, massKg: nil)
+                            } else if trimmed.hasSuffix("kg"), let val = Double(trimmed.dropLast(2).trimmingCharacters(in: .whitespaces)), val > 0, val.isFinite {
+                                workspace.setOverrideMass(id: solidId, massKg: val)
+                            } else if trimmed.hasSuffix("g"), let val = Double(trimmed.dropLast(1).trimmingCharacters(in: .whitespaces)), val > 0, val.isFinite {
+                                workspace.setOverrideMass(id: solidId, massKg: val / 1000.0)
+                            } else if let val = Double(trimmed), val > 0, val.isFinite {
+                                workspace.setOverrideMass(id: solidId, massKg: val)
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 100)
+                    .disabled(isLocked)
+                    .accessibilityIdentifier("inspector-override-mass-input")
+                }
+
+                let currentCom = massOverride.overrideCenterOfMass
+                LabeledContent("Override Center of Mass (\(lengthUnit.symbol))") {
+                    HStack(spacing: 4) {
+                        TextField("X", text: Binding(
+                            get: {
+                                if let xMm = currentCom?.x {
+                                    let disp = InspectorUnitConversion.displayLength(xMm, unit: lengthUnit)
+                                    return String(disp)
+                                }
+                                return ""
+                            },
+                            set: { updateCom(axis: 0, text: $0, currentCom: currentCom, unit: lengthUnit) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .disabled(isLocked)
+                        .accessibilityIdentifier("inspector-override-com-x")
+
+                        TextField("Y", text: Binding(
+                            get: {
+                                if let yMm = currentCom?.y {
+                                    let disp = InspectorUnitConversion.displayLength(yMm, unit: lengthUnit)
+                                    return String(disp)
+                                }
+                                return ""
+                            },
+                            set: { updateCom(axis: 1, text: $0, currentCom: currentCom, unit: lengthUnit) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .disabled(isLocked)
+                        .accessibilityIdentifier("inspector-override-com-y")
+
+                        TextField("Z", text: Binding(
+                            get: {
+                                if let zMm = currentCom?.z {
+                                    let disp = InspectorUnitConversion.displayLength(zMm, unit: lengthUnit)
+                                    return String(disp)
+                                }
+                                return ""
+                            },
+                            set: { updateCom(axis: 2, text: $0, currentCom: currentCom, unit: lengthUnit) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .disabled(isLocked)
+                        .accessibilityIdentifier("inspector-override-com-z")
+                    }
+                }
+
+                Button("Clear Overrides") {
+                    workspace.clearMassOverrides(id: solidId)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isLocked)
+                .accessibilityIdentifier("inspector-clear-mass-overrides-button")
+            }
+
+            if let props = workspace.massProperties(for: solidId, coordinateSystem: coordSystem) {
+                let units = workspace.document.settings.units
+                let (matName, density) = MassPropertiesCalculator.resolveMaterialDensity(for: solidId, in: workspace.document, userMaterials: workspace.userMaterials)
+                let densityStr = "\(matName ?? "Standard"): \(String(format: "%.1f", density)) kg/m³"
+                LabeledContent("Material & Density") {
+                    Text(densityStr)
+                        .accessibilityIdentifier("inspector-mass-density")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let massStr = units.formatMass(props.mass)
+                LabeledContent("Mass") {
+                    HStack(spacing: 4) {
+                        Text(massStr)
+                            .accessibilityIdentifier("inspector-mass-value")
+                            .monospaced()
+                            .textSelection(.enabled)
+                        if props.isMassOverridden {
+                            Text("(Overridden)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("inspector-mass-override-badge")
+                        }
+                    }
+                }
+
+                let volStr = units.formatVolume(props.volume)
+                LabeledContent("Volume") {
+                    Text(volStr)
+                        .accessibilityIdentifier("inspector-volume-value")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let areaStr = units.formatArea(props.surfaceArea)
+                LabeledContent("Surface Area") {
+                    Text(areaStr)
+                        .accessibilityIdentifier("inspector-surface-area-value")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let cmX = units.formatLength(props.centerOfMass.x)
+                let cmY = units.formatLength(props.centerOfMass.y)
+                let cmZ = units.formatLength(props.centerOfMass.z)
+                let cmStr = "(\(cmX), \(cmY), \(cmZ))"
+                LabeledContent("Center of Mass") {
+                    HStack(spacing: 4) {
+                        Text(cmStr)
+                            .accessibilityIdentifier("inspector-center-of-mass")
+                            .monospaced()
+                            .textSelection(.enabled)
+                        if props.isCenterOfMassOverridden {
+                            Text("(Overridden)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("inspector-center-of-mass-override-badge")
+                        }
+                    }
+                }
+
+                let ixxStr = String(format: "%.2e", props.inertiaTensor.ixx)
+                let iyyStr = String(format: "%.2e", props.inertiaTensor.iyy)
+                let izzStr = String(format: "%.2e", props.inertiaTensor.izz)
+                let inertiaStr = "\(ixxStr), \(iyyStr), \(izzStr) kg·mm²"
+                LabeledContent("Moments of Inertia") {
+                    Text(inertiaStr)
+                        .accessibilityIdentifier("inspector-moments-of-inertia")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let i1Str = String(format: "%.2e", props.principalMoments.i1)
+                let i2Str = String(format: "%.2e", props.principalMoments.i2)
+                let i3Str = String(format: "%.2e", props.principalMoments.i3)
+                let principalStr = "\(i1Str), \(i2Str), \(i3Str) kg·mm²"
+                LabeledContent("Principal Moments") {
+                    Text(principalStr)
+                        .accessibilityIdentifier("inspector-principal-moments")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                Button {
+                    let report = props.formattedReport(units: units)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(report, forType: .string)
+                } label: {
+                    Label("Copy Mass Properties", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("inspector-copy-mass-properties-button")
+            } else {
+                LabeledContent("Mass Properties") {
+                    Text("Unavailable")
+                        .accessibilityIdentifier("inspector-no-mass-properties")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            sectionHeader("Mass Properties")
+        }
+    }
+
+    private func updateCom(axis: Int, text: String, currentCom: SIMD3<Double>?, unit: LengthUnit) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var com = currentCom ?? SIMD3<Double>(0, 0, 0)
+        if trimmed.isEmpty {
+            com[axis] = 0.0
+            if currentCom == nil { return }
+        } else if let val = Double(trimmed), val.isFinite {
+            com[axis] = InspectorUnitConversion.commitLengthDouble(val, unit: unit)
+        } else {
+            return
+        }
+        workspace.setOverrideCenterOfMass(id: solidId, centerOfMassLocal: com)
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
             Text(title).font(.headline)
         }
         .padding(.top, 8)
@@ -2193,7 +2371,7 @@ struct MetadataPropertiesView: View {
         }
 
         Section {
-            let customKeys = metadata.keys.filter { !CustomPropertyKey.standardKeys.contains($0) }.sorted()
+            let customKeys = metadata.keys.filter { !CustomPropertyKey.standardKeys.contains($0) && !CustomPropertyKey.massOverrideKeys.contains($0) }.sorted()
             if customKeys.isEmpty {
                 Text("No custom properties defined.")
                     .font(.caption)

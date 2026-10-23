@@ -103,4 +103,134 @@ import MadeCore
         #expect(report.contains("Moments of Inertia"))
         #expect(report.contains("Principal Moments of Inertia"))
     }
+
+    // MARK: - Mass Override Tests (BL-MAT-05, #258)
+
+    @Test @MainActor func testWorkspaceMassOverrideForBox() {
+        let workspace = WorkspaceModel()
+        workspace.setUp()
+
+        let boxDef = ObjectDef.box(BoxParams(width: 10, depth: 20, height: 30))
+        workspace.addObject(boxDef)
+
+        guard let solidId = workspace.selectedId else {
+            Issue.record("No object selected after adding box")
+            return
+        }
+
+        // Initially no override
+        let initialProps = workspace.massProperties(for: solidId, coordinateSystem: .centroid)
+        #expect(initialProps?.isMassOverridden == false)
+        #expect(initialProps?.isCenterOfMassOverridden == false)
+        #expect(abs((initialProps?.mass ?? 0) - 0.006) < 1e-7)
+
+        // Enable purchased override
+        workspace.setPurchasedOverride(id: solidId, isPurchased: true)
+        workspace.setOverrideMass(id: solidId, massKg: 0.015)
+        workspace.setOverrideCenterOfMass(id: solidId, centerOfMassLocal: SIMD3<Double>(10, 20, 30))
+
+        let overriddenProps = workspace.massProperties(for: solidId, coordinateSystem: .bodyLocal)
+        #expect(overriddenProps != nil)
+        if let overriddenProps {
+            #expect(overriddenProps.isMassOverridden)
+            #expect(overriddenProps.isCenterOfMassOverridden)
+            #expect(abs(overriddenProps.mass - 0.015) < 1e-7)
+            #expect(abs(overriddenProps.centerOfMass.x - 10.0) < 1e-5)
+            #expect(abs(overriddenProps.centerOfMass.y - 20.0) < 1e-5)
+            #expect(abs(overriddenProps.centerOfMass.z - 30.0) < 1e-5)
+        }
+    }
+
+    @Test @MainActor func testWorkspaceMassOverrideUndoRedo() {
+        let workspace = WorkspaceModel()
+        workspace.setUp()
+
+        let boxDef = ObjectDef.box(BoxParams(width: 10, depth: 20, height: 30))
+        workspace.addObject(boxDef)
+
+        guard let solidId = workspace.selectedId else {
+            Issue.record("No object selected after adding box")
+            return
+        }
+
+        let undoManager = UndoManager()
+        workspace.document.undoManager = undoManager
+        undoManager.groupsByEvent = false
+
+        undoManager.beginUndoGrouping()
+        workspace.setPurchasedOverride(id: solidId, isPurchased: true)
+        undoManager.endUndoGrouping()
+
+        undoManager.beginUndoGrouping()
+        workspace.setOverrideMass(id: solidId, massKg: 0.050)
+        undoManager.endUndoGrouping()
+
+        let propsWithOverride = workspace.massProperties(for: solidId, coordinateSystem: .centroid)
+        #expect(propsWithOverride?.isMassOverridden == true)
+        #expect(abs((propsWithOverride?.mass ?? 0) - 0.050) < 1e-7)
+
+        // Undo mass override
+        undoManager.undo()
+        let propsUndone = workspace.massProperties(for: solidId, coordinateSystem: .centroid)
+        #expect(propsUndone?.isMassOverridden == false)
+        #expect(abs((propsUndone?.mass ?? 0) - 0.006) < 1e-7)
+
+        // Redo mass override
+        undoManager.redo()
+        let propsRedone = workspace.massProperties(for: solidId, coordinateSystem: .centroid)
+        #expect(propsRedone?.isMassOverridden == true)
+        #expect(abs((propsRedone?.mass ?? 0) - 0.050) < 1e-7)
+    }
+
+    @Test @MainActor func testWorkspaceClearMassOverrides() {
+        let workspace = WorkspaceModel()
+        workspace.setUp()
+
+        let boxDef = ObjectDef.box(BoxParams(width: 10, depth: 20, height: 30))
+        workspace.addObject(boxDef)
+
+        guard let solidId = workspace.selectedId else {
+            Issue.record("No object selected after adding box")
+            return
+        }
+
+        workspace.setPurchasedOverride(id: solidId, isPurchased: true)
+        workspace.setOverrideMass(id: solidId, massKg: 0.100)
+        workspace.setOverrideCenterOfMass(id: solidId, centerOfMassLocal: SIMD3<Double>(5, 10, 15))
+
+        let overridden = workspace.massProperties(for: solidId, coordinateSystem: .centroid)
+        #expect(overridden?.isMassOverridden == true)
+
+        workspace.clearMassOverrides(id: solidId)
+
+        let cleared = workspace.massProperties(for: solidId, coordinateSystem: .centroid)
+        #expect(cleared?.isMassOverridden == false)
+        #expect(cleared?.isCenterOfMassOverridden == false)
+        #expect(abs((cleared?.mass ?? 0) - 0.006) < 1e-7)
+    }
+
+    @Test func testInspectorMassOverrideUnitConversion() {
+        // Mass unit conversions: display and commit
+        let kgValue = 0.025 // 25 g
+        let (valG, symG) = InspectorUnitConversion.displayMass(kgValue)
+        #expect(abs(valG - 25.0) < 1e-4)
+        #expect(symG == "g")
+
+        let committedFromG = InspectorUnitConversion.commitMass(25.0, unitSymbol: "g")
+        #expect(abs(committedFromG - 0.025) < 1e-6)
+
+        let committedFromKg = InspectorUnitConversion.commitMass(1.5, unitSymbol: "kg")
+        #expect(abs(committedFromKg - 1.5) < 1e-6)
+
+        // Length unit conversions for center of mass coordinates
+        let lengthMm = 25.4
+        let dispInches = InspectorUnitConversion.displayLength(lengthMm, unit: .inches)
+        #expect(abs(dispInches - 1.0) < 1e-4)
+
+        let committedMm = InspectorUnitConversion.commitLengthDouble(1.0, unit: .inches)
+        #expect(abs(committedMm - 25.4) < 1e-4)
+
+        let committedCm = InspectorUnitConversion.commitLengthDouble(2.5, unit: .centimeters)
+        #expect(abs(committedCm - 25.0) < 1e-4)
+    }
 }

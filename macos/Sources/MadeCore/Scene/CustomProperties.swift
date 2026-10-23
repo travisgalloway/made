@@ -7,6 +7,19 @@ public enum CustomPropertyKey {
     public static let revision = "revision"
     public static let vendor = "vendor"
     public static let standardKeys: [String] = [partNumber, description, revision, vendor]
+
+    public static let isPurchased = "isPurchased"
+    public static let overrideMass = "overrideMass"
+    public static let overrideCenterOfMassX = "overrideCenterOfMassX"
+    public static let overrideCenterOfMassY = "overrideCenterOfMassY"
+    public static let overrideCenterOfMassZ = "overrideCenterOfMassZ"
+    public static let massOverrideKeys: [String] = [
+        isPurchased,
+        overrideMass,
+        overrideCenterOfMassX,
+        overrideCenterOfMassY,
+        overrideCenterOfMassZ
+    ]
 }
 
 /// A container protocol providing accessors and mutation helpers for metadata dictionaries.
