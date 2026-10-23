@@ -849,6 +849,17 @@ public final class DocumentModel {
     public private(set) var componentMirrors: [ComponentMirror] = []
     public private(set) var explodedViews: [ExplodedView] = []
     public private(set) var activeExplodedViewId: UUID? = nil
+    public private(set) var studies: [SimulationStudy] = []
+    public private(set) var activeStudyId: UUID? = nil
+    public var activeStudy: SimulationStudy? {
+        if let activeStudyId, let study = studies.first(where: { $0.id == activeStudyId }) {
+            return study
+        }
+        return studies.first
+    }
+    public func study(id: UUID) -> SimulationStudy? {
+        studies.first(where: { $0.id == id })
+    }
     public private(set) var sheets: [DrawingSheet] = []
     public private(set) var activeSheetId: UUID? = nil
     public var activeSheet: DrawingSheet? {
@@ -1304,7 +1315,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
@@ -1314,6 +1325,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.studies = studies
+        self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
             let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
             self.sheets = [defaultSheet]
@@ -1332,7 +1345,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1341,6 +1354,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.studies = studies
+        self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
             let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
             self.sheets = [defaultSheet]
@@ -1406,7 +1421,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1415,6 +1430,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.studies = studies
+        self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
             let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
             self.sheets = [defaultSheet]
@@ -1454,7 +1471,7 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1463,6 +1480,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.studies = studies
+        self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
             let defaultSheet = DrawingSheet(name: "Sheet 1", size: .isoA3, orientation: .landscape)
             self.sheets = [defaultSheet]
@@ -8896,6 +8915,538 @@ public final class DocumentModel {
 
     public func customMaterial(withId id: String) -> MaterialDefinition? {
         customMaterials.first(where: { $0.id == id })
+    }
+
+    // MARK: - Simulation Studies (ADR-D5, #157)
+
+    @discardableResult
+    public func addStudy(
+        _ study: SimulationStudy? = nil,
+        name: String = "Study 1",
+        studyType: SimulationStudyType = .linearStatic,
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationStudy, DocumentMutationError> {
+        let newStudy = study ?? SimulationStudy(
+            id: UUID(),
+            name: name,
+            studyType: studyType
+        )
+        let insertionIndex = min(max(0, index ?? studies.count), studies.count)
+        studies.insert(newStudy, at: insertionIndex)
+        let oldActiveId = activeStudyId
+        if activeStudyId == nil {
+            activeStudyId = newStudy.id
+        }
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Simulation Study"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeStudy(id: newStudy.id, actionName: effectiveActionName, registerUndo: true)
+                    if oldActiveId == nil {
+                        target.activeStudyId = oldActiveId
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(newStudy)
+    }
+
+    @discardableResult
+    public func removeStudy(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = studies.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Simulation study with id \(id) not found"))
+        }
+        let removedStudy = studies.remove(at: index)
+        let oldActiveId = activeStudyId
+        if activeStudyId == id {
+            activeStudyId = studies.first?.id
+        }
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Simulation Study"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addStudy(removedStudy, at: index, actionName: effectiveActionName, registerUndo: true)
+                    if oldActiveId == id {
+                        _ = target.setActiveStudy(id: oldActiveId, actionName: effectiveActionName, registerUndo: false)
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func renameStudy(
+        id: UUID,
+        name: String,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = studies.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Simulation study with id \(id) not found"))
+        }
+        let oldName = studies[index].name
+        guard oldName != name else { return .success(()) }
+        studies[index].name = name
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Rename Simulation Study"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.renameStudy(id: id, name: oldName, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func setActiveStudy(
+        id: UUID?,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        if let id {
+            guard studies.contains(where: { $0.id == id }) else {
+                return .failure(.invalidOperation("Simulation study with id \(id) not found"))
+            }
+        }
+        let oldActiveId = activeStudyId
+        guard oldActiveId != id else { return .success(()) }
+        activeStudyId = id
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? (id != nil ? "Activate Simulation Study" : "Deactivate Simulation Study")
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setActiveStudy(id: oldActiveId, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func toggleStudyCollapsed(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = studies.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Simulation study with id \(id) not found"))
+        }
+        studies[index].isCollapsed.toggle()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? (studies[index].isCollapsed ? "Collapse Simulation Study" : "Expand Simulation Study")
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.toggleStudyCollapsed(id: id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateStudy(
+        _ study: SimulationStudy,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = studies.firstIndex(where: { $0.id == study.id }) else {
+            return .failure(.invalidOperation("Simulation study with id \(study.id) not found"))
+        }
+        let oldStudy = studies[index]
+        guard oldStudy != study else { return .success(()) }
+        studies[index] = study
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Simulation Study"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateStudy(oldStudy, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func addSimulationFixture(
+        studyId: UUID,
+        fixture: SimulationFixture = SimulationFixture(),
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationFixture, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let insertionIndex = min(max(0, index ?? studies[sIdx].fixtures.count), studies[sIdx].fixtures.count)
+        studies[sIdx].fixtures.insert(fixture, at: insertionIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Fixture"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSimulationFixture(studyId: studyId, fixtureId: fixture.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(fixture)
+    }
+
+    @discardableResult
+    public func removeSimulationFixture(
+        studyId: UUID,
+        fixtureId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let fIdx = studies[sIdx].fixtures.firstIndex(where: { $0.id == fixtureId }) else {
+            return .failure(.invalidOperation("Simulation fixture with id \(fixtureId) not found"))
+        }
+        let removed = studies[sIdx].fixtures.remove(at: fIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Fixture"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addSimulationFixture(studyId: studyId, fixture: removed, at: fIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationFixture(
+        studyId: UUID,
+        fixture: SimulationFixture,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let fIdx = studies[sIdx].fixtures.firstIndex(where: { $0.id == fixture.id }) else {
+            return .failure(.invalidOperation("Simulation fixture with id \(fixture.id) not found"))
+        }
+        let oldFixture = studies[sIdx].fixtures[fIdx]
+        guard oldFixture != fixture else { return .success(()) }
+        studies[sIdx].fixtures[fIdx] = fixture
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Fixture"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationFixture(studyId: studyId, fixture: oldFixture, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func addSimulationLoad(
+        studyId: UUID,
+        load: SimulationLoad = SimulationLoad(),
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationLoad, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let insertionIndex = min(max(0, index ?? studies[sIdx].loads.count), studies[sIdx].loads.count)
+        studies[sIdx].loads.insert(load, at: insertionIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Load"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSimulationLoad(studyId: studyId, loadId: load.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(load)
+    }
+
+    @discardableResult
+    public func removeSimulationLoad(
+        studyId: UUID,
+        loadId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let lIdx = studies[sIdx].loads.firstIndex(where: { $0.id == loadId }) else {
+            return .failure(.invalidOperation("Simulation load with id \(loadId) not found"))
+        }
+        let removed = studies[sIdx].loads.remove(at: lIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Load"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addSimulationLoad(studyId: studyId, load: removed, at: lIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationLoad(
+        studyId: UUID,
+        load: SimulationLoad,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let lIdx = studies[sIdx].loads.firstIndex(where: { $0.id == load.id }) else {
+            return .failure(.invalidOperation("Simulation load with id \(load.id) not found"))
+        }
+        let oldLoad = studies[sIdx].loads[lIdx]
+        guard oldLoad != load else { return .success(()) }
+        studies[sIdx].loads[lIdx] = load
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Load"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationLoad(studyId: studyId, load: oldLoad, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func addSimulationMaterialAssignment(
+        studyId: UUID,
+        assignment: SimulationMaterialAssignment = SimulationMaterialAssignment(),
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationMaterialAssignment, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let insertionIndex = min(max(0, index ?? studies[sIdx].materials.count), studies[sIdx].materials.count)
+        studies[sIdx].materials.insert(assignment, at: insertionIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Material Assignment"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSimulationMaterialAssignment(studyId: studyId, assignmentId: assignment.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(assignment)
+    }
+
+    @discardableResult
+    public func removeSimulationMaterialAssignment(
+        studyId: UUID,
+        assignmentId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let mIdx = studies[sIdx].materials.firstIndex(where: { $0.id == assignmentId }) else {
+            return .failure(.invalidOperation("Simulation material assignment with id \(assignmentId) not found"))
+        }
+        let removed = studies[sIdx].materials.remove(at: mIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Material Assignment"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addSimulationMaterialAssignment(studyId: studyId, assignment: removed, at: mIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationMaterialAssignment(
+        studyId: UUID,
+        assignment: SimulationMaterialAssignment,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let mIdx = studies[sIdx].materials.firstIndex(where: { $0.id == assignment.id }) else {
+            return .failure(.invalidOperation("Simulation material assignment with id \(assignment.id) not found"))
+        }
+        let old = studies[sIdx].materials[mIdx]
+        guard old != assignment else { return .success(()) }
+        studies[sIdx].materials[mIdx] = assignment
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Material Assignment"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationMaterialAssignment(studyId: studyId, assignment: old, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationMeshSpecification(
+        studyId: UUID,
+        mesh: MeshSpecification,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldMesh = studies[sIdx].mesh
+        guard oldMesh != mesh else { return .success(()) }
+        studies[sIdx].mesh = mesh
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Mesh Specification"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationMeshSpecification(studyId: studyId, mesh: oldMesh, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationSolverConfiguration(
+        studyId: UUID,
+        solver: SolverConfiguration,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldSolver = studies[sIdx].solver
+        guard oldSolver != solver else { return .success(()) }
+        studies[sIdx].solver = solver
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Solver Configuration"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationSolverConfiguration(studyId: studyId, solver: oldSolver, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationStudyResults(
+        studyId: UUID,
+        results: SimulationStudyResults,
+        actionName: String? = nil,
+        registerUndo: Bool = false
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldResults = studies[sIdx].results
+        guard oldResults != results else { return .success(()) }
+        studies[sIdx].results = results
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Simulation Results"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationStudyResults(studyId: studyId, results: oldResults, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
     }
 }
 

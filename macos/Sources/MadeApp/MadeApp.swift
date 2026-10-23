@@ -86,8 +86,7 @@ struct MadeApp: App {
             InspectorCommands()
             FileMenuCommands(workspace: workspace)
             EditMenuCommands(workspace: workspace)
-            SolidMenuCommands(workspace: workspace)
-            AssemblyMenuCommands(workspace: workspace)
+            ModelingMenuCommands(workspace: workspace)
             ViewNavigationCommands(workspace: workspace)
             ToolsMenuCommands(workspace: workspace)
             OpenSourceLicensesCommands()
@@ -113,6 +112,16 @@ struct MadeApp: App {
             SettingsView()
                 .environment(workspace)
         }
+    }
+}
+
+private struct ModelingMenuCommands: Commands {
+    var workspace: WorkspaceModel
+
+    var body: some Commands {
+        SolidMenuCommands(workspace: workspace)
+        AssemblyMenuCommands(workspace: workspace)
+        SimulationMenuCommands(workspace: workspace)
     }
 }
 

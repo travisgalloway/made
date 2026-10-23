@@ -45,12 +45,136 @@ final class WorkspaceModel {
         document.activeExplodedViewId
     }
 
+    // MARK: - Simulation Study Selection (BL-SIM-01, #157)
+
+    public var selectedSimulationStudyId: UUID? = nil
+    public var selectedSimulationFixtureId: UUID? = nil
+    public var selectedSimulationLoadId: UUID? = nil
+    public var selectedSimulationMaterialAssignmentId: UUID? = nil
+    public var isSimulationMeshSelected: Bool = false
+    public var isSimulationResultsSelected: Bool = false
+
+    public var selectedSimulationStudy: SimulationStudy? {
+        guard let id = selectedSimulationStudyId else { return nil }
+        return document.study(id: id)
+    }
+
+    public var selectedSimulationFixture: SimulationFixture? {
+        guard let study = selectedSimulationStudy, let fixtureId = selectedSimulationFixtureId else { return nil }
+        return study.fixtures.first(where: { $0.id == fixtureId })
+    }
+
+    public var selectedSimulationLoad: SimulationLoad? {
+        guard let study = selectedSimulationStudy, let loadId = selectedSimulationLoadId else { return nil }
+        return study.loads.first(where: { $0.id == loadId })
+    }
+
+    public var selectedSimulationMaterialAssignment: SimulationMaterialAssignment? {
+        guard let study = selectedSimulationStudy, let assignmentId = selectedSimulationMaterialAssignmentId else { return nil }
+        return study.materials.first(where: { $0.id == assignmentId })
+    }
+
+    public func clearSimulationSelections() {
+        selectedSimulationStudyId = nil
+        selectedSimulationFixtureId = nil
+        selectedSimulationLoadId = nil
+        selectedSimulationMaterialAssignmentId = nil
+        isSimulationMeshSelected = false
+        isSimulationResultsSelected = false
+    }
+
+    public func clearNonSimulationSelections() {
+        if radialMenuState != nil {
+            radialMenuState = nil
+        }
+        selectedId = nil
+        selectedAssemblyConstraintId = nil
+        selectedExplodedViewId = nil
+        selectedExplodeStepId = nil
+        selectedDrawingViewId = nil
+        selectedDrawingAnnotationId = nil
+        selectedDrawingBOMTableId = nil
+    }
+
+    public func selectSimulationStudy(_ id: UUID?) {
+        if id != nil {
+            clearNonSimulationSelections()
+        }
+        selectedSimulationStudyId = id
+        selectedSimulationFixtureId = nil
+        selectedSimulationLoadId = nil
+        selectedSimulationMaterialAssignmentId = nil
+        isSimulationMeshSelected = false
+        isSimulationResultsSelected = false
+    }
+
+    public func selectSimulationFixture(studyId: UUID, fixtureId: UUID?) {
+        if fixtureId != nil {
+            clearNonSimulationSelections()
+        }
+        selectedSimulationStudyId = studyId
+        selectedSimulationFixtureId = fixtureId
+        selectedSimulationLoadId = nil
+        selectedSimulationMaterialAssignmentId = nil
+        isSimulationMeshSelected = false
+        isSimulationResultsSelected = false
+    }
+
+    public func selectSimulationLoad(studyId: UUID, loadId: UUID?) {
+        if loadId != nil {
+            clearNonSimulationSelections()
+        }
+        selectedSimulationStudyId = studyId
+        selectedSimulationFixtureId = nil
+        selectedSimulationLoadId = loadId
+        selectedSimulationMaterialAssignmentId = nil
+        isSimulationMeshSelected = false
+        isSimulationResultsSelected = false
+    }
+
+    public func selectSimulationMaterialAssignment(studyId: UUID, assignmentId: UUID?) {
+        if assignmentId != nil {
+            clearNonSimulationSelections()
+        }
+        selectedSimulationStudyId = studyId
+        selectedSimulationFixtureId = nil
+        selectedSimulationLoadId = nil
+        selectedSimulationMaterialAssignmentId = assignmentId
+        isSimulationMeshSelected = false
+        isSimulationResultsSelected = false
+    }
+
+    public func selectSimulationMesh(studyId: UUID, isSelected: Bool = true) {
+        if isSelected {
+            clearNonSimulationSelections()
+        }
+        selectedSimulationStudyId = studyId
+        selectedSimulationFixtureId = nil
+        selectedSimulationLoadId = nil
+        selectedSimulationMaterialAssignmentId = nil
+        isSimulationMeshSelected = isSelected
+        isSimulationResultsSelected = false
+    }
+
+    public func selectSimulationResults(studyId: UUID, isSelected: Bool = true) {
+        if isSelected {
+            clearNonSimulationSelections()
+        }
+        selectedSimulationStudyId = studyId
+        selectedSimulationFixtureId = nil
+        selectedSimulationLoadId = nil
+        selectedSimulationMaterialAssignmentId = nil
+        isSimulationMeshSelected = false
+        isSimulationResultsSelected = isSelected
+    }
+
     public func selectExplodedView(_ id: UUID?) {
         selectedExplodedViewId = id
         selectedExplodeStepId = nil
         if id != nil {
             selectedId = nil
             selectedAssemblyConstraintId = nil
+            clearSimulationSelections()
         }
     }
 
@@ -60,6 +184,7 @@ final class WorkspaceModel {
         if stepId != nil {
             selectedId = nil
             selectedAssemblyConstraintId = nil
+            clearSimulationSelections()
         }
     }
 
@@ -80,6 +205,7 @@ final class WorkspaceModel {
             selectedDrawingBOMTableId = nil
             selectedAssemblyConstraintId = nil
             selectedExplodedViewId = nil
+            clearSimulationSelections()
         }
     }
 
@@ -100,6 +226,7 @@ final class WorkspaceModel {
             selectedDrawingBOMTableId = nil
             selectedAssemblyConstraintId = nil
             selectedExplodedViewId = nil
+            clearSimulationSelections()
         }
     }
 
@@ -120,6 +247,7 @@ final class WorkspaceModel {
             selectedDrawingAnnotationId = nil
             selectedAssemblyConstraintId = nil
             selectedExplodedViewId = nil
+            clearSimulationSelections()
         }
     }
 
@@ -176,6 +304,7 @@ final class WorkspaceModel {
             selectedId = nil
             selectedExplodedViewId = nil
             selectedExplodeStepId = nil
+            clearSimulationSelections()
         }
     }
 
@@ -189,6 +318,7 @@ final class WorkspaceModel {
                 selectedAssemblyConstraintId = nil
                 selectedExplodedViewId = nil
                 selectedExplodeStepId = nil
+                clearSimulationSelections()
             }
             if document.selectedId != newValue {
                 document.selectedId = newValue
@@ -210,6 +340,7 @@ final class WorkspaceModel {
                 selectedAssemblyConstraintId = nil
                 selectedExplodedViewId = nil
                 selectedExplodeStepId = nil
+                clearSimulationSelections()
             }
             if document.selectedIds != newValue {
                 document.selectedIds = newValue
@@ -225,6 +356,7 @@ final class WorkspaceModel {
         selectedAssemblyConstraintId = nil
         selectedExplodedViewId = nil
         selectedExplodeStepId = nil
+        clearSimulationSelections()
         document.clearSelection()
         syncViewportSelection()
     }
@@ -236,6 +368,7 @@ final class WorkspaceModel {
         selectedAssemblyConstraintId = nil
         selectedExplodedViewId = nil
         selectedExplodeStepId = nil
+        clearSimulationSelections()
         document.select(solidId: solidId)
         syncViewportSelection()
     }
@@ -247,6 +380,7 @@ final class WorkspaceModel {
         selectedAssemblyConstraintId = nil
         selectedExplodedViewId = nil
         selectedExplodeStepId = nil
+        clearSimulationSelections()
         document.toggleSelection(solidId: solidId)
         syncViewportSelection()
     }
@@ -6084,6 +6218,204 @@ final class WorkspaceModel {
             markDocumentModified()
             invalidateViewport(.model)
             log(.info, "Assembly", "Reordered explode steps in view \(viewId)")
+        }
+    }
+
+    // MARK: - Simulation Study Actions (BL-SIM-01, #157)
+
+    @discardableResult
+    public func createSimulationStudy(
+        type: SimulationStudyType = .linearStatic,
+        name: String? = nil
+    ) -> SimulationStudy? {
+        let studyCount = document.studies.count + 1
+        let defaultName = name ?? "Study \(studyCount)"
+        let newStudy = SimulationStudy(
+            id: UUID(),
+            name: defaultName,
+            studyType: type
+        )
+        let result = document.addStudy(newStudy)
+        guard case .success(let study) = result else { return nil }
+        selectSimulationStudy(study.id)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Created \(study.studyType.displayName) study '\(study.name)'")
+        return study
+    }
+
+    public func removeSimulationStudy(id: UUID) {
+        if selectedSimulationStudyId == id {
+            clearSimulationSelections()
+        }
+        let studyName = document.study(id: id)?.name ?? "\(id)"
+        let result = document.removeStudy(id: id)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Removed simulation study '\(studyName)'")
+        }
+    }
+
+    public func renameSimulationStudy(id: UUID, name: String) {
+        let result = document.renameStudy(id: id, name: name)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Renamed simulation study to '\(name)'")
+        }
+    }
+
+    public func setActiveSimulationStudy(id: UUID?) {
+        let result = document.setActiveStudy(id: id)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            if let id, let study = document.study(id: id) {
+                log(.info, "CAE", "Activated simulation study '\(study.name)'")
+            } else {
+                log(.info, "CAE", "Deactivated simulation study")
+            }
+        }
+    }
+
+    public func toggleSimulationStudyCollapsed(id: UUID) {
+        let result = document.toggleStudyCollapsed(id: id)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+        }
+    }
+
+    public func updateSimulationStudy(_ study: SimulationStudy) {
+        let result = document.updateStudy(study)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated simulation study '\(study.name)'")
+        }
+    }
+
+    @discardableResult
+    public func addSimulationFixture(
+        studyId: UUID,
+        fixture: SimulationFixture = SimulationFixture()
+    ) -> SimulationFixture? {
+        let result = document.addSimulationFixture(studyId: studyId, fixture: fixture)
+        guard case .success(let newFixture) = result else { return nil }
+        selectSimulationFixture(studyId: studyId, fixtureId: newFixture.id)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Added fixture '\(newFixture.name)' to study")
+        return newFixture
+    }
+
+    public func removeSimulationFixture(studyId: UUID, fixtureId: UUID) {
+        if selectedSimulationFixtureId == fixtureId {
+            selectedSimulationFixtureId = nil
+        }
+        let result = document.removeSimulationFixture(studyId: studyId, fixtureId: fixtureId)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Removed fixture \(fixtureId)")
+        }
+    }
+
+    public func updateSimulationFixture(studyId: UUID, fixture: SimulationFixture) {
+        let result = document.updateSimulationFixture(studyId: studyId, fixture: fixture)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated fixture '\(fixture.name)'")
+        }
+    }
+
+    @discardableResult
+    public func addSimulationLoad(
+        studyId: UUID,
+        load: SimulationLoad = SimulationLoad()
+    ) -> SimulationLoad? {
+        let result = document.addSimulationLoad(studyId: studyId, load: load)
+        guard case .success(let newLoad) = result else { return nil }
+        selectSimulationLoad(studyId: studyId, loadId: newLoad.id)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Added load '\(newLoad.name)' to study")
+        return newLoad
+    }
+
+    public func removeSimulationLoad(studyId: UUID, loadId: UUID) {
+        if selectedSimulationLoadId == loadId {
+            selectedSimulationLoadId = nil
+        }
+        let result = document.removeSimulationLoad(studyId: studyId, loadId: loadId)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Removed load \(loadId)")
+        }
+    }
+
+    public func updateSimulationLoad(studyId: UUID, load: SimulationLoad) {
+        let result = document.updateSimulationLoad(studyId: studyId, load: load)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated load '\(load.name)'")
+        }
+    }
+
+    @discardableResult
+    public func addSimulationMaterialAssignment(
+        studyId: UUID,
+        assignment: SimulationMaterialAssignment = SimulationMaterialAssignment()
+    ) -> SimulationMaterialAssignment? {
+        let result = document.addSimulationMaterialAssignment(studyId: studyId, assignment: assignment)
+        guard case .success(let newAssignment) = result else { return nil }
+        selectSimulationMaterialAssignment(studyId: studyId, assignmentId: newAssignment.id)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Added material assignment '\(newAssignment.name)' to study")
+        return newAssignment
+    }
+
+    public func removeSimulationMaterialAssignment(studyId: UUID, assignmentId: UUID) {
+        if selectedSimulationMaterialAssignmentId == assignmentId {
+            selectedSimulationMaterialAssignmentId = nil
+        }
+        let result = document.removeSimulationMaterialAssignment(studyId: studyId, assignmentId: assignmentId)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Removed material assignment \(assignmentId)")
+        }
+    }
+
+    public func updateSimulationMaterialAssignment(studyId: UUID, assignment: SimulationMaterialAssignment) {
+        let result = document.updateSimulationMaterialAssignment(studyId: studyId, assignment: assignment)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated material assignment '\(assignment.name)'")
+        }
+    }
+
+    public func updateSimulationMeshSpecification(studyId: UUID, mesh: MeshSpecification) {
+        let result = document.updateSimulationMeshSpecification(studyId: studyId, mesh: mesh)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated mesh specification for study")
+        }
+    }
+
+    public func updateSimulationSolverConfiguration(studyId: UUID, solver: SolverConfiguration) {
+        let result = document.updateSimulationSolverConfiguration(studyId: studyId, solver: solver)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated solver configuration for study")
         }
     }
 
