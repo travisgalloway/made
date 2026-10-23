@@ -9448,5 +9448,313 @@ public final class DocumentModel {
         undoStateVersion += 1
         return .success(())
     }
+
+    // MARK: - Simulation Geometry Groups & Target Associations (BL-MSH-06, #189)
+
+    @discardableResult
+    public func addSimulationGeometryGroup(
+        studyId: UUID,
+        group: SimulationGeometryGroup = SimulationGeometryGroup(),
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationGeometryGroup, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let insertionIndex = min(max(0, index ?? studies[sIdx].groups.count), studies[sIdx].groups.count)
+        studies[sIdx].groups.insert(group, at: insertionIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Geometry Group"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSimulationGeometryGroup(studyId: studyId, groupId: group.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(group)
+    }
+
+    @discardableResult
+    public func removeSimulationGeometryGroup(
+        studyId: UUID,
+        groupId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let gIdx = studies[sIdx].groups.firstIndex(where: { $0.id == groupId }) else {
+            return .failure(.invalidOperation("Simulation geometry group with id \(groupId) not found"))
+        }
+        let removed = studies[sIdx].groups.remove(at: gIdx)
+
+        // Group deletion cascade: remove group name from fixtures and loads in the study
+        var affectedFixtures: [UUID: [String]] = [:]
+        for i in 0..<studies[sIdx].fixtures.count {
+            if studies[sIdx].fixtures[i].groupNames.contains(removed.name) {
+                affectedFixtures[studies[sIdx].fixtures[i].id] = studies[sIdx].fixtures[i].groupNames
+                studies[sIdx].fixtures[i].groupNames.removeAll { $0 == removed.name }
+            }
+        }
+        var affectedLoads: [UUID: [String]] = [:]
+        for i in 0..<studies[sIdx].loads.count {
+            if studies[sIdx].loads[i].groupNames.contains(removed.name) {
+                affectedLoads[studies[sIdx].loads[i].id] = studies[sIdx].loads[i].groupNames
+                studies[sIdx].loads[i].groupNames.removeAll { $0 == removed.name }
+            }
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Geometry Group"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addSimulationGeometryGroup(studyId: studyId, group: removed, at: gIdx, actionName: effectiveActionName, registerUndo: true)
+                    if let curIdx = target.studies.firstIndex(where: { $0.id == studyId }) {
+                        for (fId, originalGroups) in affectedFixtures {
+                            if let fIdx = target.studies[curIdx].fixtures.firstIndex(where: { $0.id == fId }) {
+                                target.studies[curIdx].fixtures[fIdx].groupNames = originalGroups
+                            }
+                        }
+                        for (lId, originalGroups) in affectedLoads {
+                            if let lIdx = target.studies[curIdx].loads.firstIndex(where: { $0.id == lId }) {
+                                target.studies[curIdx].loads[lIdx].groupNames = originalGroups
+                            }
+                        }
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationGeometryGroup(
+        studyId: UUID,
+        group: SimulationGeometryGroup,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let gIdx = studies[sIdx].groups.firstIndex(where: { $0.id == group.id }) else {
+            return .failure(.invalidOperation("Simulation geometry group with id \(group.id) not found"))
+        }
+        let oldGroup = studies[sIdx].groups[gIdx]
+        guard oldGroup != group else { return .success(()) }
+        studies[sIdx].groups[gIdx] = group
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Geometry Group"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationGeometryGroup(studyId: studyId, group: oldGroup, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func assignTargetReferenceToFixture(
+        studyId: UUID,
+        fixtureId: UUID,
+        reference: SimulationGeometryReference,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationGeometryReference, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let fIdx = studies[sIdx].fixtures.firstIndex(where: { $0.id == fixtureId }) else {
+            return .failure(.invalidOperation("Simulation fixture with id \(fixtureId) not found"))
+        }
+        studies[sIdx].fixtures[fIdx].targetReferences.append(reference)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Assign Target to Fixture"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeTargetReferenceFromFixture(studyId: studyId, fixtureId: fixtureId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(reference)
+    }
+
+    @discardableResult
+    public func removeTargetReferenceFromFixture(
+        studyId: UUID,
+        fixtureId: UUID,
+        referenceId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let fIdx = studies[sIdx].fixtures.firstIndex(where: { $0.id == fixtureId }) else {
+            return .failure(.invalidOperation("Simulation fixture with id \(fixtureId) not found"))
+        }
+        guard let rIdx = studies[sIdx].fixtures[fIdx].targetReferences.firstIndex(where: { $0.id == referenceId }) else {
+            return .failure(.invalidOperation("Target reference with id \(referenceId) not found"))
+        }
+        let removed = studies[sIdx].fixtures[fIdx].targetReferences.remove(at: rIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Target from Fixture"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.insertTargetReferenceIntoFixture(studyId: studyId, fixtureId: fixtureId, reference: removed, at: rIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertTargetReferenceIntoFixture(
+        studyId: UUID,
+        fixtureId: UUID,
+        reference: SimulationGeometryReference,
+        at index: Int,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let fIdx = studies[sIdx].fixtures.firstIndex(where: { $0.id == fixtureId }) else {
+            return .failure(.invalidOperation("Simulation fixture with id \(fixtureId) not found"))
+        }
+        let insertIndex = min(max(0, index), studies[sIdx].fixtures[fIdx].targetReferences.count)
+        studies[sIdx].fixtures[fIdx].targetReferences.insert(reference, at: insertIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Insert Target into Fixture"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeTargetReferenceFromFixture(studyId: studyId, fixtureId: fixtureId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func assignTargetReferenceToLoad(
+        studyId: UUID,
+        loadId: UUID,
+        reference: SimulationGeometryReference,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationGeometryReference, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let lIdx = studies[sIdx].loads.firstIndex(where: { $0.id == loadId }) else {
+            return .failure(.invalidOperation("Simulation load with id \(loadId) not found"))
+        }
+        studies[sIdx].loads[lIdx].targetReferences.append(reference)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Assign Target to Load"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeTargetReferenceFromLoad(studyId: studyId, loadId: loadId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(reference)
+    }
+
+    @discardableResult
+    public func removeTargetReferenceFromLoad(
+        studyId: UUID,
+        loadId: UUID,
+        referenceId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let lIdx = studies[sIdx].loads.firstIndex(where: { $0.id == loadId }) else {
+            return .failure(.invalidOperation("Simulation load with id \(loadId) not found"))
+        }
+        guard let rIdx = studies[sIdx].loads[lIdx].targetReferences.firstIndex(where: { $0.id == referenceId }) else {
+            return .failure(.invalidOperation("Target reference with id \(referenceId) not found"))
+        }
+        let removed = studies[sIdx].loads[lIdx].targetReferences.remove(at: rIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Target from Load"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.insertTargetReferenceIntoLoad(studyId: studyId, loadId: loadId, reference: removed, at: rIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertTargetReferenceIntoLoad(
+        studyId: UUID,
+        loadId: UUID,
+        reference: SimulationGeometryReference,
+        at index: Int,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let lIdx = studies[sIdx].loads.firstIndex(where: { $0.id == loadId }) else {
+            return .failure(.invalidOperation("Simulation load with id \(loadId) not found"))
+        }
+        let insertIndex = min(max(0, index), studies[sIdx].loads[lIdx].targetReferences.count)
+        studies[sIdx].loads[lIdx].targetReferences.insert(reference, at: insertIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Insert Target into Load"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeTargetReferenceFromLoad(studyId: studyId, loadId: loadId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
 }
 

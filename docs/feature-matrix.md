@@ -346,6 +346,6 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | SIM-1 | (new) A person can create, rename, delete, and inspect simulation studies (linear static, modal, thermal) with material assignments, fixtures, loads, mesh specifications, and solver configuration, view study trees in the Navigator, and persist studies across undo/redo and package saves (BL-SIM-01) | done | done | done | Shipped | #157 | n/a |
 | SIM-2 | (new) A person can execute CAE simulation studies in the background using CalculiX, monitor live output in the console drawer, cancel active solves with process-group cleanup, and persist results to the package cache (BL-SIM-02) | done | done | done | Shipped | #187 | n/a |
 | MSH-1 | (new) A person can generate linear (C3D4) and quadratic (C3D10) tetrahedral finite element volume meshes from CAD solid bodies using Gmsh, monitor progress and cancellation in the inspector and navigator, inspect mesh statistics (node count, element count, element quality), and persist meshes in the package cache (BL-MSH-01) | done | done | done | Shipped | #188 | n/a |
-
+| MSH-2 | (new) A person can assign CAD geometry faces, edges, and bodies to simulation fixtures and loads, define named geometry groups, inspect parsed Gmsh physical sets and generated node/element sets, and persist associations (BL-MSH-06) | done | done | done | Shipped | #189 | n/a |
 
 

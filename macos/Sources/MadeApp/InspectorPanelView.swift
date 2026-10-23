@@ -2600,10 +2600,50 @@ struct InspectorSimulationFixtureView: View {
             }
 
             Section {
-                LabeledContent("Targets") {
-                    Text(fixture.targetReferences.isEmpty ? "All boundary surfaces" : "\(fixture.targetReferences.count) entity/entities")
-                        .foregroundStyle(.secondary)
+                if fixture.targetReferences.isEmpty && fixture.groupNames.isEmpty {
+                    LabeledContent("Targets") {
+                        Text("All boundary surfaces")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(fixture.targetReferences) { ref in
+                        HStack {
+                            Label(ref.targetName.isEmpty ? "Target Entity" : ref.targetName, systemImage: "target")
+                            Spacer()
+                            Button {
+                                workspace.removeTargetReferenceFromFixture(studyId: study.id, fixtureId: fixture.id, referenceId: ref.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityIdentifier("inspector-simulation-fixture-remove-target-\(ref.id)")
+                        }
+                    }
+                    ForEach(fixture.groupNames, id: \.self) { gName in
+                        HStack {
+                            Label(gName, systemImage: "folder")
+                            Spacer()
+                            Button {
+                                var copy = fixture
+                                copy.groupNames.removeAll { $0 == gName }
+                                workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
                 }
+
+                Button {
+                    workspace.assignSelectedSubElementToFixture(studyId: study.id, fixtureId: fixture.id)
+                } label: {
+                    Label("Assign Active Selection", systemImage: "plus.circle")
+                }
+                .disabled(workspace.document.selectedSubElement == nil)
+                .accessibilityIdentifier("inspector-simulation-assign-selection-button")
 
                 Button("Delete Fixture", role: .destructive) {
                     workspace.removeSimulationFixture(studyId: study.id, fixtureId: fixture.id)
@@ -2709,10 +2749,50 @@ struct InspectorSimulationLoadView: View {
             }
 
             Section {
-                LabeledContent("Targets") {
-                    Text(load.targetReferences.isEmpty ? "All boundary surfaces" : "\(load.targetReferences.count) entity/entities")
-                        .foregroundStyle(.secondary)
+                if load.targetReferences.isEmpty && load.groupNames.isEmpty {
+                    LabeledContent("Targets") {
+                        Text(load.kind == .gravity ? "All volume elements" : "All boundary surfaces")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(load.targetReferences) { ref in
+                        HStack {
+                            Label(ref.targetName.isEmpty ? "Target Entity" : ref.targetName, systemImage: "target")
+                            Spacer()
+                            Button {
+                                workspace.removeTargetReferenceFromLoad(studyId: study.id, loadId: load.id, referenceId: ref.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityIdentifier("inspector-simulation-load-remove-target-\(ref.id)")
+                        }
+                    }
+                    ForEach(load.groupNames, id: \.self) { gName in
+                        HStack {
+                            Label(gName, systemImage: "folder")
+                            Spacer()
+                            Button {
+                                var copy = load
+                                copy.groupNames.removeAll { $0 == gName }
+                                workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
                 }
+
+                Button {
+                    workspace.assignSelectedSubElementToLoad(studyId: study.id, loadId: load.id)
+                } label: {
+                    Label("Assign Active Selection", systemImage: "plus.circle")
+                }
+                .disabled(workspace.document.selectedSubElement == nil)
+                .accessibilityIdentifier("inspector-simulation-assign-selection-button")
 
                 Button("Delete Load", role: .destructive) {
                     workspace.removeSimulationLoad(studyId: study.id, loadId: load.id)
@@ -2867,6 +2947,42 @@ struct InspectorSimulationMeshView: View {
                     }
                 } header: {
                     sectionHeader("Mesh Statistics")
+                }
+            }
+
+            if !study.results.meshSets.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(study.results.meshSets) { set in
+                            HStack {
+                                Text(set.name)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                if let subType = set.subelementType {
+                                    Text(subType.rawValue.capitalized)
+                                        .font(.caption2)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 2)
+                                        .background(Color.secondary.opacity(0.15))
+                                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                                } else {
+                                    Text("Body")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 2)
+                                        .background(Color.secondary.opacity(0.15))
+                                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                                }
+                                Text("\(set.nodeIds.count) nodes, \(set.elementIds.count) elements")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-mesh-sets-table")
+                } header: {
+                    sectionHeader("Mesh Sets")
                 }
             }
         }

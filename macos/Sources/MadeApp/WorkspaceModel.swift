@@ -59,10 +59,11 @@ final class WorkspaceModel {
     @ObservationIgnored private var activeSolveTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored public var solverRunner: any SolverRunnerProtocol
 
-    // Active simulation mesh generation tracking (BL-MSH-01, #188)
+    // Active simulation mesh generation tracking (BL-MSH-01, #188, #189)
     public private(set) var activeMeshingStudyIds: Set<UUID> = []
     @ObservationIgnored private var activeMeshTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored public var volumeMesher: any VolumeMesherProtocol
+    @ObservationIgnored public var cachedStudyMeshes: [UUID: VolumeMesh] = [:]
 
     public var selectedSimulationStudy: SimulationStudy? {
         guard let id = selectedSimulationStudyId else { return nil }
@@ -6543,7 +6544,12 @@ final class WorkspaceModel {
                     self.activeMeshingStudyIds.remove(studyId)
                     self.activeMeshTasks.removeValue(forKey: studyId)
                     if var currentStudy = self.document.study(id: studyId) {
-                        currentStudy.results.meshStatistics = result.mesh.statistics
+                        var updatedMesh = result.mesh
+                        let sets = MeshGeometryAssociator.associate(mesh: updatedMesh, study: currentStudy)
+                        updatedMesh.sets = sets
+                        self.cachedStudyMeshes[studyId] = updatedMesh
+                        currentStudy.results.meshStatistics = updatedMesh.statistics
+                        currentStudy.results.meshSets = sets
                         currentStudy.results.status = .notRun
                         currentStudy.results.errorMessage = nil
                         _ = self.document.updateSimulationStudyResults(studyId: studyId, results: currentStudy.results)
@@ -6756,6 +6762,114 @@ final class WorkspaceModel {
             markDocumentModified()
             invalidateViewport(.model)
             log(.info, "CAE", "Updated solver configuration for study")
+        }
+    }
+
+    public func volumeMesh(for studyId: UUID) -> VolumeMesh? {
+        cachedStudyMeshes[studyId]
+    }
+
+    public func reassociateSimulationMeshSets(studyId: UUID) {
+        guard var mesh = cachedStudyMeshes[studyId],
+              var study = document.study(id: studyId) else { return }
+        let sets = MeshGeometryAssociator.associate(mesh: mesh, study: study)
+        mesh.sets = sets
+        cachedStudyMeshes[studyId] = mesh
+        study.results.meshSets = sets
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+    }
+
+    public func assignSelectedSubElementToFixture(studyId: UUID, fixtureId: UUID) {
+        guard let sub = document.selectedSubElement else { return }
+        let targetName: String
+        switch sub.elementType {
+        case .face:
+            targetName = "Face \(sub.elementId)"
+        case .edge:
+            targetName = "Edge \(sub.elementId)"
+        case .vertex:
+            targetName = "Vertex \(sub.elementId)"
+        }
+        let targetId = sub.deterministicId ?? UUID(uuidString: sub.solidId.rawValue) ?? UUID()
+        let ref = SimulationGeometryReference(
+            targetId: targetId,
+            targetName: targetName,
+            subelementType: sub.elementType
+        )
+        _ = document.assignTargetReferenceToFixture(studyId: studyId, fixtureId: fixtureId, reference: ref)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func removeTargetReferenceFromFixture(studyId: UUID, fixtureId: UUID, referenceId: UUID) {
+        _ = document.removeTargetReferenceFromFixture(studyId: studyId, fixtureId: fixtureId, referenceId: referenceId)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func assignSelectedSubElementToLoad(studyId: UUID, loadId: UUID) {
+        guard let sub = document.selectedSubElement else { return }
+        let targetName: String
+        switch sub.elementType {
+        case .face:
+            targetName = "Face \(sub.elementId)"
+        case .edge:
+            targetName = "Edge \(sub.elementId)"
+        case .vertex:
+            targetName = "Vertex \(sub.elementId)"
+        }
+        let targetId = sub.deterministicId ?? UUID(uuidString: sub.solidId.rawValue) ?? UUID()
+        let ref = SimulationGeometryReference(
+            targetId: targetId,
+            targetName: targetName,
+            subelementType: sub.elementType
+        )
+        _ = document.assignTargetReferenceToLoad(studyId: studyId, loadId: loadId, reference: ref)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func removeTargetReferenceFromLoad(studyId: UUID, loadId: UUID, referenceId: UUID) {
+        _ = document.removeTargetReferenceFromLoad(studyId: studyId, loadId: loadId, referenceId: referenceId)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    @discardableResult
+    public func addSimulationGeometryGroup(
+        studyId: UUID,
+        group: SimulationGeometryGroup = SimulationGeometryGroup()
+    ) -> SimulationGeometryGroup? {
+        let result = document.addSimulationGeometryGroup(studyId: studyId, group: group)
+        guard case .success(let newGroup) = result else { return nil }
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Added geometry group '\(newGroup.name)' to study")
+        return newGroup
+    }
+
+    public func removeSimulationGeometryGroup(studyId: UUID, groupId: UUID) {
+        let result = document.removeSimulationGeometryGroup(studyId: studyId, groupId: groupId)
+        if case .success = result {
+            reassociateSimulationMeshSets(studyId: studyId)
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Removed geometry group \(groupId)")
+        }
+    }
+
+    public func updateSimulationGeometryGroup(studyId: UUID, group: SimulationGeometryGroup) {
+        let result = document.updateSimulationGeometryGroup(studyId: studyId, group: group)
+        if case .success = result {
+            reassociateSimulationMeshSets(studyId: studyId)
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated geometry group '\(group.name)'")
         }
     }
 

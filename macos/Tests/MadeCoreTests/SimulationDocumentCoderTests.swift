@@ -88,4 +88,137 @@ import simd
         #expect(jsonObject?["studies"] == nil)
         #expect(jsonObject?["activeStudyId"] == nil)
     }
+
+    @Test func testSimulationStudyWithGroupsAndMeshSetsRoundTripSerialization() throws {
+        let group = SimulationGeometryGroup(
+            name: "Clamp Surface",
+            targetReferences: [
+                SimulationGeometryReference(targetId: UUID(), targetName: "Face 1", subelementType: .face)
+            ],
+            subelementType: .face
+        )
+        let fixture = SimulationFixture(
+            name: "Fixed Base",
+            kind: .fixed,
+            groupNames: ["Clamp Surface"]
+        )
+        let load = SimulationLoad(
+            name: "Tension Load",
+            kind: .force,
+            groupNames: ["Clamp Surface"],
+            magnitude: 5000.0
+        )
+        let meshSet = VolumeMeshSet(
+            name: "Fixed Set",
+            nodeIds: [1, 2, 3],
+            elementIds: [10],
+            subelementType: .face,
+            tag: 101
+        )
+        let results = SimulationStudyResults(
+            status: .completed,
+            runtimeDuration: 2.5,
+            meshSets: [meshSet]
+        )
+        let study = SimulationStudy(
+            name: "Group Study",
+            groups: [group],
+            fixtures: [fixture],
+            loads: [load],
+            results: results
+        )
+
+        let doc = DocumentModel()
+        doc.addStudy(study)
+        doc.setActiveStudy(id: study.id)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encoded)
+
+        guard let restoredStudy = restoredDoc.study(id: study.id) else {
+            Issue.record("Failed to restore study")
+            return
+        }
+
+        #expect(restoredStudy.groups.count == 1)
+        #expect(restoredStudy.groups.first?.name == "Clamp Surface")
+        #expect(restoredStudy.fixtures.first?.groupNames == ["Clamp Surface"])
+        #expect(restoredStudy.loads.first?.groupNames == ["Clamp Surface"])
+        #expect(restoredStudy.results.meshSets.count == 1)
+        #expect(restoredStudy.results.meshSets.first?.name == "Fixed Set")
+        #expect(restoredStudy.results.meshSets.first?.nodeIds == [1, 2, 3])
+        #expect(restoredStudy.results.meshSets.first?.tag == 101)
+    }
+
+    @Test func testLegacySimulationStudyWithoutGroupsDecodesGracefully() throws {
+        // Legacy study JSON without groups, groupNames on fixtures/loads, or meshSets in results
+        let legacyStudyJSON = """
+        {
+          "version": 1,
+          "studies": [
+            {
+              "id": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+              "name": "Legacy Study",
+              "studyType": "linearStatic",
+              "targets": [],
+              "materials": [],
+              "connections": [],
+              "fixtures": [
+                {
+                  "id": "11111111-2222-3333-4444-555555555555",
+                  "name": "Old Fixture",
+                  "kind": "fixed"
+                }
+              ],
+              "loads": [
+                {
+                  "id": "66666666-7777-8888-9999-000000000000",
+                  "name": "Old Load",
+                  "kind": "force"
+                }
+              ],
+              "mesh": {
+                "elementOrder": "linear",
+                "targetElementSize": 5.0,
+                "minElementSize": 1.0,
+                "growthRate": 1.2,
+                "refinementRegions": []
+              },
+              "solver": {
+                "engine": "calculix",
+                "maxIterations": 100,
+                "convergenceTolerance": 0.0001,
+                "timeStep": 0.01
+              },
+              "results": {
+                "status": "notRun",
+                "meshStatistics": {
+                  "nodeCount": 0,
+                  "elementCount": 0,
+                  "minElementQuality": 1.0,
+                  "avgElementQuality": 1.0
+                },
+                "extrema": []
+              },
+              "isCollapsed": false
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyStudyJSON)
+
+        #expect(restoredDoc.studies.count == 1)
+        guard let study = restoredDoc.studies.first else {
+            Issue.record("Expected 1 study")
+            return
+        }
+        #expect(study.name == "Legacy Study")
+        #expect(study.groups.isEmpty)
+        #expect(study.fixtures.first?.groupNames.isEmpty == true)
+        #expect(study.loads.first?.groupNames.isEmpty == true)
+        #expect(study.results.meshSets.isEmpty)
+    }
 }

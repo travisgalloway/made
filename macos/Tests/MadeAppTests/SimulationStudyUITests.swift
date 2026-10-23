@@ -318,6 +318,124 @@ import simd
         _ = view
         #expect(study.results.meshStatistics.elementCount == 420)
     }
+
+    @Test func testWorkspaceAssignSelectedSubElementToFixture() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Fixture Selection Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        guard let fixture = ws.addSimulationFixture(studyId: study.id) else {
+            Issue.record("Failed to create fixture")
+            return
+        }
+
+        #expect(fixture.targetReferences.isEmpty)
+
+        ws.document.selectedSubElement = SelectedSubElement(
+            solidId: SolidId("box-solid-1"),
+            elementType: .face,
+            elementId: 3
+        )
+
+        ws.assignSelectedSubElementToFixture(studyId: study.id, fixtureId: fixture.id)
+
+        let updatedFixture = ws.document.study(id: study.id)?.fixtures.first { $0.id == fixture.id }
+        #expect(updatedFixture?.targetReferences.count == 1)
+        #expect(updatedFixture?.targetReferences.first?.targetName == "Face 3")
+        #expect(updatedFixture?.targetReferences.first?.subelementType == .face)
+
+        if let refId = updatedFixture?.targetReferences.first?.id {
+            ws.removeTargetReferenceFromFixture(studyId: study.id, fixtureId: fixture.id, referenceId: refId)
+            let clearedFixture = ws.document.study(id: study.id)?.fixtures.first { $0.id == fixture.id }
+            #expect(clearedFixture?.targetReferences.isEmpty == true)
+        }
+    }
+
+    @Test func testWorkspaceAssignSelectedSubElementToLoad() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Load Selection Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        guard let load = ws.addSimulationLoad(studyId: study.id) else {
+            Issue.record("Failed to create load")
+            return
+        }
+
+        #expect(load.targetReferences.isEmpty)
+
+        ws.document.selectedSubElement = SelectedSubElement(
+            solidId: SolidId("box-solid-1"),
+            elementType: .face,
+            elementId: 5
+        )
+
+        ws.assignSelectedSubElementToLoad(studyId: study.id, loadId: load.id)
+
+        let updatedLoad = ws.document.study(id: study.id)?.loads.first { $0.id == load.id }
+        #expect(updatedLoad?.targetReferences.count == 1)
+        #expect(updatedLoad?.targetReferences.first?.targetName == "Face 5")
+        #expect(updatedLoad?.targetReferences.first?.subelementType == .face)
+
+        if let refId = updatedLoad?.targetReferences.first?.id {
+            ws.removeTargetReferenceFromLoad(studyId: study.id, loadId: load.id, referenceId: refId)
+            let clearedLoad = ws.document.study(id: study.id)?.loads.first { $0.id == load.id }
+            #expect(clearedLoad?.targetReferences.isEmpty == true)
+        }
+    }
+
+    @Test func testInspectorSimulationMeshViewDisplaysMeshSets() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Mesh Sets View Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        study.results.meshSets = [
+            VolumeMeshSet(
+                name: "Clamped Base",
+                nodeIds: [1, 2, 3, 4],
+                elementIds: [10, 20],
+                subelementType: .face
+            ),
+            VolumeMeshSet(
+                name: "Body Set",
+                nodeIds: [1, 2, 3, 4, 5, 6],
+                elementIds: [100],
+                subelementType: nil
+            )
+        ]
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        let meshView = InspectorSimulationMeshView(study: study).environment(ws)
+        _ = meshView
+
+        #expect(study.results.meshSets.count == 2)
+        #expect(study.results.meshSets[0].name == "Clamped Base")
+        #expect(study.results.meshSets[0].subelementType == .face)
+        #expect(study.results.meshSets[1].name == "Body Set")
+        #expect(study.results.meshSets[1].subelementType == nil)
+    }
+
+    @Test func testInspectorSimulationFixtureViewTargetControls() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Fixture Inspector Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        let ref = SimulationGeometryReference(targetId: UUID(), targetName: "Face 1", subelementType: .face)
+        let fixture = SimulationFixture(name: "Support", targetReferences: [ref])
+        _ = ws.addSimulationFixture(studyId: study.id, fixture: fixture)
+
+        let currentStudy = ws.document.study(id: study.id)!
+        let currentFixture = currentStudy.fixtures.first { $0.id == fixture.id }!
+
+        let view = InspectorSimulationFixtureView(study: currentStudy, fixture: currentFixture).environment(ws)
+        _ = view
+
+        #expect(currentFixture.targetReferences.count == 1)
+        #expect(currentFixture.targetReferences.first?.targetName == "Face 1")
+    }
 }
 
 private actor MockSolverRunner: SolverRunnerProtocol {
