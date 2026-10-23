@@ -100,6 +100,7 @@ struct MadeApp: App {
 
         Window("Material Library", id: MaterialLibraryView.windowID) {
             MaterialLibraryView()
+                .environment(workspace)
         }
         .defaultSize(width: 840, height: 580)
 

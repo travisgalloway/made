@@ -88,4 +88,94 @@ import MadeCore
         #expect(customView.library.materials.count == 1)
         #expect(customView.library.materials.first?.name == "Custom Test Alloy")
     }
+
+    @Test @MainActor func testMaterialScopeEnum() {
+        let scopes = MaterialLibraryView.MaterialScope.allCases
+        #expect(scopes.count == 4)
+        #expect(scopes.map(\.rawValue) == ["All", "Standard", "Document", "User Library"])
+    }
+
+    @Test @MainActor func testCustomMaterialEditorValidation() {
+        // Default init has empty name -> invalid
+        let editorEmptyName = CustomMaterialEditorView()
+        #expect(!editorEmptyName.isValid)
+        #expect(editorEmptyName.validationError == "Material name is required.")
+
+        // Prepopulated with valid material -> valid
+        let validMat = StandardMaterials.aluminum6061T6
+        let editorValid = CustomMaterialEditorView(materialToEdit: validMat)
+        #expect(editorValid.isValid)
+        #expect(editorValid.validationError == nil)
+    }
+
+    @Test @MainActor func testWorkspaceModelMaterialDelegates() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MadeAppWorkspaceTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storeURL = tempDir.appendingPathComponent("test-user-materials.json")
+        let userStore = UserMaterialStore(fileURL: storeURL)
+        let workspace = WorkspaceModel(userMaterialStore: userStore)
+
+        #expect(workspace.userMaterials.isEmpty)
+        #expect(workspace.document.customMaterials.isEmpty)
+
+        let testMat = MaterialDefinition(
+            id: "ws-test-mat",
+            name: "Workspace Test Alloy",
+            category: .metal,
+            description: "Testing workspace integration",
+            color: SIMD4<Float>(0.1, 0.2, 0.3, 1.0),
+            citations: [],
+            density: DensityQuantity(value: 5000, unit: .kgPerCubicMeter),
+            youngsModulus: StressQuantity(value: 120, unit: .gigapascals),
+            poissonsRatio: DimensionlessQuantity(value: 0.31, unit: .ratio),
+            yieldStrength: StressQuantity(value: 400, unit: .megapascals),
+            ultimateStrength: StressQuantity(value: 550, unit: .megapascals),
+            thermalConductivity: ThermalConductivityQuantity(value: 20, unit: .wattsPerMeterKelvin),
+            thermalExpansion: ThermalExpansionQuantity(value: 10, unit: .microstrainPerKelvin),
+            specificHeat: SpecificHeatQuantity(value: 450, unit: .joulesPerKilogramKelvin)
+        )
+
+        // 1. Document custom materials
+        let addDocRes = workspace.addDocumentCustomMaterial(testMat)
+        #expect(addDocRes == .success(()))
+        #expect(workspace.document.customMaterials.count == 1)
+        #expect(workspace.isDocumentModified)
+
+        var updatedDocMat = testMat
+        updatedDocMat.name = "Updated Workspace Alloy"
+        let updateDocRes = workspace.updateDocumentCustomMaterial(updatedDocMat)
+        #expect(updateDocRes == .success(()))
+        #expect(workspace.document.customMaterials.first?.name == "Updated Workspace Alloy")
+
+        let removeDocRes = workspace.removeDocumentCustomMaterial(id: "ws-test-mat")
+        #expect(removeDocRes == .success(()))
+        #expect(workspace.document.customMaterials.isEmpty)
+
+        // 2. User library custom materials
+        try workspace.addUserMaterial(testMat)
+        #expect(workspace.userMaterials.count == 1)
+        #expect(workspace.userMaterials.first?.id == "ws-test-mat")
+
+        var updatedUserMat = testMat
+        updatedUserMat.description = "Updated User Material Desc"
+        try workspace.updateUserMaterial(updatedUserMat)
+        #expect(workspace.userMaterials.first?.description == "Updated User Material Desc")
+
+        try workspace.removeUserMaterial(id: "ws-test-mat")
+        #expect(workspace.userMaterials.isEmpty)
+
+        // 3. Apply material definition to body
+        guard let firstBody = workspace.document.bodies.first else {
+            Issue.record("Expected bodies in workspace document")
+            return
+        }
+
+        workspace.applyMaterialDefinition(testMat, to: firstBody.id)
+        let bodyAfter = workspace.document.body(for: firstBody.id)
+        #expect(bodyAfter?.material.materialDefinitionId == "ws-test-mat")
+        #expect(bodyAfter?.material.materialName == "Workspace Test Alloy")
+        #expect(bodyAfter?.material.color == testMat.color)
+    }
 }

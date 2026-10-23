@@ -23,6 +23,8 @@ final class WorkspaceModel {
     #endif
     let partRuntime = PartRuntime()
     let viewportManager = ViewportStateManager()
+    public private(set) var userMaterialStore: UserMaterialStore
+    public private(set) var userMaterials: [MaterialDefinition] = []
 
     public var selectedAssemblyConstraintId: UUID? = nil
 
@@ -637,9 +639,11 @@ final class WorkspaceModel {
         isPredictiveCommandsVisible.toggle()
     }
 
-    init(defaults: UserDefaults = .standard, recoveryStore: CrashRecoveryStore = CrashRecoveryStore()) {
+    init(defaults: UserDefaults = .standard, recoveryStore: CrashRecoveryStore = CrashRecoveryStore(), userMaterialStore: UserMaterialStore = UserMaterialStore()) {
         self.defaults = defaults
         self.recoveryStore = recoveryStore
+        self.userMaterialStore = userMaterialStore
+        self.userMaterials = userMaterialStore.loadMaterials()
         if let raw = defaults.string(forKey: Self.commandPanelPlacementDefaultsKey),
            let placement = CommandPanelPlacement(rawValue: raw) {
             self.commandPanelPlacement = placement
@@ -5157,6 +5161,63 @@ final class WorkspaceModel {
         var mat = b.material
         mat.color = color
         setBodyMaterial(id: id, material: mat)
+    }
+
+    public func applyMaterialDefinition(_ material: MaterialDefinition, to bodyId: ObjectId) {
+        let attributes = MaterialAttributes(
+            color: material.color,
+            materialDefinitionId: material.id,
+            materialName: material.name
+        )
+        setBodyMaterial(id: bodyId, material: attributes)
+    }
+
+    // MARK: - Custom Materials Management (BL-MAT-03, #256)
+
+    public func reloadUserMaterials() {
+        userMaterials = userMaterialStore.loadMaterials()
+    }
+
+    public func addUserMaterial(_ material: MaterialDefinition) throws {
+        try userMaterialStore.addMaterial(material)
+        reloadUserMaterials()
+    }
+
+    public func updateUserMaterial(_ material: MaterialDefinition) throws {
+        try userMaterialStore.updateMaterial(material)
+        reloadUserMaterials()
+    }
+
+    public func removeUserMaterial(id: String) throws {
+        try userMaterialStore.removeMaterial(id: id)
+        reloadUserMaterials()
+    }
+
+    @discardableResult
+    public func addDocumentCustomMaterial(_ material: MaterialDefinition) -> Result<Void, DocumentMutationError> {
+        let result = document.addCustomMaterial(material)
+        if case .success = result {
+            markDocumentModified()
+        }
+        return result
+    }
+
+    @discardableResult
+    public func updateDocumentCustomMaterial(_ material: MaterialDefinition) -> Result<Void, DocumentMutationError> {
+        let result = document.updateCustomMaterial(material)
+        if case .success = result {
+            markDocumentModified()
+        }
+        return result
+    }
+
+    @discardableResult
+    public func removeDocumentCustomMaterial(id: String) -> Result<Void, DocumentMutationError> {
+        let result = document.removeCustomMaterial(id: id)
+        if case .success = result {
+            markDocumentModified()
+        }
+        return result
     }
 
     // MARK: - Custom Properties & Metadata (BL-FND-14, #172)

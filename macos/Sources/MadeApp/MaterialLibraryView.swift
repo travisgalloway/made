@@ -2,7 +2,7 @@ import SwiftUI
 import MadeCore
 import AppKit
 
-/// Standalone master-detail browser for inspecting standard engineering materials and physical properties.
+/// Standalone master-detail browser for inspecting standard and custom engineering materials and physical properties.
 public struct MaterialLibraryView: View {
     public static let windowID = "material-library"
 
@@ -25,12 +25,26 @@ public struct MaterialLibraryView: View {
         }
     }
 
+    public enum MaterialScope: String, CaseIterable, Identifiable, Sendable {
+        case all = "All"
+        case standard = "Standard"
+        case document = "Document"
+        case userLibrary = "User Library"
+
+        public var id: String { rawValue }
+    }
+
     public let library: MaterialLibrary
 
+    @Environment(WorkspaceModel.self) private var workspace: WorkspaceModel?
+
     @State private var searchText: String = ""
+    @State private var selectedScope: MaterialScope = .all
     @State private var selectedCategory: CategoryFilter = .all
     @State private var selectedMaterialID: String?
     @State private var copied: Bool = false
+    @State private var showingEditorSheet: Bool = false
+    @State private var materialToEdit: MaterialDefinition? = nil
 
     public init(
         library: MaterialLibrary = .standard,
@@ -41,13 +55,79 @@ public struct MaterialLibraryView: View {
         self._selectedMaterialID = State(initialValue: defaultID)
     }
 
+    private var allAvailableMaterials: [(material: MaterialDefinition, scope: MaterialScope)] {
+        var result: [(material: MaterialDefinition, scope: MaterialScope)] = []
+        var seenIDs: Set<String> = []
+
+        // Document materials
+        let docMaterials = workspace?.document.customMaterials ?? []
+        for mat in docMaterials {
+            if !seenIDs.contains(mat.id) {
+                seenIDs.insert(mat.id)
+                result.append((mat, .document))
+            }
+        }
+
+        // User library materials
+        let userMaterials = workspace?.userMaterials ?? []
+        for mat in userMaterials {
+            if !seenIDs.contains(mat.id) {
+                seenIDs.insert(mat.id)
+                result.append((mat, .userLibrary))
+            }
+        }
+
+        // Standard materials
+        for mat in library.materials {
+            if !seenIDs.contains(mat.id) {
+                seenIDs.insert(mat.id)
+                result.append((mat, .standard))
+            }
+        }
+
+        return result
+    }
+
+    private var filteredMaterialItems: [(material: MaterialDefinition, scope: MaterialScope)] {
+        allAvailableMaterials.filter { item in
+            if selectedScope != .all && item.scope != selectedScope {
+                return false
+            }
+            if let cat = selectedCategory.category, item.material.category != cat {
+                return false
+            }
+            if !searchText.isEmpty {
+                let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let nameMatch = item.material.name.lowercased().contains(q)
+                let descMatch = item.material.description.lowercased().contains(q)
+                let specMatch = item.material.citations.contains(where: {
+                    $0.specification.lowercased().contains(q) || $0.sourceName.lowercased().contains(q)
+                })
+                return nameMatch || descMatch || specMatch
+            }
+            return true
+        }
+    }
+
     private var filteredMaterials: [MaterialDefinition] {
-        library.filter(category: selectedCategory.category, query: searchText)
+        filteredMaterialItems.map(\.material)
+    }
+
+    private func scope(for material: MaterialDefinition) -> MaterialScope {
+        if let item = allAvailableMaterials.first(where: { $0.material.id == material.id }) {
+            return item.scope
+        }
+        return .standard
     }
 
     private var activeMaterial: MaterialDefinition? {
-        if let id = selectedMaterialID, let mat = library.material(withId: id) {
-            return mat
+        if let id = selectedMaterialID {
+            if let mat = allAvailableMaterials.first(where: { $0.material.id == id })?.material {
+                return mat
+            }
+            if let mat = library.material(withId: id) {
+                return mat
+            }
         }
         return filteredMaterials.first
     }
@@ -59,6 +139,12 @@ public struct MaterialLibraryView: View {
             detailView
         }
         .frame(minWidth: 800, minHeight: 520)
+        .sheet(isPresented: $showingEditorSheet) {
+            CustomMaterialEditorView(
+                materialToEdit: materialToEdit,
+                initialScope: selectedScope == .userLibrary ? .userLibrary : .document
+            )
+        }
     }
 
     // MARK: - Sidebar
@@ -88,6 +174,16 @@ public struct MaterialLibraryView: View {
             .padding(.horizontal, 10)
             .padding(.top, 10)
 
+            // Scope filter
+            Picker("Scope", selection: $selectedScope) {
+                ForEach(MaterialScope.allCases) { scope in
+                    Text(scope.rawValue).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("material-scope-picker")
+            .padding(.horizontal, 10)
+
             // Category filter
             Picker("Category", selection: $selectedCategory) {
                 ForEach(CategoryFilter.allCases) { filter in
@@ -100,13 +196,26 @@ public struct MaterialLibraryView: View {
 
             // Material List
             List(selection: $selectedMaterialID) {
-                ForEach(filteredMaterials) { material in
-                    MaterialRow(material: material)
-                        .tag(material.id)
+                ForEach(filteredMaterialItems, id: \.material.id) { item in
+                    MaterialRow(material: item.material, scope: item.scope)
+                        .tag(item.material.id)
                 }
             }
             .listStyle(.sidebar)
             .accessibilityIdentifier("material-list")
+
+            // Add Material button
+            Button {
+                materialToEdit = nil
+                showingEditorSheet = true
+            } label: {
+                Label("Add Material…", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+            .accessibilityIdentifier("add-material-button")
         }
         .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
     }
@@ -167,6 +276,7 @@ public struct MaterialLibraryView: View {
                         .bold()
 
                     categoryBadge(material.category)
+                    scopeBadge(scope(for: material))
                 }
 
                 Text(material.description)
@@ -177,18 +287,78 @@ public struct MaterialLibraryView: View {
 
             Spacer()
 
-            Button {
-                copyProperties(material)
-            } label: {
-                Label(copied ? "Copied" : "Copy Properties", systemImage: copied ? "checkmark" : "doc.on.doc")
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 8) {
+                    if let selectedSolidId = workspace?.selectedId {
+                        Button {
+                            workspace?.applyMaterialDefinition(material, to: selectedSolidId)
+                        } label: {
+                            Label("Apply to Body", systemImage: "paintbrush")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("apply-to-body-button")
+                    }
+
+                    Button {
+                        let attributes = MaterialAttributes(
+                            color: material.color,
+                            materialDefinitionId: material.id,
+                            materialName: material.name
+                        )
+                        workspace?.setDocumentDefaultMaterial(attributes)
+                    } label: {
+                        Label("Set as Default", systemImage: "star")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("set-as-default-material-button")
+
+                    Button {
+                        copyProperties(material)
+                    } label: {
+                        Label(copied ? "Copied" : "Copy Properties", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("copy-properties-button")
+                    .task(id: copied) {
+                        guard copied else { return }
+                        try? await Task.sleep(for: .seconds(2))
+                        copied = false
+                    }
+                }
+
+                if scope(for: material) != .standard {
+                    HStack(spacing: 8) {
+                        Button {
+                            materialToEdit = material
+                            showingEditorSheet = true
+                        } label: {
+                            Label("Edit Material", systemImage: "pencil")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("edit-material-button")
+
+                        Button(role: .destructive) {
+                            deleteMaterial(material)
+                        } label: {
+                            Label("Delete Material", systemImage: "trash")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("delete-material-button")
+                    }
+                }
             }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("copy-properties-button")
-            .task(id: copied) {
-                guard copied else { return }
-                try? await Task.sleep(for: .seconds(2))
-                copied = false
-            }
+        }
+    }
+
+    private func deleteMaterial(_ material: MaterialDefinition) {
+        let sc = scope(for: material)
+        if sc == .document {
+            _ = workspace?.removeDocumentCustomMaterial(id: material.id)
+        } else if sc == .userLibrary {
+            try? workspace?.removeUserMaterial(id: material.id)
+        }
+        if selectedMaterialID == material.id {
+            selectedMaterialID = filteredMaterials.first(where: { $0.id != material.id })?.id
         }
     }
 
@@ -284,6 +454,41 @@ public struct MaterialLibraryView: View {
             .cornerRadius(6)
     }
 
+    @ViewBuilder
+    private func scopeBadge(_ scope: MaterialScope) -> some View {
+        switch scope {
+        case .standard:
+            Text("Standard")
+                .font(.caption)
+                .fontWeight(.medium)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.15))
+                .foregroundColor(.secondary)
+                .cornerRadius(6)
+        case .document:
+            Text("Document")
+                .font(.caption)
+                .fontWeight(.medium)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.15))
+                .foregroundColor(.blue)
+                .cornerRadius(6)
+        case .userLibrary:
+            Text("User Library")
+                .font(.caption)
+                .fontWeight(.medium)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.purple.opacity(0.15))
+                .foregroundColor(.purple)
+                .cornerRadius(6)
+        case .all:
+            EmptyView()
+        }
+    }
+
     private func copyProperties(_ material: MaterialDefinition) {
         let summary = material.formattedSummary()
         NSPasteboard.general.clearContents()
@@ -296,6 +501,7 @@ public struct MaterialLibraryView: View {
 
 private struct MaterialRow: View {
     let material: MaterialDefinition
+    let scope: MaterialLibraryView.MaterialScope
 
     var body: some View {
         HStack(spacing: 10) {
@@ -313,10 +519,14 @@ private struct MaterialRow: View {
                 )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(material.name)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(material.name)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    rowScopeBadge(scope)
+                }
 
                 HStack(spacing: 6) {
                     Text(material.category.displayName)
@@ -335,6 +545,38 @@ private struct MaterialRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func rowScopeBadge(_ scope: MaterialLibraryView.MaterialScope) -> some View {
+        switch scope {
+        case .standard:
+            Text("Standard")
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.secondary.opacity(0.15))
+                .foregroundColor(.secondary)
+                .cornerRadius(3)
+        case .document:
+            Text("Doc")
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.blue.opacity(0.18))
+                .foregroundColor(.blue)
+                .cornerRadius(3)
+        case .userLibrary:
+            Text("User")
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.purple.opacity(0.18))
+                .foregroundColor(.purple)
+                .cornerRadius(3)
+        case .all:
+            EmptyView()
+        }
     }
 }
 
