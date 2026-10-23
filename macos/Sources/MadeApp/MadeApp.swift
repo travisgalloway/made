@@ -88,6 +88,7 @@ struct MadeApp: App {
             EditMenuCommands(workspace: workspace)
             SolidMenuCommands(workspace: workspace)
             AssemblyMenuCommands(workspace: workspace)
+            SimulationMenuCommands(workspace: workspace)
             ViewNavigationCommands(workspace: workspace)
             ToolsMenuCommands(workspace: workspace)
             OpenSourceLicensesCommands()

@@ -140,6 +140,37 @@ struct NavigatorSidebarView: View {
                         }
                     }
 
+                    if workspace.document.documentType != .drawing {
+                        Section {
+                            ForEach(workspace.document.studies) { study in
+                                NavigatorSimulationStudyRow(study: study)
+                            }
+                        } header: {
+                            HStack {
+                                Text("Simulation Studies")
+                                Spacer()
+                                Menu {
+                                    Button("New Linear Static Study") {
+                                        _ = workspace.createSimulationStudy(type: .linearStatic)
+                                    }
+                                    Button("New Thermal Conduction Study") {
+                                        _ = workspace.createSimulationStudy(type: .thermalConduction)
+                                    }
+                                    Button("New Modal Frequency Study") {
+                                        _ = workspace.createSimulationStudy(type: .modalFrequency)
+                                    }
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .frame(width: 16, height: 16)
+                                .help("New Simulation Study")
+                                .accessibilityIdentifier("navigator-add-study-button")
+                            }
+                        }
+                    }
+
                     if (workspace.document.documentType != .assembly && workspace.document.documentType != .drawing) || !filteredBodies.isEmpty {
                         Section("Bodies") {
                             ForEach(filteredBodies) { body in
@@ -200,7 +231,7 @@ struct NavigatorSidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty && workspace.document.explodedViews.isEmpty && workspace.document.sheets.isEmpty {
+                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty && workspace.document.explodedViews.isEmpty && workspace.document.studies.isEmpty && workspace.document.sheets.isEmpty {
                         ContentUnavailableView {
                             Label(workspace.document.documentType == .assembly ? "No Components" : "No Objects", systemImage: workspace.document.documentType == .assembly ? "square.3.layers.3d" : "cube.transparent")
                         } description: {
@@ -2337,6 +2368,400 @@ struct NavigatorDrawingBOMTableRow: View {
             }
         }
         .accessibilityIdentifier("navigator-bom-table-\(table.id.uuidString)")
+    }
+}
+
+// MARK: - Simulation Study Rows (BL-SIM-01, #157)
+
+/// Outline row for a simulation study in the Navigator sidebar (BL-SIM-01, #157).
+struct NavigatorSimulationStudyRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        let isSelected = workspace.selectedSimulationStudyId == study.id &&
+            workspace.selectedSimulationFixtureId == nil &&
+            workspace.selectedSimulationLoadId == nil &&
+            workspace.selectedSimulationMaterialAssignmentId == nil &&
+            !workspace.isSimulationMeshSelected &&
+            !workspace.isSimulationResultsSelected
+        let isActive = workspace.document.activeStudy?.id == study.id
+
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 6) {
+                Button {
+                    workspace.toggleSimulationStudyCollapsed(id: study.id)
+                } label: {
+                    Image(systemName: study.isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12, height: 12)
+                }
+                .buttonStyle(.plain)
+
+                Image(systemName: study.studyType.systemImageName)
+                    .font(.caption)
+                    .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                    .frame(width: 14)
+
+                Text(study.name)
+                    .font(.body)
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+
+                if isActive {
+                    Text("Active")
+                        .font(.caption2)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.accentColor.opacity(0.12))
+                        )
+                        .accessibilityIdentifier("navigator-study-active-badge-\(study.id)")
+                }
+
+                Spacer(minLength: 4)
+
+                if isHovered {
+                    Menu {
+                        if !isActive {
+                            Button("Set as Active Study") {
+                                workspace.setActiveSimulationStudy(id: study.id)
+                            }
+                        }
+                        Button("Add Fixture…") {
+                            _ = workspace.addSimulationFixture(studyId: study.id)
+                        }
+                        Button("Add Load…") {
+                            _ = workspace.addSimulationLoad(studyId: study.id)
+                        }
+                        Divider()
+                        Button("Delete Study", role: .destructive) {
+                            workspace.removeSimulationStudy(id: study.id)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: 16, height: 16)
+                }
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .onTapGesture {
+                workspace.selectSimulationStudy(study.id)
+            }
+            .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+            .contextMenu {
+                if !isActive {
+                    Button("Set as Active Study") {
+                        workspace.setActiveSimulationStudy(id: study.id)
+                    }
+                }
+                Button("Add Fixture…") {
+                    _ = workspace.addSimulationFixture(studyId: study.id)
+                }
+                Button("Add Load…") {
+                    _ = workspace.addSimulationLoad(studyId: study.id)
+                }
+                Divider()
+                Button("Delete Study", role: .destructive) {
+                    workspace.removeSimulationStudy(id: study.id)
+                }
+            }
+            .accessibilityIdentifier("navigator-study-\(study.id)")
+
+            if !study.isCollapsed {
+                VStack(spacing: 2) {
+                    // Materials row / children
+                    if study.materials.isEmpty {
+                        NavigatorSimulationMaterialRow(study: study, assignment: nil)
+                    } else {
+                        ForEach(study.materials) { assignment in
+                            NavigatorSimulationMaterialRow(study: study, assignment: assignment)
+                        }
+                    }
+
+                    // Fixtures rows
+                    if study.fixtures.isEmpty {
+                        NavigatorSimulationFixtureRow(study: study, fixture: nil)
+                    } else {
+                        ForEach(study.fixtures) { fixture in
+                            NavigatorSimulationFixtureRow(study: study, fixture: fixture)
+                        }
+                    }
+
+                    // Loads rows
+                    if study.loads.isEmpty {
+                        NavigatorSimulationLoadRow(study: study, load: nil)
+                    } else {
+                        ForEach(study.loads) { load in
+                            NavigatorSimulationLoadRow(study: study, load: load)
+                        }
+                    }
+
+                    // Mesh row
+                    NavigatorSimulationMeshRow(study: study)
+
+                    // Results row
+                    NavigatorSimulationResultsRow(study: study)
+                }
+                .padding(.leading, 12)
+            }
+        }
+    }
+}
+
+/// Outline row for simulation material assignment.
+struct NavigatorSimulationMaterialRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    let assignment: SimulationMaterialAssignment?
+
+    var body: some View {
+        let isSelected = assignment != nil && workspace.selectedSimulationMaterialAssignmentId == assignment?.id
+        HStack(spacing: 6) {
+            Image(systemName: "shippingbox")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+
+            Text(assignment?.name ?? "Materials")
+                .font(.caption)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let assignment {
+                Text(assignment.materialId)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button {
+                    _ = workspace.addSimulationMaterialAssignment(studyId: study.id)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .help("Add Material Assignment")
+            }
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let assignment {
+                workspace.selectSimulationMaterialAssignment(studyId: study.id, assignmentId: assignment.id)
+            } else {
+                workspace.selectSimulationStudy(study.id)
+            }
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : nil)
+        .contextMenu {
+            if let assignment {
+                Button("Delete Assignment", role: .destructive) {
+                    workspace.removeSimulationMaterialAssignment(studyId: study.id, assignmentId: assignment.id)
+                }
+            } else {
+                Button("Add Material Assignment") {
+                    _ = workspace.addSimulationMaterialAssignment(studyId: study.id)
+                }
+            }
+        }
+        .accessibilityIdentifier(assignment != nil ? "navigator-study-material-\(assignment!.id)" : "navigator-study-materials-\(study.id)")
+    }
+}
+
+/// Outline row for simulation boundary fixture.
+struct NavigatorSimulationFixtureRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    let fixture: SimulationFixture?
+
+    var body: some View {
+        let isSelected = fixture != nil && workspace.selectedSimulationFixtureId == fixture?.id
+        HStack(spacing: 6) {
+            Image(systemName: fixture?.kind.systemImageName ?? "lock.fill")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+
+            Text(fixture?.name ?? "Fixtures")
+                .font(.caption)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let fixture {
+                Text(fixture.kind.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button {
+                    _ = workspace.addSimulationFixture(studyId: study.id)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .help("Add Fixture")
+            }
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let fixture {
+                workspace.selectSimulationFixture(studyId: study.id, fixtureId: fixture.id)
+            } else {
+                workspace.selectSimulationStudy(study.id)
+            }
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : nil)
+        .contextMenu {
+            if let fixture {
+                Button("Delete Fixture", role: .destructive) {
+                    workspace.removeSimulationFixture(studyId: study.id, fixtureId: fixture.id)
+                }
+            } else {
+                Button("Add Fixture") {
+                    _ = workspace.addSimulationFixture(studyId: study.id)
+                }
+            }
+        }
+        .accessibilityIdentifier(fixture != nil ? "navigator-study-fixture-\(fixture!.id)" : "navigator-study-fixtures-\(study.id)")
+    }
+}
+
+/// Outline row for simulation load.
+struct NavigatorSimulationLoadRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    let load: SimulationLoad?
+
+    var body: some View {
+        let isSelected = load != nil && workspace.selectedSimulationLoadId == load?.id
+        HStack(spacing: 6) {
+            Image(systemName: load?.kind.systemImageName ?? "arrow.down.right")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+
+            Text(load?.name ?? "Loads")
+                .font(.caption)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let load {
+                Text("\(Int(load.magnitude)) \(load.kind.unitSymbol)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button {
+                    _ = workspace.addSimulationLoad(studyId: study.id)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .help("Add Load")
+            }
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let load {
+                workspace.selectSimulationLoad(studyId: study.id, loadId: load.id)
+            } else {
+                workspace.selectSimulationStudy(study.id)
+            }
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : nil)
+        .contextMenu {
+            if let load {
+                Button("Delete Load", role: .destructive) {
+                    workspace.removeSimulationLoad(studyId: study.id, loadId: load.id)
+                }
+            } else {
+                Button("Add Load") {
+                    _ = workspace.addSimulationLoad(studyId: study.id)
+                }
+            }
+        }
+        .accessibilityIdentifier(load != nil ? "navigator-study-load-\(load!.id)" : "navigator-study-loads-\(study.id)")
+    }
+}
+
+/// Outline row for simulation mesh specification.
+struct NavigatorSimulationMeshRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+
+    var body: some View {
+        let isSelected = workspace.selectedSimulationStudyId == study.id && workspace.isSimulationMeshSelected
+        HStack(spacing: 6) {
+            Image(systemName: "square.split.diagonal.2x2")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+
+            Text("Mesh")
+                .font(.caption)
+                .lineLimit(1)
+
+            Spacer()
+
+            Text(study.mesh.elementOrder.displayName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectSimulationMesh(studyId: study.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : nil)
+        .accessibilityIdentifier("navigator-study-mesh-\(study.id)")
+    }
+}
+
+/// Outline row for simulation results.
+struct NavigatorSimulationResultsRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+
+    var body: some View {
+        let isSelected = workspace.selectedSimulationStudyId == study.id && workspace.isSimulationResultsSelected
+        HStack(spacing: 6) {
+            Image(systemName: study.results.status.systemImageName)
+                .font(.caption2)
+                .foregroundStyle(study.results.status == .completed ? Color.green : (study.results.status == .failed ? Color.red : Color.secondary))
+                .frame(width: 14)
+
+            Text("Results")
+                .font(.caption)
+                .lineLimit(1)
+
+            Spacer()
+
+            Text(study.results.status.displayName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            workspace.selectSimulationResults(studyId: study.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : nil)
+        .accessibilityIdentifier("navigator-study-results-\(study.id)")
     }
 }
 

@@ -788,3 +788,52 @@ struct AssemblyMenuCommands: Commands {
         }
     }
 }
+
+/// Menu bar commands for Computer-Aided Engineering simulation studies (ADR-D5, #157).
+struct SimulationMenuCommands: Commands {
+    var workspace: WorkspaceModel
+
+    var body: some Commands {
+        CommandMenu("Simulation") {
+            Menu("New Study") {
+                Button("Linear Static Study") {
+                    _ = workspace.createSimulationStudy(type: .linearStatic)
+                }
+                Button("Thermal Conduction Study") {
+                    _ = workspace.createSimulationStudy(type: .thermalConduction)
+                }
+                Button("Modal Frequency Study") {
+                    _ = workspace.createSimulationStudy(type: .modalFrequency)
+                }
+            }
+
+            if !workspace.document.studies.isEmpty {
+                Divider()
+                Menu("Active Study") {
+                    ForEach(workspace.document.studies) { study in
+                        let isActive = workspace.document.activeStudyId == study.id
+                        Button(isActive ? "✓ \(study.name)" : study.name) {
+                            workspace.setActiveSimulationStudy(id: study.id)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Add Fixture…") {
+                if let activeStudy = workspace.document.activeStudy {
+                    _ = workspace.addSimulationFixture(studyId: activeStudy.id)
+                }
+            }
+            .disabled(workspace.document.activeStudy == nil)
+
+            Button("Add Load…") {
+                if let activeStudy = workspace.document.activeStudy {
+                    _ = workspace.addSimulationLoad(studyId: activeStudy.id)
+                }
+            }
+            .disabled(workspace.document.activeStudy == nil)
+        }
+    }
+}

@@ -112,6 +112,26 @@ struct InspectorPanelView: View {
             }
         } else if workspace.document.selection.count > 1 {
             multiSelectionView
+        } else if let fixture = workspace.selectedSimulationFixture, let study = workspace.selectedSimulationStudy {
+            ScrollView {
+                InspectorSimulationFixtureView(study: study, fixture: fixture)
+            }
+        } else if let load = workspace.selectedSimulationLoad, let study = workspace.selectedSimulationStudy {
+            ScrollView {
+                InspectorSimulationLoadView(study: study, load: load)
+            }
+        } else if workspace.isSimulationMeshSelected, let study = workspace.selectedSimulationStudy {
+            ScrollView {
+                InspectorSimulationMeshView(study: study)
+            }
+        } else if workspace.isSimulationResultsSelected, let study = workspace.selectedSimulationStudy {
+            ScrollView {
+                InspectorSimulationResultsView(study: study)
+            }
+        } else if let study = workspace.selectedSimulationStudy {
+            ScrollView {
+                InspectorSimulationStudyView(study: study)
+            }
         } else if let view = workspace.selectedExplodedView {
             ScrollView {
                 InspectorExplodedView(view: view)
@@ -2316,6 +2336,531 @@ struct InspectorExplodedView: View {
             }
             .accessibilityIdentifier("inspector-delete-step-button")
         }
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+// MARK: - Simulation Study Inspectors (BL-SIM-01, #157)
+
+/// Inspector view for a simulation study root node.
+struct InspectorSimulationStudyView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+
+    var body: some View {
+        let isActive = workspace.document.activeStudyId == study.id
+
+        Form {
+            Section {
+                TextField("Name", text: Binding(
+                    get: { study.name },
+                    set: { newName in
+                        workspace.renameSimulationStudy(id: study.id, name: newName)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-simulation-study-name")
+
+                Picker("Study Type", selection: Binding(
+                    get: { study.studyType },
+                    set: { newType in
+                        var copy = study
+                        copy.studyType = newType
+                        workspace.updateSimulationStudy(copy)
+                    }
+                )) {
+                    ForEach(SimulationStudyType.allCases) { type in
+                        Label(type.displayName, systemImage: type.systemImageName).tag(type)
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-study-type")
+
+                Toggle("Active Study", isOn: Binding(
+                    get: { isActive },
+                    set: { active in
+                        workspace.setActiveSimulationStudy(id: active ? study.id : nil)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-simulation-study-active-toggle")
+            } header: {
+                sectionHeader("Study Identity", isFirst: true)
+            }
+
+            Section {
+                LabeledContent("Target Geometry") {
+                    Text(study.targets.isEmpty ? "All visible bodies" : "\(study.targets.count) target(s)")
+                        .foregroundStyle(.secondary)
+                }
+
+                LabeledContent("Materials") {
+                    Text("\(study.materials.count) assignment(s)")
+                        .foregroundStyle(.secondary)
+                }
+
+                LabeledContent("Fixtures") {
+                    Text("\(study.fixtures.count) constraint(s)")
+                        .foregroundStyle(.secondary)
+                }
+
+                LabeledContent("Loads") {
+                    Text("\(study.loads.count) load(s)")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                sectionHeader("Model Scope")
+            }
+
+            Section {
+                Picker("Solver Engine", selection: Binding(
+                    get: { study.solver.engine },
+                    set: { newEngine in
+                        var copy = study.solver
+                        copy.engine = newEngine
+                        workspace.updateSimulationSolverConfiguration(studyId: study.id, solver: copy)
+                    }
+                )) {
+                    ForEach(SimulationSolverEngine.allCases) { engine in
+                        Text(engine.displayName).tag(engine)
+                    }
+                }
+
+                TextField("Max Iterations", value: Binding(
+                    get: { study.solver.maxIterations },
+                    set: { newIter in
+                        var copy = study.solver
+                        copy.maxIterations = max(1, newIter)
+                        workspace.updateSimulationSolverConfiguration(studyId: study.id, solver: copy)
+                    }
+                ), format: .number)
+
+                TextField("Tolerance", value: Binding(
+                    get: { study.solver.convergenceTolerance },
+                    set: { newTol in
+                        var copy = study.solver
+                        copy.convergenceTolerance = max(1e-12, newTol)
+                        workspace.updateSimulationSolverConfiguration(studyId: study.id, solver: copy)
+                    }
+                ), format: .number)
+            } header: {
+                sectionHeader("Solver Configuration")
+            }
+
+            Section {
+                Button("Delete Study", role: .destructive) {
+                    workspace.removeSimulationStudy(id: study.id)
+                }
+                .accessibilityIdentifier("inspector-simulation-delete-study-button")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector view for a boundary fixture constraint.
+struct InspectorSimulationFixtureView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    let fixture: SimulationFixture
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Name", text: Binding(
+                    get: { fixture.name },
+                    set: { newName in
+                        var copy = fixture
+                        copy.name = newName
+                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-simulation-fixture-name")
+
+                Picker("Constraint Type", selection: Binding(
+                    get: { fixture.kind },
+                    set: { newKind in
+                        var copy = fixture
+                        copy.kind = newKind
+                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                    }
+                )) {
+                    ForEach(SimulationFixtureKind.allCases) { kind in
+                        Label(kind.displayName, systemImage: kind.systemImageName).tag(kind)
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-fixture-type")
+            } header: {
+                sectionHeader("Fixture Identity", isFirst: true)
+            }
+
+            Section {
+                Toggle("Restrain X (Ux = 0)", isOn: Binding(
+                    get: { fixture.isRestrainedX },
+                    set: { val in
+                        var copy = fixture
+                        copy.isRestrainedX = val
+                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                    }
+                ))
+                Toggle("Restrain Y (Uy = 0)", isOn: Binding(
+                    get: { fixture.isRestrainedY },
+                    set: { val in
+                        var copy = fixture
+                        copy.isRestrainedY = val
+                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                    }
+                ))
+                Toggle("Restrain Z (Uz = 0)", isOn: Binding(
+                    get: { fixture.isRestrainedZ },
+                    set: { val in
+                        var copy = fixture
+                        copy.isRestrainedZ = val
+                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                    }
+                ))
+
+                if fixture.kind == .prescribedDisplacement {
+                    LabeledContent("Prescribed X (mm)") {
+                        TextField("X", value: Binding(
+                            get: { fixture.prescribedDisplacement.x },
+                            set: { val in
+                                var copy = fixture
+                                copy.prescribedDisplacement.x = val
+                                workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                            }
+                        ), format: .number)
+                    }
+                    LabeledContent("Prescribed Y (mm)") {
+                        TextField("Y", value: Binding(
+                            get: { fixture.prescribedDisplacement.y },
+                            set: { val in
+                                var copy = fixture
+                                copy.prescribedDisplacement.y = val
+                                workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                            }
+                        ), format: .number)
+                    }
+                    LabeledContent("Prescribed Z (mm)") {
+                        TextField("Z", value: Binding(
+                            get: { fixture.prescribedDisplacement.z },
+                            set: { val in
+                                var copy = fixture
+                                copy.prescribedDisplacement.z = val
+                                workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                            }
+                        ), format: .number)
+                    }
+                }
+            } header: {
+                sectionHeader("Kinematic Restraints")
+            }
+
+            Section {
+                LabeledContent("Targets") {
+                    Text(fixture.targetReferences.isEmpty ? "All boundary surfaces" : "\(fixture.targetReferences.count) entity/entities")
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("Delete Fixture", role: .destructive) {
+                    workspace.removeSimulationFixture(studyId: study.id, fixtureId: fixture.id)
+                }
+                .accessibilityIdentifier("inspector-simulation-delete-fixture-button")
+            } header: {
+                sectionHeader("Targets & Actions")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector view for a mechanical or thermal load.
+struct InspectorSimulationLoadView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    let load: SimulationLoad
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Name", text: Binding(
+                    get: { load.name },
+                    set: { newName in
+                        var copy = load
+                        copy.name = newName
+                        workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-simulation-load-name")
+
+                Picker("Load Type", selection: Binding(
+                    get: { load.kind },
+                    set: { newKind in
+                        var copy = load
+                        copy.kind = newKind
+                        workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                    }
+                )) {
+                    ForEach(SimulationLoadKind.allCases) { kind in
+                        Label(kind.displayName, systemImage: kind.systemImageName).tag(kind)
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-load-type")
+            } header: {
+                sectionHeader("Load Identity", isFirst: true)
+            }
+
+            Section {
+                LabeledContent("Magnitude (\(load.kind.unitSymbol))") {
+                    TextField("Magnitude", value: Binding(
+                        get: { load.magnitude },
+                        set: { val in
+                            var copy = load
+                            copy.magnitude = val
+                            workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                        }
+                    ), format: .number)
+                    .accessibilityIdentifier("inspector-simulation-load-magnitude")
+                }
+
+                LabeledContent("Direction (X, Y, Z)") {
+                    HStack(spacing: 4) {
+                        TextField("X", value: Binding(
+                            get: { load.direction.x },
+                            set: { val in
+                                var copy = load
+                                copy.direction.x = val
+                                workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                            }
+                        ), format: .number)
+                        TextField("Y", value: Binding(
+                            get: { load.direction.y },
+                            set: { val in
+                                var copy = load
+                                copy.direction.y = val
+                                workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                            }
+                        ), format: .number)
+                        TextField("Z", value: Binding(
+                            get: { load.direction.z },
+                            set: { val in
+                                var copy = load
+                                copy.direction.z = val
+                                workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                            }
+                        ), format: .number)
+                    }
+                }
+            } header: {
+                sectionHeader("Load Magnitude & Vector")
+            }
+
+            Section {
+                LabeledContent("Targets") {
+                    Text(load.targetReferences.isEmpty ? "All boundary surfaces" : "\(load.targetReferences.count) entity/entities")
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("Delete Load", role: .destructive) {
+                    workspace.removeSimulationLoad(studyId: study.id, loadId: load.id)
+                }
+                .accessibilityIdentifier("inspector-simulation-delete-load-button")
+            } header: {
+                sectionHeader("Targets & Actions")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector view for finite element volume mesh parameters.
+struct InspectorSimulationMeshView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Element Order", selection: Binding(
+                    get: { study.mesh.elementOrder },
+                    set: { newOrder in
+                        var copy = study.mesh
+                        copy.elementOrder = newOrder
+                        workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
+                    }
+                )) {
+                    ForEach(MeshElementOrder.allCases) { order in
+                        Text(order.displayName).tag(order)
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-mesh-order")
+
+                LabeledContent("Target Element Size (mm)") {
+                    TextField("Target Size", value: Binding(
+                        get: { study.mesh.targetElementSize },
+                        set: { val in
+                            var copy = study.mesh
+                            copy.targetElementSize = max(0.1, val)
+                            workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
+                        }
+                    ), format: .number)
+                    .accessibilityIdentifier("inspector-simulation-mesh-target-size")
+                }
+
+                LabeledContent("Min Element Size (mm)") {
+                    TextField("Min Size", value: Binding(
+                        get: { study.mesh.minElementSize },
+                        set: { val in
+                            var copy = study.mesh
+                            copy.minElementSize = max(0.01, val)
+                            workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
+                        }
+                    ), format: .number)
+                    .accessibilityIdentifier("inspector-simulation-mesh-min-size")
+                }
+
+                LabeledContent("Growth Rate") {
+                    TextField("Growth Rate", value: Binding(
+                        get: { study.mesh.growthRate },
+                        set: { val in
+                            var copy = study.mesh
+                            copy.growthRate = max(1.0, val)
+                            workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
+                        }
+                    ), format: .number)
+                    .accessibilityIdentifier("inspector-simulation-mesh-growth-rate")
+                }
+            } header: {
+                sectionHeader("Volume Meshing Specification", isFirst: true)
+            }
+
+            Section {
+                LabeledContent("Refinement Regions") {
+                    Text("\(study.mesh.refinementRegions.count) region(s)")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                sectionHeader("Local Refinement")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector view for simulation execution results and statistics.
+struct InspectorSimulationResultsView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+
+    var body: some View {
+        Form {
+            Section {
+                HStack(spacing: 8) {
+                    Image(systemName: study.results.status.systemImageName)
+                        .foregroundStyle(study.results.status == .completed ? Color.green : (study.results.status == .failed ? Color.red : Color.secondary))
+                    Text(study.results.status.displayName)
+                        .font(.headline)
+                    Spacer()
+                }
+                .accessibilityIdentifier("inspector-simulation-results-status")
+
+                if let duration = study.results.runtimeDuration {
+                    LabeledContent("Execution Time") {
+                        Text(String(format: "%.2f s", duration))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let err = study.results.errorMessage {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                sectionHeader("Execution Status", isFirst: true)
+            }
+
+            Section {
+                LabeledContent("Mesh Nodes") {
+                    Text("\(study.results.meshStatistics.nodeCount)")
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Tetrahedral Elements") {
+                    Text("\(study.results.meshStatistics.elementCount)")
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Min Element Quality") {
+                    Text(String(format: "%.3f", study.results.meshStatistics.minElementQuality))
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Avg Element Quality") {
+                    Text(String(format: "%.3f", study.results.meshStatistics.avgElementQuality))
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                sectionHeader("Discretization Statistics")
+            }
+
+            if !study.results.extrema.isEmpty {
+                Section {
+                    ForEach(study.results.extrema) { ext in
+                        LabeledContent(ext.fieldName) {
+                            Text("\(String(format: "%.3g", ext.minValue)) … \(String(format: "%.3g", ext.maxValue)) \(ext.unitSymbol)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    sectionHeader("Result Extrema")
+                }
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {

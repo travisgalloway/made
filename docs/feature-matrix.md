@@ -343,6 +343,7 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | MAT-3 | (new) A person can define, edit, delete, and browse custom materials scoped to the document or persistent user library, apply materials to solid bodies, and maintain package persistence and undo/redo history (BL-MAT-03) | done | done | done | Shipped | #256 | n/a |
 | MAT-4 | (new) A person can calculate and inspect mass properties (volume, surface area, mass, center of mass, 3x3 inertia tensor, and principal moments with principal axes) under Center of Mass, Body Local, or World Origin frames with material density resolution and clipboard export (BL-MAT-04) | done | done | done | Shipped | #257 | n/a |
 | MAT-5 | (new) A person can mark parts as purchased, override mass and center of mass with unit conversions, scale and shift inertia tensors across coordinate frames, and inspect override status badges and reports (BL-MAT-05) | done | done | done | Shipped | #258 | n/a |
+| SIM-1 | (new) A person can create, rename, delete, and inspect simulation studies (linear static, modal, thermal) with material assignments, fixtures, loads, mesh specifications, and solver configuration, view study trees in the Navigator, and persist studies across undo/redo and package saves (BL-SIM-01) | done | done | done | Shipped | #157 | n/a |
 
 
 
