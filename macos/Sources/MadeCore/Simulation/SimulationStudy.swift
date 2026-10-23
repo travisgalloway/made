@@ -55,6 +55,26 @@ public struct SimulationGeometryReference: Sendable, Codable, Equatable, Hashabl
     }
 }
 
+/// User-defined named geometry group aggregating multiple geometric references (ADR-D5 §4, #189).
+public struct SimulationGeometryGroup: Sendable, Codable, Equatable, Hashable, Identifiable {
+    public var id: UUID
+    public var name: String
+    public var targetReferences: [SimulationGeometryReference]
+    public var subelementType: SubelementType?
+
+    public init(
+        id: UUID = UUID(),
+        name: String = "Group 1",
+        targetReferences: [SimulationGeometryReference] = [],
+        subelementType: SubelementType? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.targetReferences = targetReferences
+        self.subelementType = subelementType
+    }
+}
+
 /// Simulation material assignment mapping material definitions to geometry targets.
 public struct SimulationMaterialAssignment: Sendable, Codable, Equatable, Hashable, Identifiable {
     public var id: UUID
@@ -179,6 +199,7 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
     public var name: String
     public var kind: SimulationFixtureKind
     public var targetReferences: [SimulationGeometryReference]
+    public var groupNames: [String]
     public var prescribedDisplacement: SIMD3<Double>
     public var isRestrainedX: Bool
     public var isRestrainedY: Bool
@@ -189,6 +210,7 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         name: String = "Fixed Support",
         kind: SimulationFixtureKind = .fixed,
         targetReferences: [SimulationGeometryReference] = [],
+        groupNames: [String] = [],
         prescribedDisplacement: SIMD3<Double> = .zero,
         isRestrainedX: Bool = true,
         isRestrainedY: Bool = true,
@@ -198,10 +220,28 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         self.name = name
         self.kind = kind
         self.targetReferences = targetReferences
+        self.groupNames = groupNames
         self.prescribedDisplacement = prescribedDisplacement
         self.isRestrainedX = isRestrainedX
         self.isRestrainedY = isRestrainedY
         self.isRestrainedZ = isRestrainedZ
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, kind, targetReferences, groupNames, prescribedDisplacement, isRestrainedX, isRestrainedY, isRestrainedZ
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.kind = try container.decode(SimulationFixtureKind.self, forKey: .kind)
+        self.targetReferences = try container.decodeIfPresent([SimulationGeometryReference].self, forKey: .targetReferences) ?? []
+        self.groupNames = try container.decodeIfPresent([String].self, forKey: .groupNames) ?? []
+        self.prescribedDisplacement = try container.decodeIfPresent(SIMD3<Double>.self, forKey: .prescribedDisplacement) ?? .zero
+        self.isRestrainedX = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedX) ?? true
+        self.isRestrainedY = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedY) ?? true
+        self.isRestrainedZ = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedZ) ?? true
     }
 }
 
@@ -267,6 +307,7 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
     public var name: String
     public var kind: SimulationLoadKind
     public var targetReferences: [SimulationGeometryReference]
+    public var groupNames: [String]
     public var magnitude: Double
     public var direction: SIMD3<Double>
 
@@ -275,6 +316,7 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         name: String = "Force 1",
         kind: SimulationLoadKind = .force,
         targetReferences: [SimulationGeometryReference] = [],
+        groupNames: [String] = [],
         magnitude: Double = 1000.0,
         direction: SIMD3<Double> = SIMD3<Double>(0, 0, -1)
     ) {
@@ -282,9 +324,27 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         self.name = name
         self.kind = kind
         self.targetReferences = targetReferences
+        self.groupNames = groupNames
         self.magnitude = magnitude
         let len = simd_length(direction)
         self.direction = len > 1e-6 ? direction / len : SIMD3<Double>(0, 0, -1)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, kind, targetReferences, groupNames, magnitude, direction
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.kind = try container.decode(SimulationLoadKind.self, forKey: .kind)
+        self.targetReferences = try container.decodeIfPresent([SimulationGeometryReference].self, forKey: .targetReferences) ?? []
+        self.groupNames = try container.decodeIfPresent([String].self, forKey: .groupNames) ?? []
+        self.magnitude = try container.decodeIfPresent(Double.self, forKey: .magnitude) ?? 1000.0
+        let dir = try container.decodeIfPresent(SIMD3<Double>.self, forKey: .direction) ?? SIMD3<Double>(0, 0, -1)
+        let len = simd_length(dir)
+        self.direction = len > 1e-6 ? dir / len : SIMD3<Double>(0, 0, -1)
     }
 }
 
@@ -480,6 +540,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var status: SimulationExecutionStatus
     public var runtimeDuration: Double?
     public var meshStatistics: SimulationMeshStatistics
+    public var meshSets: [VolumeMeshSet]
     public var extrema: [SimulationFieldExtrema]
     public var errorMessage: String?
 
@@ -487,23 +548,40 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         status: SimulationExecutionStatus = .notRun,
         runtimeDuration: Double? = nil,
         meshStatistics: SimulationMeshStatistics = SimulationMeshStatistics(),
+        meshSets: [VolumeMeshSet] = [],
         extrema: [SimulationFieldExtrema] = [],
         errorMessage: String? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
         self.meshStatistics = meshStatistics
+        self.meshSets = meshSets
         self.extrema = extrema
         self.errorMessage = errorMessage
     }
+
+    enum CodingKeys: String, CodingKey {
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.status = try container.decodeIfPresent(SimulationExecutionStatus.self, forKey: .status) ?? .notRun
+        self.runtimeDuration = try container.decodeIfPresent(Double.self, forKey: .runtimeDuration)
+        self.meshStatistics = try container.decodeIfPresent(SimulationMeshStatistics.self, forKey: .meshStatistics) ?? SimulationMeshStatistics()
+        self.meshSets = try container.decodeIfPresent([VolumeMeshSet].self, forKey: .meshSets) ?? []
+        self.extrema = try container.decodeIfPresent([SimulationFieldExtrema].self, forKey: .extrema) ?? []
+        self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+    }
 }
 
-/// Canonical Computer-Aided Engineering simulation study entity (ADR-D5, #157).
+/// Canonical Computer-Aided Engineering simulation study entity (ADR-D5, #157, #189).
 public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifiable {
     public var id: UUID
     public var name: String
     public var studyType: SimulationStudyType
     public var targets: [SimulationGeometryReference]
+    public var groups: [SimulationGeometryGroup]
     public var materials: [SimulationMaterialAssignment]
     public var connections: [SimulationConnection]
     public var fixtures: [SimulationFixture]
@@ -518,6 +596,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         name: String = "Study 1",
         studyType: SimulationStudyType = .linearStatic,
         targets: [SimulationGeometryReference] = [],
+        groups: [SimulationGeometryGroup] = [],
         materials: [SimulationMaterialAssignment] = [],
         connections: [SimulationConnection] = [],
         fixtures: [SimulationFixture] = [],
@@ -531,6 +610,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.name = name
         self.studyType = studyType
         self.targets = targets
+        self.groups = groups
         self.materials = materials
         self.connections = connections
         self.fixtures = fixtures
@@ -539,6 +619,27 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.solver = solver
         self.results = results
         self.isCollapsed = isCollapsed
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, solver, results, isCollapsed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Study 1"
+        self.studyType = try container.decodeIfPresent(SimulationStudyType.self, forKey: .studyType) ?? .linearStatic
+        self.targets = try container.decodeIfPresent([SimulationGeometryReference].self, forKey: .targets) ?? []
+        self.groups = try container.decodeIfPresent([SimulationGeometryGroup].self, forKey: .groups) ?? []
+        self.materials = try container.decodeIfPresent([SimulationMaterialAssignment].self, forKey: .materials) ?? []
+        self.connections = try container.decodeIfPresent([SimulationConnection].self, forKey: .connections) ?? []
+        self.fixtures = try container.decodeIfPresent([SimulationFixture].self, forKey: .fixtures) ?? []
+        self.loads = try container.decodeIfPresent([SimulationLoad].self, forKey: .loads) ?? []
+        self.mesh = try container.decodeIfPresent(MeshSpecification.self, forKey: .mesh) ?? MeshSpecification()
+        self.solver = try container.decodeIfPresent(SolverConfiguration.self, forKey: .solver) ?? SolverConfiguration()
+        self.results = try container.decodeIfPresent(SimulationStudyResults.self, forKey: .results) ?? SimulationStudyResults()
+        self.isCollapsed = try container.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false
     }
 }
 

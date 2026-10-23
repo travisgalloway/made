@@ -45,6 +45,11 @@ public enum MSHParser {
         var elements: [VolumeMeshElement] = []
         var surfaceTriangles: [VolumeMeshElement] = []
 
+        var physicalNames: [Int: (dim: Int, name: String)] = [:]
+        var physicalNameOrder: [Int] = []
+        var physicalGroupElementIds: [Int: [Int]] = [:]
+        var physicalGroupNodeIds: [Int: Set<Int>] = [:]
+
         var seenNodesSection = false
         var seenElementsSection = false
 
@@ -61,6 +66,38 @@ public enum MSHParser {
                     throw CAEErrorCode.resultParsingFailed(details: "Missing $EndMeshFormat terminator")
                 }
                 hasValidMeshFormat = true
+            } else if line == "$PhysicalNames" {
+                guard let countLine = nextLine(), let totalNames = Int(countLine), totalNames >= 0 else {
+                    throw CAEErrorCode.resultParsingFailed(details: "Invalid or missing physical names count in $PhysicalNames section")
+                }
+
+                for _ in 0..<totalNames {
+                    guard let pLine = nextLine() else {
+                        throw CAEErrorCode.resultParsingFailed(details: "Truncated $PhysicalNames section, expected \(totalNames) physical names")
+                    }
+                    let parts = pLine.split(whereSeparator: \.isWhitespace).map(String.init)
+                    guard parts.count >= 3,
+                          let dim = Int(parts[0]),
+                          let tag = Int(parts[1]) else {
+                        throw CAEErrorCode.resultParsingFailed(details: "Malformed physical name entry: '\(pLine)'")
+                    }
+                    let rawName: String
+                    if let firstQuote = pLine.firstIndex(of: "\""),
+                       let lastQuote = pLine.lastIndex(of: "\""),
+                       firstQuote != lastQuote {
+                        rawName = String(pLine[pLine.index(after: firstQuote)..<lastQuote])
+                    } else {
+                        rawName = parts[2...].joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                    }
+                    if physicalNames[tag] == nil {
+                        physicalNameOrder.append(tag)
+                    }
+                    physicalNames[tag] = (dim: dim, name: rawName)
+                }
+
+                guard let endPhysicalNames = nextLine(), endPhysicalNames == "$EndPhysicalNames" else {
+                    throw CAEErrorCode.resultParsingFailed(details: "Missing $EndPhysicalNames terminator")
+                }
             } else if line == "$Nodes" {
                 seenNodesSection = true
                 guard let countLine = nextLine(), let totalNodes = Int(countLine), totalNodes >= 0 else {
@@ -116,6 +153,11 @@ public enum MSHParser {
                     let tagValue = (numTags > 0 && tagIndex < parts.count) ? (Int(parts[tagIndex]) ?? 0) : 0
                     let nodeStartIndex = 3 + numTags
                     let nodeIndices = parts[nodeStartIndex...].compactMap { Int($0) }
+
+                    if tagValue != 0 {
+                        physicalGroupElementIds[tagValue, default: []].append(elmId)
+                        physicalGroupNodeIds[tagValue, default: Set<Int>()].formUnion(nodeIndices)
+                    }
 
                     switch elmType {
                     case 4: // 4-node linear tetrahedron (C3D4)
@@ -201,11 +243,35 @@ public enum MSHParser {
             )
         }
 
+        var sets: [VolumeMeshSet] = []
+        for tag in physicalNameOrder {
+            guard let info = physicalNames[tag] else { continue }
+            let subType: SubelementType?
+            switch info.dim {
+            case 1:
+                subType = .edge
+            case 2:
+                subType = .face
+            default:
+                subType = nil
+            }
+            let elIds = physicalGroupElementIds[tag] ?? []
+            let nIds = (physicalGroupNodeIds[tag] ?? []).sorted()
+            sets.append(VolumeMeshSet(
+                name: info.name,
+                nodeIds: nIds,
+                elementIds: elIds,
+                subelementType: subType,
+                tag: tag
+            ))
+        }
+
         return VolumeMesh(
             nodes: nodes,
             elements: elements,
             surfaceTriangles: surfaceTriangles,
-            statistics: statistics
+            statistics: statistics,
+            sets: sets
         )
     }
 

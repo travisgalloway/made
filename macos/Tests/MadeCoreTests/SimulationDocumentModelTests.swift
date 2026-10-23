@@ -155,4 +155,118 @@ import Foundation
         undoManager.undo()
         #expect(doc.study(id: study.id)?.loads.count == 1)
     }
+
+    @Test func testGeometryGroupDocumentMutationsAndUndoRedo() {
+        let doc = DocumentModel()
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let study = SimulationStudy(name: "Bracket Study", studyType: .linearStatic)
+        doc.addStudy(study)
+        undoManager.removeAllActions()
+
+        let group = SimulationGeometryGroup(
+            name: "Clamp Group",
+            targetReferences: [
+                SimulationGeometryReference(targetId: UUID(), targetName: "Face 1", subelementType: .face)
+            ]
+        )
+        doc.addSimulationGeometryGroup(studyId: study.id, group: group)
+
+        #expect(doc.study(id: study.id)?.groups.count == 1)
+        #expect(doc.study(id: study.id)?.groups.first?.name == "Clamp Group")
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.groups.isEmpty == true)
+
+        undoManager.redo()
+        #expect(doc.study(id: study.id)?.groups.count == 1)
+
+        undoManager.removeAllActions()
+        var updated = group
+        updated.name = "Updated Clamp Group"
+        doc.updateSimulationGeometryGroup(studyId: study.id, group: updated)
+        #expect(doc.study(id: study.id)?.groups.first?.name == "Updated Clamp Group")
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.groups.first?.name == "Clamp Group")
+
+        undoManager.removeAllActions()
+        doc.removeSimulationGeometryGroup(studyId: study.id, groupId: group.id)
+        #expect(doc.study(id: study.id)?.groups.isEmpty == true)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.groups.count == 1)
+    }
+
+    @Test func testFixtureAndLoadTargetReferenceMutationsWithUndoRedo() {
+        let doc = DocumentModel()
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let fixture = SimulationFixture(name: "Base")
+        let load = SimulationLoad(name: "Force")
+        let study = SimulationStudy(name: "Bracket Study", fixtures: [fixture], loads: [load])
+        doc.addStudy(study)
+        undoManager.removeAllActions()
+
+        let ref1 = SimulationGeometryReference(targetId: UUID(), targetName: "Face 1", subelementType: .face)
+        doc.assignTargetReferenceToFixture(studyId: study.id, fixtureId: fixture.id, reference: ref1)
+        #expect(doc.study(id: study.id)?.fixtures.first?.targetReferences.count == 1)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.fixtures.first?.targetReferences.isEmpty == true)
+
+        undoManager.redo()
+        #expect(doc.study(id: study.id)?.fixtures.first?.targetReferences.count == 1)
+
+        undoManager.removeAllActions()
+        doc.removeTargetReferenceFromFixture(studyId: study.id, fixtureId: fixture.id, referenceId: ref1.id)
+        #expect(doc.study(id: study.id)?.fixtures.first?.targetReferences.isEmpty == true)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.fixtures.first?.targetReferences.count == 1)
+
+        // Load targets
+        undoManager.removeAllActions()
+        let ref2 = SimulationGeometryReference(targetId: UUID(), targetName: "Face 2", subelementType: .face)
+        doc.assignTargetReferenceToLoad(studyId: study.id, loadId: load.id, reference: ref2)
+        #expect(doc.study(id: study.id)?.loads.first?.targetReferences.count == 1)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.loads.first?.targetReferences.isEmpty == true)
+
+        undoManager.redo()
+        #expect(doc.study(id: study.id)?.loads.first?.targetReferences.count == 1)
+
+        undoManager.removeAllActions()
+        doc.removeTargetReferenceFromLoad(studyId: study.id, loadId: load.id, referenceId: ref2.id)
+        #expect(doc.study(id: study.id)?.loads.first?.targetReferences.isEmpty == true)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.loads.first?.targetReferences.count == 1)
+    }
+
+    @Test func testGroupDeletionCascadeRemovesGroupFromFixturesAndLoads() {
+        let doc = DocumentModel()
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let group = SimulationGeometryGroup(name: "Shared Group")
+        let fixture = SimulationFixture(name: "Base", groupNames: ["Shared Group"])
+        let load = SimulationLoad(name: "Force", groupNames: ["Shared Group"])
+        let study = SimulationStudy(name: "Cascade Study", groups: [group], fixtures: [fixture], loads: [load])
+        doc.addStudy(study)
+        undoManager.removeAllActions()
+
+        doc.removeSimulationGeometryGroup(studyId: study.id, groupId: group.id)
+        #expect(doc.study(id: study.id)?.groups.isEmpty == true)
+        #expect(doc.study(id: study.id)?.fixtures.first?.groupNames.isEmpty == true)
+        #expect(doc.study(id: study.id)?.loads.first?.groupNames.isEmpty == true)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.groups.count == 1)
+        #expect(doc.study(id: study.id)?.fixtures.first?.groupNames == ["Shared Group"])
+        #expect(doc.study(id: study.id)?.loads.first?.groupNames == ["Shared Group"])
+    }
 }
