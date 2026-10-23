@@ -1445,6 +1445,20 @@ final class WorkspaceModel {
         return BoundingBoxCalculator.boxes(for: solidId, in: document, candidateMeshes: candidates)
     }
 
+    public func massProperties(
+        for solidId: SolidId,
+        coordinateSystem: MassPropertiesCoordinateSystem = .centroid
+    ) -> MassProperties? {
+        let candidates = viewportManager.renderer?.candidateMeshes() ?? []
+        return MassPropertiesCalculator.calculate(
+            for: solidId,
+            in: document,
+            candidateMeshes: candidates,
+            userMaterials: userMaterials,
+            coordinateSystem: coordinateSystem
+        )
+    }
+
     func isFacePlanar(solidId: SolidId, faceId: Int) -> Bool {
         if let renderer = viewportManager.renderer,
            let mesh = renderer.candidateMeshes().first(where: { $0.id == solidId }) {

@@ -139,6 +139,21 @@ public struct UnitSettings: Sendable, Codable, Equatable {
         return Self.format(value: convertedArea, precision: decimalPrecision, symbol: includeSymbol ? "\(lengthUnit.symbol)²" : nil)
     }
 
+    public func formatVolume(_ valueInCubicMillimeters: Double, includeSymbol: Bool = true) -> String {
+        let factor = lengthUnit.fromMillimeters(1.0)
+        let convertedVolume = valueInCubicMillimeters * (factor * factor * factor)
+        return Self.format(value: convertedVolume, precision: decimalPrecision, symbol: includeSymbol ? "\(lengthUnit.symbol)³" : nil)
+    }
+
+    public func formatMass(_ valueInKilograms: Double, includeSymbol: Bool = true) -> String {
+        if abs(valueInKilograms) < 0.1 && abs(valueInKilograms) > 0 {
+            let grams = valueInKilograms * 1000.0
+            return Self.format(value: grams, precision: decimalPrecision, symbol: includeSymbol ? "g" : nil)
+        } else {
+            return Self.format(value: valueInKilograms, precision: decimalPrecision, symbol: includeSymbol ? "kg" : nil)
+        }
+    }
+
     public static func format(value: Double, precision: Int, symbol: String? = nil) -> String {
         let clamped = clampPrecision(precision)
         let formatted = String(format: "%.\(clamped)f", value)
