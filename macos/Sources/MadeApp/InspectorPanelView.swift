@@ -565,6 +565,11 @@ struct InspectorPanelView: View {
 
     private func materialSection(_ obj: SceneObject) -> some View {
         Section {
+            if let materialName = obj.material.materialName, !materialName.isEmpty {
+                LabeledContent("Material", value: materialName)
+                    .accessibilityIdentifier("inspector-body-material-name")
+            }
+
             ColorPicker("Body Color", selection: Binding(
                 get: {
                     let c = obj.material.color
@@ -2365,6 +2370,11 @@ struct DocumentSettingsInspectorView: View {
 
     private var materialSection: some View {
         Section {
+            if let materialName = workspace.document.settings.defaultMaterial.materialName, !materialName.isEmpty {
+                LabeledContent("Material", value: materialName)
+                    .accessibilityIdentifier("inspector-default-material-name")
+            }
+
             ColorPicker("Default Color", selection: Binding(
                 get: {
                     let c = workspace.document.settings.defaultMaterial.color
@@ -2373,7 +2383,9 @@ struct DocumentSettingsInspectorView: View {
                 set: { newColor in
                     let resolved = newColor.resolve(in: EnvironmentValues())
                     let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
-                    workspace.setDocumentDefaultMaterial(MaterialAttributes(color: simdColor))
+                    var current = workspace.document.settings.defaultMaterial
+                    current.color = simdColor
+                    workspace.setDocumentDefaultMaterial(current)
                 }
             ), supportsOpacity: false)
 

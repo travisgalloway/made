@@ -21,6 +21,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var activeExplodedViewId: UUID?
     public var sheets: [DrawingSheet]?
     public var activeSheetId: UUID?
+    public var customMaterials: [MaterialDefinition]?
 
     public init(
         schemaVersion: Int = DocumentData.currentSchemaVersion,
@@ -39,7 +40,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         explodedViews: [ExplodedView]? = nil,
         activeExplodedViewId: UUID? = nil,
         sheets: [DrawingSheet]? = nil,
-        activeSheetId: UUID? = nil
+        activeSheetId: UUID? = nil,
+        customMaterials: [MaterialDefinition]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.rollbackIndex = rollbackIndex
@@ -53,6 +55,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.activeExplodedViewId = activeExplodedViewId
         self.sheets = sheets
         self.activeSheetId = activeSheetId
+        self.customMaterials = customMaterials
         let projectedCompObjects: [SceneObject] = (componentInstances ?? []).flatMap { $0.toSceneObjects() }
         if let features {
             self.features = features
@@ -79,8 +82,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.selection = selection
     }
 
-    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil, assemblyConstraints: [AssemblyConstraint]? = nil, componentPatterns: [ComponentPattern]? = nil, componentMirrors: [ComponentMirror]? = nil, explodedViews: [ExplodedView]? = nil, activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet]? = nil, activeSheetId: UUID? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances, assemblyConstraints: assemblyConstraints, componentPatterns: componentPatterns, componentMirrors: componentMirrors, explodedViews: explodedViews, activeExplodedViewId: activeExplodedViewId, sheets: sheets, activeSheetId: activeSheetId)
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil, assemblyConstraints: [AssemblyConstraint]? = nil, componentPatterns: [ComponentPattern]? = nil, componentMirrors: [ComponentMirror]? = nil, explodedViews: [ExplodedView]? = nil, activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet]? = nil, activeSheetId: UUID? = nil, customMaterials: [MaterialDefinition]? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances, assemblyConstraints: assemblyConstraints, componentPatterns: componentPatterns, componentMirrors: componentMirrors, explodedViews: explodedViews, activeExplodedViewId: activeExplodedViewId, sheets: sheets, activeSheetId: activeSheetId, customMaterials: customMaterials)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -101,6 +104,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case activeExplodedViewId
         case sheets
         case activeSheetId
+        case customMaterials
     }
 
     public init(from decoder: Decoder) throws {
@@ -178,6 +182,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.activeExplodedViewId = try container.decodeIfPresent(UUID.self, forKey: .activeExplodedViewId)
         self.sheets = try container.decodeIfPresent([DrawingSheet].self, forKey: .sheets)
         self.activeSheetId = try container.decodeIfPresent(UUID.self, forKey: .activeSheetId)
+        self.customMaterials = try container.decodeIfPresent([MaterialDefinition].self, forKey: .customMaterials)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -201,6 +206,7 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encodeIfPresent(activeExplodedViewId, forKey: .activeExplodedViewId)
         try container.encodeIfPresent(sheets, forKey: .sheets)
         try container.encodeIfPresent(activeSheetId, forKey: .activeSheetId)
+        try container.encodeIfPresent(customMaterials, forKey: .customMaterials)
     }
 
     private static func sceneObjectsMatch(_ a: [SceneObject], _ b: [SceneObject]) -> Bool {
@@ -311,7 +317,8 @@ public enum DocumentModelCoder {
             explodedViews: document.explodedViews,
             activeExplodedViewId: document.activeExplodedViewId,
             sheets: document.sheets,
-            activeSheetId: document.activeSheetId
+            activeSheetId: document.activeSheetId,
+            customMaterials: document.customMaterials
         )
         return try encode(docData, packageURL: packageURL)
     }
@@ -338,6 +345,7 @@ public enum DocumentModelCoder {
         let activeExplodedViewId = docData.activeExplodedViewId
         let sheets = docData.sheets ?? []
         let activeSheetId = docData.activeSheetId
+        let customMaterials = docData.customMaterials ?? []
         if let features = docData.features {
             document.reset(
                 with: features,
@@ -353,7 +361,8 @@ public enum DocumentModelCoder {
                 explodedViews: explodedViews,
                 activeExplodedViewId: activeExplodedViewId,
                 sheets: sheets,
-                activeSheetId: activeSheetId
+                activeSheetId: activeSheetId,
+                customMaterials: customMaterials
             )
         } else {
             document.reset(
@@ -370,7 +379,8 @@ public enum DocumentModelCoder {
                 explodedViews: explodedViews,
                 activeExplodedViewId: activeExplodedViewId,
                 sheets: sheets,
-                activeSheetId: activeSheetId
+                activeSheetId: activeSheetId,
+                customMaterials: customMaterials
             )
         }
     }

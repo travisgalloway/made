@@ -170,23 +170,37 @@ extension ObjectDef {
 
 public struct MaterialAttributes: Sendable, Equatable, Codable {
     public var color: SIMD4<Float>
+    public var materialDefinitionId: String?
+    public var materialName: String?
     
-    public init(color: SIMD4<Float> = SIMD4<Float>(0.35, 0.65, 0.95, 1.0)) {
+    public init(
+        color: SIMD4<Float> = SIMD4<Float>(0.35, 0.65, 0.95, 1.0),
+        materialDefinitionId: String? = nil,
+        materialName: String? = nil
+    ) {
         self.color = color
+        self.materialDefinitionId = materialDefinitionId
+        self.materialName = materialName
     }
 
     private enum CodingKeys: String, CodingKey {
         case color
+        case materialDefinitionId
+        case materialName
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.color = try container.decodeIfPresent(SIMD4<Float>.self, forKey: .color) ?? SIMD4<Float>(0.35, 0.65, 0.95, 1.0)
+        self.materialDefinitionId = try container.decodeIfPresent(String.self, forKey: .materialDefinitionId)
+        self.materialName = try container.decodeIfPresent(String.self, forKey: .materialName)
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(color, forKey: .color)
+        try container.encodeIfPresent(materialDefinitionId, forKey: .materialDefinitionId)
+        try container.encodeIfPresent(materialName, forKey: .materialName)
     }
 }
 
@@ -874,6 +888,7 @@ public final class DocumentModel {
         return nil
     }
     public private(set) var metadata: [String: String] = [:]
+    public private(set) var customMaterials: [MaterialDefinition] = []
     private var seq: Int = 1
     @ObservationIgnored private var isSyncingObjects = false
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
@@ -1265,7 +1280,7 @@ public final class DocumentModel {
         }
     }
     
-    public init(settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
+    public init(settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         // Initialize with default box and cylinder scene.
         let boxFeature = Feature.makeBox(
             solidId: boxSolidId,
@@ -1283,12 +1298,13 @@ public final class DocumentModel {
         self._selectedId = boxSolidId
         self.settings = settings
         self.metadata = metadata
+        self.customMaterials = customMaterials
         syncObjectsFromFeatures()
         self.seq = Self.computeMaxSequence(features: self.features)
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:]) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
@@ -1308,6 +1324,7 @@ public final class DocumentModel {
         }
         self.settings = settings
         self.metadata = metadata
+        self.customMaterials = customMaterials
         self._selection = []
         self._selectedId = nil
         syncObjectsFromFeatures()
@@ -1315,7 +1332,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1333,6 +1350,7 @@ public final class DocumentModel {
             self.activeSheetId = activeSheetId ?? sheets.first?.id
         }
         self.metadata = metadata
+        self.customMaterials = customMaterials
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), features.count)
             self.rollbackIndex = (clamped >= features.count) ? nil : clamped
@@ -1357,12 +1375,13 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
+    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         let convertedFeatures = objects.map { Feature(from: $0) }
         self.features = convertedFeatures
         self.sheets = sheets
         self.activeSheetId = activeSheetId ?? sheets.first?.id
         self.metadata = metadata
+        self.customMaterials = customMaterials
         if let idx = rollbackIndex {
             let clamped = min(max(0, idx), convertedFeatures.count)
             self.rollbackIndex = (clamped >= convertedFeatures.count) ? nil : clamped
@@ -1387,7 +1406,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1406,6 +1425,7 @@ public final class DocumentModel {
         }
         self.parameters = parameters
         self.metadata = metadata
+        self.customMaterials = customMaterials
         rebuildParameterGraph()
         features = newFeatures
         if let idx = rollbackIndex {
@@ -1434,7 +1454,7 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:]) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1453,6 +1473,7 @@ public final class DocumentModel {
         }
         self.parameters = parameters
         self.metadata = metadata
+        self.customMaterials = customMaterials
         rebuildParameterGraph()
         let convertedFeatures = newObjects.map { Feature(from: $0) }
         features = convertedFeatures
@@ -8736,6 +8757,98 @@ public final class DocumentModel {
                 }
             }
         }
+    }
+
+    // MARK: - Document Custom Materials (BL-MAT-03, #256)
+
+    @discardableResult
+    public func addCustomMaterial(_ material: MaterialDefinition) -> Result<Void, DocumentMutationError> {
+        let trimmedName = material.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            return .failure(.invalidOperation("Material name cannot be empty"))
+        }
+        guard !customMaterials.contains(where: { $0.id == material.id }) else {
+            return .failure(.invalidOperation("Material with ID '\(material.id)' already exists"))
+        }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeCustomMaterial(id: material.id)
+                target.undoManager?.setActionName("Add Custom Material")
+            }
+        }
+        undoManager?.setActionName("Add Custom Material")
+        undoStateVersion += 1
+        customMaterials.append(material)
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateCustomMaterial(_ material: MaterialDefinition) -> Result<Void, DocumentMutationError> {
+        let trimmedName = material.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            return .failure(.invalidOperation("Material name cannot be empty"))
+        }
+        guard let index = customMaterials.firstIndex(where: { $0.id == material.id }) else {
+            return .failure(.invalidOperation("Material with ID '\(material.id)' not found"))
+        }
+        let oldMaterial = customMaterials[index]
+        guard oldMaterial != material else {
+            return .success(())
+        }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateCustomMaterial(oldMaterial)
+                target.undoManager?.setActionName("Update Custom Material")
+            }
+        }
+        undoManager?.setActionName("Update Custom Material")
+        undoStateVersion += 1
+        customMaterials[index] = material
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeCustomMaterial(id: String) -> Result<Void, DocumentMutationError> {
+        guard let index = customMaterials.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Material with ID '\(id)' not found"))
+        }
+        let oldMaterial = customMaterials[index]
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertCustomMaterial(oldMaterial, at: index)
+                target.undoManager?.setActionName("Remove Custom Material")
+            }
+        }
+        undoManager?.setActionName("Remove Custom Material")
+        undoStateVersion += 1
+        customMaterials.remove(at: index)
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertCustomMaterial(_ material: MaterialDefinition, at index: Int) -> Result<Void, DocumentMutationError> {
+        let trimmedName = material.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            return .failure(.invalidOperation("Material name cannot be empty"))
+        }
+        guard !customMaterials.contains(where: { $0.id == material.id }) else {
+            return .failure(.invalidOperation("Material with ID '\(material.id)' already exists"))
+        }
+        let clampedIndex = min(max(0, index), customMaterials.count)
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeCustomMaterial(id: material.id)
+                target.undoManager?.setActionName("Insert Custom Material")
+            }
+        }
+        undoManager?.setActionName("Insert Custom Material")
+        undoStateVersion += 1
+        customMaterials.insert(material, at: clampedIndex)
+        return .success(())
+    }
+
+    public func customMaterial(withId id: String) -> MaterialDefinition? {
+        customMaterials.first(where: { $0.id == id })
     }
 }
 
