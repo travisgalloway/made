@@ -198,6 +198,126 @@ import simd
         let caeLogs = ws.logs.filter { $0.subsystem == "CAE" }
         #expect(caeLogs.contains { $0.message.contains("failed") })
     }
+
+    @Test func testWorkspaceGenerateSimulationMeshLifecycle() async throws {
+        let mockMesher = MockVolumeMesher()
+        await mockMesher.setDelayNanoseconds(50_000_000) // 50 ms
+        let ws = WorkspaceModel(volumeMesher: mockMesher)
+
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Meshing Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        #expect(!ws.isStudyMeshing(study.id))
+        ws.generateSimulationMesh(studyId: study.id)
+
+        #expect(ws.isStudyMeshing(study.id))
+        #expect(ws.document.study(id: study.id)?.results.status == .meshing)
+
+        // Prevent double generation
+        ws.generateSimulationMesh(studyId: study.id)
+        #expect(ws.isStudyMeshing(study.id))
+
+        // Wait for task completion
+        for _ in 0..<50 {
+            if !ws.isStudyMeshing(study.id) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!ws.isStudyMeshing(study.id))
+        let results = ws.document.study(id: study.id)?.results
+        #expect(results?.status == .notRun)
+        #expect(results?.meshStatistics.elementCount == 1)
+        #expect(results?.meshStatistics.nodeCount == 10)
+        #expect(results?.errorMessage == nil)
+
+        let caeLogs = ws.logs.filter { $0.subsystem == "CAE" }
+        #expect(caeLogs.contains { $0.message.contains("Starting volume mesher") })
+        #expect(caeLogs.contains { $0.message.contains("Mock Gmsh") })
+        #expect(caeLogs.contains { $0.message.contains("Meshing completed") })
+    }
+
+    @Test func testWorkspaceCancelSimulationMesh() async throws {
+        let mockMesher = MockVolumeMesher()
+        await mockMesher.setDelayNanoseconds(500_000_000) // 500 ms
+        let ws = WorkspaceModel(volumeMesher: mockMesher)
+
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Cancel Mesh Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        ws.generateSimulationMesh(studyId: study.id)
+        #expect(ws.isStudyMeshing(study.id))
+
+        try await Task.sleep(for: .milliseconds(20))
+        ws.cancelSimulationMesh(studyId: study.id)
+
+        for _ in 0..<50 {
+            if !ws.isStudyMeshing(study.id) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(!ws.isStudyMeshing(study.id))
+        let results = ws.document.study(id: study.id)?.results
+        #expect(results?.status == .cancelled)
+
+        let caeLogs = ws.logs.filter { $0.subsystem == "CAE" }
+        #expect(caeLogs.contains { $0.message.contains("cancelled") })
+    }
+
+    @Test func testWorkspaceGenerateSimulationMeshBinaryNotFound() async throws {
+        let mockMesher = MockVolumeMesher()
+        await mockMesher.setShouldFailWithBinaryNotFound(true)
+        let ws = WorkspaceModel(volumeMesher: mockMesher)
+
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Missing Mesher Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        ws.generateSimulationMesh(studyId: study.id)
+
+        for _ in 0..<50 {
+            if !ws.isStudyMeshing(study.id) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!ws.isStudyMeshing(study.id))
+        let results = ws.document.study(id: study.id)?.results
+        #expect(results?.status == .failed)
+        #expect(results?.errorMessage?.contains("Gmsh (gmsh)") == true)
+
+        let caeLogs = ws.logs.filter { $0.subsystem == "CAE" }
+        #expect(caeLogs.contains { $0.message.contains("failed") })
+    }
+
+    @Test func testInspectorSimulationMeshViewRenderStats() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Stats Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        study.results.meshStatistics = SimulationMeshStatistics(
+            nodeCount: 150,
+            elementCount: 420,
+            minElementQuality: 0.65,
+            avgElementQuality: 0.88
+        )
+        study.results.runtimeDuration = 1.45
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        let view = InspectorSimulationMeshView(study: study).environment(ws)
+        _ = view
+        #expect(study.results.meshStatistics.elementCount == 420)
+    }
 }
 
 private actor MockSolverRunner: SolverRunnerProtocol {
@@ -247,6 +367,63 @@ private actor MockSolverRunner: SolverRunnerProtocol {
             rawOutput: "CalculiX Mock v1.0\nITERATION 1 RESIDUAL 1.0e-5",
             resultFiles: [:],
             errorMessage: nil
+        )
+    }
+
+    func cancel(studyId: UUID) async {
+        cancelledStudyIds.insert(studyId)
+    }
+}
+
+private actor MockVolumeMesher: VolumeMesherProtocol {
+    var shouldFailWithBinaryNotFound = false
+    var delayNanoseconds: UInt64 = 0
+    var cancelledStudyIds: Set<UUID> = []
+
+    func setShouldFailWithBinaryNotFound(_ val: Bool) {
+        shouldFailWithBinaryNotFound = val
+    }
+
+    func setDelayNanoseconds(_ val: UInt64) {
+        delayNanoseconds = val
+    }
+
+    func mesh(
+        stepData: Data,
+        specification: MeshSpecification,
+        studyId: UUID,
+        packageResultsURL: URL?,
+        outputHandler: (@Sendable (String) -> Void)?
+    ) async throws -> VolumeMeshResult {
+        if shouldFailWithBinaryNotFound {
+            throw CAEErrorCode.solverBinaryNotFound(solver: "Gmsh (gmsh)", searchedPaths: ["/mock/bin/gmsh"])
+        }
+        outputHandler?("Info    : Running Mock Gmsh")
+        outputHandler?("Info    : Meshing volume...")
+        if delayNanoseconds > 0 {
+            let slice = delayNanoseconds / 20
+            for _ in 0..<20 {
+                if cancelledStudyIds.contains(studyId) || Task.isCancelled {
+                    throw CAEErrorCode.executionCancelled
+                }
+                do {
+                    try await Task.sleep(nanoseconds: slice)
+                } catch {
+                    throw CAEErrorCode.executionCancelled
+                }
+            }
+        }
+        if cancelledStudyIds.contains(studyId) || Task.isCancelled {
+            throw CAEErrorCode.executionCancelled
+        }
+
+        let mesh = try MSHParser.parse(content: VolumeMesherFixture.minimalMSHContent(order: specification.elementOrder))
+        return VolumeMeshResult(
+            mesh: mesh,
+            meshFileURL: packageResultsURL?.appendingPathComponent("mesh.msh"),
+            runtimeDuration: 0.12,
+            exitCode: 0,
+            rawOutput: "Info    : Running Mock Gmsh\nInfo    : Meshing volume..."
         )
     }
 

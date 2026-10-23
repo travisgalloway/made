@@ -2726,6 +2726,9 @@ struct NavigatorSimulationMeshRow: View {
 
     var body: some View {
         let isSelected = workspace.selectedSimulationStudyId == study.id && workspace.isSimulationMeshSelected
+        let isMeshing = workspace.isStudyMeshing(study.id)
+        let elementCount = study.results.meshStatistics.elementCount
+
         HStack(spacing: 6) {
             Image(systemName: "square.split.diagonal.2x2")
                 .font(.caption2)
@@ -2738,9 +2741,22 @@ struct NavigatorSimulationMeshRow: View {
 
             Spacer()
 
-            Text(study.mesh.elementOrder.displayName)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            if isMeshing {
+                ProgressView()
+                    .controlSize(.mini)
+            } else if elementCount > 0 {
+                Text("\(elementCount)")
+                    .font(.caption2.monospacedDigit())
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(Capsule())
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(study.mesh.elementOrder.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 1)
         .contentShape(Rectangle())

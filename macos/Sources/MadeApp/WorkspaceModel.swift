@@ -59,6 +59,11 @@ final class WorkspaceModel {
     @ObservationIgnored private var activeSolveTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored public var solverRunner: any SolverRunnerProtocol
 
+    // Active simulation mesh generation tracking (BL-MSH-01, #188)
+    public private(set) var activeMeshingStudyIds: Set<UUID> = []
+    @ObservationIgnored private var activeMeshTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored public var volumeMesher: any VolumeMesherProtocol
+
     public var selectedSimulationStudy: SimulationStudy? {
         guard let id = selectedSimulationStudyId else { return nil }
         return document.study(id: id)
@@ -782,12 +787,14 @@ final class WorkspaceModel {
         defaults: UserDefaults = .standard,
         recoveryStore: CrashRecoveryStore = CrashRecoveryStore(),
         userMaterialStore: UserMaterialStore = UserMaterialStore(),
-        solverRunner: any SolverRunnerProtocol = SolverRunnerActor()
+        solverRunner: any SolverRunnerProtocol = SolverRunnerActor(),
+        volumeMesher: any VolumeMesherProtocol = VolumeMesherActor()
     ) {
         self.defaults = defaults
         self.recoveryStore = recoveryStore
         self.userMaterialStore = userMaterialStore
         self.solverRunner = solverRunner
+        self.volumeMesher = volumeMesher
         self.userMaterials = userMaterialStore.loadMaterials()
         if let raw = defaults.string(forKey: Self.commandPanelPlacementDefaultsKey),
            let placement = CommandPanelPlacement(rawValue: raw) {
@@ -6259,6 +6266,9 @@ final class WorkspaceModel {
         if isStudyRunning(id) {
             cancelSimulationStudy(id: id)
         }
+        if isStudyMeshing(id) {
+            cancelSimulationMesh(studyId: id)
+        }
         if selectedSimulationStudyId == id {
             clearSimulationSelections()
         }
@@ -6451,6 +6461,178 @@ final class WorkspaceModel {
         let runner = self.solverRunner
         Task {
             await runner.cancel(studyId: id)
+        }
+    }
+
+    // MARK: - Simulation Volume Meshing Execution (BL-MSH-01, #188)
+
+    public func isStudyMeshing(_ id: UUID) -> Bool {
+        activeMeshingStudyIds.contains(id)
+    }
+
+    public func generateSimulationMesh(studyId: UUID) {
+        guard let study = document.study(id: studyId) else {
+            log(.error, "CAE", "Cannot mesh simulation study: study \(studyId) not found")
+            return
+        }
+        guard !isStudyMeshing(studyId) else {
+            log(.warning, "CAE", "Simulation study '\(study.name)' is already meshing")
+            return
+        }
+
+        activeMeshingStudyIds.insert(studyId)
+        var initialResults = study.results
+        initialResults.status = .meshing
+        initialResults.errorMessage = nil
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: initialResults)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Starting volume mesher for simulation study '\(study.name)'")
+
+        let packageResultsURL = currentDocumentURL?.appendingPathComponent("cache/results/\(studyId.uuidString)")
+        let spec = study.mesh
+        let mesher = self.volumeMesher
+
+        let task = Task { [weak self] in
+            let startTime = ContinuousClock.now
+            do {
+                let stepData: Data
+                if let self {
+                    let candidateObjects: [SceneObject]
+                    if !study.targets.isEmpty {
+                        let targetStrings = Set(study.targets.map { $0.targetId.uuidString.lowercased() })
+                        let matched = self.document.objects.filter { obj in
+                            obj.isVisible && (targetStrings.contains(obj.id.rawValue.lowercased()) || study.targets.contains { $0.targetName == obj.name })
+                        }
+                        candidateObjects = matched.isEmpty ? self.document.objects.filter { $0.isVisible } : matched
+                    } else {
+                        candidateObjects = self.document.objects.filter { $0.isVisible }
+                    }
+
+                    if !candidateObjects.isEmpty {
+                        let exportRes = await self.kernelClient.exportStep(objects: candidateObjects)
+                        switch exportRes {
+                        case .success(_, let data):
+                            stepData = data
+                        case .failure(_, let err):
+                            throw CAEErrorCode.meshingFailed(reason: "Failed to export STEP geometry: \(err.message)", exitCode: 1)
+                        }
+                    } else {
+                        stepData = VolumeMesherFixture.minimalStepBoxData
+                    }
+                } else {
+                    stepData = VolumeMesherFixture.minimalStepBoxData
+                }
+
+                let result = try await mesher.mesh(
+                    stepData: stepData,
+                    specification: spec,
+                    studyId: studyId,
+                    packageResultsURL: packageResultsURL
+                ) { line in
+                    Task { @MainActor in
+                        self?.log(.info, "CAE", line)
+                    }
+                }
+
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeMeshingStudyIds.remove(studyId)
+                    self.activeMeshTasks.removeValue(forKey: studyId)
+                    if var currentStudy = self.document.study(id: studyId) {
+                        currentStudy.results.meshStatistics = result.mesh.statistics
+                        currentStudy.results.status = .notRun
+                        currentStudy.results.errorMessage = nil
+                        _ = self.document.updateSimulationStudyResults(studyId: studyId, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    self.log(.info, "CAE", "Meshing completed for study '\(study.name)': \(result.mesh.statistics.nodeCount) nodes, \(result.mesh.statistics.elementCount) elements in \(String(format: "%.2f", elapsed)) s")
+                }
+            } catch let error as CAEErrorCode {
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeMeshingStudyIds.remove(studyId)
+                    self.activeMeshTasks.removeValue(forKey: studyId)
+                    let status: SimulationExecutionStatus = (error == .executionCancelled) ? .cancelled : .failed
+                    let errorMsg = error.localizedDescription
+
+                    if var currentStudy = self.document.study(id: studyId) {
+                        currentStudy.results.status = status
+                        currentStudy.results.runtimeDuration = elapsed
+                        currentStudy.results.errorMessage = errorMsg
+                        _ = self.document.updateSimulationStudyResults(studyId: studyId, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    if status == .cancelled {
+                        self.log(.warning, "CAE", "Meshing cancelled for study '\(study.name)'")
+                    } else {
+                        self.log(.error, "CAE", "Meshing failed for study '\(study.name)': \(errorMsg)")
+                    }
+                }
+            } catch is CancellationError {
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeMeshingStudyIds.remove(studyId)
+                    self.activeMeshTasks.removeValue(forKey: studyId)
+                    if var currentStudy = self.document.study(id: studyId) {
+                        currentStudy.results.status = .cancelled
+                        currentStudy.results.runtimeDuration = elapsed
+                        currentStudy.results.errorMessage = "Meshing cancelled"
+                        _ = self.document.updateSimulationStudyResults(studyId: studyId, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    self.log(.warning, "CAE", "Meshing cancelled for study '\(study.name)'")
+                }
+            } catch {
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeMeshingStudyIds.remove(studyId)
+                    self.activeMeshTasks.removeValue(forKey: studyId)
+                    let isCancelled = Task.isCancelled
+                    let status: SimulationExecutionStatus = isCancelled ? .cancelled : .failed
+                    let errorMsg = isCancelled ? "Meshing cancelled" : error.localizedDescription
+
+                    if var currentStudy = self.document.study(id: studyId) {
+                        currentStudy.results.status = status
+                        currentStudy.results.runtimeDuration = elapsed
+                        currentStudy.results.errorMessage = errorMsg
+                        _ = self.document.updateSimulationStudyResults(studyId: studyId, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    if status == .cancelled {
+                        self.log(.warning, "CAE", "Meshing cancelled for study '\(study.name)'")
+                    } else {
+                        self.log(.error, "CAE", "Meshing failed for study '\(study.name)': \(errorMsg)")
+                    }
+                }
+            }
+        }
+        activeMeshTasks[studyId] = task
+    }
+
+    public func cancelSimulationMesh(studyId: UUID) {
+        guard isStudyMeshing(studyId) else { return }
+        log(.info, "CAE", "Cancelling volume mesher for study \(studyId)...")
+        activeMeshTasks[studyId]?.cancel()
+        let mesher = self.volumeMesher
+        Task {
+            await mesher.cancel(studyId: studyId)
         }
     }
 
