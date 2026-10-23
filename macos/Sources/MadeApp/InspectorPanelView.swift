@@ -26,11 +26,34 @@ enum InspectorUnitConversion {
     static func angleAccessibilityValue(_ displayValue: Double, unit: AngleUnit) -> String {
         "\(displayValue.formatted(.number.precision(.fractionLength(1)))) \(unit.symbol)"
     }
+
+    static func displayVolume(_ valueInCubicMillimeters: Double, unit: LengthUnit) -> Double {
+        let factor = unit.fromMillimeters(1.0)
+        return valueInCubicMillimeters * (factor * factor * factor)
+    }
+
+    static func volumeAccessibilityValue(_ displayValue: Double, unit: LengthUnit) -> String {
+        "\(displayValue.formatted(.number.precision(.fractionLength(1...3)))) \(unit.symbol)³"
+    }
+
+    static func displayMass(_ valueInKilograms: Double) -> (value: Double, unitSymbol: String) {
+        if abs(valueInKilograms) < 0.1 && abs(valueInKilograms) > 0 {
+            return (valueInKilograms * 1000.0, "g")
+        } else {
+            return (valueInKilograms, "kg")
+        }
+    }
+
+    static func massAccessibilityValue(_ valueInKilograms: Double) -> String {
+        let (val, sym) = displayMass(valueInKilograms)
+        return "\(val.formatted(.number.precision(.fractionLength(1...3)))) \(sym)"
+    }
 }
 
 struct InspectorPanelView: View {
     @Environment(WorkspaceModel.self) private var workspace
     @Environment(\.openWindow) private var openWindow
+    @State private var massPropertiesCoordSystem: MassPropertiesCoordinateSystem = .centroid
 
     nonisolated static let deleteConstraintAccessibilityLabel = InspectorSketchConstraintRow.deleteConstraintAccessibilityLabel
     nonisolated static let deleteConstraintHelpText = InspectorSketchConstraintRow.deleteConstraintHelpText
@@ -101,6 +124,7 @@ struct InspectorPanelView: View {
                     boundingBoxSection(selected)
                     materialSection(selected)
                         .disabled(selected.isLocked)
+                    massPropertiesSection(selected)
                 }
                 .formStyle(.columns)
                 .controlSize(.small)
@@ -593,6 +617,107 @@ struct InspectorPanelView: View {
             .accessibilityIdentifier("browse-material-library-button")
         } header: {
             sectionHeader("Material")
+        }
+    }
+
+    @ViewBuilder
+    private func massPropertiesSection(_ obj: SceneObject) -> some View {
+        Section {
+            Picker("Coordinates", selection: $massPropertiesCoordSystem) {
+                ForEach(MassPropertiesCoordinateSystem.allCases) { sys in
+                    Text(sys.displayName).tag(sys)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("inspector-mass-properties-coordinate-system")
+
+            if let props = workspace.massProperties(for: obj.id, coordinateSystem: massPropertiesCoordSystem) {
+                let units = workspace.document.settings.units
+                let (matName, density) = MassPropertiesCalculator.resolveMaterialDensity(for: obj.id, in: workspace.document, userMaterials: workspace.userMaterials)
+                let densityStr = "\(matName ?? "Standard"): \(String(format: "%.1f", density)) kg/m³"
+                LabeledContent("Material & Density") {
+                    Text(densityStr)
+                        .accessibilityIdentifier("inspector-mass-density")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let massStr = units.formatMass(props.mass)
+                LabeledContent("Mass") {
+                    Text(massStr)
+                        .accessibilityIdentifier("inspector-mass-value")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let volStr = units.formatVolume(props.volume)
+                LabeledContent("Volume") {
+                    Text(volStr)
+                        .accessibilityIdentifier("inspector-volume-value")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let areaStr = units.formatArea(props.surfaceArea)
+                LabeledContent("Surface Area") {
+                    Text(areaStr)
+                        .accessibilityIdentifier("inspector-surface-area-value")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let cmX = units.formatLength(props.centerOfMass.x)
+                let cmY = units.formatLength(props.centerOfMass.y)
+                let cmZ = units.formatLength(props.centerOfMass.z)
+                let cmStr = "(\(cmX), \(cmY), \(cmZ))"
+                LabeledContent("Center of Mass") {
+                    Text(cmStr)
+                        .accessibilityIdentifier("inspector-center-of-mass")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let ixxStr = String(format: "%.2e", props.inertiaTensor.ixx)
+                let iyyStr = String(format: "%.2e", props.inertiaTensor.iyy)
+                let izzStr = String(format: "%.2e", props.inertiaTensor.izz)
+                let inertiaStr = "\(ixxStr), \(iyyStr), \(izzStr) kg·mm²"
+                LabeledContent("Moments of Inertia") {
+                    Text(inertiaStr)
+                        .accessibilityIdentifier("inspector-moments-of-inertia")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                let i1Str = String(format: "%.2e", props.principalMoments.i1)
+                let i2Str = String(format: "%.2e", props.principalMoments.i2)
+                let i3Str = String(format: "%.2e", props.principalMoments.i3)
+                let principalStr = "\(i1Str), \(i2Str), \(i3Str) kg·mm²"
+                LabeledContent("Principal Moments") {
+                    Text(principalStr)
+                        .accessibilityIdentifier("inspector-principal-moments")
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
+
+                Button {
+                    let report = props.formattedReport(units: units)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(report, forType: .string)
+                } label: {
+                    Label("Copy Mass Properties", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("inspector-copy-mass-properties-button")
+            } else {
+                LabeledContent("Mass Properties") {
+                    Text("Unavailable")
+                        .accessibilityIdentifier("inspector-no-mass-properties")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            sectionHeader("Mass Properties")
         }
     }
 
