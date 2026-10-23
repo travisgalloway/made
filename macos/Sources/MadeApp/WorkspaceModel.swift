@@ -54,6 +54,11 @@ final class WorkspaceModel {
     public var isSimulationMeshSelected: Bool = false
     public var isSimulationResultsSelected: Bool = false
 
+    // Active simulation solve execution tracking (BL-SIM-02, #187)
+    public private(set) var activeRunningStudyIds: Set<UUID> = []
+    @ObservationIgnored private var activeSolveTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored public var solverRunner: any SolverRunnerProtocol
+
     public var selectedSimulationStudy: SimulationStudy? {
         guard let id = selectedSimulationStudyId else { return nil }
         return document.study(id: id)
@@ -773,10 +778,16 @@ final class WorkspaceModel {
         isPredictiveCommandsVisible.toggle()
     }
 
-    init(defaults: UserDefaults = .standard, recoveryStore: CrashRecoveryStore = CrashRecoveryStore(), userMaterialStore: UserMaterialStore = UserMaterialStore()) {
+    init(
+        defaults: UserDefaults = .standard,
+        recoveryStore: CrashRecoveryStore = CrashRecoveryStore(),
+        userMaterialStore: UserMaterialStore = UserMaterialStore(),
+        solverRunner: any SolverRunnerProtocol = SolverRunnerActor()
+    ) {
         self.defaults = defaults
         self.recoveryStore = recoveryStore
         self.userMaterialStore = userMaterialStore
+        self.solverRunner = solverRunner
         self.userMaterials = userMaterialStore.loadMaterials()
         if let raw = defaults.string(forKey: Self.commandPanelPlacementDefaultsKey),
            let placement = CommandPanelPlacement(rawValue: raw) {
@@ -6245,6 +6256,9 @@ final class WorkspaceModel {
     }
 
     public func removeSimulationStudy(id: UUID) {
+        if isStudyRunning(id) {
+            cancelSimulationStudy(id: id)
+        }
         if selectedSimulationStudyId == id {
             clearSimulationSelections()
         }
@@ -6293,6 +6307,150 @@ final class WorkspaceModel {
             markDocumentModified()
             invalidateViewport(.model)
             log(.info, "CAE", "Updated simulation study '\(study.name)'")
+        }
+    }
+
+    // MARK: - Simulation Solver Execution (BL-SIM-02, #187)
+
+    public func isStudyRunning(_ id: UUID) -> Bool {
+        activeRunningStudyIds.contains(id)
+    }
+
+    public func runSimulationStudy(id: UUID) {
+        guard let study = document.study(id: id) else {
+            log(.error, "CAE", "Cannot run simulation study: study \(id) not found")
+            return
+        }
+        guard !isStudyRunning(id) else {
+            log(.warning, "CAE", "Simulation study '\(study.name)' is already running")
+            return
+        }
+
+        activeRunningStudyIds.insert(id)
+        var initialResults = study.results
+        initialResults.status = .solving
+        initialResults.errorMessage = nil
+        _ = document.updateSimulationStudyResults(studyId: id, results: initialResults)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Starting solver for simulation study '\(study.name)' (\(study.solver.engine.displayName))")
+
+        let packageResultsURL = currentDocumentURL?.appendingPathComponent("cache/results/\(id.uuidString)")
+        let deck = CAEDeck.fixture(for: study)
+        let solverConfig = study.solver
+        let runner = self.solverRunner
+
+        let task = Task { [weak self] in
+            let startTime = ContinuousClock.now
+            do {
+                let result = try await runner.run(
+                    deck: deck,
+                    configuration: solverConfig,
+                    packageResultsURL: packageResultsURL
+                ) { line in
+                    Task { @MainActor in
+                        self?.log(.info, "CAE", line)
+                    }
+                }
+
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeRunningStudyIds.remove(id)
+                    self.activeSolveTasks.removeValue(forKey: id)
+                    if var currentStudy = self.document.study(id: id) {
+                        currentStudy.results.status = .completed
+                        currentStudy.results.runtimeDuration = result.runtimeDuration > 0 ? result.runtimeDuration : elapsed
+                        currentStudy.results.errorMessage = nil
+                        _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    self.log(.info, "CAE", "Simulation study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s")
+                }
+            } catch let error as CAEErrorCode {
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeRunningStudyIds.remove(id)
+                    self.activeSolveTasks.removeValue(forKey: id)
+                    let status: SimulationExecutionStatus = (error == .executionCancelled) ? .cancelled : .failed
+                    let errorMsg = error.localizedDescription
+
+                    if var currentStudy = self.document.study(id: id) {
+                        currentStudy.results.status = status
+                        currentStudy.results.runtimeDuration = elapsed
+                        currentStudy.results.errorMessage = errorMsg
+                        _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    if status == .cancelled {
+                        self.log(.warning, "CAE", "Simulation study '\(study.name)' cancelled")
+                    } else {
+                        self.log(.error, "CAE", "Simulation study '\(study.name)' failed: \(errorMsg)")
+                    }
+                }
+            } catch is CancellationError {
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeRunningStudyIds.remove(id)
+                    self.activeSolveTasks.removeValue(forKey: id)
+                    if var currentStudy = self.document.study(id: id) {
+                        currentStudy.results.status = .cancelled
+                        currentStudy.results.runtimeDuration = elapsed
+                        currentStudy.results.errorMessage = "Simulation cancelled"
+                        _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    self.log(.warning, "CAE", "Simulation study '\(study.name)' cancelled")
+                }
+            } catch {
+                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.activeRunningStudyIds.remove(id)
+                    self.activeSolveTasks.removeValue(forKey: id)
+                    let isCancelled = Task.isCancelled
+                    let status: SimulationExecutionStatus = isCancelled ? .cancelled : .failed
+                    let errorMsg = isCancelled ? "Simulation cancelled" : error.localizedDescription
+
+                    if var currentStudy = self.document.study(id: id) {
+                        currentStudy.results.status = status
+                        currentStudy.results.runtimeDuration = elapsed
+                        currentStudy.results.errorMessage = errorMsg
+                        _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                        self.markDocumentModified()
+                        self.invalidateViewport(.model)
+                    }
+                    if status == .cancelled {
+                        self.log(.warning, "CAE", "Simulation study '\(study.name)' cancelled")
+                    } else {
+                        self.log(.error, "CAE", "Simulation study '\(study.name)' failed: \(errorMsg)")
+                    }
+                }
+            }
+        }
+        activeSolveTasks[id] = task
+    }
+
+    public func cancelSimulationStudy(id: UUID) {
+        guard isStudyRunning(id) else { return }
+        log(.info, "CAE", "Cancelling simulation study \(id)...")
+        activeSolveTasks[id]?.cancel()
+        let runner = self.solverRunner
+        Task {
+            await runner.cancel(studyId: id)
         }
     }
 

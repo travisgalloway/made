@@ -98,4 +98,159 @@ import simd
         _ = InspectorSimulationMeshView(study: study).environment(ws)
         _ = InspectorSimulationResultsView(study: study).environment(ws)
     }
+
+    @Test func testWorkspaceRunSimulationStudyLifecycle() async throws {
+        let mockRunner = MockSolverRunner()
+        await mockRunner.setDelayNanoseconds(50_000_000) // 50 ms
+        let ws = WorkspaceModel(solverRunner: mockRunner)
+
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Solve Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        #expect(!ws.isStudyRunning(study.id))
+        ws.runSimulationStudy(id: study.id)
+
+        #expect(ws.isStudyRunning(study.id))
+        #expect(ws.document.study(id: study.id)?.results.status == .solving)
+
+        // Prevent double run
+        ws.runSimulationStudy(id: study.id)
+        #expect(ws.isStudyRunning(study.id))
+
+        // Wait for solve task completion
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!ws.isStudyRunning(study.id))
+        let results = ws.document.study(id: study.id)?.results
+        #expect(results?.status == .completed)
+        #expect(results?.errorMessage == nil)
+        #expect((results?.runtimeDuration ?? 0) >= 0)
+
+        // Check CAE console logs
+        let caeLogs = ws.logs.filter { $0.subsystem == "CAE" }
+        #expect(caeLogs.contains { $0.message.contains("Starting solver") })
+        #expect(caeLogs.contains { $0.message.contains("CalculiX Mock") })
+        #expect(caeLogs.contains { $0.message.contains("completed") })
+    }
+
+    @Test func testWorkspaceCancelSimulationStudy() async throws {
+        let mockRunner = MockSolverRunner()
+        await mockRunner.setDelayNanoseconds(500_000_000) // 500 ms
+        let ws = WorkspaceModel(solverRunner: mockRunner)
+
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Cancel Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        ws.runSimulationStudy(id: study.id)
+        #expect(ws.isStudyRunning(study.id))
+
+        try await Task.sleep(for: .milliseconds(20))
+        ws.cancelSimulationStudy(id: study.id)
+
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(!ws.isStudyRunning(study.id))
+        let results = ws.document.study(id: study.id)?.results
+        #expect(results?.status == .cancelled)
+
+        let caeLogs = ws.logs.filter { $0.subsystem == "CAE" }
+        #expect(caeLogs.contains { $0.message.contains("cancelled") })
+    }
+
+    @Test func testWorkspaceRunSimulationStudyBinaryNotFound() async throws {
+        let mockRunner = MockSolverRunner()
+        await mockRunner.setShouldFailWithBinaryNotFound(true)
+        let ws = WorkspaceModel(solverRunner: mockRunner)
+
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Missing Binary Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        ws.runSimulationStudy(id: study.id)
+
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(!ws.isStudyRunning(study.id))
+        let results = ws.document.study(id: study.id)?.results
+        #expect(results?.status == .failed)
+        #expect(results?.errorMessage?.contains("Solver binary not found") == true)
+
+        let caeLogs = ws.logs.filter { $0.subsystem == "CAE" }
+        #expect(caeLogs.contains { $0.message.contains("failed") })
+    }
+}
+
+private actor MockSolverRunner: SolverRunnerProtocol {
+    var shouldFailWithBinaryNotFound = false
+    var delayNanoseconds: UInt64 = 0
+    var cancelledStudyIds: Set<UUID> = []
+
+    func setShouldFailWithBinaryNotFound(_ val: Bool) {
+        shouldFailWithBinaryNotFound = val
+    }
+
+    func setDelayNanoseconds(_ val: UInt64) {
+        delayNanoseconds = val
+    }
+
+    func run(
+        deck: CAEDeck,
+        configuration: SolverConfiguration,
+        packageResultsURL: URL?,
+        outputHandler: (@Sendable (String) -> Void)?
+    ) async throws -> SolverRunResult {
+        if shouldFailWithBinaryNotFound {
+            throw CAEErrorCode.solverBinaryNotFound(solver: "CalculiX (ccx)", searchedPaths: ["/mock/bin/ccx"])
+        }
+        outputHandler?("CalculiX Mock v1.0")
+        outputHandler?("ITERATION 1 RESIDUAL 1.0e-5")
+        if delayNanoseconds > 0 {
+            let slice = delayNanoseconds / 20
+            for _ in 0..<20 {
+                if cancelledStudyIds.contains(deck.studyId) || Task.isCancelled {
+                    throw CAEErrorCode.executionCancelled
+                }
+                do {
+                    try await Task.sleep(nanoseconds: slice)
+                } catch {
+                    throw CAEErrorCode.executionCancelled
+                }
+            }
+        }
+        if cancelledStudyIds.contains(deck.studyId) || Task.isCancelled {
+            throw CAEErrorCode.executionCancelled
+        }
+        return SolverRunResult(
+            status: .completed,
+            runtimeDuration: 0.15,
+            exitCode: 0,
+            rawOutput: "CalculiX Mock v1.0\nITERATION 1 RESIDUAL 1.0e-5",
+            resultFiles: [:],
+            errorMessage: nil
+        )
+    }
+
+    func cancel(studyId: UUID) async {
+        cancelledStudyIds.insert(studyId)
+    }
 }

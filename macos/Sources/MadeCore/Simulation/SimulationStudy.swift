@@ -543,7 +543,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
 }
 
 /// Exhaustive typed error enum matching ADR-D5 §8.
-public enum CAEErrorCode: Sendable, Codable, Equatable, Hashable, Error {
+public enum CAEErrorCode: Sendable, Codable, Equatable, Hashable, Error, LocalizedError {
     case solverBinaryNotFound(solver: String, searchedPaths: [String])
     case meshingFailed(reason: String, exitCode: Int32)
     case solverFailed(reason: String, exitCode: Int32)
@@ -551,4 +551,24 @@ public enum CAEErrorCode: Sendable, Codable, Equatable, Hashable, Error {
     case invalidStudyConfiguration(message: String)
     case resultParsingFailed(details: String)
     case executionCancelled
+
+    public var errorDescription: String? {
+        switch self {
+        case .solverBinaryNotFound(let solver, let searchedPaths):
+            let pathList = searchedPaths.isEmpty ? "none" : searchedPaths.joined(separator: ", ")
+            return "Solver binary not found for \(solver). Searched: \(pathList)"
+        case .meshingFailed(let reason, let exitCode):
+            return "Meshing failed with exit code \(exitCode): \(reason)"
+        case .solverFailed(let reason, let exitCode):
+            return "Solver failed with exit code \(exitCode): \(reason)"
+        case .solverDiverged(let iterations, let residual):
+            return "Solver diverged after \(iterations) iterations with residual \(residual)"
+        case .invalidStudyConfiguration(let message):
+            return "Invalid simulation study configuration: \(message)"
+        case .resultParsingFailed(let details):
+            return "Failed to parse simulation results: \(details)"
+        case .executionCancelled:
+            return "Simulation execution was cancelled"
+        }
+    }
 }
