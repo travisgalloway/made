@@ -2427,6 +2427,16 @@ struct NavigatorSimulationStudyRow: View {
 
                 if isHovered {
                     Menu {
+                        if workspace.isStudyRunning(study.id) {
+                            Button("Cancel Solve") {
+                                workspace.cancelSimulationStudy(id: study.id)
+                            }
+                        } else {
+                            Button("Run Study") {
+                                workspace.runSimulationStudy(id: study.id)
+                            }
+                        }
+                        Divider()
                         if !isActive {
                             Button("Set as Active Study") {
                                 workspace.setActiveSimulationStudy(id: study.id)
@@ -2460,6 +2470,16 @@ struct NavigatorSimulationStudyRow: View {
             }
             .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
             .contextMenu {
+                if workspace.isStudyRunning(study.id) {
+                    Button("Cancel Solve") {
+                        workspace.cancelSimulationStudy(id: study.id)
+                    }
+                } else {
+                    Button("Run Study") {
+                        workspace.runSimulationStudy(id: study.id)
+                    }
+                }
+                Divider()
                 if !isActive {
                     Button("Set as Active Study") {
                         workspace.setActiveSimulationStudy(id: study.id)

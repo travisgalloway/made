@@ -834,6 +834,28 @@ struct SimulationMenuCommands: Commands {
                 }
             }
             .disabled(workspace.document.activeStudy == nil)
+
+            Divider()
+
+            let activeStudy = workspace.document.activeStudy
+            let isRunning = activeStudy.map { workspace.isStudyRunning($0.id) } ?? false
+
+            if isRunning {
+                Button("Cancel Active Study") {
+                    if let activeStudy {
+                        workspace.cancelSimulationStudy(id: activeStudy.id)
+                    }
+                }
+                .keyboardShortcut(".", modifiers: .command)
+            } else {
+                Button("Run Active Study") {
+                    if let activeStudy {
+                        workspace.runSimulationStudy(id: activeStudy.id)
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(activeStudy == nil)
+            }
         }
     }
 }

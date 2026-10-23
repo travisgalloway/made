@@ -2452,6 +2452,35 @@ struct InspectorSimulationStudyView: View {
             }
 
             Section {
+                let isRunning = workspace.isStudyRunning(study.id)
+                if isRunning {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Solving…")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") {
+                            workspace.cancelSimulationStudy(id: study.id)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("inspector-simulation-cancel-study-button")
+                    }
+                } else {
+                    Button {
+                        workspace.runSimulationStudy(id: study.id)
+                    } label: {
+                        Label("Run Study", systemImage: "play.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("inspector-simulation-run-study-button")
+                }
+            } header: {
+                sectionHeader("Solve")
+            }
+
+            Section {
                 Button("Delete Study", role: .destructive) {
                     workspace.removeSimulationStudy(id: study.id)
                 }
@@ -2799,11 +2828,21 @@ struct InspectorSimulationResultsView: View {
     var body: some View {
         Form {
             Section {
+                let isRunning = workspace.isStudyRunning(study.id)
+
                 HStack(spacing: 8) {
-                    Image(systemName: study.results.status.systemImageName)
-                        .foregroundStyle(study.results.status == .completed ? Color.green : (study.results.status == .failed ? Color.red : Color.secondary))
-                    Text(study.results.status.displayName)
-                        .font(.headline)
+                    if isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Solving…")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: study.results.status.systemImageName)
+                            .foregroundStyle(study.results.status == .completed ? Color.green : (study.results.status == .failed ? Color.red : Color.secondary))
+                        Text(study.results.status.displayName)
+                            .font(.headline)
+                    }
                     Spacer()
                 }
                 .accessibilityIdentifier("inspector-simulation-results-status")
@@ -2816,9 +2855,35 @@ struct InspectorSimulationResultsView: View {
                 }
 
                 if let err = study.results.errorMessage {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundStyle(.red)
+                        Text(err)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .accessibilityIdentifier("inspector-simulation-results-error")
+                }
+
+                if isRunning {
+                    Button("Cancel Solve") {
+                        workspace.cancelSimulationStudy(id: study.id)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("inspector-simulation-results-cancel-button")
+                } else {
+                    Button {
+                        workspace.runSimulationStudy(id: study.id)
+                    } label: {
+                        Label("Run Study", systemImage: "play.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("inspector-simulation-results-run-button")
                 }
             } header: {
                 sectionHeader("Execution Status", isFirst: true)
