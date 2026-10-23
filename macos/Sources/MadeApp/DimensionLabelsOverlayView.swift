@@ -35,7 +35,8 @@ struct DimensionLabelsOverlayView: View {
         }
     }
 
-    private func buildCandidates() -> [DimensionLabelCandidate] {
+    @MainActor
+    static func buildCandidates(session: CommandSession, workspace: WorkspaceModel) -> [DimensionLabelCandidate] {
         session.inputs.compactMap { input in
             guard case .number(let val, _, _, let unit) = input.value,
                   let anchor = session.dimensionAnchor(for: input.id, workspace: workspace) else {
@@ -45,12 +46,17 @@ struct DimensionLabelsOverlayView: View {
                 id: input.id,
                 label: input.label,
                 value: val,
-                unit: unit ?? "mm",
+                unit: unit.isEmpty ? "mm" : unit,
                 worldAnchor: anchor,
                 size: CGSize(width: 80, height: 28)
             )
         }
     }
+
+    private func buildCandidates() -> [DimensionLabelCandidate] {
+        Self.buildCandidates(session: session, workspace: workspace)
+    }
+
 
     @ViewBuilder
     private func badgeView(for placement: DimensionLabelPlacementResult) -> some View {
