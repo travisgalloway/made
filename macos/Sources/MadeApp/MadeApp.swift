@@ -98,6 +98,11 @@ struct MadeApp: App {
             #endif
         }
 
+        Window("Material Library", id: MaterialLibraryView.windowID) {
+            MaterialLibraryView()
+        }
+        .defaultSize(width: 840, height: 580)
+
         Window("Open Source Licenses", id: OpenSourceLicensesView.windowID) {
             OpenSourceLicensesView()
         }
