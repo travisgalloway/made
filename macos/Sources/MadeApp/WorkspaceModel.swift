@@ -6369,6 +6369,32 @@ final class WorkspaceModel {
         activeRunningStudyIds.contains(id)
     }
 
+    private func ensureMeshForStudy(_ study: SimulationStudy) -> VolumeMesh {
+        if let cached = cachedStudyMeshes[study.id] {
+            return cached
+        }
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0.0, 0.0, 0.0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10.0, 0.0, 0.0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0.0, 10.0, 0.0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0.0, 0.0, 10.0))
+        let el = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4])
+        let tris = [
+            VolumeMeshElement(id: 2, order: .linear, nodeIndices: [1, 2, 3]),
+            VolumeMeshElement(id: 3, order: .linear, nodeIndices: [1, 2, 4]),
+            VolumeMeshElement(id: 4, order: .linear, nodeIndices: [2, 3, 4]),
+            VolumeMeshElement(id: 5, order: .linear, nodeIndices: [1, 3, 4])
+        ]
+        var mesh = VolumeMesh(
+            nodes: [n1, n2, n3, n4],
+            elements: [el],
+            surfaceTriangles: tris,
+            statistics: SimulationMeshStatistics(nodeCount: 4, elementCount: 1)
+        )
+        mesh.sets = MeshGeometryAssociator.associate(mesh: mesh, study: study)
+        cachedStudyMeshes[study.id] = mesh
+        return mesh
+    }
+
     public func runSimulationStudy(id: UUID) {
         guard let study = document.study(id: id) else {
             log(.error, "CAE", "Cannot run simulation study: study \(id) not found")
@@ -6389,39 +6415,67 @@ final class WorkspaceModel {
         log(.info, "CAE", "Starting solver for simulation study '\(study.name)' (\(study.solver.engine.displayName))")
 
         let packageResultsURL = currentDocumentURL?.appendingPathComponent("cache/results/\(id.uuidString)")
-        let deck = CAEDeck.fixture(for: study)
+        let mesh = ensureMeshForStudy(study)
         let solverConfig = study.solver
         let runner = self.solverRunner
 
         let task = Task { [weak self] in
             let startTime = ContinuousClock.now
             do {
-                let result = try await runner.run(
-                    deck: deck,
-                    configuration: solverConfig,
-                    packageResultsURL: packageResultsURL
-                ) { line in
-                    Task { @MainActor in
-                        self?.log(.info, "CAE", line)
-                    }
-                }
+                if study.studyType == .thermalConduction && study.solver.engine == .pureSwift {
+                    let maxCoord = mesh.nodes.reduce(0.0) { max($0, max(abs($1.position.x), max(abs($1.position.y), abs($1.position.z)))) }
+                    let scale: Double = maxCoord > 2.0 ? 0.001 : 1.0
+                    let result = try ThermalConductionSolver.solve(study: study, mesh: mesh, lengthScaleToMeters: scale)
 
-                let elapsed = Double(startTime.duration(to: .now).components.seconds) +
-                              Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+                    let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                                  Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
 
-                await MainActor.run {
-                    guard let self else { return }
-                    self.activeRunningStudyIds.remove(id)
-                    self.activeSolveTasks.removeValue(forKey: id)
-                    if var currentStudy = self.document.study(id: id) {
-                        currentStudy.results.status = .completed
-                        currentStudy.results.runtimeDuration = result.runtimeDuration > 0 ? result.runtimeDuration : elapsed
-                        currentStudy.results.errorMessage = nil
-                        _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
-                        self.markDocumentModified()
-                        self.invalidateViewport(.model)
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.activeRunningStudyIds.remove(id)
+                        self.activeSolveTasks.removeValue(forKey: id)
+                        if var currentStudy = self.document.study(id: id) {
+                            currentStudy.results.status = .completed
+                            currentStudy.results.runtimeDuration = elapsed
+                            currentStudy.results.extrema = result.extrema
+                            currentStudy.results.nodalTemperatures = result.nodalTemperatures
+                            currentStudy.results.errorMessage = nil
+                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                            self.markDocumentModified()
+                            self.invalidateViewport(.model)
+                        }
+                        let extremaSummary = result.extrema.map { "\($0.fieldName): \(String(format: "%.2f", $0.minValue)) to \(String(format: "%.2f", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
+                        self.log(.info, "CAE", "Thermal conduction study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(extremaSummary)")
                     }
-                    self.log(.info, "CAE", "Simulation study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s")
+                } else {
+                    let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+                    let result = try await runner.run(
+                        deck: deck,
+                        configuration: solverConfig,
+                        packageResultsURL: packageResultsURL
+                    ) { line in
+                        Task { @MainActor in
+                            self?.log(.info, "CAE", line)
+                        }
+                    }
+
+                    let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                                  Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.activeRunningStudyIds.remove(id)
+                        self.activeSolveTasks.removeValue(forKey: id)
+                        if var currentStudy = self.document.study(id: id) {
+                            currentStudy.results.status = .completed
+                            currentStudy.results.runtimeDuration = result.runtimeDuration > 0 ? result.runtimeDuration : elapsed
+                            currentStudy.results.errorMessage = nil
+                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                            self.markDocumentModified()
+                            self.invalidateViewport(.model)
+                        }
+                        self.log(.info, "CAE", "Simulation study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s")
+                    }
                 }
             } catch let error as CAEErrorCode {
                 let elapsed = Double(startTime.duration(to: .now).components.seconds) +

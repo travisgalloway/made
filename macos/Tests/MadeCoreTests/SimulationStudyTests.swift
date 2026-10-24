@@ -225,4 +225,70 @@ import simd
         #expect(MeshSliceAxis.y.displayName == "Y Axis")
         #expect(MeshSliceAxis.z.displayName == "Z Axis")
     }
+
+    @Test func testThermalLoadKindsAndAmbientTemperature() {
+        let convection = SimulationLoad(
+            name: "Cooling",
+            kind: .convection,
+            magnitude: 50.0,
+            ambientTemperature: 22.5
+        )
+        #expect(convection.kind == .convection)
+        #expect(convection.kind.displayName == "Convection")
+        #expect(convection.kind.unitSymbol == "W/(m²·K)")
+        #expect(convection.kind.systemImageName == "wind")
+        #expect(convection.ambientTemperature == 22.5)
+
+        let defaultConvection = SimulationLoad(kind: .convection)
+        #expect(defaultConvection.ambientTemperature == 20.0)
+
+        let power = SimulationLoad(name: "Heater", kind: .heatPower, magnitude: 150.0)
+        #expect(power.kind == .heatPower)
+        #expect(power.kind.displayName == "Heat Power")
+        #expect(power.kind.unitSymbol == "W")
+        #expect(power.kind.systemImageName == "bolt.fill")
+    }
+
+    @Test func testNodalTemperaturesInResults() {
+        var results = SimulationStudyResults()
+        #expect(results.nodalTemperatures == nil)
+
+        results.nodalTemperatures = [1: 100.0, 2: 80.5, 3: 20.0]
+        #expect(results.nodalTemperatures?[1] == 100.0)
+        #expect(results.nodalTemperatures?[2] == 80.5)
+        #expect(results.nodalTemperatures?[3] == 20.0)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfLegacyLoadsAndResults() throws {
+        let legacyLoadJSON = """
+        {
+            "id": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+            "name": "Legacy Force",
+            "kind": "force",
+            "magnitude": 500.0,
+            "direction": [0.0, -1.0, 0.0]
+        }
+        """.data(using: .utf8)!
+
+        let decodedLoad = try JSONDecoder().decode(SimulationLoad.self, from: legacyLoadJSON)
+        #expect(decodedLoad.name == "Legacy Force")
+        #expect(decodedLoad.ambientTemperature == nil)
+
+        let legacyResultsJSON = """
+        {
+            "status": "completed",
+            "runtimeDuration": 1.5,
+            "meshStatistics": {
+                "nodeCount": 100,
+                "elementCount": 50
+            },
+            "extrema": []
+        }
+        """.data(using: .utf8)!
+
+        let decodedResults = try JSONDecoder().decode(SimulationStudyResults.self, from: legacyResultsJSON)
+        #expect(decodedResults.status == .completed)
+        #expect(decodedResults.nodalTemperatures == nil)
+    }
 }
+

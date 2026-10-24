@@ -108,6 +108,40 @@ import simd
         #expect(SimulationUnitConversion.heatFluxUnitSymbol(unit: .inches) == "BTU/(hr·ft²)")
     }
 
+    // MARK: - Convection Conversions
+
+    @Test func testConvectionConversions() {
+        // Metric: 100 W/(m²·K)
+        #expect(abs(SimulationUnitConversion.displayConvection(100.0, unit: .millimeters) - 100.0) < 1e-6)
+        #expect(abs(SimulationUnitConversion.commitConvection(100.0, unit: .millimeters) - 100.0) < 1e-6)
+        #expect(SimulationUnitConversion.convectionUnitSymbol(unit: .millimeters) == "W/(m²·K)")
+
+        // Imperial: 1 W/(m²·K) = 0.17611018368 BTU/(hr·ft²·°F)
+        let canonicalConv = 50.0
+        let displayConv = SimulationUnitConversion.displayConvection(canonicalConv, unit: .inches)
+        #expect(abs(displayConv - (50.0 * 0.17611018368)) < 1e-5)
+        let committedConv = SimulationUnitConversion.commitConvection(displayConv, unit: .inches)
+        #expect(abs(committedConv - canonicalConv) < 1e-6)
+        #expect(SimulationUnitConversion.convectionUnitSymbol(unit: .inches) == "BTU/(hr·ft²·°F)")
+    }
+
+    // MARK: - Heat Power Conversions
+
+    @Test func testHeatPowerConversions() {
+        // Metric: 250 W
+        #expect(abs(SimulationUnitConversion.displayHeatPower(250.0, unit: .millimeters) - 250.0) < 1e-6)
+        #expect(abs(SimulationUnitConversion.commitHeatPower(250.0, unit: .millimeters) - 250.0) < 1e-6)
+        #expect(SimulationUnitConversion.heatPowerUnitSymbol(unit: .millimeters) == "W")
+
+        // Imperial: 1 W = 3.412141633 BTU/hr
+        let canonicalPower = 100.0
+        let displayPower = SimulationUnitConversion.displayHeatPower(canonicalPower, unit: .inches)
+        #expect(abs(displayPower - (100.0 * 3.412141633)) < 1e-4)
+        let committedPower = SimulationUnitConversion.commitHeatPower(displayPower, unit: .inches)
+        #expect(abs(committedPower - canonicalPower) < 1e-6)
+        #expect(SimulationUnitConversion.heatPowerUnitSymbol(unit: .inches) == "BTU/hr")
+    }
+
     // MARK: - Length & Displacement Conversions
 
     @Test func testLengthAndDisplacementConversions() {

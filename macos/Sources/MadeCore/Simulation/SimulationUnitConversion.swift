@@ -18,6 +18,12 @@ public enum SimulationUnitConversion: Sendable {
     /// Thermal heat flux conversion factor: 1 W/m² = 0.316998396 BTU/(hr·ft²).
     public static let heatFluxFactor: Double = 0.316998396
 
+    /// Convection heat transfer coefficient conversion factor: 1 W/(m²·K) = 0.17611018368 BTU/(hr·ft²·°F).
+    public static let convectionFactor: Double = 0.17611018368
+
+    /// Heat power conversion factor: 1 W = 3.412141633 BTU/hr.
+    public static let heatPowerFactor: Double = 3.412141633
+
     /// Stress conversion factor to ksi: 1 MPa = 0.14503773773 ksi.
     public static let stressKsiFactor: Double = 0.14503773773
 
@@ -106,6 +112,40 @@ public enum SimulationUnitConversion: Sendable {
         unit.isImperial ? "BTU/(hr·ft²)" : "W/m²"
     }
 
+    // MARK: - Convection Conversions
+
+    /// Converts canonical convection coefficient (W/(m²·K)) to display value for the given document length unit.
+    public static func displayConvection(_ canonical: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? canonical * convectionFactor : canonical
+    }
+
+    /// Converts display convection coefficient back to canonical W/(m²·K).
+    public static func commitConvection(_ displayVal: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? displayVal / convectionFactor : displayVal
+    }
+
+    /// Display unit symbol for convection coefficient under the given document length unit.
+    public static func convectionUnitSymbol(unit: LengthUnit) -> String {
+        unit.isImperial ? "BTU/(hr·ft²·°F)" : "W/(m²·K)"
+    }
+
+    // MARK: - Heat Power Conversions
+
+    /// Converts canonical heat power (W) to display value for the given document length unit.
+    public static func displayHeatPower(_ canonical: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? canonical * heatPowerFactor : canonical
+    }
+
+    /// Converts display heat power back to canonical Watts.
+    public static func commitHeatPower(_ displayVal: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? displayVal / heatPowerFactor : displayVal
+    }
+
+    /// Display unit symbol for heat power under the given document length unit.
+    public static func heatPowerUnitSymbol(unit: LengthUnit) -> String {
+        unit.isImperial ? "BTU/hr" : "W"
+    }
+
     // MARK: - Length and Displacement Conversions
 
     /// Converts canonical length (mm) to the display value for the given document length unit.
@@ -173,6 +213,10 @@ public enum SimulationUnitConversion: Sendable {
             return displayHeatFlux(magnitude, unit: unit)
         case .temperature:
             return displayTemperature(magnitude, unit: unit)
+        case .convection:
+            return displayConvection(magnitude, unit: unit)
+        case .heatPower:
+            return displayHeatPower(magnitude, unit: unit)
         }
     }
 
@@ -189,6 +233,10 @@ public enum SimulationUnitConversion: Sendable {
             return commitHeatFlux(displayVal, unit: unit)
         case .temperature:
             return commitTemperature(displayVal, unit: unit)
+        case .convection:
+            return commitConvection(displayVal, unit: unit)
+        case .heatPower:
+            return commitHeatPower(displayVal, unit: unit)
         }
     }
 
@@ -205,6 +253,10 @@ public enum SimulationUnitConversion: Sendable {
             return heatFluxUnitSymbol(unit: unit)
         case .temperature:
             return temperatureUnitSymbol(unit: unit)
+        case .convection:
+            return convectionUnitSymbol(unit: unit)
+        case .heatPower:
+            return heatPowerUnitSymbol(unit: unit)
         }
     }
 

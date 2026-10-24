@@ -2777,32 +2777,48 @@ struct InspectorSimulationLoadView: View {
                     .accessibilityIdentifier("inspector-simulation-load-magnitude")
                 }
 
-                LabeledContent("Direction (X, Y, Z)") {
-                    HStack(spacing: 4) {
-                        TextField("X", value: Binding(
-                            get: { load.direction.x },
+                if load.kind == .convection {
+                    LabeledContent("Ambient Temperature (\(SimulationUnitConversion.temperatureUnitSymbol(unit: lengthUnit)))") {
+                        TextField("Ambient Temperature", value: Binding(
+                            get: { SimulationUnitConversion.displayTemperature(load.ambientTemperature ?? 20.0, unit: lengthUnit) },
                             set: { val in
                                 var copy = load
-                                copy.direction.x = val
+                                copy.ambientTemperature = SimulationUnitConversion.commitTemperature(val, unit: lengthUnit)
                                 workspace.updateSimulationLoad(studyId: study.id, load: copy)
                             }
                         ), format: .number)
-                        TextField("Y", value: Binding(
-                            get: { load.direction.y },
-                            set: { val in
-                                var copy = load
-                                copy.direction.y = val
-                                workspace.updateSimulationLoad(studyId: study.id, load: copy)
-                            }
-                        ), format: .number)
-                        TextField("Z", value: Binding(
-                            get: { load.direction.z },
-                            set: { val in
-                                var copy = load
-                                copy.direction.z = val
-                                workspace.updateSimulationLoad(studyId: study.id, load: copy)
-                            }
-                        ), format: .number)
+                        .accessibilityIdentifier("inspector-simulation-load-ambient-temperature")
+                    }
+                }
+
+                if load.kind == .force || load.kind == .gravity {
+                    LabeledContent("Direction (X, Y, Z)") {
+                        HStack(spacing: 4) {
+                            TextField("X", value: Binding(
+                                get: { load.direction.x },
+                                set: { val in
+                                    var copy = load
+                                    copy.direction.x = val
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                            TextField("Y", value: Binding(
+                                get: { load.direction.y },
+                                set: { val in
+                                    var copy = load
+                                    copy.direction.y = val
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                            TextField("Z", value: Binding(
+                                get: { load.direction.z },
+                                set: { val in
+                                    var copy = load
+                                    copy.direction.z = val
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                        }
                     }
                 }
             } header: {
