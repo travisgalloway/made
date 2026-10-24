@@ -48,7 +48,7 @@ Replacing `Made.app` in `/Applications` with an updated release build preserves 
 
 ### Preferences and Settings
 
-Application preferences, navigation presets, unit settings, and kernel tolerances are stored in `UserDefaults` under the application domain `com.made.app`. macOS stores these preferences at:
+Application preferences, navigation presets, unit settings, kernel tolerances, and CAE solver executable override paths are stored in `UserDefaults` under the application domain `com.made.app`. macOS stores these preferences at:
 
 `~/Library/Preferences/com.made.app.plist`
 
@@ -59,3 +59,13 @@ Installing a new version of `Made.app` does not delete or overwrite preference p
 User CAD files and packages are stored in user-selected directories outside the application bundle. Updating the binary has no effect on user directories.
 
 Recent document history is managed by `NSDocumentController` and maintained in standard AppKit shared state across application updates. Crash recovery snapshots are persisted in user application support directories and remain intact across binary updates.
+
+## CAE Solver and Mesher Helper Executables
+
+Direct-download releases package standalone executable binaries for CalculiX (`ccx`) and Gmsh (`gmsh`) in `Made.app/Contents/Helpers/`.
+
+### Hardened Runtime and Signing Requirements
+
+Each helper executable in `Contents/Helpers/` is signed inside-out using Developer ID with Hardened Runtime flags (`--options runtime`) and secure timestamps prior to signing the outer application bundle.
+
+Helper binaries execute as external child subprocesses using `Foundation.Process`. Because the application is distributed outside the macOS App Sandbox, helper subprocesses execute under the invoking user POSIX permissions. Subprocesses inherit POSIX file access permissions to read input decks and write output simulation results in temporary scratch directories or document packages. Helper subprocesses do not require custom entitlements files because they do not utilize JIT compilation or elevated system privileges.

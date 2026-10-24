@@ -127,17 +127,20 @@ public protocol SolverRunnerProtocol: Sendable {
 
 /// Resolves the CalculiX `ccx` binary path following ADR-D5 §6 priority order.
 public struct CalculiXBinaryResolver: Sendable {
+    public var userOverridePath: String?
     public var environment: [String: String]
     public var bundleURL: URL?
     public var customSearchPaths: [String]?
     public var isExecutableHandler: (@Sendable (String) -> Bool)?
 
     public init(
+        userOverridePath: String? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleURL: URL? = Bundle.main.bundleURL,
         customSearchPaths: [String]? = nil,
         isExecutableHandler: (@Sendable (String) -> Bool)? = nil
     ) {
+        self.userOverridePath = userOverridePath
         self.environment = environment
         self.bundleURL = bundleURL
         self.customSearchPaths = customSearchPaths
@@ -153,6 +156,15 @@ public struct CalculiXBinaryResolver: Sendable {
 
     public func resolveBinary() throws(CAEErrorCode) -> URL {
         var searchedPaths: [String] = []
+
+        // 0. User-Configured Override Path
+        if let userOverridePath, !userOverridePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let path = userOverridePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            searchedPaths.append(path)
+            if isExecutable(atPath: path) {
+                return URL(fileURLWithPath: path)
+            }
+        }
 
         // 1. Environment Variable Override (MADE_CALCULIX_PATH)
         if let envPath = environment["MADE_CALCULIX_PATH"], !envPath.isEmpty {

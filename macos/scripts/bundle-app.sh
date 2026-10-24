@@ -24,12 +24,26 @@ for product in MadeApp MadeKernelService "$resources"; do
 done
 
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$service/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$service/Contents/MacOS" "$app/Contents/Helpers"
 
 cp "$pkg_dir/Support/MadeApp-Info.plist" "$app/Contents/Info.plist"
 cp "$bin_dir/MadeApp" "$app/Contents/MacOS/MadeApp"
 cp -R "$bin_dir/$resources" "$app/Contents/Resources/$resources"
 cp "$pkg_dir/Sources/MadeCore/Scripting/ScriptingResources/made.d.ts" "$app/Contents/Resources/made.d.ts"
+
+if [ -d "$pkg_dir/Support/Helpers" ]; then
+    for helper in "$pkg_dir/Support/Helpers"/*; do
+        if [ -f "$helper" ]; then
+            cp "$helper" "$app/Contents/Helpers/"
+            chmod +x "$app/Contents/Helpers/$(basename "$helper")"
+        fi
+    done
+fi
+
+if [ -f "$pkg_dir/Support/THIRD_PARTY_NOTICES.md" ]; then
+    cp "$pkg_dir/Support/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
+fi
+
 # actool can exit 0 without writing anything, so success is both outputs existing.
 actool_log=$(xcrun actool "$icon" --compile "$app/Contents/Resources" --platform macosx \
     --minimum-deployment-target 26.0 --app-icon made --output-partial-info-plist /dev/null \
@@ -48,10 +62,19 @@ plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$app/Contents/Info.plis
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$service/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$service/Contents/Info.plist"
 
-# Sign inside-out: the embedded XPC service first, then the enclosing app bundle
+# Sign inside-out: helper binaries first, then the embedded XPC service, then the enclosing app bundle
 sign_args=(--force --sign "$SIGNING_IDENTITY" --options runtime)
 if [ "$SIGNING_IDENTITY" != "-" ]; then
     sign_args+=(--timestamp)
+fi
+
+if [ -d "$app/Contents/Helpers" ]; then
+    for helper in "$app/Contents/Helpers"/*; do
+        if [ -f "$helper" ]; then
+            codesign "${sign_args[@]}" "$helper"
+            codesign --verify --strict "$helper"
+        fi
+    done
 fi
 
 codesign "${sign_args[@]}" --entitlements "$pkg_dir/Support/MadeKernelService.entitlements" "$service"

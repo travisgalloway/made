@@ -95,4 +95,29 @@ import MadeCore
         #expect(SettingsView.clearSearchAccessibilityLabel == "Clear Search")
         #expect(SettingsView.clearSearchHelpText == "Clear Search")
     }
+
+    @Test @MainActor func testCAEHelperSettingsPersistenceAndReset() {
+        let suiteName = "test.domain.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Could not create test UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        let model = WorkspaceModel(defaults: customDefaults)
+        #expect(model.calculixOverridePath.isEmpty)
+        #expect(model.gmshOverridePath.isEmpty)
+
+        model.calculixOverridePath = "/usr/local/bin/ccx"
+        model.gmshOverridePath = "/usr/local/bin/gmsh"
+
+        #expect(customDefaults.string(forKey: WorkspaceModel.calculixOverridePathDefaultsKey) == "/usr/local/bin/ccx")
+        #expect(customDefaults.string(forKey: WorkspaceModel.gmshOverridePathDefaultsKey) == "/usr/local/bin/gmsh")
+
+        model.resetSettingsToDefaults()
+        #expect(model.calculixOverridePath == "")
+        #expect(model.gmshOverridePath == "")
+        #expect(customDefaults.string(forKey: WorkspaceModel.calculixOverridePathDefaultsKey) == "")
+        #expect(customDefaults.string(forKey: WorkspaceModel.gmshOverridePathDefaultsKey) == "")
+    }
 }

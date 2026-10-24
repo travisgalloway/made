@@ -90,8 +90,11 @@ import Testing
         let missing = Self.verifyHelpers(bundledHelpers, in: catalog)
         #expect(missing.isEmpty, "Bundled helper programs without license entries: \(missing.joined(separator: ", "))")
 
-        let simulatedMissing = Self.verifyHelpers(["ccx", "gmsh"], in: catalog)
-        #expect(simulatedMissing == ["ccx", "gmsh"])
+        let registeredHelpers = Self.verifyHelpers(["ccx", "gmsh"], in: catalog)
+        #expect(registeredHelpers.isEmpty, "ccx and gmsh should have registered helper entries in licenses.json")
+
+        let simulatedMissing = Self.verifyHelpers(["unregistered-helper"], in: catalog)
+        #expect(simulatedMissing == ["unregistered-helper"])
     }
 
     @Test func releaseNotesMarkdownContainsAllEntriesAndLinks() throws {

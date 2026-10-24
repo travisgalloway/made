@@ -58,6 +58,7 @@ macos/
   scripts/bundle-app.sh    Assembles .build/Made.app with Contents/XPCServices/MadeKernelService.xpc (make bundle),
                            applies version metadata and entitlements, and signs inside-out
   scripts/package-release.sh Assembles and packages signed .dmg and .zip distribution archives with SHA256 checksums (make package)
+  scripts/fetch-helpers.sh Acquires, verifies, or stubs pinned arm64 CAE helper binaries in Support/Helpers (make fetch-helpers)
   UITests/                 MadeUITests.xcodeproj UI test target launching script-built Made.app (ADR-D10)
   Sources/MadeCore/
     Kernel/                Types.swift (wire contract), KernelClient actor, KernelEngine, LocalKernelEngine, MeshStorage, EuclidEngine, OCCTEngine, TopologicalResolver, Geometry, ShapeEvaluator, ShapeNode, Transform, KernelClient+Default, FaultInjectingKernelClient, SketchEntity, HoleStandards
