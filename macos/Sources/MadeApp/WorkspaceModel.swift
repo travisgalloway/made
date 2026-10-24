@@ -121,6 +121,9 @@ final class WorkspaceModel {
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = false
+        if let id {
+            updateSimulationMeshInViewport(studyId: id)
+        }
     }
 
     public func selectSimulationFixture(studyId: UUID, fixtureId: UUID?) {
@@ -169,6 +172,7 @@ final class WorkspaceModel {
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = isSelected
         isSimulationResultsSelected = false
+        updateSimulationMeshInViewport(studyId: studyId)
     }
 
     public func selectSimulationResults(studyId: UUID, isSelected: Bool = true) {
@@ -6277,6 +6281,8 @@ final class WorkspaceModel {
         if selectedSimulationStudyId == id {
             clearSimulationSelections()
         }
+        clearSimulationMeshFromViewport(studyId: id)
+        cachedStudyMeshes.removeValue(forKey: id)
         let studyName = document.study(id: id)?.name ?? "\(id)"
         let result = document.removeStudy(id: id)
         if case .success = result {
@@ -6557,6 +6563,7 @@ final class WorkspaceModel {
                         currentStudy.results.status = .notRun
                         currentStudy.results.errorMessage = nil
                         _ = self.document.updateSimulationStudyResults(studyId: studyId, results: currentStudy.results)
+                        self.updateSimulationMeshInViewport(studyId: studyId)
                         self.markDocumentModified()
                         self.invalidateViewport(.model)
                     }
@@ -6864,10 +6871,14 @@ final class WorkspaceModel {
             let summary = report.summary(for: metric)
             highlightedMeshElementIds = Set(summary.failingElementIds)
         }
+        updateSimulationMeshInViewport(studyId: studyId)
     }
 
     public func clearMeshHighlight() {
         highlightedMeshElementIds = []
+        if let studyId = selectedSimulationStudyId ?? document.activeStudyId {
+            updateSimulationMeshInViewport(studyId: studyId)
+        }
     }
 
     public func toggleMeshElementHighlight(id: Int) {
@@ -6876,6 +6887,126 @@ final class WorkspaceModel {
         } else {
             highlightedMeshElementIds.insert(id)
         }
+        if let studyId = selectedSimulationStudyId ?? document.activeStudyId {
+            updateSimulationMeshInViewport(studyId: studyId)
+        }
+    }
+
+    // MARK: - Simulation Mesh Viewport Lifecycle (BL-MSH-05, #278)
+
+    public func updateSimulationMeshInViewport(studyId: UUID) {
+        let baseMeshId = SolidId("simulation-mesh-\(studyId.uuidString)")
+        let highlightMeshId = SolidId("simulation-mesh-highlight-\(studyId.uuidString)")
+
+        guard let study = document.study(id: studyId) else {
+            _ = viewportManager.renderer?.removeMesh(for: baseMeshId)
+            _ = viewportManager.renderer?.removeMesh(for: highlightMeshId)
+            invalidateViewport(.model)
+            return
+        }
+
+        var targetSolidIds: [SolidId] = []
+        if !study.targets.isEmpty {
+            let targetStrings = Set(study.targets.map { $0.targetId.uuidString.lowercased() })
+            for obj in document.objects {
+                if targetStrings.contains(obj.id.rawValue.lowercased()) || study.targets.contains(where: { $0.targetName == obj.name }) {
+                    targetSolidIds.append(SolidId(obj.id.rawValue))
+                }
+            }
+        }
+        if targetSolidIds.isEmpty {
+            targetSolidIds = document.objects.map { SolidId($0.id.rawValue) }
+        }
+
+        guard study.meshDisplay.isVisible, let volumeMesh = cachedStudyMeshes[studyId] else {
+            _ = viewportManager.renderer?.removeMesh(for: baseMeshId)
+            _ = viewportManager.renderer?.removeMesh(for: highlightMeshId)
+            for solidId in targetSolidIds {
+                viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+            }
+            invalidateViewport(.model)
+            return
+        }
+
+        let basePayload = MeshDisplayGenerator.generatePayload(mesh: volumeMesh, settings: study.meshDisplay)
+        if !basePayload.isEmpty || !basePayload.edgePolylines.isEmpty {
+            _ = viewportManager.renderer?.installMesh(
+                basePayload,
+                for: baseMeshId,
+                transform: .identity,
+                color: SIMD4<Float>(0.35, 0.65, 0.90, 1.0),
+                isHidden: false
+            )
+        } else {
+            _ = viewportManager.renderer?.removeMesh(for: baseMeshId)
+        }
+
+        if !highlightedMeshElementIds.isEmpty {
+            let highlightPayload = MeshDisplayGenerator.generatePayload(
+                mesh: volumeMesh,
+                settings: study.meshDisplay,
+                elementFilter: highlightedMeshElementIds
+            )
+            if !highlightPayload.isEmpty || !highlightPayload.edgePolylines.isEmpty {
+                _ = viewportManager.renderer?.installMesh(
+                    highlightPayload,
+                    for: highlightMeshId,
+                    transform: .identity,
+                    color: SIMD4<Float>(0.95, 0.35, 0.15, 1.0),
+                    isHidden: false
+                )
+            } else {
+                _ = viewportManager.renderer?.removeMesh(for: highlightMeshId)
+            }
+        } else {
+            _ = viewportManager.renderer?.removeMesh(for: highlightMeshId)
+        }
+
+        if study.meshDisplay.hideSolidBody {
+            for solidId in targetSolidIds {
+                viewportManager.renderer?.hiddenSolidIds.insert(solidId)
+            }
+        } else {
+            for solidId in targetSolidIds {
+                viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+            }
+        }
+
+        invalidateViewport(.model)
+    }
+
+    public func clearSimulationMeshFromViewport(studyId: UUID) {
+        let baseMeshId = SolidId("simulation-mesh-\(studyId.uuidString)")
+        let highlightMeshId = SolidId("simulation-mesh-highlight-\(studyId.uuidString)")
+        _ = viewportManager.renderer?.removeMesh(for: baseMeshId)
+        _ = viewportManager.renderer?.removeMesh(for: highlightMeshId)
+
+        if let study = document.study(id: studyId) {
+            let targetStrings = Set(study.targets.map { $0.targetId.uuidString.lowercased() })
+            for obj in document.objects {
+                if targetStrings.contains(obj.id.rawValue.lowercased()) || study.targets.contains(where: { $0.targetName == obj.name }) {
+                    viewportManager.renderer?.hiddenSolidIds.remove(SolidId(obj.id.rawValue))
+                }
+            }
+        }
+        invalidateViewport(.model)
+    }
+
+    public func updateSimulationMeshDisplaySettings(studyId: UUID, settings: SimulationMeshDisplaySettings) {
+        var copy = settings
+        copy.clamp()
+        let result = document.updateSimulationMeshDisplaySettings(studyId: studyId, settings: copy)
+        if case .success = result {
+            markDocumentModified()
+            updateSimulationMeshInViewport(studyId: studyId)
+            log(.info, "CAE", "Updated mesh display settings for study")
+        }
+    }
+
+    public func toggleSimulationMeshVisibility(studyId: UUID) {
+        guard var study = document.study(id: studyId) else { return }
+        study.meshDisplay.isVisible.toggle()
+        updateSimulationMeshDisplaySettings(studyId: studyId, settings: study.meshDisplay)
     }
 
     public func assignSelectedSubElementToFixture(studyId: UUID, fixtureId: UUID) {

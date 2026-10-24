@@ -176,4 +176,31 @@ import simd
         #expect(results.extrema.count == 2)
         #expect(results.extrema[0].maxValue == 215.4)
     }
+
+    @Test func testSimulationMeshDisplaySettingsDefaultsAndClamping() {
+        var settings = SimulationMeshDisplaySettings()
+        #expect(settings.isVisible == true)
+        #expect(settings.showEdges == true)
+        #expect(settings.showFaces == true)
+        #expect(settings.elementShrink == 0.0)
+        #expect(settings.isSliceEnabled == false)
+        #expect(settings.sliceAxis == .z)
+        #expect(settings.slicePosition == 0.5)
+        #expect(settings.isSliceInverted == false)
+        #expect(settings.hideSolidBody == false)
+
+        settings.elementShrink = 1.5
+        settings.slicePosition = -0.2
+        settings.clamp()
+        #expect(settings.elementShrink == 0.9)
+        #expect(settings.slicePosition == 0.0)
+
+        let clamped = SimulationMeshDisplaySettings(elementShrink: -0.5, slicePosition: 1.5).clamped()
+        #expect(clamped.elementShrink == 0.0)
+        #expect(clamped.slicePosition == 1.0)
+
+        #expect(MeshSliceAxis.x.displayName == "X Axis")
+        #expect(MeshSliceAxis.y.displayName == "Y Axis")
+        #expect(MeshSliceAxis.z.displayName == "Z Axis")
+    }
 }

@@ -3026,6 +3026,112 @@ struct InspectorSimulationMeshView: View {
                 sectionHeader("Local Refinement")
             }
 
+            Section {
+                Toggle("Show Mesh", isOn: Binding(
+                    get: { study.meshDisplay.isVisible },
+                    set: { val in
+                        var copy = study.meshDisplay
+                        copy.isVisible = val
+                        workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-simulation-mesh-display-visibility-toggle")
+
+                if study.meshDisplay.isVisible {
+                    Toggle("Show Edges", isOn: Binding(
+                        get: { study.meshDisplay.showEdges },
+                        set: { val in
+                            var copy = study.meshDisplay
+                            copy.showEdges = val
+                            workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-mesh-display-edges-toggle")
+
+                    Toggle("Show Faces", isOn: Binding(
+                        get: { study.meshDisplay.showFaces },
+                        set: { val in
+                            var copy = study.meshDisplay
+                            copy.showFaces = val
+                            workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-mesh-display-faces-toggle")
+
+                    LabeledContent("Element Shrink") {
+                        Slider(value: Binding(
+                            get: { study.meshDisplay.elementShrink },
+                            set: { val in
+                                var copy = study.meshDisplay
+                                copy.elementShrink = val
+                                workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                            }
+                        ), in: 0.0...0.9, step: 0.05)
+                        .accessibilityIdentifier("inspector-simulation-mesh-display-shrink-slider")
+                    }
+
+                    Toggle("Slice Mesh", isOn: Binding(
+                        get: { study.meshDisplay.isSliceEnabled },
+                        set: { val in
+                            var copy = study.meshDisplay
+                            copy.isSliceEnabled = val
+                            workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-mesh-display-slice-toggle")
+
+                    if study.meshDisplay.isSliceEnabled {
+                        Picker("Slice Axis", selection: Binding(
+                            get: { study.meshDisplay.sliceAxis },
+                            set: { val in
+                                var copy = study.meshDisplay
+                                copy.sliceAxis = val
+                                workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                            }
+                        )) {
+                            ForEach(MeshSliceAxis.allCases) { axis in
+                                Text(axis.displayName).tag(axis)
+                            }
+                        }
+                        .accessibilityIdentifier("inspector-simulation-mesh-display-slice-axis-picker")
+
+                        LabeledContent("Slice Position") {
+                            Slider(value: Binding(
+                                get: { study.meshDisplay.slicePosition },
+                                set: { val in
+                                    var copy = study.meshDisplay
+                                    copy.slicePosition = val
+                                    workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                                }
+                            ), in: 0.0...1.0)
+                            .accessibilityIdentifier("inspector-simulation-mesh-display-slice-position-slider")
+                        }
+
+                        Toggle("Invert Slice Direction", isOn: Binding(
+                            get: { study.meshDisplay.isSliceInverted },
+                            set: { val in
+                                var copy = study.meshDisplay
+                                copy.isSliceInverted = val
+                                workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                            }
+                        ))
+                        .accessibilityIdentifier("inspector-simulation-mesh-display-slice-invert-toggle")
+                    }
+
+                    Toggle("Hide CAD Solid Body", isOn: Binding(
+                        get: { study.meshDisplay.hideSolidBody },
+                        set: { val in
+                            var copy = study.meshDisplay
+                            copy.hideSolidBody = val
+                            workspace.updateSimulationMeshDisplaySettings(studyId: study.id, settings: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-mesh-display-hide-solid-toggle")
+                }
+            } header: {
+                sectionHeader("Mesh Display")
+            }
+
             if study.results.meshStatistics.elementCount > 0 {
                 Section {
                     LabeledContent("Total Nodes") {

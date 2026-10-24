@@ -480,5 +480,106 @@ import simd
         #expect(study.results.meshStatistics.elementCount == 45)
         #expect(study.results.meshStatistics.qualityReport == nil)
     }
+
+    @Test func testSimulationStudyMeshDisplayRoundTripSerialization() throws {
+        let doc = DocumentModel()
+        var study = SimulationStudy(name: "Mesh Display Study", studyType: .linearStatic)
+        study.meshDisplay = SimulationMeshDisplaySettings(
+            isVisible: true,
+            showEdges: true,
+            showFaces: false,
+            elementShrink: 0.35,
+            isSliceEnabled: true,
+            sliceAxis: .y,
+            slicePosition: 0.72,
+            isSliceInverted: true,
+            hideSolidBody: true
+        )
+        doc.addStudy(study)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encoded)
+
+        guard let restoredStudy = restoredDoc.studies.first else {
+            Issue.record("Expected 1 restored study")
+            return
+        }
+
+        #expect(restoredStudy.meshDisplay.isVisible == true)
+        #expect(restoredStudy.meshDisplay.showEdges == true)
+        #expect(restoredStudy.meshDisplay.showFaces == false)
+        #expect(abs(restoredStudy.meshDisplay.elementShrink - 0.35) < 1e-4)
+        #expect(restoredStudy.meshDisplay.isSliceEnabled == true)
+        #expect(restoredStudy.meshDisplay.sliceAxis == .y)
+        #expect(abs(restoredStudy.meshDisplay.slicePosition - 0.72) < 1e-4)
+        #expect(restoredStudy.meshDisplay.isSliceInverted == true)
+        #expect(restoredStudy.meshDisplay.hideSolidBody == true)
+    }
+
+    @Test func testLegacySimulationStudyWithoutMeshDisplayDecodesGracefully() throws {
+        let legacyJSON = """
+        {
+          "version": 1,
+          "studies": [
+            {
+              "id": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+              "name": "Legacy Mesh Study",
+              "studyType": "linearStatic",
+              "targets": [],
+              "groups": [],
+              "materials": [],
+              "connections": [],
+              "fixtures": [],
+              "loads": [],
+              "mesh": {
+                "elementOrder": "linear",
+                "targetElementSize": 5.0,
+                "minElementSize": 1.0,
+                "growthRate": 1.2,
+                "curvatureRefinement": false,
+                "curvatureElementsPerCircle": 12.0,
+                "refinementRegions": []
+              },
+              "solver": {
+                "engine": "calculix",
+                "maxIterations": 100,
+                "convergenceTolerance": 0.0001,
+                "timeStep": 0.01
+              },
+              "results": {
+                "status": "notRun",
+                "meshStatistics": {
+                  "nodeCount": 0,
+                  "elementCount": 0,
+                  "minElementQuality": 1.0,
+                  "avgElementQuality": 1.0
+                },
+                "extrema": []
+              },
+              "isCollapsed": false
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyJSON)
+
+        guard let study = restoredDoc.studies.first else {
+            Issue.record("Expected 1 restored study")
+            return
+        }
+
+        #expect(study.meshDisplay.isVisible == true)
+        #expect(study.meshDisplay.showEdges == true)
+        #expect(study.meshDisplay.showFaces == true)
+        #expect(study.meshDisplay.elementShrink == 0.0)
+        #expect(study.meshDisplay.isSliceEnabled == false)
+        #expect(study.meshDisplay.sliceAxis == .z)
+        #expect(study.meshDisplay.slicePosition == 0.5)
+        #expect(study.meshDisplay.isSliceInverted == false)
+        #expect(study.meshDisplay.hideSolidBody == false)
+    }
 }
 

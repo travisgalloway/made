@@ -9394,6 +9394,34 @@ public final class DocumentModel {
     }
 
     @discardableResult
+    public func updateSimulationMeshDisplaySettings(
+        studyId: UUID,
+        settings: SimulationMeshDisplaySettings,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldSettings = studies[sIdx].meshDisplay
+        guard oldSettings != settings else { return .success(()) }
+        studies[sIdx].meshDisplay = settings
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Mesh Display Settings"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationMeshDisplaySettings(studyId: studyId, settings: oldSettings, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
     public func updateSimulationSolverConfiguration(
         studyId: UUID,
         solver: SolverConfiguration,

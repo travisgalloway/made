@@ -2745,6 +2745,16 @@ struct NavigatorSimulationMeshRow: View {
                 ProgressView()
                     .controlSize(.mini)
             } else if elementCount > 0 {
+                Button {
+                    workspace.toggleSimulationMeshVisibility(studyId: study.id)
+                } label: {
+                    Image(systemName: study.meshDisplay.isVisible ? "eye" : "eye.slash")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("navigator-study-mesh-visibility-\(study.id)")
+
                 Text("\(elementCount)")
                     .font(.caption2.monospacedDigit())
                     .padding(.horizontal, 4)

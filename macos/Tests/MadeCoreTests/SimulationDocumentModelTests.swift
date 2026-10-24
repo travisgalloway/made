@@ -352,4 +352,53 @@ import Foundation
         #expect(redoneMesh?.refinementRegions.count == 1)
         #expect(redoneMesh?.refinementRegions.first?.name == "Critical Fillet")
     }
+
+    @Test func testUpdateSimulationMeshDisplaySettingsWithUndoRedo() {
+        let doc = DocumentModel()
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let study = SimulationStudy(name: "Display Undo Study", studyType: .linearStatic)
+        doc.addStudy(study)
+        undoManager.removeAllActions()
+
+        let initialSettings = doc.study(id: study.id)?.meshDisplay
+        #expect(initialSettings?.isVisible == true)
+        #expect(initialSettings?.elementShrink == 0.0)
+
+        let newSettings = SimulationMeshDisplaySettings(
+            isVisible: true,
+            showEdges: true,
+            showFaces: false,
+            elementShrink: 0.4,
+            isSliceEnabled: true,
+            sliceAxis: .x,
+            slicePosition: 0.3,
+            isSliceInverted: true,
+            hideSolidBody: true
+        )
+
+        let result = doc.updateSimulationMeshDisplaySettings(studyId: study.id, settings: newSettings)
+        #expect(result == .success(()))
+
+        let currentSettings = doc.study(id: study.id)?.meshDisplay
+        #expect(currentSettings?.showFaces == false)
+        #expect(currentSettings?.elementShrink == 0.4)
+        #expect(currentSettings?.isSliceEnabled == true)
+        #expect(currentSettings?.sliceAxis == .x)
+        #expect(currentSettings?.isSliceInverted == true)
+        #expect(currentSettings?.hideSolidBody == true)
+
+        undoManager.undo()
+        let undoneSettings = doc.study(id: study.id)?.meshDisplay
+        #expect(undoneSettings?.showFaces == true)
+        #expect(undoneSettings?.elementShrink == 0.0)
+        #expect(undoneSettings?.isSliceEnabled == false)
+
+        undoManager.redo()
+        let redoneSettings = doc.study(id: study.id)?.meshDisplay
+        #expect(redoneSettings?.showFaces == false)
+        #expect(redoneSettings?.elementShrink == 0.4)
+        #expect(redoneSettings?.isSliceEnabled == true)
+    }
 }
