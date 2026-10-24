@@ -326,4 +326,55 @@ import simd
         #expect(!text.contains("*EL FILE\nS"))
         #expect(text.contains("*END STEP"))
     }
+
+    @Test func testStructuralDeckBondedConnection() {
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(10, 0, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(20, 0, 0))
+
+        let el1 = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 2, 2])
+        let el2 = VolumeMeshElement(id: 2, order: .linear, nodeIndices: [3, 4, 4, 4])
+
+        let sourceSet = VolumeMeshSet(name: "SourceFace", nodeIds: [2], elementIds: [])
+        let targetSet = VolumeMeshSet(name: "TargetFace", nodeIds: [3], elementIds: [])
+        let fixSet = VolumeMeshSet(name: "FixFace", nodeIds: [1], elementIds: [])
+        let loadSet = VolumeMeshSet(name: "LoadFace", nodeIds: [4], elementIds: [])
+
+        let mesh = VolumeMesh(
+            nodes: [n1, n2, n3, n4],
+            elements: [el1, el2],
+            sets: [fixSet, loadSet, sourceSet, targetSet]
+        )
+
+        var study = SimulationStudy(name: "Bonded Contact Test", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+        study.loads = [SimulationLoad(name: "LoadFace", kind: .force, magnitude: 500.0, direction: SIMD3<Double>(1, 0, 0))]
+        study.connections = [
+            SimulationConnection(
+                name: "Bonded Connection",
+                kind: .bonded,
+                sourceReferences: [SimulationGeometryReference(targetId: UUID(), targetName: "SourceFace")],
+                targetReferences: [SimulationGeometryReference(targetId: UUID(), targetName: "TargetFace")],
+                searchTolerance: 0.05
+            )
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*NSET, NSET=BONDED_CONNECTION_SOURCE\n2"))
+        #expect(text.contains("*NSET, NSET=BONDED_CONNECTION_TARGET\n3"))
+        #expect(text.contains("*SURFACE, NAME=SURF_BONDED_CONNECTION_SOURCE, TYPE=NODE\nBONDED_CONNECTION_SOURCE"))
+        #expect(text.contains("*SURFACE, NAME=SURF_BONDED_CONNECTION_TARGET, TYPE=NODE\nBONDED_CONNECTION_TARGET"))
+        #expect(text.contains("*TIE, NAME=BONDED_CONNECTION_TIE, POSITION TOLERANCE=0.0500\nSURF_BONDED_CONNECTION_SOURCE, SURF_BONDED_CONNECTION_TARGET"))
+
+        let tieRange = text.range(of: "*TIE")
+        let stepRange = text.range(of: "*STEP")
+        #expect(tieRange != nil)
+        #expect(stepRange != nil)
+        if let tieRange, let stepRange {
+            #expect(tieRange.lowerBound < stepRange.lowerBound)
+        }
+    }
 }

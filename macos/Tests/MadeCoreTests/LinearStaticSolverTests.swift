@@ -162,6 +162,138 @@ import simd
         return (mesh, rootNodeIds, tipNodeIds)
     }
 
+    /// Generates two touching box meshes decomposed into linear C3D4 tetrahedra touching at x = splitX.
+    static func makeTwoBlockTouchingMeshC3D4(
+        totalLength: Double = 1.0,
+        splitX: Double = 0.5,
+        width: Double = 0.05,
+        height: Double = 0.05,
+        nx1: Int = 10,
+        nx2: Int = 10,
+        ny: Int = 2,
+        nz: Int = 2,
+        gap: Double = 0.0
+    ) -> (
+        mesh: VolumeMesh,
+        rootNodeIds: Set<Int>,
+        tipNodeIds: Set<Int>,
+        block1InterfaceNodeIds: Set<Int>,
+        block2InterfaceNodeIds: Set<Int>
+    ) {
+        var nodes: [VolumeMeshNode] = []
+        var elements: [VolumeMeshElement] = []
+        var nodeId = 1
+        var elId = 1
+
+        var rootNodeIds = Set<Int>()
+        var tipNodeIds = Set<Int>()
+        var block1InterfaceNodeIds = Set<Int>()
+        var block2InterfaceNodeIds = Set<Int>()
+
+        let dy = width / Double(ny)
+        let dz = height / Double(nz)
+
+        // Block 1: x in [0, splitX]
+        var nodeMap1 = [SIMD3<Int>: Int]()
+        let dx1 = splitX / Double(nx1)
+        for i in 0...nx1 {
+            for j in 0...ny {
+                for k in 0...nz {
+                    let pos = SIMD3<Double>(Double(i) * dx1, Double(j) * dy, Double(k) * dz)
+                    nodes.append(VolumeMeshNode(id: nodeId, position: pos))
+                    nodeMap1[SIMD3<Int>(i, j, k)] = nodeId
+                    if i == 0 { rootNodeIds.insert(nodeId) }
+                    if i == nx1 { block1InterfaceNodeIds.insert(nodeId) }
+                    nodeId += 1
+                }
+            }
+        }
+        for i in 0..<nx1 {
+            for j in 0..<ny {
+                for k in 0..<nz {
+                    let n000 = nodeMap1[SIMD3<Int>(i, j, k)]!
+                    let n100 = nodeMap1[SIMD3<Int>(i + 1, j, k)]!
+                    let n010 = nodeMap1[SIMD3<Int>(i, j + 1, k)]!
+                    let n110 = nodeMap1[SIMD3<Int>(i + 1, j + 1, k)]!
+                    let n001 = nodeMap1[SIMD3<Int>(i, j, k + 1)]!
+                    let n101 = nodeMap1[SIMD3<Int>(i + 1, j, k + 1)]!
+                    let n011 = nodeMap1[SIMD3<Int>(i, j + 1, k + 1)]!
+                    let n111 = nodeMap1[SIMD3<Int>(i + 1, j + 1, k + 1)]!
+
+                    let tets: [[Int]] = [
+                        [n000, n100, n110, n111],
+                        [n000, n110, n010, n111],
+                        [n000, n010, n011, n111],
+                        [n000, n011, n001, n111],
+                        [n000, n001, n101, n111],
+                        [n000, n101, n100, n111]
+                    ]
+                    for t in tets {
+                        elements.append(VolumeMeshElement(id: elId, order: .linear, nodeIndices: t))
+                        elId += 1
+                    }
+                }
+            }
+        }
+
+        // Block 2: x in [splitX + gap, totalLength + gap]
+        var nodeMap2 = [SIMD3<Int>: Int]()
+        let dx2 = (totalLength - splitX) / Double(nx2)
+        for i in 0...nx2 {
+            for j in 0...ny {
+                for k in 0...nz {
+                    let pos = SIMD3<Double>(splitX + gap + Double(i) * dx2, Double(j) * dy, Double(k) * dz)
+                    nodes.append(VolumeMeshNode(id: nodeId, position: pos))
+                    nodeMap2[SIMD3<Int>(i, j, k)] = nodeId
+                    if i == 0 { block2InterfaceNodeIds.insert(nodeId) }
+                    if i == nx2 { tipNodeIds.insert(nodeId) }
+                    nodeId += 1
+                }
+            }
+        }
+        for i in 0..<nx2 {
+            for j in 0..<ny {
+                for k in 0..<nz {
+                    let n000 = nodeMap2[SIMD3<Int>(i, j, k)]!
+                    let n100 = nodeMap2[SIMD3<Int>(i + 1, j, k)]!
+                    let n010 = nodeMap2[SIMD3<Int>(i, j + 1, k)]!
+                    let n110 = nodeMap2[SIMD3<Int>(i + 1, j + 1, k)]!
+                    let n001 = nodeMap2[SIMD3<Int>(i, j, k + 1)]!
+                    let n101 = nodeMap2[SIMD3<Int>(i + 1, j, k + 1)]!
+                    let n011 = nodeMap2[SIMD3<Int>(i, j + 1, k + 1)]!
+                    let n111 = nodeMap2[SIMD3<Int>(i + 1, j + 1, k + 1)]!
+
+                    let tets: [[Int]] = [
+                        [n000, n100, n110, n111],
+                        [n000, n110, n010, n111],
+                        [n000, n010, n011, n111],
+                        [n000, n011, n001, n111],
+                        [n000, n001, n101, n111],
+                        [n000, n101, n100, n111]
+                    ]
+                    for t in tets {
+                        elements.append(VolumeMeshElement(id: elId, order: .linear, nodeIndices: t))
+                        elId += 1
+                    }
+                }
+            }
+        }
+
+        let rootSet = VolumeMeshSet(name: "RootFace", nodeIds: Array(rootNodeIds).sorted(), elementIds: [])
+        let tipSet = VolumeMeshSet(name: "TipFace", nodeIds: Array(tipNodeIds).sorted(), elementIds: [])
+        let b1Set = VolumeMeshSet(name: "Block1Interface", nodeIds: Array(block1InterfaceNodeIds).sorted(), elementIds: [])
+        let b2Set = VolumeMeshSet(name: "Block2Interface", nodeIds: Array(block2InterfaceNodeIds).sorted(), elementIds: [])
+
+        let mesh = VolumeMesh(
+            nodes: nodes,
+            elements: elements,
+            statistics: SimulationMeshStatistics(nodeCount: nodes.count, elementCount: elements.count),
+            sets: [rootSet, tipSet, b1Set, b2Set]
+        )
+
+        return (mesh, rootNodeIds, tipNodeIds, block1InterfaceNodeIds, block2InterfaceNodeIds)
+    }
+
     // MARK: - 1. Empty Mesh Error Handling
 
     @Test func testEmptyMeshThrowsError() {
@@ -807,6 +939,115 @@ import simd
         let result = try LinearStaticSolver.solve(study: study, mesh: mesh, youngsModulus: 200e9, poissonsRatio: 0.3)
         for (_, disp) in result.nodalDisplacements {
             #expect(simd_length(disp) < 1e-6)
+        }
+    }
+
+    // MARK: - 11. Multi-body Bonded Contact Verification (BL-FEA-04, #222)
+
+    @Test func testMultiBodyBondedContactCantileverTension() throws {
+        let L = 1.0 // 1.0 meter total
+        let b = 0.05 // 50 mm
+        let h = 0.05 // 50 mm
+        let A = b * h // 0.0025 m²
+        let E = 200e9 // 200 GPa
+        let nu = 0.0 // Zero Poisson ratio for pure uniaxial strain
+        let Fx = 1000.0 // 1000 N tensile force
+
+        let (mesh, _, tipIds, b1Interface, b2Interface) = Self.makeTwoBlockTouchingMeshC3D4(
+            totalLength: L,
+            splitX: 0.5,
+            width: b,
+            height: h,
+            nx1: 10,
+            nx2: 10,
+            ny: 2,
+            nz: 2
+        )
+
+        var study = SimulationStudy(name: "Bonded Two-Block Tension", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .fixed)
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: Fx, direction: SIMD3<Double>(1, 0, 0))
+        ]
+        study.connections = [
+            SimulationConnection(
+                name: "InterfaceBond",
+                kind: .bonded,
+                sourceReferences: [SimulationGeometryReference(targetId: UUID(), targetName: "Block1Interface")],
+                targetReferences: [SimulationGeometryReference(targetId: UUID(), targetName: "Block2Interface")],
+                stiffness: 1e11
+            )
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: E,
+            poissonsRatio: nu
+        )
+
+        // Analytical elongation deltaL = F * L / (E * A) in mm
+        let analyticDeltaLMm = ((Fx * L) / (E * A)) * 1000.0
+
+        // 1. Tip displacement matches analytical extension within 2% error
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            let errDisp = abs(d.x - analyticDeltaLMm) / analyticDeltaLMm
+            #expect(errDisp < 0.02, "Axial displacement error \(errDisp * 100)% exceeds 2%")
+            #expect(abs(d.y) < 1e-4)
+            #expect(abs(d.z) < 1e-4)
+        }
+
+        // 2. Relative displacement between paired interface nodes is negligible (< 1e-4 mm)
+        let pairs = MeshGeometryAssociator.findBondedNodePairs(
+            sourceNodeIds: Array(b1Interface),
+            targetNodeIds: Array(b2Interface),
+            mesh: mesh
+        )
+        #expect(!pairs.isEmpty)
+        for pair in pairs {
+            let dS = try #require(result.nodalDisplacements[pair.sourceNodeId])
+            let dT = try #require(result.nodalDisplacements[pair.targetNodeId])
+            let relativeDisp = simd_length(dS - dT)
+            #expect(relativeDisp < 1e-4, "Relative separation at interface node pair exceeds 1e-4 mm: \(relativeDisp)")
+        }
+    }
+
+    @Test func testDisjointBodiesOutsideToleranceThrowsError() throws {
+        let (mesh, _, _, _, _) = Self.makeTwoBlockTouchingMeshC3D4(
+            totalLength: 1.0,
+            splitX: 0.5,
+            width: 0.05,
+            height: 0.05,
+            gap: 0.1 // 100 mm gap between blocks
+        )
+
+        var study = SimulationStudy(name: "Disjoint Blocks", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .fixed)
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: 1000.0, direction: SIMD3<Double>(1, 0, 0))
+        ]
+        study.connections = [
+            SimulationConnection(
+                name: "InterfaceBond",
+                kind: .bonded,
+                sourceReferences: [SimulationGeometryReference(targetId: UUID(), targetName: "Block1Interface")],
+                targetReferences: [SimulationGeometryReference(targetId: UUID(), targetName: "Block2Interface")],
+                searchTolerance: 0.001 // 1 mm tolerance, but gap is 100 mm
+            )
+        ]
+
+        #expect(throws: CAEErrorCode.self) {
+            try LinearStaticSolver.solve(
+                study: study,
+                mesh: mesh,
+                youngsModulus: 200e9,
+                poissonsRatio: 0.0
+            )
         }
     }
 }

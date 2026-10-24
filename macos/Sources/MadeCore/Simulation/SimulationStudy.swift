@@ -143,7 +143,10 @@ public struct SimulationConnection: Sendable, Codable, Equatable, Hashable, Iden
     public var kind: SimulationConnectionKind
     public var sourceReferences: [SimulationGeometryReference]
     public var targetReferences: [SimulationGeometryReference]
+    public var sourceGroupNames: [String]
+    public var targetGroupNames: [String]
     public var stiffness: Double
+    public var searchTolerance: Double?
 
     public init(
         id: UUID = UUID(),
@@ -151,14 +154,38 @@ public struct SimulationConnection: Sendable, Codable, Equatable, Hashable, Iden
         kind: SimulationConnectionKind = .bonded,
         sourceReferences: [SimulationGeometryReference] = [],
         targetReferences: [SimulationGeometryReference] = [],
-        stiffness: Double = 1e6
+        sourceGroupNames: [String] = [],
+        targetGroupNames: [String] = [],
+        stiffness: Double = 1e6,
+        searchTolerance: Double? = nil
     ) {
         self.id = id
         self.name = name
         self.kind = kind
         self.sourceReferences = sourceReferences
         self.targetReferences = targetReferences
+        self.sourceGroupNames = sourceGroupNames
+        self.targetGroupNames = targetGroupNames
         self.stiffness = stiffness
+        self.searchTolerance = searchTolerance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, kind, sourceReferences, targetReferences
+        case sourceGroupNames, targetGroupNames, stiffness, searchTolerance
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Connection"
+        self.kind = try container.decodeIfPresent(SimulationConnectionKind.self, forKey: .kind) ?? .bonded
+        self.sourceReferences = try container.decodeIfPresent([SimulationGeometryReference].self, forKey: .sourceReferences) ?? []
+        self.targetReferences = try container.decodeIfPresent([SimulationGeometryReference].self, forKey: .targetReferences) ?? []
+        self.sourceGroupNames = try container.decodeIfPresent([String].self, forKey: .sourceGroupNames) ?? []
+        self.targetGroupNames = try container.decodeIfPresent([String].self, forKey: .targetGroupNames) ?? []
+        self.stiffness = try container.decodeIfPresent(Double.self, forKey: .stiffness) ?? 1e6
+        self.searchTolerance = try container.decodeIfPresent(Double.self, forKey: .searchTolerance)
     }
 }
 

@@ -148,6 +148,57 @@ public enum LinearStaticSolver: Sendable {
 
         let boundaryTriangles = getEffectiveBoundaryTriangles(mesh: mesh)
 
+        // 3b. Assemble bonded contact penalty springs across connections (BL-FEA-04, #222)
+        for connection in study.connections {
+            guard connection.kind == .bonded || connection.kind == .spring else { continue }
+
+            let sourceSet = setByName["\(connection.name)_Source"]
+                ?? connection.sourceReferences.compactMap({ setByName[$0.targetName] ?? setById[$0.targetId] }).first
+                ?? connection.sourceGroupNames.compactMap({ setByName[$0] }).first
+            let targetSet = setByName["\(connection.name)_Target"]
+                ?? connection.targetReferences.compactMap({ setByName[$0.targetName] ?? setById[$0.targetId] }).first
+                ?? connection.targetGroupNames.compactMap({ setByName[$0] }).first
+
+            let sourceNodeIds = sourceSet?.nodeIds ?? []
+            let targetNodeIds = targetSet?.nodeIds ?? []
+
+            let pairs = MeshGeometryAssociator.findBondedNodePairs(
+                sourceNodeIds: sourceNodeIds,
+                targetNodeIds: targetNodeIds,
+                mesh: mesh,
+                searchTolerance: connection.searchTolerance
+            )
+
+            if pairs.isEmpty {
+                throw CAEErrorCode.invalidStudyConfiguration(
+                    message: "Connection '\(connection.name)' targets geometry with no coincident or touching nodes within tolerance."
+                )
+            }
+
+            let penaltyStiffness: Double
+            if connection.kind == .bonded {
+                penaltyStiffness = (connection.stiffness > 0) ? max(connection.stiffness, 1e10) : 1e10
+            } else {
+                let baseStiffness = (connection.stiffness > 0) ? connection.stiffness : 1e6
+                penaltyStiffness = baseStiffness / Double(max(1, pairs.count))
+            }
+
+            for pair in pairs {
+                guard let idxS = nodeIndexById[pair.sourceNodeId],
+                      let idxT = nodeIndexById[pair.targetNodeId] else {
+                    continue
+                }
+                for d in 0..<3 {
+                    let dofS = 3 * idxS + d
+                    let dofT = 3 * idxT + d
+                    K[dofS][dofS] = (K[dofS][dofS] ?? 0.0) + penaltyStiffness
+                    K[dofT][dofT] = (K[dofT][dofT] ?? 0.0) + penaltyStiffness
+                    K[dofS][dofT] = (K[dofS][dofT] ?? 0.0) - penaltyStiffness
+                    K[dofT][dofS] = (K[dofT][dofS] ?? 0.0) - penaltyStiffness
+                }
+            }
+        }
+
         // 4. Assemble Dirichlet constraints (fixtures)
         if study.fixtures.isEmpty {
             throw CAEErrorCode.invalidStudyConfiguration(

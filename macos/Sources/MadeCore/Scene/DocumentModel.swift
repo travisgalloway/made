@@ -9784,5 +9784,285 @@ public final class DocumentModel {
         undoStateVersion += 1
         return .success(())
     }
+
+    // MARK: - Simulation Connection Mutations (BL-FEA-04, #222)
+
+    @discardableResult
+    public func addSimulationConnection(
+        studyId: UUID,
+        connection: SimulationConnection = SimulationConnection(),
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationConnection, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let insertionIndex = min(max(0, index ?? studies[sIdx].connections.count), studies[sIdx].connections.count)
+        studies[sIdx].connections.insert(connection, at: insertionIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSimulationConnection(studyId: studyId, connectionId: connection.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(connection)
+    }
+
+    @discardableResult
+    public func removeSimulationConnection(
+        studyId: UUID,
+        connectionId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connectionId }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connectionId) not found"))
+        }
+        let removed = studies[sIdx].connections.remove(at: cIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addSimulationConnection(studyId: studyId, connection: removed, at: cIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSimulationConnection(
+        studyId: UUID,
+        connection: SimulationConnection,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connection.id }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connection.id) not found"))
+        }
+        let oldConnection = studies[sIdx].connections[cIdx]
+        guard oldConnection != connection else { return .success(()) }
+        studies[sIdx].connections[cIdx] = connection
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationConnection(studyId: studyId, connection: oldConnection, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func assignSourceReferenceToConnection(
+        studyId: UUID,
+        connectionId: UUID,
+        reference: SimulationGeometryReference,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationGeometryReference, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connectionId }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connectionId) not found"))
+        }
+        studies[sIdx].connections[cIdx].sourceReferences.append(reference)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Assign Source to Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSourceReferenceFromConnection(studyId: studyId, connectionId: connectionId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(reference)
+    }
+
+    @discardableResult
+    public func removeSourceReferenceFromConnection(
+        studyId: UUID,
+        connectionId: UUID,
+        referenceId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connectionId }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connectionId) not found"))
+        }
+        guard let rIdx = studies[sIdx].connections[cIdx].sourceReferences.firstIndex(where: { $0.id == referenceId }) else {
+            return .failure(.invalidOperation("Source reference with id \(referenceId) not found"))
+        }
+        let removed = studies[sIdx].connections[cIdx].sourceReferences.remove(at: rIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Source from Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.insertSourceReferenceIntoConnection(studyId: studyId, connectionId: connectionId, reference: removed, at: rIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertSourceReferenceIntoConnection(
+        studyId: UUID,
+        connectionId: UUID,
+        reference: SimulationGeometryReference,
+        at index: Int,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connectionId }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connectionId) not found"))
+        }
+        let insertIndex = min(max(0, index), studies[sIdx].connections[cIdx].sourceReferences.count)
+        studies[sIdx].connections[cIdx].sourceReferences.insert(reference, at: insertIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Insert Source into Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSourceReferenceFromConnection(studyId: studyId, connectionId: connectionId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func assignTargetReferenceToConnection(
+        studyId: UUID,
+        connectionId: UUID,
+        reference: SimulationGeometryReference,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationGeometryReference, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connectionId }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connectionId) not found"))
+        }
+        studies[sIdx].connections[cIdx].targetReferences.append(reference)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Assign Target to Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeTargetReferenceFromConnection(studyId: studyId, connectionId: connectionId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(reference)
+    }
+
+    @discardableResult
+    public func removeTargetReferenceFromConnection(
+        studyId: UUID,
+        connectionId: UUID,
+        referenceId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connectionId }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connectionId) not found"))
+        }
+        guard let rIdx = studies[sIdx].connections[cIdx].targetReferences.firstIndex(where: { $0.id == referenceId }) else {
+            return .failure(.invalidOperation("Target reference with id \(referenceId) not found"))
+        }
+        let removed = studies[sIdx].connections[cIdx].targetReferences.remove(at: rIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Target from Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.insertTargetReferenceIntoConnection(studyId: studyId, connectionId: connectionId, reference: removed, at: rIdx, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertTargetReferenceIntoConnection(
+        studyId: UUID,
+        connectionId: UUID,
+        reference: SimulationGeometryReference,
+        at index: Int,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let cIdx = studies[sIdx].connections.firstIndex(where: { $0.id == connectionId }) else {
+            return .failure(.invalidOperation("Simulation connection with id \(connectionId) not found"))
+        }
+        let insertIndex = min(max(0, index), studies[sIdx].connections[cIdx].targetReferences.count)
+        studies[sIdx].connections[cIdx].targetReferences.insert(reference, at: insertIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Insert Target into Connection"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeTargetReferenceFromConnection(studyId: studyId, connectionId: connectionId, referenceId: reference.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
 }
 

@@ -68,9 +68,22 @@ public enum CalculiXDeckBuilder: Sendable {
         lines.append("*SOLID SECTION, ELSET=EALL, MATERIAL=\(matName)")
 
         // Node and element sets
-        let sets = mesh.sets.isEmpty ? MeshGeometryAssociator.associate(mesh: mesh, study: study) : mesh.sets
+        let associatedSets = MeshGeometryAssociator.associate(mesh: mesh, study: study)
+        let sets = mesh.sets.isEmpty ? associatedSets : mesh.sets
         var setByName: [String: VolumeMeshSet] = [:]
+        for s in mesh.sets {
+            setByName[s.name] = s
+        }
+        for s in associatedSets {
+            if setByName[s.name] == nil {
+                setByName[s.name] = s
+            }
+        }
         for s in sets {
+            // Exclude connection sets from generic output so they are formatted cleanly with *TIE below
+            if study.connections.contains(where: { s.name == "\($0.name)_Source" || s.name == "\($0.name)_Target" }) {
+                continue
+            }
             setByName[s.name] = s
             let sanitized = s.name.uppercased().replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "-", with: "_")
             if !s.nodeIds.isEmpty {
@@ -115,6 +128,63 @@ public enum CalculiXDeckBuilder: Sendable {
                         lines.append(String(format: "%.4f", kPerNodeMm))
                     }
                 }
+            }
+        }
+
+        // Bonded contact connections (*TIE before *STEP) (BL-FEA-04, #222)
+        if study.studyType != .thermalConduction {
+            for connection in study.connections where connection.kind == .bonded {
+                let sanitized = connection.name.uppercased()
+                    .replacingOccurrences(of: " ", with: "_")
+                    .replacingOccurrences(of: "-", with: "_")
+
+                let sourceNodes = resolveConnectionSourceNodeIds(for: connection, setByName: setByName)
+                let targetNodes = resolveConnectionTargetNodeIds(for: connection, setByName: setByName)
+
+                let sourceNset = "\(sanitized)_SOURCE"
+                let targetNset = "\(sanitized)_TARGET"
+
+                if !sourceNodes.isEmpty {
+                    lines.append("*NSET, NSET=\(sourceNset)")
+                    for chunk in stride(from: 0, to: sourceNodes.count, by: 16) {
+                        let end = min(chunk + 16, sourceNodes.count)
+                        let chunkStr = sourceNodes[chunk..<end].map(String.init).joined(separator: ", ")
+                        lines.append(chunkStr)
+                    }
+                }
+
+                if !targetNodes.isEmpty {
+                    lines.append("*NSET, NSET=\(targetNset)")
+                    for chunk in stride(from: 0, to: targetNodes.count, by: 16) {
+                        let end = min(chunk + 16, targetNodes.count)
+                        let chunkStr = targetNodes[chunk..<end].map(String.init).joined(separator: ", ")
+                        lines.append(chunkStr)
+                    }
+                }
+
+                let tol: Double
+                if let st = connection.searchTolerance, st > 0 {
+                    tol = st
+                } else {
+                    var minPos = SIMD3<Double>(repeating: .infinity)
+                    var maxPos = SIMD3<Double>(repeating: -.infinity)
+                    for node in mesh.nodes {
+                        minPos = simd_min(minPos, node.position)
+                        maxPos = simd_max(maxPos, node.position)
+                    }
+                    let extents = maxPos - minPos
+                    let maxDim = max(max(extents.x, extents.y), extents.z)
+                    tol = max(1e-4, maxDim * 0.005)
+                }
+                let toleranceStr = String(format: "%.4f", tol)
+
+                lines.append("*SURFACE, NAME=SURF_\(sanitized)_SOURCE, TYPE=NODE")
+                lines.append(sourceNset)
+                lines.append("*SURFACE, NAME=SURF_\(sanitized)_TARGET, TYPE=NODE")
+                lines.append(targetNset)
+
+                lines.append("*TIE, NAME=\(sanitized)_TIE, POSITION TOLERANCE=\(toleranceStr)")
+                lines.append("SURF_\(sanitized)_SOURCE, SURF_\(sanitized)_TARGET")
             }
         }
 
@@ -462,6 +532,32 @@ public enum CalculiXDeckBuilder: Sendable {
             ?? fixture.groupNames.compactMap({ setByName[$0]?.nodeIds }).first
             ?? fixture.targetReferences.compactMap({ setByName[$0.targetName]?.nodeIds }).first
             ?? []
+    }
+
+    private static func resolveConnectionSourceNodeIds(for connection: SimulationConnection, setByName: [String: VolumeMeshSet]) -> [Int] {
+        if let explicit = setByName["\(connection.name)_Source"]?.nodeIds, !explicit.isEmpty {
+            return explicit
+        }
+        for g in connection.sourceGroupNames {
+            if let s = setByName[g]?.nodeIds, !s.isEmpty { return s }
+        }
+        for ref in connection.sourceReferences {
+            if let s = setByName[ref.targetName]?.nodeIds, !s.isEmpty { return s }
+        }
+        return []
+    }
+
+    private static func resolveConnectionTargetNodeIds(for connection: SimulationConnection, setByName: [String: VolumeMeshSet]) -> [Int] {
+        if let explicit = setByName["\(connection.name)_Target"]?.nodeIds, !explicit.isEmpty {
+            return explicit
+        }
+        for g in connection.targetGroupNames {
+            if let s = setByName[g]?.nodeIds, !s.isEmpty { return s }
+        }
+        for ref in connection.targetReferences {
+            if let s = setByName[ref.targetName]?.nodeIds, !s.isEmpty { return s }
+        }
+        return []
     }
 
     private static func invert3x3Matrix(_ J: (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)) -> (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)? {
