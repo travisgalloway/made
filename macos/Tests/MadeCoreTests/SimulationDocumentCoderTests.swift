@@ -376,4 +376,109 @@ import simd
         #expect(study.mesh.elementOrder == .linear)
         #expect(study.mesh.targetElementSize == 3.0)
     }
+
+    @Test func testSimulationMeshStatisticsQualityReportRoundTrip() throws {
+        let arSummary = MeshQualityMetricSummary(
+            kind: .aspectRatio,
+            minValue: 1.05,
+            maxValue: 3.42,
+            averageValue: 1.85,
+            failureThreshold: 3.0,
+            failingCount: 2,
+            failingPercentage: 10.0,
+            failingElementIds: [4, 7],
+            histogramBins: [
+                MeshQualityHistogramBin(index: 0, rangeMin: 1.05, rangeMax: 1.5, count: 10, isFailing: false),
+                MeshQualityHistogramBin(index: 1, rangeMin: 1.5, rangeMax: 3.5, count: 10, isFailing: true)
+            ]
+        )
+        let report = MeshQualityReport(aspectRatioSummary: arSummary)
+        let stats = SimulationMeshStatistics(
+            nodeCount: 50,
+            elementCount: 20,
+            minElementQuality: 0.35,
+            avgElementQuality: 0.88,
+            qualityReport: report
+        )
+
+        var study = SimulationStudy(name: "Quality Test Study", studyType: .linearStatic)
+        study.results.meshStatistics = stats
+
+        let doc = DocumentModel()
+        doc.addStudy(study)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encoded)
+
+        guard let restoredStats = restoredDoc.studies.first?.results.meshStatistics else {
+            Issue.record("Expected restored mesh statistics")
+            return
+        }
+
+        #expect(restoredStats.nodeCount == 50)
+        #expect(restoredStats.elementCount == 20)
+        #expect(restoredStats.qualityReport != nil)
+        #expect(restoredStats.qualityReport?.aspectRatioSummary.failingCount == 2)
+        #expect(restoredStats.qualityReport?.aspectRatioSummary.failingElementIds == [4, 7])
+        #expect(restoredStats.qualityReport?.aspectRatioSummary.histogramBins.count == 2)
+        #expect(restoredStats.qualityReport?.aspectRatioSummary.histogramBins[1].isFailing == true)
+    }
+
+    @Test func testLegacyMeshStatisticsWithoutQualityReportDecodesSuccessfully() throws {
+        let legacyJSONWithoutQuality = """
+        {
+          "version": 1,
+          "documentType": "part",
+          "objects": [],
+          "parameters": [],
+          "studies": [
+            {
+              "id": "33333333-4444-5555-6666-777777777777",
+              "name": "Legacy Study",
+              "studyType": "linearStatic",
+              "materials": [],
+              "fixtures": [],
+              "loads": [],
+              "mesh": {
+                "elementOrder": "linear",
+                "targetElementSize": 2.0,
+                "minElementSize": 1.0,
+                "growthRate": 1.2
+              },
+              "solver": {
+                "engine": "calculix",
+                "maxIterations": 50,
+                "convergenceTolerance": 0.001,
+                "timeStep": 0.02
+              },
+              "results": {
+                "status": "notRun",
+                "meshStatistics": {
+                  "nodeCount": 100,
+                  "elementCount": 45,
+                  "minElementQuality": 0.72,
+                  "avgElementQuality": 0.91
+                },
+                "extrema": []
+              },
+              "isCollapsed": false
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyJSONWithoutQuality)
+
+        guard let study = restoredDoc.studies.first else {
+            Issue.record("Expected 1 study")
+            return
+        }
+
+        #expect(study.results.meshStatistics.nodeCount == 100)
+        #expect(study.results.meshStatistics.elementCount == 45)
+        #expect(study.results.meshStatistics.qualityReport == nil)
+    }
 }
+

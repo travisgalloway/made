@@ -568,17 +568,37 @@ public struct SimulationMeshStatistics: Sendable, Codable, Equatable, Hashable {
     public var elementCount: Int
     public var minElementQuality: Double
     public var avgElementQuality: Double
+    public var qualityReport: MeshQualityReport?
 
     public init(
         nodeCount: Int = 0,
         elementCount: Int = 0,
         minElementQuality: Double = 1.0,
-        avgElementQuality: Double = 1.0
+        avgElementQuality: Double = 1.0,
+        qualityReport: MeshQualityReport? = nil
     ) {
         self.nodeCount = nodeCount
         self.elementCount = elementCount
         self.minElementQuality = minElementQuality
         self.avgElementQuality = avgElementQuality
+        self.qualityReport = qualityReport
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case nodeCount
+        case elementCount
+        case minElementQuality
+        case avgElementQuality
+        case qualityReport
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.nodeCount = try container.decodeIfPresent(Int.self, forKey: .nodeCount) ?? 0
+        self.elementCount = try container.decodeIfPresent(Int.self, forKey: .elementCount) ?? 0
+        self.minElementQuality = try container.decodeIfPresent(Double.self, forKey: .minElementQuality) ?? 1.0
+        self.avgElementQuality = try container.decodeIfPresent(Double.self, forKey: .avgElementQuality) ?? 1.0
+        self.qualityReport = try container.decodeIfPresent(MeshQualityReport.self, forKey: .qualityReport)
     }
 }
 

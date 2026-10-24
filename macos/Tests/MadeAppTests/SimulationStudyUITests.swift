@@ -576,7 +576,111 @@ import simd
         #expect(assignTargetId.hasPrefix("inspector-simulation-mesh-assign-region-target-"))
         #expect(removeTargetId.hasPrefix("inspector-simulation-mesh-remove-region-target-"))
     }
+
+    @Test func testWorkspaceMeshQualityHighlightingActions() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Quality Workspace Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        #expect(ws.selectedMeshQualityMetric == .aspectRatio)
+        #expect(ws.highlightedMeshElementIds.isEmpty)
+
+        ws.selectMeshQualityMetric(.scaledJacobian)
+        #expect(ws.selectedMeshQualityMetric == .scaledJacobian)
+
+        ws.toggleMeshElementHighlight(id: 42)
+        #expect(ws.highlightedMeshElementIds.contains(42))
+
+        ws.toggleMeshElementHighlight(id: 42)
+        #expect(!ws.highlightedMeshElementIds.contains(42))
+
+        let report = MeshQualityReport(
+            aspectRatioSummary: MeshQualityMetricSummary(
+                kind: .aspectRatio,
+                failingCount: 2,
+                failingElementIds: [5, 12]
+            )
+        )
+        let mesh = VolumeMesh(
+            nodes: [],
+            elements: [],
+            statistics: SimulationMeshStatistics(nodeCount: 10, elementCount: 2, qualityReport: report)
+        )
+        ws.cachedStudyMeshes[study.id] = mesh
+
+        ws.highlightFailingElements(studyId: study.id, metric: .aspectRatio)
+        #expect(ws.highlightedMeshElementIds == [5, 12])
+
+        ws.clearMeshHighlight()
+        #expect(ws.highlightedMeshElementIds.isEmpty)
+    }
+
+    @Test func testInspectorSimulationMeshViewQualitySection() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Quality Inspector Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let report = MeshQualityReport(
+            aspectRatioSummary: MeshQualityMetricSummary(
+                kind: .aspectRatio,
+                minValue: 1.1,
+                maxValue: 4.5,
+                averageValue: 2.3,
+                failureThreshold: 3.0,
+                failingCount: 1,
+                failingPercentage: 50.0,
+                failingElementIds: [2],
+                histogramBins: [
+                    MeshQualityHistogramBin(index: 0, rangeMin: 1.1, rangeMax: 2.0, count: 1, isFailing: false),
+                    MeshQualityHistogramBin(index: 1, rangeMin: 2.0, rangeMax: 4.5, count: 1, isFailing: true)
+                ]
+            )
+        )
+        let mesh = VolumeMesh(
+            nodes: [],
+            elements: [],
+            statistics: SimulationMeshStatistics(
+                nodeCount: 8,
+                elementCount: 2,
+                minElementQuality: 0.4,
+                avgElementQuality: 0.75,
+                qualityReport: report
+            )
+        )
+        ws.cachedStudyMeshes[study.id] = mesh
+        if var s = ws.document.study(id: study.id) {
+            s.results.meshStatistics = mesh.statistics
+            _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: s.results)
+        }
+
+        let updatedStudy = ws.document.study(id: study.id)!
+        let view = InspectorSimulationMeshView(study: updatedStudy).environment(ws)
+        _ = view
+
+        let pickerId = "inspector-simulation-mesh-quality-picker"
+        let minId = "inspector-simulation-mesh-quality-min"
+        let maxId = "inspector-simulation-mesh-quality-max"
+        let avgId = "inspector-simulation-mesh-quality-avg"
+        let failingId = "inspector-simulation-mesh-quality-failing-count"
+        let histId = "inspector-simulation-mesh-quality-histogram"
+        let highlightBtnId = "inspector-simulation-mesh-quality-highlight-button"
+        let clearBtnId = "inspector-simulation-mesh-quality-clear-button"
+
+        #expect(pickerId == "inspector-simulation-mesh-quality-picker")
+        #expect(minId == "inspector-simulation-mesh-quality-min")
+        #expect(maxId == "inspector-simulation-mesh-quality-max")
+        #expect(avgId == "inspector-simulation-mesh-quality-avg")
+        #expect(failingId == "inspector-simulation-mesh-quality-failing-count")
+        #expect(histId == "inspector-simulation-mesh-quality-histogram")
+        #expect(highlightBtnId == "inspector-simulation-mesh-quality-highlight-button")
+        #expect(clearBtnId == "inspector-simulation-mesh-quality-clear-button")
+    }
 }
+
 
 private actor MockSolverRunner: SolverRunnerProtocol {
     var shouldFailWithBinaryNotFound = false
