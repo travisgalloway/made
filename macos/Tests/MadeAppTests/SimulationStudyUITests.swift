@@ -983,6 +983,64 @@ import simd
         let ambientId = "inspector-simulation-load-ambient-temperature"
         #expect(ambientId == "inspector-simulation-load-ambient-temperature")
     }
+
+    @Test func testInspectorSimulationLoadViewBLFEA03Controls() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "FEA03 View Test") else {
+            Issue.record("Failed to create linear static simulation study")
+            return
+        }
+
+        // 1. Force load with distribution
+        var forceLoad = SimulationLoad(
+            name: "Distributed Traction",
+            kind: .force,
+            magnitude: 5000.0,
+            forceDistribution: .perUnitArea
+        )
+        let addedForce = ws.addSimulationLoad(studyId: study.id, load: forceLoad)
+        #expect(addedForce != nil)
+        _ = InspectorSimulationLoadView(study: study, load: forceLoad).environment(ws)
+
+        // 2. Remote load with remote point
+        let remoteLoad = SimulationLoad(
+            name: "Remote Force",
+            kind: .remoteLoad,
+            magnitude: 1200.0,
+            remotePoint: SIMD3<Double>(10.0, 20.0, 30.0)
+        )
+        let addedRemote = ws.addSimulationLoad(studyId: study.id, load: remoteLoad)
+        #expect(addedRemote != nil)
+        _ = InspectorSimulationLoadView(study: study, load: remoteLoad).environment(ws)
+
+        // 3. Centrifugal load with axis origin
+        let centrifLoad = SimulationLoad(
+            name: "Rotor Spin",
+            kind: .centrifugal,
+            magnitude: 150.0,
+            axisOrigin: SIMD3<Double>(0.0, 0.0, 1.0)
+        )
+        let addedCentrif = ws.addSimulationLoad(studyId: study.id, load: centrifLoad)
+        #expect(addedCentrif != nil)
+        _ = InspectorSimulationLoadView(study: study, load: centrifLoad).environment(ws)
+
+        // 4. Thermal load with reference temperature
+        let thermalLoad = SimulationLoad(
+            name: "Bake Thermal",
+            kind: .thermalLoad,
+            magnitude: 85.0,
+            referenceTemperature: 22.0
+        )
+        let addedThermal = ws.addSimulationLoad(studyId: study.id, load: thermalLoad)
+        #expect(addedThermal != nil)
+        _ = InspectorSimulationLoadView(study: study, load: thermalLoad).environment(ws)
+
+        // Verify update mutations persist to workspace
+        forceLoad.forceDistribution = .total
+        ws.updateSimulationLoad(studyId: study.id, load: forceLoad)
+        let updatedStudy = ws.document.study(id: study.id)
+        #expect(updatedStudy?.loads.first(where: { $0.id == forceLoad.id })?.forceDistribution == .total)
+    }
 }
 
 

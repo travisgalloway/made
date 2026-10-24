@@ -366,4 +366,41 @@ import simd
         #expect(SimulationUnitConversion.stiffnessUnitSymbol(unit: .inches) == "lbf/in")
         #expect(SimulationUnitConversion.stiffnessUnitSymbol(unit: .feet) == "lbf/in")
     }
+
+    // MARK: - Moment Conversions (BL-FEA-03, #221)
+
+    @Test func testMomentConversions() {
+        // Metric: 50 N·m remains 50 N·m
+        #expect(abs(SimulationUnitConversion.displayMoment(50.0, unit: .millimeters) - 50.0) < 1e-6)
+        #expect(abs(SimulationUnitConversion.commitMoment(50.0, unit: .millimeters) - 50.0) < 1e-6)
+        #expect(SimulationUnitConversion.momentUnitSymbol(unit: .millimeters) == "N·m")
+        #expect(SimulationUnitConversion.momentUnitSymbol(unit: .meters) == "N·m")
+
+        // Imperial: 1 N·m = 1 / (4.4482216152605 * 0.0254) lbf·in (~8.85074579 lbf·in)
+        let canonicalNm = 12.0
+        let displayVal = SimulationUnitConversion.displayMoment(canonicalNm, unit: .inches)
+        #expect(abs(displayVal - (canonicalNm * SimulationUnitConversion.momentFactor)) < 1e-6)
+        let committedNm = SimulationUnitConversion.commitMoment(displayVal, unit: .inches)
+        #expect(abs(committedNm - canonicalNm) < 1e-6)
+        #expect(SimulationUnitConversion.momentUnitSymbol(unit: .inches) == "lbf·in")
+        #expect(SimulationUnitConversion.momentUnitSymbol(unit: .feet) == "lbf·in")
+    }
+
+    // MARK: - Rotational Speed Conversions (BL-FEA-03, #221)
+
+    @Test func testRotationalSpeedConversions() {
+        // Metric: rad/s
+        #expect(abs(SimulationUnitConversion.displayRotationalSpeed(25.0, unit: .millimeters) - 25.0) < 1e-6)
+        #expect(abs(SimulationUnitConversion.commitRotationalSpeed(25.0, unit: .millimeters) - 25.0) < 1e-6)
+        #expect(SimulationUnitConversion.rotationalSpeedUnitSymbol(unit: .millimeters) == "rad/s")
+
+        // Imperial: RPM (factor 60 / 2pi ~ 9.5492965855)
+        let canonicalRadS = 100.0 * (2.0 * Double.pi / 60.0) // 100 RPM canonical in rad/s
+        let displayVal = SimulationUnitConversion.displayRotationalSpeed(canonicalRadS, unit: .inches)
+        #expect(abs(displayVal - 100.0) < 1e-5)
+        let committedRadS = SimulationUnitConversion.commitRotationalSpeed(displayVal, unit: .inches)
+        #expect(abs(committedRadS - canonicalRadS) < 1e-6)
+        #expect(SimulationUnitConversion.rotationalSpeedUnitSymbol(unit: .inches) == "RPM")
+        #expect(SimulationUnitConversion.rotationalSpeedUnitSymbol(unit: .feet) == "RPM")
+    }
 }

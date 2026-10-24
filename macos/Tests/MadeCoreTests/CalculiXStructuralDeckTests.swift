@@ -197,4 +197,104 @@ import simd
         #expect(text.contains("1000.0000"))
         #expect(!text.contains("*BOUNDARY"))
     }
+
+    // MARK: - BL-FEA-03 Structural Load Deck Tests (#221)
+
+    @Test func testStructuralDeckMomentLoad() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Moment Deck Test", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(name: "PressFace", kind: .moment, magnitude: 50.0, direction: SIMD3<Double>(0, 0, 1))
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*CLOAD"))
+    }
+
+    @Test func testStructuralDeckRemoteLoad() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Remote Load Deck Test", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(
+                name: "PressFace",
+                kind: .remoteLoad,
+                magnitude: 1200.0,
+                direction: SIMD3<Double>(0, -1, 0),
+                remotePoint: SIMD3<Double>(0, 50, 0)
+            )
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*CLOAD"))
+    }
+
+    @Test func testStructuralDeckBearingLoad() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Bearing Deck Test", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(name: "PressFace", kind: .bearing, magnitude: 3000.0, direction: SIMD3<Double>(0, 1, 0))
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*CLOAD"))
+    }
+
+    @Test func testStructuralDeckCentrifugalLoad() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Centrifugal Deck Test", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(
+                name: "SpinLoad",
+                kind: .centrifugal,
+                magnitude: 100.0, // rad/s
+                direction: SIMD3<Double>(0, 0, 1),
+                axisOrigin: SIMD3<Double>(5.0, 5.0, 0.0)
+            )
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*DLOAD"))
+        // omega^2 = 10000.0000, axis from (5,5,0) to (5,5,1)
+        #expect(text.contains("EALL, CENTRIF, 10000.0000, 5.0000, 5.0000, 0.0000, 5.0000, 5.0000, 1.0000"))
+    }
+
+    @Test func testStructuralDeckThermalExpansionLoad() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Thermal Structural Deck Test", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(
+                name: "LoadFace",
+                kind: .thermalLoad,
+                magnitude: 150.0,
+                referenceTemperature: 25.0
+            )
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*EXPANSION"))
+        #expect(text.contains("*INITIAL CONDITIONS, TYPE=TEMPERATURE"))
+        #expect(text.contains("NALL, 25.0000"))
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*TEMPERATURE"))
+        #expect(text.contains("4, 150.0000"))
+    }
 }

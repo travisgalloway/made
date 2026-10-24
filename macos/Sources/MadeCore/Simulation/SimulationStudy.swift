@@ -263,11 +263,33 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
     }
 }
 
+/// Distribution mode for applied structural force loads (BL-FEA-03, #221).
+public enum SimulationForceDistribution: String, Sendable, Codable, CaseIterable, Equatable, Hashable, Identifiable {
+    case total = "total"
+    case perUnitArea = "perUnitArea"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .total:
+            return "Total"
+        case .perUnitArea:
+            return "Per Unit Area"
+        }
+    }
+}
+
 /// Applied mechanical or thermal load classification.
 public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatable, Hashable, Identifiable {
     case force
     case pressure
     case gravity
+    case moment
+    case remoteLoad
+    case bearing
+    case centrifugal
+    case thermalLoad
     case thermalFlux
     case temperature
     case convection
@@ -283,6 +305,16 @@ public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatab
             return "Pressure"
         case .gravity:
             return "Gravity"
+        case .moment:
+            return "Moment"
+        case .remoteLoad:
+            return "Remote Load"
+        case .bearing:
+            return "Bearing Load"
+        case .centrifugal:
+            return "Centrifugal"
+        case .thermalLoad:
+            return "Thermal Load"
         case .thermalFlux:
             return "Heat Flux"
         case .temperature:
@@ -296,16 +328,20 @@ public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatab
 
     public var unitSymbol: String {
         switch self {
-        case .force:
+        case .force, .remoteLoad, .bearing:
             return "N"
         case .pressure:
             return "MPa"
         case .gravity:
             return "m/s²"
+        case .moment:
+            return "N·m"
+        case .centrifugal:
+            return "rad/s"
+        case .thermalLoad, .temperature:
+            return "°C"
         case .thermalFlux:
             return "W/m²"
-        case .temperature:
-            return "°C"
         case .convection:
             return "W/(m²·K)"
         case .heatPower:
@@ -321,6 +357,16 @@ public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatab
             return "arrow.down.to.line"
         case .gravity:
             return "arrow.down"
+        case .moment:
+            return "arrow.triangle.2.circlepath"
+        case .remoteLoad:
+            return "arrow.up.and.line.horizontal.and.arrow.down"
+        case .bearing:
+            return "circle.circle"
+        case .centrifugal:
+            return "arrow.counterclockwise"
+        case .thermalLoad:
+            return "thermometer.sun.fill"
         case .thermalFlux:
             return "flame"
         case .temperature:
@@ -344,6 +390,11 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
     public var direction: SIMD3<Double>
     public var coordinateSystemId: UUID?
     public var ambientTemperature: Double?
+    public var forceDistribution: SimulationForceDistribution
+    public var remotePoint: SIMD3<Double>?
+    public var remoteMoment: SIMD3<Double>?
+    public var axisOrigin: SIMD3<Double>?
+    public var referenceTemperature: Double?
 
     public init(
         id: UUID = UUID(),
@@ -354,7 +405,12 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         magnitude: Double = 1000.0,
         direction: SIMD3<Double> = SIMD3<Double>(0, 0, -1),
         coordinateSystemId: UUID? = nil,
-        ambientTemperature: Double? = nil
+        ambientTemperature: Double? = nil,
+        forceDistribution: SimulationForceDistribution = .total,
+        remotePoint: SIMD3<Double>? = nil,
+        remoteMoment: SIMD3<Double>? = nil,
+        axisOrigin: SIMD3<Double>? = nil,
+        referenceTemperature: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -366,10 +422,16 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         self.direction = len > 1e-6 ? direction / len : SIMD3<Double>(0, 0, -1)
         self.coordinateSystemId = coordinateSystemId
         self.ambientTemperature = ambientTemperature ?? (kind == .convection ? 20.0 : nil)
+        self.forceDistribution = forceDistribution
+        self.remotePoint = remotePoint
+        self.remoteMoment = remoteMoment
+        self.axisOrigin = axisOrigin
+        self.referenceTemperature = referenceTemperature
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, kind, targetReferences, groupNames, magnitude, direction, coordinateSystemId, ambientTemperature
+        case forceDistribution, remotePoint, remoteMoment, axisOrigin, referenceTemperature
     }
 
     public init(from decoder: Decoder) throws {
@@ -385,6 +447,11 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         self.direction = len > 1e-6 ? dir / len : SIMD3<Double>(0, 0, -1)
         self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
         self.ambientTemperature = try container.decodeIfPresent(Double.self, forKey: .ambientTemperature) ?? (self.kind == .convection ? 20.0 : nil)
+        self.forceDistribution = try container.decodeIfPresent(SimulationForceDistribution.self, forKey: .forceDistribution) ?? .total
+        self.remotePoint = try container.decodeIfPresent(SIMD3<Double>.self, forKey: .remotePoint)
+        self.remoteMoment = try container.decodeIfPresent(SIMD3<Double>.self, forKey: .remoteMoment)
+        self.axisOrigin = try container.decodeIfPresent(SIMD3<Double>.self, forKey: .axisOrigin)
+        self.referenceTemperature = try container.decodeIfPresent(Double.self, forKey: .referenceTemperature)
     }
 }
 

@@ -30,6 +30,12 @@ public enum SimulationUnitConversion: Sendable {
     /// Spring stiffness conversion factor: 1 lbf/in = 4.4482216152605 / 0.0254 N/m (~175.126835246 N/m).
     public static let springStiffnessFactor: Double = 4.4482216152605 / 0.0254
 
+    /// Moment conversion factor: 1 N·m = 1 / (4.4482216152605 * 0.0254) lbf·in (~8.85074579 lbf·in).
+    public static let momentFactor: Double = 1.0 / (4.4482216152605 * 0.0254)
+
+    /// Rotational speed conversion factor: 1 rad/s = 60.0 / (2.0 * Double.pi) RPM (~9.5492965855 RPM).
+    public static let rotationalSpeedFactor: Double = 60.0 / (2.0 * Double.pi)
+
     // MARK: - Force Conversions
 
     /// Converts canonical force (Newtons) to the display value for the given document length unit.
@@ -218,21 +224,59 @@ public enum SimulationUnitConversion: Sendable {
         unit.isImperial ? "lbf/in" : "N/m"
     }
 
+    // MARK: - Moment Conversions
+
+    /// Converts canonical moment (N·m) to the display value for the given document length unit.
+    public static func displayMoment(_ canonicalNm: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? canonicalNm * momentFactor : canonicalNm
+    }
+
+    /// Converts display moment value back to canonical N·m.
+    public static func commitMoment(_ displayVal: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? displayVal / momentFactor : displayVal
+    }
+
+    /// Display unit symbol for moment under the given document length unit.
+    public static func momentUnitSymbol(unit: LengthUnit) -> String {
+        unit.isImperial ? "lbf·in" : "N·m"
+    }
+
+    // MARK: - Rotational Speed Conversions
+
+    /// Converts canonical rotational speed (rad/s) to display value (RPM if imperial, rad/s if metric).
+    public static func displayRotationalSpeed(_ canonicalRadS: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? canonicalRadS * rotationalSpeedFactor : canonicalRadS
+    }
+
+    /// Converts display rotational speed back to canonical rad/s.
+    public static func commitRotationalSpeed(_ displayVal: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? displayVal / rotationalSpeedFactor : displayVal
+    }
+
+    /// Display unit symbol for rotational speed under the given document length unit.
+    public static func rotationalSpeedUnitSymbol(unit: LengthUnit) -> String {
+        unit.isImperial ? "RPM" : "rad/s"
+    }
+
     // MARK: - General Load Magnitude Conversions
 
     /// Converts canonical load magnitude according to load kind and document length unit.
     public static func displayLoadMagnitude(_ magnitude: Double, kind: SimulationLoadKind, unit: LengthUnit) -> Double {
         switch kind {
-        case .force:
+        case .force, .remoteLoad, .bearing:
             return displayForce(magnitude, unit: unit)
         case .pressure:
             return displayPressure(magnitude, unit: unit)
         case .gravity:
             return displayGravity(magnitude, unit: unit)
+        case .moment:
+            return displayMoment(magnitude, unit: unit)
+        case .centrifugal:
+            return displayRotationalSpeed(magnitude, unit: unit)
+        case .thermalLoad, .temperature:
+            return displayTemperature(magnitude, unit: unit)
         case .thermalFlux:
             return displayHeatFlux(magnitude, unit: unit)
-        case .temperature:
-            return displayTemperature(magnitude, unit: unit)
         case .convection:
             return displayConvection(magnitude, unit: unit)
         case .heatPower:
@@ -243,16 +287,20 @@ public enum SimulationUnitConversion: Sendable {
     /// Converts display load magnitude back to canonical units according to load kind and document length unit.
     public static func commitLoadMagnitude(_ displayVal: Double, kind: SimulationLoadKind, unit: LengthUnit) -> Double {
         switch kind {
-        case .force:
+        case .force, .remoteLoad, .bearing:
             return commitForce(displayVal, unit: unit)
         case .pressure:
             return commitPressure(displayVal, unit: unit)
         case .gravity:
             return commitGravity(displayVal, unit: unit)
+        case .moment:
+            return commitMoment(displayVal, unit: unit)
+        case .centrifugal:
+            return commitRotationalSpeed(displayVal, unit: unit)
+        case .thermalLoad, .temperature:
+            return commitTemperature(displayVal, unit: unit)
         case .thermalFlux:
             return commitHeatFlux(displayVal, unit: unit)
-        case .temperature:
-            return commitTemperature(displayVal, unit: unit)
         case .convection:
             return commitConvection(displayVal, unit: unit)
         case .heatPower:
@@ -263,16 +311,20 @@ public enum SimulationUnitConversion: Sendable {
     /// Appropriate unit symbol for the specified load kind and document length unit.
     public static func loadUnitSymbol(kind: SimulationLoadKind, unit: LengthUnit) -> String {
         switch kind {
-        case .force:
+        case .force, .remoteLoad, .bearing:
             return forceUnitSymbol(unit: unit)
         case .pressure:
             return pressureUnitSymbol(unit: unit)
         case .gravity:
             return gravityUnitSymbol(unit: unit)
+        case .moment:
+            return momentUnitSymbol(unit: unit)
+        case .centrifugal:
+            return rotationalSpeedUnitSymbol(unit: unit)
+        case .thermalLoad, .temperature:
+            return temperatureUnitSymbol(unit: unit)
         case .thermalFlux:
             return heatFluxUnitSymbol(unit: unit)
-        case .temperature:
-            return temperatureUnitSymbol(unit: unit)
         case .convection:
             return convectionUnitSymbol(unit: unit)
         case .heatPower:
