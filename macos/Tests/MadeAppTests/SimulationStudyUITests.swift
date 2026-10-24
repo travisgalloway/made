@@ -966,6 +966,50 @@ import simd
         #expect(finishedStudy.results.extrema.contains { $0.fieldName == "von Mises Stress" })
     }
 
+    @Test func testLinearBucklingSolveLifecycle() async throws {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearBuckling, name: "Linear Buckling Solve") else {
+            Issue.record("Failed to create linear buckling simulation study")
+            return
+        }
+
+        var updatedStudy = study
+        updatedStudy.solver.engine = .pureSwift
+        updatedStudy.solver.bucklingModesCount = 2
+        updatedStudy.fixtures = [
+            SimulationFixture(name: "Fixed Base", kind: .fixed)
+        ]
+        updatedStudy.loads = [
+            SimulationLoad(name: "Compressive Force", kind: .force, magnitude: 1000.0, direction: SIMD3<Double>(0, -1, 0))
+        ]
+        ws.updateSimulationStudy(updatedStudy)
+
+        ws.runSimulationStudy(id: study.id)
+        #expect(ws.isStudyRunning(study.id))
+
+        // Wait for pure-Swift linear buckling solve to complete
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000) // 20ms
+        }
+
+        let finishedStudy = try #require(ws.document.study(id: study.id))
+        #expect(finishedStudy.results.status == .completed)
+        #expect(finishedStudy.results.errorMessage == nil)
+        let modes = try #require(finishedStudy.results.bucklingModes)
+        #expect(!modes.isEmpty)
+        #expect(finishedStudy.results.nodalDisplacements != nil)
+        #expect(!finishedStudy.results.extrema.isEmpty)
+        #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Buckling Load Factor" })
+
+        // Test mode selection
+        if modes.count >= 2 {
+            ws.selectBucklingMode(studyId: study.id, modeNumber: 2)
+            let updatedModeStudy = try #require(ws.document.study(id: study.id))
+            #expect(updatedModeStudy.results.nodalDisplacements == modes[1].nodalDisplacements)
+        }
+    }
+
     @Test func testInspectorSimulationLoadViewConvection() {
         let ws = WorkspaceModel()
         guard let study = ws.createSimulationStudy(type: .thermalConduction, name: "Thermal View Test") else {

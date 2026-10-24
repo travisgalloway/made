@@ -6,6 +6,7 @@ public enum SimulationStudyType: String, Sendable, Codable, CaseIterable, Equata
     case linearStatic
     case thermalConduction
     case modalFrequency
+    case linearBuckling
 
     public var id: String { rawValue }
 
@@ -17,6 +18,8 @@ public enum SimulationStudyType: String, Sendable, Codable, CaseIterable, Equata
             return "Thermal Conduction"
         case .modalFrequency:
             return "Modal Frequency"
+        case .linearBuckling:
+            return "Linear Buckling"
         }
     }
 
@@ -28,6 +31,8 @@ public enum SimulationStudyType: String, Sendable, Codable, CaseIterable, Equata
             return "flame"
         case .modalFrequency:
             return "waveform"
+        case .linearBuckling:
+            return "arrow.triangle.swap"
         }
     }
 }
@@ -691,17 +696,33 @@ public struct SolverConfiguration: Sendable, Codable, Equatable, Hashable {
     public var maxIterations: Int
     public var convergenceTolerance: Double
     public var timeStep: Double
+    public var bucklingModesCount: Int
 
     public init(
         engine: SimulationSolverEngine = .calculix,
         maxIterations: Int = 100,
         convergenceTolerance: Double = 1e-4,
-        timeStep: Double = 0.01
+        timeStep: Double = 0.01,
+        bucklingModesCount: Int = 1
     ) {
         self.engine = engine
         self.maxIterations = maxIterations
         self.convergenceTolerance = convergenceTolerance
         self.timeStep = timeStep
+        self.bucklingModesCount = bucklingModesCount
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case engine, maxIterations, convergenceTolerance, timeStep, bucklingModesCount
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.engine = try container.decodeIfPresent(SimulationSolverEngine.self, forKey: .engine) ?? .calculix
+        self.maxIterations = try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? 100
+        self.convergenceTolerance = try container.decodeIfPresent(Double.self, forKey: .convergenceTolerance) ?? 1e-4
+        self.timeStep = try container.decodeIfPresent(Double.self, forKey: .timeStep) ?? 0.01
+        self.bucklingModesCount = try container.decodeIfPresent(Int.self, forKey: .bucklingModesCount) ?? 1
     }
 }
 
@@ -812,6 +833,20 @@ public struct SimulationFieldExtrema: Sendable, Codable, Equatable, Hashable, Id
     }
 }
 
+/// Eigenmode result for linear buckling analysis (BL-FEA-08, #226).
+public struct SimulationBucklingMode: Sendable, Codable, Equatable, Hashable, Identifiable {
+    public var id: Int { modeNumber }
+    public var modeNumber: Int
+    public var loadFactor: Double
+    public var nodalDisplacements: [Int: SIMD3<Double>]
+
+    public init(modeNumber: Int, loadFactor: Double, nodalDisplacements: [Int: SIMD3<Double>]) {
+        self.modeNumber = modeNumber
+        self.loadFactor = loadFactor
+        self.nodalDisplacements = nodalDisplacements
+    }
+}
+
 /// Aggregate simulation solve results and metadata.
 public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var status: SimulationExecutionStatus
@@ -823,6 +858,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var nodalTemperatures: [Int: Double]?
     public var nodalDisplacements: [Int: SIMD3<Double>]?
     public var nodalVonMisesStresses: [Int: Double]?
+    public var bucklingModes: [SimulationBucklingMode]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -833,7 +869,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         errorMessage: String? = nil,
         nodalTemperatures: [Int: Double]? = nil,
         nodalDisplacements: [Int: SIMD3<Double>]? = nil,
-        nodalVonMisesStresses: [Int: Double]? = nil
+        nodalVonMisesStresses: [Int: Double]? = nil,
+        bucklingModes: [SimulationBucklingMode]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -844,10 +881,11 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.nodalTemperatures = nodalTemperatures
         self.nodalDisplacements = nodalDisplacements
         self.nodalVonMisesStresses = nodalVonMisesStresses
+        self.bucklingModes = bucklingModes
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes
     }
 
     public init(from decoder: Decoder) throws {
@@ -861,6 +899,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.nodalTemperatures = try container.decodeIfPresent([Int: Double].self, forKey: .nodalTemperatures)
         self.nodalDisplacements = try container.decodeIfPresent([Int: SIMD3<Double>].self, forKey: .nodalDisplacements)
         self.nodalVonMisesStresses = try container.decodeIfPresent([Int: Double].self, forKey: .nodalVonMisesStresses)
+        self.bucklingModes = try container.decodeIfPresent([SimulationBucklingMode].self, forKey: .bucklingModes)
     }
 }
 

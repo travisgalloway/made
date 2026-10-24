@@ -297,4 +297,33 @@ import simd
         #expect(text.contains("*TEMPERATURE"))
         #expect(text.contains("4, 150.0000"))
     }
+
+    @Test func testStructuralDeckLinearBuckling() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Buckling Test", studyType: .linearBuckling)
+        study.materials = [
+            SimulationMaterialAssignment(materialId: "structural-steel-a36")
+        ]
+        study.solver.bucklingModesCount = 3
+        study.fixtures = [
+            SimulationFixture(name: "FixFace", kind: .fixed)
+        ]
+        study.loads = [
+            SimulationLoad(name: "LoadFace", kind: .force, magnitude: 5000.0, direction: SIMD3<Double>(0, 0, -1))
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*HEADING"))
+        #expect(text.contains("*STEP"))
+        #expect(text.contains("*BUCKLE"))
+        #expect(text.contains("3"))
+        #expect(!text.contains("*STATIC"))
+        #expect(text.contains("*BOUNDARY"))
+        #expect(text.contains("*CLOAD"))
+        #expect(text.contains("*NODE FILE\nU"))
+        #expect(!text.contains("*EL FILE\nS"))
+        #expect(text.contains("*END STEP"))
+    }
 }

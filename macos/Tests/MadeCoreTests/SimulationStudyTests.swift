@@ -428,5 +428,55 @@ import simd
         #expect(decodedLoad.axisOrigin == nil)
         #expect(decodedLoad.referenceTemperature == nil)
     }
+
+    @Test func testLinearBucklingStudyTypeAndSolverConfig() {
+        #expect(SimulationStudyType.linearBuckling.displayName == "Linear Buckling")
+        #expect(SimulationStudyType.linearBuckling.systemImageName == "arrow.triangle.swap")
+
+        let config = SolverConfiguration()
+        #expect(config.bucklingModesCount == 1)
+
+        let customConfig = SolverConfiguration(bucklingModesCount: 5)
+        #expect(customConfig.bucklingModesCount == 5)
+    }
+
+    @Test func testLinearBucklingModelCodableBackwardCompatibility() throws {
+        let legacySolverJSON = """
+        {
+            "engine": "calculix",
+            "maxIterations": 50,
+            "convergenceTolerance": 0.0001,
+            "timeStep": 0.01
+        }
+        """.data(using: .utf8)!
+
+        let decodedSolver = try JSONDecoder().decode(SolverConfiguration.self, from: legacySolverJSON)
+        #expect(decodedSolver.bucklingModesCount == 1)
+        #expect(decodedSolver.maxIterations == 50)
+
+        let legacyResultsJSON = """
+        {
+            "status": "completed",
+            "runtimeDuration": 1.25,
+            "extrema": []
+        }
+        """.data(using: .utf8)!
+
+        let decodedResults = try JSONDecoder().decode(SimulationStudyResults.self, from: legacyResultsJSON)
+        #expect(decodedResults.status == .completed)
+        #expect(decodedResults.bucklingModes == nil)
+
+        let mode = SimulationBucklingMode(
+            modeNumber: 1,
+            loadFactor: 3.1415,
+            nodalDisplacements: [1: SIMD3<Double>(0, 1, 0)]
+        )
+        let modeData = try JSONEncoder().encode(mode)
+        let decodedMode = try JSONDecoder().decode(SimulationBucklingMode.self, from: modeData)
+        #expect(decodedMode.modeNumber == 1)
+        #expect(decodedMode.id == 1)
+        #expect(decodedMode.loadFactor == 3.1415)
+        #expect(decodedMode.nodalDisplacements[1] == SIMD3<Double>(0, 1, 0))
+    }
 }
 

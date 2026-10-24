@@ -6472,6 +6472,31 @@ final class WorkspaceModel {
                         let summary = result.extrema.map { "\($0.fieldName): \(String(format: "%.3g", $0.minValue)) … \(String(format: "%.3g", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
                         self.log(.info, "CAE", "Linear static study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(summary)")
                     }
+                } else if study.studyType == .linearBuckling && study.solver.engine == .pureSwift {
+                    let maxCoord = mesh.nodes.reduce(0.0) { max($0, max(abs($1.position.x), max(abs($1.position.y), abs($1.position.z)))) }
+                    let scale: Double = maxCoord > 2.0 ? 0.001 : 1.0
+                    let result = try LinearBucklingSolver.solve(study: study, mesh: mesh, lengthScaleToMeters: scale)
+                    let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                                  Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.activeRunningStudyIds.remove(id)
+                        self.activeSolveTasks.removeValue(forKey: id)
+                        if var currentStudy = self.document.study(id: id) {
+                            currentStudy.results.status = .completed
+                            currentStudy.results.runtimeDuration = elapsed
+                            currentStudy.results.extrema = result.extrema
+                            currentStudy.results.bucklingModes = result.modes
+                            currentStudy.results.nodalDisplacements = result.modes.first?.nodalDisplacements
+                            currentStudy.results.errorMessage = nil
+                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                            self.markDocumentModified()
+                            self.invalidateViewport(.model)
+                        }
+                        let summary = result.extrema.map { "\($0.fieldName): \(String(format: "%.3g", $0.minValue)) … \(String(format: "%.3g", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
+                        self.log(.info, "CAE", "Linear buckling study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) iters). \(summary)")
+                    }
                 } else {
                     let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
                     let result = try await runner.run(
@@ -6967,6 +6992,18 @@ final class WorkspaceModel {
         cachedStudyMeshes[studyId] = mesh
         study.results.meshSets = sets
         _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+    }
+
+    public func selectBucklingMode(studyId: UUID, modeNumber: Int) {
+        guard var study = document.study(id: studyId),
+              let modes = study.results.bucklingModes,
+              let mode = modes.first(where: { $0.modeNumber == modeNumber }) else {
+            return
+        }
+        study.results.nodalDisplacements = mode.nodalDisplacements
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+        markDocumentModified()
+        invalidateViewport(.model)
     }
 
     public func selectMeshQualityMetric(_ metric: MeshQualityMetricKind) {

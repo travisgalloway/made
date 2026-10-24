@@ -805,6 +805,9 @@ struct SimulationMenuCommands: Commands {
                 Button("Modal Frequency Study") {
                     _ = workspace.createSimulationStudy(type: .modalFrequency)
                 }
+                Button("Linear Buckling Study") {
+                    _ = workspace.createSimulationStudy(type: .linearBuckling)
+                }
             }
 
             if !workspace.document.studies.isEmpty {
