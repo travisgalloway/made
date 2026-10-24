@@ -507,6 +507,11 @@ public enum SimulationUnitConversion: Sendable {
                 )
             }
 
+            // Frequency fields (Hz / kHz / RPM)
+            if sym == "Hz" || sym == "kHz" || sym == "rpm" || sym == "RPM" || lowerName.contains("frequency") {
+                return ext
+            }
+
             // Unrecognized/custom fields pass through untouched
             return ext
         }

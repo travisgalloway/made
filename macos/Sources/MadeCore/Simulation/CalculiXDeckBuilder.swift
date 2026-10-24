@@ -52,6 +52,9 @@ public enum CalculiXDeckBuilder: Sendable {
                 if mat.densityKgPerM3 > 0 {
                     lines.append("*DENSITY")
                     lines.append(String(format: "%.4e", mat.densityKgPerM3))
+                } else if study.studyType == .modalFrequency {
+                    lines.append("*DENSITY")
+                    lines.append(String(format: "%.4e", 7850.0))
                 }
                 if mat.thermalExpansionPerK > 0 {
                     lines.append("*EXPANSION")
@@ -60,6 +63,10 @@ public enum CalculiXDeckBuilder: Sendable {
             } else {
                 lines.append("*ELASTIC")
                 lines.append("210000.0, 0.3") // Standard steel MPa, Poisson ratio
+                if study.studyType == .modalFrequency {
+                    lines.append("*DENSITY")
+                    lines.append(String(format: "%.4e", 7850.0))
+                }
                 lines.append("*EXPANSION")
                 lines.append("1.2000e-05")
             }
@@ -279,6 +286,28 @@ public enum CalculiXDeckBuilder: Sendable {
             lines.append("*EL FILE")
             lines.append("HFL")
 
+        } else if study.studyType == .modalFrequency {
+            if study.solver.isPrestressEnabled && !study.loads.isEmpty {
+                // Step 1: Static preload step
+                lines.append("*STATIC")
+                emitBoundaryCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
+                emitStructuralLoadCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
+                lines.append("*END STEP")
+
+                // Step 2: Frequency perturbation extraction step
+                lines.append("*STEP, PERTURBATION")
+                lines.append("*FREQUENCY")
+                lines.append("\(study.solver.modeCount)")
+                emitBoundaryCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
+                lines.append("*NODE FILE")
+                lines.append("U")
+            } else {
+                lines.append("*FREQUENCY")
+                lines.append("\(study.solver.modeCount)")
+                emitBoundaryCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
+                lines.append("*NODE FILE")
+                lines.append("U")
+            }
         } else {
             // Structural analysis or linear buckling
             if study.studyType == .linearBuckling {
@@ -287,216 +316,8 @@ public enum CalculiXDeckBuilder: Sendable {
             } else {
                 lines.append("*STATIC")
             }
-
-            // Fixtures (kinematic boundary conditions)
-            var hasBoundaryHeader = false
-            for fixture in study.fixtures where fixture.kind != .elasticSupport {
-                if !hasBoundaryHeader {
-                    lines.append("*BOUNDARY")
-                    hasBoundaryHeader = true
-                }
-                let targetNodes = resolveFixtureNodeIds(for: fixture, setByName: setByName)
-                let nodesToFix = targetNodes.isEmpty ? (mesh.nodes.prefix(3).map(\.id)) : targetNodes
-                for nId in nodesToFix {
-                    switch fixture.kind {
-                    case .fixed, .pinned:
-                        lines.append("\(nId), 1, 3, 0.0")
-                    case .rollerSlider, .symmetry:
-                        if fixture.isRestrainedX && fixture.isRestrainedY && fixture.isRestrainedZ {
-                            lines.append("\(nId), 1, 3, 0.0")
-                        } else {
-                            if fixture.isRestrainedX { lines.append("\(nId), 1, 1, 0.0") }
-                            if fixture.isRestrainedY { lines.append("\(nId), 2, 2, 0.0") }
-                            if fixture.isRestrainedZ { lines.append("\(nId), 3, 3, 0.0") }
-                        }
-                    case .prescribedDisplacement:
-                        if fixture.isRestrainedX { lines.append(String(format: "%d, 1, 1, %.4f", nId, fixture.prescribedDisplacement.x)) }
-                        if fixture.isRestrainedY { lines.append(String(format: "%d, 2, 2, %.4f", nId, fixture.prescribedDisplacement.y)) }
-                        if fixture.isRestrainedZ { lines.append(String(format: "%d, 3, 3, %.4f", nId, fixture.prescribedDisplacement.z)) }
-                    case .elasticSupport:
-                        break
-                    }
-                }
-            }
-
-            // Concentrated and equivalent nodal forces (*CLOAD)
-            var hasCloadHeader = false
-            for load in study.loads {
-                switch load.kind {
-                case .force:
-                    if !hasCloadHeader {
-                        lines.append("*CLOAD")
-                        hasCloadHeader = true
-                    }
-                    let targetNodes = resolveNodeIds(for: load, setByName: setByName)
-                    let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.last.map { [$0.id] } ?? []) : targetNodes
-                    let share = nodesToUse.isEmpty ? 1.0 : (1.0 / Double(nodesToUse.count))
-                    let forceVec = load.direction * load.magnitude * share
-                    for nId in nodesToUse {
-                        if abs(forceVec.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", nId, forceVec.x)) }
-                        if abs(forceVec.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", nId, forceVec.y)) }
-                        if abs(forceVec.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", nId, forceVec.z)) }
-                    }
-
-                case .moment:
-                    if !hasCloadHeader {
-                        lines.append("*CLOAD")
-                        hasCloadHeader = true
-                    }
-                    let targetNodes = resolveNodeIds(for: load, setByName: setByName)
-                    let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.map(\.id)) : targetNodes
-                    guard nodesToUse.count > 1 else { continue }
-                    let nodePositions = Dictionary(uniqueKeysWithValues: mesh.nodes.map { ($0.id, $0.position) })
-                    var rc = SIMD3<Double>.zero
-                    for nId in nodesToUse {
-                        rc += nodePositions[nId] ?? .zero
-                    }
-                    rc /= Double(nodesToUse.count)
-                    let momentVec = load.direction * load.magnitude
-                    guard simd_length(momentVec) > 1e-15 else { continue }
-
-                    var J0 = SIMD3<Double>.zero, J1 = SIMD3<Double>.zero, J2 = SIMD3<Double>.zero
-                    var drList = [(id: Int, dr: SIMD3<Double>)]()
-                    for nId in nodesToUse {
-                        let dr = (nodePositions[nId] ?? .zero) - rc
-                        drList.append((nId, dr))
-                        let rSq = simd_dot(dr, dr)
-                        J0 += SIMD3<Double>(rSq - dr.x * dr.x, -dr.x * dr.y, -dr.x * dr.z)
-                        J1 += SIMD3<Double>(-dr.y * dr.x, rSq - dr.y * dr.y, -dr.y * dr.z)
-                        J2 += SIMD3<Double>(-dr.z * dr.x, -dr.z * dr.y, rSq - dr.z * dr.z)
-                    }
-                    guard let Jinv = invert3x3Matrix((J0, J1, J2)) else { continue }
-                    let omega = multiply3x3Vector(Jinv, momentVec)
-                    for item in drList {
-                        let Fi = simd_cross(omega, item.dr)
-                        if abs(Fi.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", item.id, Fi.x)) }
-                        if abs(Fi.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", item.id, Fi.y)) }
-                        if abs(Fi.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", item.id, Fi.z)) }
-                    }
-
-                case .remoteLoad:
-                    if !hasCloadHeader {
-                        lines.append("*CLOAD")
-                        hasCloadHeader = true
-                    }
-                    let targetNodes = resolveNodeIds(for: load, setByName: setByName)
-                    let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.map(\.id)) : targetNodes
-                    guard !nodesToUse.isEmpty else { continue }
-                    let nodePositions = Dictionary(uniqueKeysWithValues: mesh.nodes.map { ($0.id, $0.position) })
-                    var rc = SIMD3<Double>.zero
-                    for nId in nodesToUse {
-                        rc += nodePositions[nId] ?? .zero
-                    }
-                    rc /= Double(nodesToUse.count)
-
-                    let remotePt = load.remotePoint ?? rc
-                    let netForce = load.direction * load.magnitude
-                    let extMoment = load.remoteMoment ?? .zero
-                    let share = 1.0 / Double(nodesToUse.count)
-                    let transForce = netForce * share
-                    let inducedMoment = extMoment + simd_cross(rc - remotePt, netForce)
-
-                    var rotForces = [Int: SIMD3<Double>]()
-                    if simd_length(inducedMoment) > 1e-15 && nodesToUse.count > 1 {
-                        var J0 = SIMD3<Double>.zero, J1 = SIMD3<Double>.zero, J2 = SIMD3<Double>.zero
-                        var drList = [(id: Int, dr: SIMD3<Double>)]()
-                        for nId in nodesToUse {
-                            let dr = (nodePositions[nId] ?? .zero) - rc
-                            drList.append((nId, dr))
-                            let rSq = simd_dot(dr, dr)
-                            J0 += SIMD3<Double>(rSq - dr.x * dr.x, -dr.x * dr.y, -dr.x * dr.z)
-                            J1 += SIMD3<Double>(-dr.y * dr.x, rSq - dr.y * dr.y, -dr.y * dr.z)
-                            J2 += SIMD3<Double>(-dr.z * dr.x, -dr.z * dr.y, rSq - dr.z * dr.z)
-                        }
-                        if let Jinv = invert3x3Matrix((J0, J1, J2)) {
-                            let omega = multiply3x3Vector(Jinv, inducedMoment)
-                            for item in drList {
-                                rotForces[item.id] = simd_cross(omega, item.dr)
-                            }
-                        }
-                    }
-
-                    for nId in nodesToUse {
-                        let totalFi = transForce + (rotForces[nId] ?? .zero)
-                        if abs(totalFi.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", nId, totalFi.x)) }
-                        if abs(totalFi.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", nId, totalFi.y)) }
-                        if abs(totalFi.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", nId, totalFi.z)) }
-                    }
-
-                case .bearing:
-                    if !hasCloadHeader {
-                        lines.append("*CLOAD")
-                        hasCloadHeader = true
-                    }
-                    let targetNodes = resolveNodeIds(for: load, setByName: setByName)
-                    let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.map(\.id)) : targetNodes
-                    guard !nodesToUse.isEmpty else { continue }
-                    let dir = load.direction
-                    let netForceMag = load.magnitude
-                    let share = 1.0 / Double(nodesToUse.count)
-                    let forceVec = dir * netForceMag * share
-                    for nId in nodesToUse {
-                        if abs(forceVec.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", nId, forceVec.x)) }
-                        if abs(forceVec.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", nId, forceVec.y)) }
-                        if abs(forceVec.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", nId, forceVec.z)) }
-                    }
-
-                default:
-                    break
-                }
-            }
-
-            // Distributed loads (*DLOAD for pressure, gravity, centrifugal)
-            var hasDloadHeader = false
-            for load in study.loads {
-                if load.kind == .pressure {
-                    if !hasDloadHeader {
-                        lines.append("*DLOAD")
-                        hasDloadHeader = true
-                    }
-                    let targetElements = resolveElementIds(for: load, setByName: setByName)
-                    let elementsToUse = targetElements.isEmpty ? (mesh.elements.first.map { [$0.id] } ?? []) : targetElements
-                    for elId in elementsToUse {
-                        lines.append(String(format: "%d, P1, %.4f", elId, load.magnitude))
-                    }
-                } else if load.kind == .gravity {
-                    if !hasDloadHeader {
-                        lines.append("*DLOAD")
-                        hasDloadHeader = true
-                    }
-                    let dir = load.direction
-                    lines.append(String(format: "EALL, GRAV, %.4f, %.4f, %.4f, %.4f", load.magnitude, dir.x, dir.y, dir.z))
-                } else if load.kind == .centrifugal {
-                    if !hasDloadHeader {
-                        lines.append("*DLOAD")
-                        hasDloadHeader = true
-                    }
-                    let omega = load.magnitude
-                    let omegaSq = omega * omega
-                    let axisLen = simd_length(load.direction)
-                    let axis = axisLen > 1e-6 ? load.direction / axisLen : SIMD3<Double>(0, 0, 1)
-                    let p1 = load.axisOrigin ?? .zero
-                    let p2 = p1 + axis
-                    lines.append(String(format: "EALL, CENTRIF, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f", omegaSq, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z))
-                }
-            }
-
-            // Structural temperature loads (*TEMPERATURE)
-            var hasTempHeader = false
-            for load in study.loads where load.kind == .thermalLoad || load.kind == .temperature {
-                if !hasTempHeader {
-                    lines.append("*TEMPERATURE")
-                    hasTempHeader = true
-                }
-                let targetNodes = resolveNodeIds(for: load, setByName: setByName)
-                if !targetNodes.isEmpty {
-                    for nId in targetNodes {
-                        lines.append(String(format: "%d, %.4f", nId, load.magnitude))
-                    }
-                } else {
-                    lines.append(String(format: "NALL, %.4f", load.magnitude))
-                }
-            }
+            emitBoundaryCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
+            emitStructuralLoadCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
 
             // Output requests for structural / buckling
             lines.append("*NODE FILE")
@@ -511,6 +332,229 @@ public enum CalculiXDeckBuilder: Sendable {
 
         let content = lines.joined(separator: "\n") + "\n"
         return CAEDeck(studyId: study.id, jobName: jobName, deckContent: content)
+    }
+
+    private static func emitBoundaryCards(
+        study: SimulationStudy,
+        mesh: VolumeMesh,
+        setByName: [String: VolumeMeshSet],
+        lines: inout [String]
+    ) {
+        var hasBoundaryHeader = false
+        for fixture in study.fixtures where fixture.kind != .elasticSupport {
+            if !hasBoundaryHeader {
+                lines.append("*BOUNDARY")
+                hasBoundaryHeader = true
+            }
+            let targetNodes = resolveFixtureNodeIds(for: fixture, setByName: setByName)
+            let nodesToFix = targetNodes.isEmpty ? (mesh.nodes.prefix(3).map(\.id)) : targetNodes
+            for nId in nodesToFix {
+                switch fixture.kind {
+                case .fixed, .pinned:
+                    lines.append("\(nId), 1, 3, 0.0")
+                case .rollerSlider, .symmetry:
+                    if fixture.isRestrainedX && fixture.isRestrainedY && fixture.isRestrainedZ {
+                        lines.append("\(nId), 1, 3, 0.0")
+                    } else {
+                        if fixture.isRestrainedX { lines.append("\(nId), 1, 1, 0.0") }
+                        if fixture.isRestrainedY { lines.append("\(nId), 2, 2, 0.0") }
+                        if fixture.isRestrainedZ { lines.append("\(nId), 3, 3, 0.0") }
+                    }
+                case .prescribedDisplacement:
+                    if fixture.isRestrainedX { lines.append(String(format: "%d, 1, 1, %.4f", nId, fixture.prescribedDisplacement.x)) }
+                    if fixture.isRestrainedY { lines.append(String(format: "%d, 2, 2, %.4f", nId, fixture.prescribedDisplacement.y)) }
+                    if fixture.isRestrainedZ { lines.append(String(format: "%d, 3, 3, %.4f", nId, fixture.prescribedDisplacement.z)) }
+                case .elasticSupport:
+                    break
+                }
+            }
+        }
+    }
+
+    private static func emitStructuralLoadCards(
+        study: SimulationStudy,
+        mesh: VolumeMesh,
+        setByName: [String: VolumeMeshSet],
+        lines: inout [String]
+    ) {
+        // Concentrated and equivalent nodal forces (*CLOAD)
+        var hasCloadHeader = false
+        for load in study.loads {
+            switch load.kind {
+            case .force:
+                if !hasCloadHeader {
+                    lines.append("*CLOAD")
+                    hasCloadHeader = true
+                }
+                let targetNodes = resolveNodeIds(for: load, setByName: setByName)
+                let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.last.map { [$0.id] } ?? []) : targetNodes
+                let share = nodesToUse.isEmpty ? 1.0 : (1.0 / Double(nodesToUse.count))
+                let forceVec = load.direction * load.magnitude * share
+                for nId in nodesToUse {
+                    if abs(forceVec.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", nId, forceVec.x)) }
+                    if abs(forceVec.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", nId, forceVec.y)) }
+                    if abs(forceVec.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", nId, forceVec.z)) }
+                }
+
+            case .moment:
+                if !hasCloadHeader {
+                    lines.append("*CLOAD")
+                    hasCloadHeader = true
+                }
+                let targetNodes = resolveNodeIds(for: load, setByName: setByName)
+                let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.map(\.id)) : targetNodes
+                guard nodesToUse.count > 1 else { continue }
+                let nodePositions = Dictionary(uniqueKeysWithValues: mesh.nodes.map { ($0.id, $0.position) })
+                var rc = SIMD3<Double>.zero
+                for nId in nodesToUse {
+                    rc += nodePositions[nId] ?? .zero
+                }
+                rc /= Double(nodesToUse.count)
+                let momentVec = load.direction * load.magnitude
+                guard simd_length(momentVec) > 1e-15 else { continue }
+
+                var J0 = SIMD3<Double>.zero, J1 = SIMD3<Double>.zero, J2 = SIMD3<Double>.zero
+                var drList = [(id: Int, dr: SIMD3<Double>)]()
+                for nId in nodesToUse {
+                    let dr = (nodePositions[nId] ?? .zero) - rc
+                    drList.append((nId, dr))
+                    let rSq = simd_dot(dr, dr)
+                    J0 += SIMD3<Double>(rSq - dr.x * dr.x, -dr.x * dr.y, -dr.x * dr.z)
+                    J1 += SIMD3<Double>(-dr.y * dr.x, rSq - dr.y * dr.y, -dr.y * dr.z)
+                    J2 += SIMD3<Double>(-dr.z * dr.x, -dr.z * dr.y, rSq - dr.z * dr.z)
+                }
+                guard let Jinv = invert3x3Matrix((J0, J1, J2)) else { continue }
+                let omega = multiply3x3Vector(Jinv, momentVec)
+                for item in drList {
+                    let Fi = simd_cross(omega, item.dr)
+                    if abs(Fi.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", item.id, Fi.x)) }
+                    if abs(Fi.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", item.id, Fi.y)) }
+                    if abs(Fi.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", item.id, Fi.z)) }
+                }
+
+            case .remoteLoad:
+                if !hasCloadHeader {
+                    lines.append("*CLOAD")
+                    hasCloadHeader = true
+                }
+                let targetNodes = resolveNodeIds(for: load, setByName: setByName)
+                let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.map(\.id)) : targetNodes
+                guard !nodesToUse.isEmpty else { continue }
+                let nodePositions = Dictionary(uniqueKeysWithValues: mesh.nodes.map { ($0.id, $0.position) })
+                var rc = SIMD3<Double>.zero
+                for nId in nodesToUse {
+                    rc += nodePositions[nId] ?? .zero
+                }
+                rc /= Double(nodesToUse.count)
+
+                let remotePt = load.remotePoint ?? rc
+                let netForce = load.direction * load.magnitude
+                let extMoment = load.remoteMoment ?? .zero
+                let share = 1.0 / Double(nodesToUse.count)
+                let transForce = netForce * share
+                let inducedMoment = extMoment + simd_cross(rc - remotePt, netForce)
+
+                var rotForces = [Int: SIMD3<Double>]()
+                if simd_length(inducedMoment) > 1e-15 && nodesToUse.count > 1 {
+                    var J0 = SIMD3<Double>.zero, J1 = SIMD3<Double>.zero, J2 = SIMD3<Double>.zero
+                    var drList = [(id: Int, dr: SIMD3<Double>)]()
+                    for nId in nodesToUse {
+                        let dr = (nodePositions[nId] ?? .zero) - rc
+                        drList.append((nId, dr))
+                        let rSq = simd_dot(dr, dr)
+                        J0 += SIMD3<Double>(rSq - dr.x * dr.x, -dr.x * dr.y, -dr.x * dr.z)
+                        J1 += SIMD3<Double>(-dr.y * dr.x, rSq - dr.y * dr.y, -dr.y * dr.z)
+                        J2 += SIMD3<Double>(-dr.z * dr.x, -dr.z * dr.y, rSq - dr.z * dr.z)
+                    }
+                    if let Jinv = invert3x3Matrix((J0, J1, J2)) {
+                        let omega = multiply3x3Vector(Jinv, inducedMoment)
+                        for item in drList {
+                            rotForces[item.id] = simd_cross(omega, item.dr)
+                        }
+                    }
+                }
+
+                for nId in nodesToUse {
+                    let totalFi = transForce + (rotForces[nId] ?? .zero)
+                    if abs(totalFi.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", nId, totalFi.x)) }
+                    if abs(totalFi.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", nId, totalFi.y)) }
+                    if abs(totalFi.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", nId, totalFi.z)) }
+                }
+
+            case .bearing:
+                if !hasCloadHeader {
+                    lines.append("*CLOAD")
+                    hasCloadHeader = true
+                }
+                let targetNodes = resolveNodeIds(for: load, setByName: setByName)
+                let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.map(\.id)) : targetNodes
+                guard !nodesToUse.isEmpty else { continue }
+                let dir = load.direction
+                let netForceMag = load.magnitude
+                let share = 1.0 / Double(nodesToUse.count)
+                let forceVec = dir * netForceMag * share
+                for nId in nodesToUse {
+                    if abs(forceVec.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", nId, forceVec.x)) }
+                    if abs(forceVec.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", nId, forceVec.y)) }
+                    if abs(forceVec.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", nId, forceVec.z)) }
+                }
+
+            default:
+                break
+            }
+        }
+
+        // Distributed loads (*DLOAD for pressure, gravity, centrifugal)
+        var hasDloadHeader = false
+        for load in study.loads {
+            if load.kind == .pressure {
+                if !hasDloadHeader {
+                    lines.append("*DLOAD")
+                    hasDloadHeader = true
+                }
+                let targetElements = resolveElementIds(for: load, setByName: setByName)
+                let elementsToUse = targetElements.isEmpty ? (mesh.elements.first.map { [$0.id] } ?? []) : targetElements
+                for elId in elementsToUse {
+                    lines.append(String(format: "%d, P1, %.4f", elId, load.magnitude))
+                }
+            } else if load.kind == .gravity {
+                if !hasDloadHeader {
+                    lines.append("*DLOAD")
+                    hasDloadHeader = true
+                }
+                let dir = load.direction
+                lines.append(String(format: "EALL, GRAV, %.4f, %.4f, %.4f, %.4f", load.magnitude, dir.x, dir.y, dir.z))
+            } else if load.kind == .centrifugal {
+                if !hasDloadHeader {
+                    lines.append("*DLOAD")
+                    hasDloadHeader = true
+                }
+                let omega = load.magnitude
+                let omegaSq = omega * omega
+                let axisLen = simd_length(load.direction)
+                let axis = axisLen > 1e-6 ? load.direction / axisLen : SIMD3<Double>(0, 0, 1)
+                let p1 = load.axisOrigin ?? .zero
+                let p2 = p1 + axis
+                lines.append(String(format: "EALL, CENTRIF, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f", omegaSq, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z))
+            }
+        }
+
+        // Structural temperature loads (*TEMPERATURE)
+        var hasTempHeader = false
+        for load in study.loads where load.kind == .thermalLoad || load.kind == .temperature {
+            if !hasTempHeader {
+                lines.append("*TEMPERATURE")
+                hasTempHeader = true
+            }
+            let targetNodes = resolveNodeIds(for: load, setByName: setByName)
+            if !targetNodes.isEmpty {
+                for nId in targetNodes {
+                    lines.append(String(format: "%d, %.4f", nId, load.magnitude))
+                }
+            } else {
+                lines.append(String(format: "NALL, %.4f", load.magnitude))
+            }
+        }
     }
 
     private static func resolveNodeIds(for load: SimulationLoad, setByName: [String: VolumeMeshSet]) -> [Int] {

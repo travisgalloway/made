@@ -479,6 +479,53 @@ import simd
         #expect(decodedMode.nodalDisplacements[1] == SIMD3<Double>(0, 1, 0))
     }
 
+    @Test func testSolverConfigurationModalDefaults() {
+        let config = SolverConfiguration()
+        #expect(config.modeCount == 5)
+        #expect(config.isPrestressEnabled == false)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfSolverConfiguration() throws {
+        let legacyJSON = """
+        {
+            "engine": "calculix",
+            "maxIterations": 120,
+            "convergenceTolerance": 0.0001,
+            "timeStep": 0.02
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(SolverConfiguration.self, from: legacyJSON)
+        #expect(decoded.engine == .calculix)
+        #expect(decoded.maxIterations == 120)
+        #expect(decoded.convergenceTolerance == 0.0001)
+        #expect(decoded.timeStep == 0.02)
+        #expect(decoded.modeCount == 5)
+        #expect(decoded.isPrestressEnabled == false)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfModalResults() throws {
+        let legacyResultsJSON = """
+        {
+            "status": "completed",
+            "runtimeDuration": 1.25,
+            "meshStatistics": {
+                "nodeCount": 100,
+                "elementCount": 80,
+                "minElementQuality": 0.5,
+                "avgElementQuality": 0.8
+            },
+            "meshSets": [],
+            "extrema": []
+        }
+        """.data(using: .utf8)!
+
+        let decodedResults = try JSONDecoder().decode(SimulationStudyResults.self, from: legacyResultsJSON)
+        #expect(decodedResults.status == .completed)
+        #expect(decodedResults.runtimeDuration == 1.25)
+        #expect(decodedResults.modeShapes == nil)
+    }
+
     @Test func testBackwardCompatibleDecodingOfSimulationConnection() throws {
         let legacyConnectionJSON = """
         {
@@ -498,6 +545,17 @@ import simd
         #expect(decoded.searchTolerance == nil)
         #expect(decoded.sourceGroupNames.isEmpty)
         #expect(decoded.targetGroupNames.isEmpty)
+    }
+
+    @Test func testSimulationModeShapeInitialization() {
+        let mode = SimulationModeShape(
+            modeNumber: 1,
+            frequencyHz: 42.5,
+            nodalDisplacements: [1: SIMD3<Double>(0.0, 1.0, 0.0)]
+        )
+        #expect(mode.modeNumber == 1)
+        #expect(mode.frequencyHz == 42.5)
+        #expect(mode.nodalDisplacements[1] == SIMD3<Double>(0.0, 1.0, 0.0))
     }
 }
 
