@@ -740,6 +740,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var extrema: [SimulationFieldExtrema]
     public var errorMessage: String?
     public var nodalTemperatures: [Int: Double]?
+    public var nodalDisplacements: [Int: SIMD3<Double>]?
+    public var nodalVonMisesStresses: [Int: Double]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -748,7 +750,9 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         meshSets: [VolumeMeshSet] = [],
         extrema: [SimulationFieldExtrema] = [],
         errorMessage: String? = nil,
-        nodalTemperatures: [Int: Double]? = nil
+        nodalTemperatures: [Int: Double]? = nil,
+        nodalDisplacements: [Int: SIMD3<Double>]? = nil,
+        nodalVonMisesStresses: [Int: Double]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -757,10 +761,12 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.extrema = extrema
         self.errorMessage = errorMessage
         self.nodalTemperatures = nodalTemperatures
+        self.nodalDisplacements = nodalDisplacements
+        self.nodalVonMisesStresses = nodalVonMisesStresses
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses
     }
 
     public init(from decoder: Decoder) throws {
@@ -772,6 +778,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.extrema = try container.decodeIfPresent([SimulationFieldExtrema].self, forKey: .extrema) ?? []
         self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         self.nodalTemperatures = try container.decodeIfPresent([Int: Double].self, forKey: .nodalTemperatures)
+        self.nodalDisplacements = try container.decodeIfPresent([Int: SIMD3<Double>].self, forKey: .nodalDisplacements)
+        self.nodalVonMisesStresses = try container.decodeIfPresent([Int: Double].self, forKey: .nodalVonMisesStresses)
     }
 }
 

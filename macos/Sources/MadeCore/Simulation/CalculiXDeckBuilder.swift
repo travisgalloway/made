@@ -44,8 +44,19 @@ public enum CalculiXDeckBuilder: Sendable {
             lines.append("*CONDUCTIVITY")
             lines.append("50.0") // Standard structural steel W/(m·K)
         } else {
-            lines.append("*ELASTIC")
-            lines.append("210000.0, 0.3") // Standard steel MPa, Poisson ratio
+            if let mat = MaterialLibrary.standard.material(withId: matRaw) {
+                let eMPa = mat.youngsModulusGPa * 1000.0
+                let nu = mat.poissonsRatioValue
+                lines.append("*ELASTIC")
+                lines.append(String(format: "%.1f, %.4f", eMPa, nu))
+                if mat.densityKgPerM3 > 0 {
+                    lines.append("*DENSITY")
+                    lines.append(String(format: "%.4e", mat.densityKgPerM3))
+                }
+            } else {
+                lines.append("*ELASTIC")
+                lines.append("210000.0, 0.3") // Standard steel MPa, Poisson ratio
+            }
         }
 
         lines.append("*SOLID SECTION, ELSET=EALL, MATERIAL=\(matName)")
@@ -169,12 +180,18 @@ public enum CalculiXDeckBuilder: Sendable {
                 let targetNodes = resolveFixtureNodeIds(for: fixture, setByName: setByName)
                 let nodesToFix = targetNodes.isEmpty ? (mesh.nodes.prefix(3).map { $0.id }) : targetNodes
                 for nId in nodesToFix {
-                    if fixture.isRestrainedX && fixture.isRestrainedY && fixture.isRestrainedZ {
-                        lines.append("\(nId), 1, 3, 0.0")
+                    if fixture.kind == .prescribedDisplacement {
+                        if fixture.isRestrainedX { lines.append(String(format: "%d, 1, 1, %.4f", nId, fixture.prescribedDisplacement.x)) }
+                        if fixture.isRestrainedY { lines.append(String(format: "%d, 2, 2, %.4f", nId, fixture.prescribedDisplacement.y)) }
+                        if fixture.isRestrainedZ { lines.append(String(format: "%d, 3, 3, %.4f", nId, fixture.prescribedDisplacement.z)) }
                     } else {
-                        if fixture.isRestrainedX { lines.append("\(nId), 1, 1, 0.0") }
-                        if fixture.isRestrainedY { lines.append("\(nId), 2, 2, 0.0") }
-                        if fixture.isRestrainedZ { lines.append("\(nId), 3, 3, 0.0") }
+                        if fixture.isRestrainedX && fixture.isRestrainedY && fixture.isRestrainedZ {
+                            lines.append("\(nId), 1, 3, 0.0")
+                        } else {
+                            if fixture.isRestrainedX { lines.append("\(nId), 1, 1, 0.0") }
+                            if fixture.isRestrainedY { lines.append("\(nId), 2, 2, 0.0") }
+                            if fixture.isRestrainedZ { lines.append("\(nId), 3, 3, 0.0") }
+                        }
                     }
                 }
             }
@@ -194,6 +211,29 @@ public enum CalculiXDeckBuilder: Sendable {
                     if abs(forceVec.x) > 1e-6 { lines.append(String(format: "%d, 1, %.4f", nId, forceVec.x)) }
                     if abs(forceVec.y) > 1e-6 { lines.append(String(format: "%d, 2, %.4f", nId, forceVec.y)) }
                     if abs(forceVec.z) > 1e-6 { lines.append(String(format: "%d, 3, %.4f", nId, forceVec.z)) }
+                }
+            }
+
+            // Distributed loads (*DLOAD for pressure and gravity)
+            var hasDloadHeader = false
+            for load in study.loads {
+                if load.kind == .pressure {
+                    if !hasDloadHeader {
+                        lines.append("*DLOAD")
+                        hasDloadHeader = true
+                    }
+                    let targetElements = resolveElementIds(for: load, setByName: setByName)
+                    let elementsToUse = targetElements.isEmpty ? (mesh.elements.first.map { [$0.id] } ?? []) : targetElements
+                    for elId in elementsToUse {
+                        lines.append(String(format: "%d, P1, %.4f", elId, load.magnitude))
+                    }
+                } else if load.kind == .gravity {
+                    if !hasDloadHeader {
+                        lines.append("*DLOAD")
+                        hasDloadHeader = true
+                    }
+                    let dir = load.direction
+                    lines.append(String(format: "EALL, GRAV, %.4f, %.4f, %.4f, %.4f", load.magnitude, dir.x, dir.y, dir.z))
                 }
             }
 

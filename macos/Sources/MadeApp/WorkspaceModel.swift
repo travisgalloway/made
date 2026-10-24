@@ -6447,6 +6447,31 @@ final class WorkspaceModel {
                         let extremaSummary = result.extrema.map { "\($0.fieldName): \(String(format: "%.2f", $0.minValue)) to \(String(format: "%.2f", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
                         self.log(.info, "CAE", "Thermal conduction study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(extremaSummary)")
                     }
+                } else if study.studyType == .linearStatic && study.solver.engine == .pureSwift {
+                    let maxCoord = mesh.nodes.reduce(0.0) { max($0, max(abs($1.position.x), max(abs($1.position.y), abs($1.position.z)))) }
+                    let scale: Double = maxCoord > 2.0 ? 0.001 : 1.0
+                    let result = try LinearStaticSolver.solve(study: study, mesh: mesh, lengthScaleToMeters: scale)
+                    let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                                  Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.activeRunningStudyIds.remove(id)
+                        self.activeSolveTasks.removeValue(forKey: id)
+                        if var currentStudy = self.document.study(id: id) {
+                            currentStudy.results.status = .completed
+                            currentStudy.results.runtimeDuration = elapsed
+                            currentStudy.results.extrema = result.extrema
+                            currentStudy.results.nodalDisplacements = result.nodalDisplacements
+                            currentStudy.results.nodalVonMisesStresses = result.nodalVonMisesStresses
+                            currentStudy.results.errorMessage = nil
+                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                            self.markDocumentModified()
+                            self.invalidateViewport(.model)
+                        }
+                        let summary = result.extrema.map { "\($0.fieldName): \(String(format: "%.3g", $0.minValue)) … \(String(format: "%.3g", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
+                        self.log(.info, "CAE", "Linear static study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(summary)")
+                    }
                 } else {
                     let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
                     let result = try await runner.run(
