@@ -485,4 +485,109 @@ import simd
         #expect(clmin == 2.0)
         #expect(clmin <= clmax)
     }
+
+    @Test func testResolveGmshEntityTagFromFacesEdgesVerticesAndBodies() {
+        // Face with targetName "Face 3"
+        let faceRef = SimulationGeometryReference(targetId: UUID(), targetName: "Face 3", subelementType: .face)
+        #expect(VolumeMesherActor.resolveGmshEntityTag(from: faceRef) == 3)
+
+        // Edge with targetName "Edge 12"
+        let edgeRef = SimulationGeometryReference(targetId: UUID(), targetName: "Edge 12", subelementType: .edge)
+        #expect(VolumeMesherActor.resolveGmshEntityTag(from: edgeRef) == 12)
+
+        // Vertex with targetName "Vertex 1"
+        let vertexRef = SimulationGeometryReference(targetId: UUID(), targetName: "Vertex 1", subelementType: .vertex)
+        #expect(VolumeMesherActor.resolveGmshEntityTag(from: vertexRef) == 1)
+
+        // Solid body with targetName "Body 2"
+        let bodyRef = SimulationGeometryReference(targetId: UUID(), targetName: "Body 2", subelementType: nil)
+        #expect(VolumeMesherActor.resolveGmshEntityTag(from: bodyRef) == 2)
+
+        // Solid body without numeric targetName defaults to 1
+        let primaryBodyRef = SimulationGeometryReference(targetId: UUID(), targetName: "Main Solid", subelementType: nil)
+        #expect(VolumeMesherActor.resolveGmshEntityTag(from: primaryBodyRef) == 1)
+
+        // Subelement reference with topological history path fallback (sourceIndex + 1)
+        let historyRef = SimulationGeometryReference(
+            targetId: UUID(),
+            targetName: "non-numeric-target",
+            subelementType: .face,
+            topologicalReference: TopologicalReference(
+                sourceFeatureId: UUID(),
+                elementType: .face,
+                historyPath: [HistoryStep(kind: .generated, label: "face", sourceIndex: 4)]
+            )
+        )
+        #expect(VolumeMesherActor.resolveGmshEntityTag(from: historyRef) == 5)
+
+        // Face reference with no digits and no history path returns nil
+        let invalidRef = SimulationGeometryReference(targetId: UUID(), targetName: "custom_face", subelementType: .face)
+        #expect(VolumeMesherActor.resolveGmshEntityTag(from: invalidRef) == nil)
+    }
+
+    @Test func testBuildGmshRefinementString() {
+        var spec = MeshSpecification()
+        #expect(VolumeMesherActor.buildGmshRefinementString(specification: spec) == nil)
+
+        let region = MeshRefinementRegion(
+            name: "Hole & Fillet",
+            targetReferences: [
+                SimulationGeometryReference(targetId: UUID(), targetName: "Face 3", subelementType: .face),
+                SimulationGeometryReference(targetId: UUID(), targetName: "Edge 12", subelementType: .edge),
+                SimulationGeometryReference(targetId: UUID(), targetName: "Vertex 1", subelementType: .vertex),
+                SimulationGeometryReference(targetId: UUID(), targetName: "Body 1", subelementType: nil)
+            ],
+            targetElementSize: 0.5
+        )
+        spec.refinementRegions = [region]
+
+        let commandString = VolumeMesherActor.buildGmshRefinementString(specification: spec)
+        #expect(commandString != nil)
+        guard let commandString else { return }
+
+        #expect(commandString.contains("MeshSize { PointsOf{ Surface{3}; }; } = 0.5;"))
+        #expect(commandString.contains("MeshSize { PointsOf{ Curve{12}; }; } = 0.5;"))
+        #expect(commandString.contains("MeshSize { Point{1}; } = 0.5;"))
+        #expect(commandString.contains("MeshSize { PointsOf{ Volume{1}; }; } = 0.5;"))
+    }
+
+    @Test func testBuildGmshArgumentsIncludesRefinementStringAndLowersClmin() {
+        let region = MeshRefinementRegion(
+            name: "Local Zone",
+            targetReferences: [
+                SimulationGeometryReference(targetId: UUID(), targetName: "Face 4", subelementType: .face)
+            ],
+            targetElementSize: 0.25
+        )
+        let spec = MeshSpecification(
+            targetElementSize: 5.0,
+            minElementSize: 1.0,
+            refinementRegions: [region]
+        )
+
+        let args = VolumeMesherActor.buildGmshArguments(specification: spec)
+
+        // Effective -clmin lowered to 0.25
+        guard let clminIdx = args.firstIndex(of: "-clmin"), clminIdx + 1 < args.count,
+              let clmaxIdx = args.firstIndex(of: "-clmax"), clmaxIdx + 1 < args.count else {
+            Issue.record("Missing -clmin or -clmax")
+            return
+        }
+        #expect(args[clmaxIdx + 1] == "5.0")
+        #expect(args[clminIdx + 1] == "0.25")
+
+        // -string refinement statement included
+        guard let stringIdx = args.firstIndex(of: "-string"), stringIdx + 1 < args.count else {
+            Issue.record("Missing -string refinement argument")
+            return
+        }
+        #expect(args[stringIdx + 1].contains("MeshSize { PointsOf{ Surface{4}; }; } = 0.25;"))
+
+        // -string precedes the STEP file
+        guard let stepIdx = args.firstIndex(of: "geometry.step") else {
+            Issue.record("Missing step file argument")
+            return
+        }
+        #expect(stringIdx < stepIdx)
+    }
 }

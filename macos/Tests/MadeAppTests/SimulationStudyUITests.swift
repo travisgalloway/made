@@ -468,6 +468,114 @@ import simd
         #expect(currentFixture.targetReferences.count == 1)
         #expect(currentFixture.targetReferences.first?.targetName == "Face 1")
     }
+
+    @Test func testWorkspaceRefinementRegionMutations() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Refinement Workspace Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        #expect(ws.document.study(id: study.id)?.mesh.refinementRegions.isEmpty == true)
+
+        guard let region = ws.addMeshRefinementRegion(studyId: study.id) else {
+            Issue.record("Failed to add refinement region")
+            return
+        }
+
+        #expect(ws.document.study(id: study.id)?.mesh.refinementRegions.count == 1)
+        #expect(ws.document.study(id: study.id)?.mesh.refinementRegions.first?.id == region.id)
+        #expect(ws.isDocumentModified)
+
+        var copy = region
+        copy.name = "Root Fillet"
+        copy.targetElementSize = 0.35
+        ws.updateMeshRefinementRegion(studyId: study.id, region: copy)
+
+        let updatedRegion = ws.document.study(id: study.id)?.mesh.refinementRegions.first { $0.id == region.id }
+        #expect(updatedRegion?.name == "Root Fillet")
+        #expect(updatedRegion?.targetElementSize == 0.35)
+
+        // Assign face subelement selection
+        ws.document.selectedSubElement = SelectedSubElement(
+            solidId: SolidId("box-solid-1"),
+            elementType: .face,
+            elementId: 2
+        )
+        ws.assignActiveSelectionToRefinementRegion(studyId: study.id, regionId: region.id)
+
+        let regionWithTarget = ws.document.study(id: study.id)?.mesh.refinementRegions.first { $0.id == region.id }
+        #expect(regionWithTarget?.targetReferences.count == 1)
+        #expect(regionWithTarget?.targetReferences.first?.targetName == "Face 2")
+        #expect(regionWithTarget?.targetReferences.first?.subelementType == .face)
+
+        // Remove target
+        if let targetId = regionWithTarget?.targetReferences.first?.id {
+            ws.removeTargetFromRefinementRegion(studyId: study.id, regionId: region.id, referenceId: targetId)
+            let regionCleared = ws.document.study(id: study.id)?.mesh.refinementRegions.first { $0.id == region.id }
+            #expect(regionCleared?.targetReferences.isEmpty == true)
+        }
+
+        // Remove region
+        ws.removeMeshRefinementRegion(studyId: study.id, regionId: region.id)
+        #expect(ws.document.study(id: study.id)?.mesh.refinementRegions.isEmpty == true)
+    }
+
+    @Test func testWorkspaceAssignActiveSolidBodyToRefinementRegion() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Body Refinement Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        guard let region = ws.addMeshRefinementRegion(studyId: study.id) else {
+            Issue.record("Failed to add refinement region")
+            return
+        }
+
+        ws.document.selectedSubElement = nil
+        ws.selectedId = ObjectId("box-1")
+        #expect(ws.selectedBody != nil)
+
+        ws.assignActiveSelectionToRefinementRegion(studyId: study.id, regionId: region.id)
+
+        let regionWithBody = ws.document.study(id: study.id)?.mesh.refinementRegions.first { $0.id == region.id }
+        #expect(regionWithBody?.targetReferences.count == 1)
+        #expect(regionWithBody?.targetReferences.first?.subelementType == nil)
+        #expect(regionWithBody?.targetReferences.first?.targetName == "box-1")
+    }
+
+    @Test func testInspectorSimulationMeshViewRefinementControls() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Inspector Refinement Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        let ref = SimulationGeometryReference(targetId: UUID(), targetName: "Face 4", subelementType: .face)
+        let region = MeshRefinementRegion(name: "Fine Hole", targetReferences: [ref], targetElementSize: 0.2)
+        _ = ws.addMeshRefinementRegion(studyId: study.id, region: region)
+
+        let currentStudy = ws.document.study(id: study.id)!
+        let view = InspectorSimulationMeshView(study: currentStudy).environment(ws)
+        _ = view
+
+        #expect(currentStudy.mesh.refinementRegions.count == 1)
+        #expect(currentStudy.mesh.refinementRegions.first?.name == "Fine Hole")
+        #expect(currentStudy.mesh.refinementRegions.first?.targetReferences.first?.targetName == "Face 4")
+
+        let addBtnId = "inspector-simulation-mesh-add-refinement-button"
+        let regionNameId = "inspector-simulation-mesh-region-name-\(region.id)"
+        let regionDeleteId = "inspector-simulation-mesh-delete-region-\(region.id)"
+        let regionSizeId = "inspector-simulation-mesh-region-size-\(region.id)"
+        let assignTargetId = "inspector-simulation-mesh-assign-region-target-\(region.id)"
+        let removeTargetId = "inspector-simulation-mesh-remove-region-target-\(ref.id)"
+
+        #expect(addBtnId == "inspector-simulation-mesh-add-refinement-button")
+        #expect(regionNameId.hasPrefix("inspector-simulation-mesh-region-name-"))
+        #expect(regionDeleteId.hasPrefix("inspector-simulation-mesh-delete-region-"))
+        #expect(regionSizeId.hasPrefix("inspector-simulation-mesh-region-size-"))
+        #expect(assignTargetId.hasPrefix("inspector-simulation-mesh-assign-region-target-"))
+        #expect(removeTargetId.hasPrefix("inspector-simulation-mesh-remove-region-target-"))
+    }
 }
 
 private actor MockSolverRunner: SolverRunnerProtocol {

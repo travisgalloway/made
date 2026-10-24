@@ -6756,6 +6756,74 @@ final class WorkspaceModel {
         }
     }
 
+    @discardableResult
+    public func addMeshRefinementRegion(
+        studyId: UUID,
+        region: MeshRefinementRegion = MeshRefinementRegion()
+    ) -> MeshRefinementRegion? {
+        guard var study = document.study(id: studyId) else { return nil }
+        study.mesh.refinementRegions.append(region)
+        updateSimulationMeshSpecification(studyId: studyId, mesh: study.mesh)
+        return region
+    }
+
+    public func removeMeshRefinementRegion(studyId: UUID, regionId: UUID) {
+        guard var study = document.study(id: studyId) else { return }
+        study.mesh.refinementRegions.removeAll { $0.id == regionId }
+        updateSimulationMeshSpecification(studyId: studyId, mesh: study.mesh)
+    }
+
+    public func updateMeshRefinementRegion(studyId: UUID, region: MeshRefinementRegion) {
+        guard var study = document.study(id: studyId) else { return }
+        guard let index = study.mesh.refinementRegions.firstIndex(where: { $0.id == region.id }) else { return }
+        study.mesh.refinementRegions[index] = region
+        updateSimulationMeshSpecification(studyId: studyId, mesh: study.mesh)
+    }
+
+    public func assignActiveSelectionToRefinementRegion(studyId: UUID, regionId: UUID) {
+        guard var study = document.study(id: studyId),
+              let regionIdx = study.mesh.refinementRegions.firstIndex(where: { $0.id == regionId }) else { return }
+
+        let reference: SimulationGeometryReference
+        if let sub = document.selectedSubElement {
+            let targetName: String
+            switch sub.elementType {
+            case .face:
+                targetName = "Face \(sub.elementId)"
+            case .edge:
+                targetName = "Edge \(sub.elementId)"
+            case .vertex:
+                targetName = "Vertex \(sub.elementId)"
+            }
+            let targetId = sub.deterministicId ?? UUID(uuidString: sub.solidId.rawValue) ?? UUID()
+            reference = SimulationGeometryReference(
+                targetId: targetId,
+                targetName: targetName,
+                subelementType: sub.elementType
+            )
+        } else if let body = selectedBody {
+            let targetName = body.name.isEmpty ? "Body 1" : body.name
+            let targetId = UUID(uuidString: body.id.rawValue) ?? UUID()
+            reference = SimulationGeometryReference(
+                targetId: targetId,
+                targetName: targetName,
+                subelementType: nil
+            )
+        } else {
+            return
+        }
+
+        study.mesh.refinementRegions[regionIdx].targetReferences.append(reference)
+        updateSimulationMeshSpecification(studyId: studyId, mesh: study.mesh)
+    }
+
+    public func removeTargetFromRefinementRegion(studyId: UUID, regionId: UUID, referenceId: UUID) {
+        guard var study = document.study(id: studyId),
+              let regionIdx = study.mesh.refinementRegions.firstIndex(where: { $0.id == regionId }) else { return }
+        study.mesh.refinementRegions[regionIdx].targetReferences.removeAll { $0.id == referenceId }
+        updateSimulationMeshSpecification(studyId: studyId, mesh: study.mesh)
+    }
+
     public func updateSimulationSolverConfiguration(studyId: UUID, solver: SolverConfiguration) {
         let result = document.updateSimulationSolverConfiguration(studyId: studyId, solver: solver)
         if case .success = result {

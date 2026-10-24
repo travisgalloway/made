@@ -2940,9 +2940,87 @@ struct InspectorSimulationMeshView: View {
             }
 
             Section {
-                LabeledContent("Refinement Regions") {
-                    Text("\(study.mesh.refinementRegions.count) region(s)")
+                Button {
+                    workspace.addMeshRefinementRegion(studyId: study.id)
+                } label: {
+                    Label("Add Refinement Region", systemImage: "plus.circle")
+                }
+                .accessibilityIdentifier("inspector-simulation-mesh-add-refinement-button")
+
+                if study.mesh.refinementRegions.isEmpty {
+                    Text("No local refinement regions defined.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                } else {
+                    ForEach(study.mesh.refinementRegions) { region in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                TextField("Region Name", text: Binding(
+                                    get: { region.name },
+                                    set: { newName in
+                                        var copy = region
+                                        copy.name = newName
+                                        workspace.updateMeshRefinementRegion(studyId: study.id, region: copy)
+                                    }
+                                ))
+                                .accessibilityIdentifier("inspector-simulation-mesh-region-name-\(region.id)")
+
+                                Spacer()
+
+                                Button {
+                                    workspace.removeMeshRefinementRegion(studyId: study.id, regionId: region.id)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .foregroundStyle(.red)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityIdentifier("inspector-simulation-mesh-delete-region-\(region.id)")
+                            }
+
+                            LabeledContent("Target Size (mm)") {
+                                TextField("Size", value: Binding(
+                                    get: { region.targetElementSize },
+                                    set: { newSize in
+                                        var copy = region
+                                        copy.targetElementSize = max(0.0001, newSize)
+                                        workspace.updateMeshRefinementRegion(studyId: study.id, region: copy)
+                                    }
+                                ), format: .number)
+                                .accessibilityIdentifier("inspector-simulation-mesh-region-size-\(region.id)")
+                            }
+
+                            if region.targetReferences.isEmpty {
+                                Text("No targets assigned")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(region.targetReferences) { ref in
+                                    HStack {
+                                        Label(ref.targetName.isEmpty ? "Target Entity" : ref.targetName, systemImage: "target")
+                                        Spacer()
+                                        Button {
+                                            workspace.removeTargetFromRefinementRegion(studyId: study.id, regionId: region.id, referenceId: ref.id)
+                                        } label: {
+                                            Image(systemName: "trash")
+                                                .foregroundStyle(.red)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .accessibilityIdentifier("inspector-simulation-mesh-remove-region-target-\(ref.id)")
+                                    }
+                                }
+                            }
+
+                            Button {
+                                workspace.assignActiveSelectionToRefinementRegion(studyId: study.id, regionId: region.id)
+                            } label: {
+                                Label("Assign Active Selection", systemImage: "plus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(workspace.document.selectedSubElement == nil && workspace.selectedBody == nil)
+                            .accessibilityIdentifier("inspector-simulation-mesh-assign-region-target-\(region.id)")
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
             } header: {
                 sectionHeader("Local Refinement")

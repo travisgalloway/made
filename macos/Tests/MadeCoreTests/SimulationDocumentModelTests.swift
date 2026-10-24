@@ -314,4 +314,42 @@ import Foundation
         #expect(redoneMesh?.curvatureRefinement == true)
         #expect(redoneMesh?.curvatureElementsPerCircle == 16.0)
     }
+
+    @Test func testUpdateMeshSpecificationWithRefinementRegionsUndoRedo() {
+        let doc = DocumentModel()
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let study = SimulationStudy(name: "Refinement Undo Study", studyType: .linearStatic)
+        doc.addStudy(study)
+        undoManager.removeAllActions()
+
+        let initialMesh = doc.study(id: study.id)?.mesh
+        #expect(initialMesh?.refinementRegions.isEmpty == true)
+
+        var updatedMesh = initialMesh ?? MeshSpecification()
+        let region = MeshRefinementRegion(
+            name: "Critical Fillet",
+            targetReferences: [SimulationGeometryReference(targetId: UUID(), targetName: "Face 4", subelementType: .face)],
+            targetElementSize: 0.25
+        )
+        updatedMesh.refinementRegions = [region]
+
+        let result = doc.updateSimulationMeshSpecification(studyId: study.id, mesh: updatedMesh)
+        #expect(result == .success(()))
+
+        let currentMesh = doc.study(id: study.id)?.mesh
+        #expect(currentMesh?.refinementRegions.count == 1)
+        #expect(currentMesh?.refinementRegions.first?.name == "Critical Fillet")
+        #expect(currentMesh?.refinementRegions.first?.targetElementSize == 0.25)
+
+        undoManager.undo()
+        let undoneMesh = doc.study(id: study.id)?.mesh
+        #expect(undoneMesh?.refinementRegions.isEmpty == true)
+
+        undoManager.redo()
+        let redoneMesh = doc.study(id: study.id)?.mesh
+        #expect(redoneMesh?.refinementRegions.count == 1)
+        #expect(redoneMesh?.refinementRegions.first?.name == "Critical Fillet")
+    }
 }

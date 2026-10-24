@@ -338,4 +338,51 @@ import simd
         let resAngled = MeshGeometryAssociator.associate(reference: angledRef, mesh: mesh)
         #expect(resAngled.elementIds.isEmpty)
     }
+
+    @Test func testAssociateVertexReferenceWithMeshNodes() {
+        let nodes = [
+            VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0)),
+            VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0)),
+            VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 10, 0)),
+            VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 10))
+        ]
+        let mesh = VolumeMesh(nodes: nodes, elements: [VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 0)])
+
+        let matchingVertexRef = SimulationGeometryReference(
+            targetId: UUID(),
+            targetName: "vertex:corner",
+            subelementType: .vertex,
+            topologicalReference: TopologicalReference(
+                sourceFeatureId: UUID(),
+                elementType: .vertex,
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(10, 0, 0))
+            )
+        )
+        let matched = MeshGeometryAssociator.associate(reference: matchingVertexRef, mesh: mesh)
+        #expect(matched.nodeIds == [2])
+        #expect(matched.elementIds.isEmpty)
+
+        let unmatchedVertexRef = SimulationGeometryReference(
+            targetId: UUID(),
+            targetName: "vertex:distant",
+            subelementType: .vertex,
+            topologicalReference: TopologicalReference(
+                sourceFeatureId: UUID(),
+                elementType: .vertex,
+                disambiguator: GeometricSignature(centroid: SIMD3<Float>(100, 100, 100))
+            )
+        )
+        let unmatched = MeshGeometryAssociator.associate(reference: unmatchedVertexRef, mesh: mesh)
+        #expect(unmatched.nodeIds.isEmpty)
+        #expect(unmatched.elementIds.isEmpty)
+
+        let noCentroidVertexRef = SimulationGeometryReference(
+            targetId: UUID(),
+            targetName: "vertex:nocentroid",
+            subelementType: .vertex
+        )
+        let noCentroid = MeshGeometryAssociator.associate(reference: noCentroidVertexRef, mesh: mesh)
+        #expect(noCentroid.nodeIds.isEmpty)
+        #expect(noCentroid.elementIds.isEmpty)
+    }
 }

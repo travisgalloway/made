@@ -383,6 +383,18 @@ public struct MeshRefinementRegion: Sendable, Codable, Equatable, Hashable, Iden
         self.targetReferences = targetReferences
         self.targetElementSize = targetElementSize
     }
+
+    public mutating func clamp() {
+        targetElementSize = max(0.0001, targetElementSize)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        name = trimmedName.isEmpty ? "Refinement" : trimmedName
+    }
+
+    public func clamped() -> MeshRefinementRegion {
+        var copy = self
+        copy.clamp()
+        return copy
+    }
 }
 
 /// Tetrahedral volume meshing parameters (ADR-D5, #157, #188, #275).
@@ -450,6 +462,11 @@ public struct MeshSpecification: Sendable, Codable, Equatable, Hashable {
         minElementSize = max(0.0001, min(minElementSize, targetElementSize))
         growthRate = max(1.0, growthRate)
         curvatureElementsPerCircle = max(3.0, curvatureElementsPerCircle)
+        refinementRegions = refinementRegions.map { region in
+            var copy = region
+            copy.clamp()
+            return copy
+        }
     }
 
     public func clamped() -> MeshSpecification {
