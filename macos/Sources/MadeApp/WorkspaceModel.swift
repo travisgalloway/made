@@ -50,6 +50,7 @@ final class WorkspaceModel {
     public var selectedSimulationStudyId: UUID? = nil
     public var selectedSimulationFixtureId: UUID? = nil
     public var selectedSimulationLoadId: UUID? = nil
+    public var selectedSimulationConnectionId: UUID? = nil
     public var selectedSimulationMaterialAssignmentId: UUID? = nil
     public var isSimulationMeshSelected: Bool = false
     public var isSimulationResultsSelected: Bool = false
@@ -84,6 +85,11 @@ final class WorkspaceModel {
         return study.loads.first(where: { $0.id == loadId })
     }
 
+    public var selectedSimulationConnection: SimulationConnection? {
+        guard let study = selectedSimulationStudy, let connectionId = selectedSimulationConnectionId else { return nil }
+        return study.connections.first(where: { $0.id == connectionId })
+    }
+
     public var selectedSimulationMaterialAssignment: SimulationMaterialAssignment? {
         guard let study = selectedSimulationStudy, let assignmentId = selectedSimulationMaterialAssignmentId else { return nil }
         return study.materials.first(where: { $0.id == assignmentId })
@@ -93,6 +99,7 @@ final class WorkspaceModel {
         selectedSimulationStudyId = nil
         selectedSimulationFixtureId = nil
         selectedSimulationLoadId = nil
+        selectedSimulationConnectionId = nil
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = false
@@ -118,6 +125,7 @@ final class WorkspaceModel {
         selectedSimulationStudyId = id
         selectedSimulationFixtureId = nil
         selectedSimulationLoadId = nil
+        selectedSimulationConnectionId = nil
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = false
@@ -133,6 +141,7 @@ final class WorkspaceModel {
         selectedSimulationStudyId = studyId
         selectedSimulationFixtureId = fixtureId
         selectedSimulationLoadId = nil
+        selectedSimulationConnectionId = nil
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = false
@@ -145,6 +154,20 @@ final class WorkspaceModel {
         selectedSimulationStudyId = studyId
         selectedSimulationFixtureId = nil
         selectedSimulationLoadId = loadId
+        selectedSimulationConnectionId = nil
+        selectedSimulationMaterialAssignmentId = nil
+        isSimulationMeshSelected = false
+        isSimulationResultsSelected = false
+    }
+
+    public func selectSimulationConnection(studyId: UUID, connectionId: UUID?) {
+        if connectionId != nil {
+            clearNonSimulationSelections()
+        }
+        selectedSimulationStudyId = studyId
+        selectedSimulationFixtureId = nil
+        selectedSimulationLoadId = nil
+        selectedSimulationConnectionId = connectionId
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = false
@@ -157,6 +180,7 @@ final class WorkspaceModel {
         selectedSimulationStudyId = studyId
         selectedSimulationFixtureId = nil
         selectedSimulationLoadId = nil
+        selectedSimulationConnectionId = nil
         selectedSimulationMaterialAssignmentId = assignmentId
         isSimulationMeshSelected = false
         isSimulationResultsSelected = false
@@ -169,6 +193,7 @@ final class WorkspaceModel {
         selectedSimulationStudyId = studyId
         selectedSimulationFixtureId = nil
         selectedSimulationLoadId = nil
+        selectedSimulationConnectionId = nil
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = isSelected
         isSimulationResultsSelected = false
@@ -182,6 +207,7 @@ final class WorkspaceModel {
         selectedSimulationStudyId = studyId
         selectedSimulationFixtureId = nil
         selectedSimulationLoadId = nil
+        selectedSimulationConnectionId = nil
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = isSelected
@@ -6860,6 +6886,41 @@ final class WorkspaceModel {
     }
 
     @discardableResult
+    public func addSimulationConnection(
+        studyId: UUID,
+        connection: SimulationConnection = SimulationConnection()
+    ) -> SimulationConnection? {
+        let result = document.addSimulationConnection(studyId: studyId, connection: connection)
+        guard case .success(let newConnection) = result else { return nil }
+        selectSimulationConnection(studyId: studyId, connectionId: newConnection.id)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Added connection '\(newConnection.name)' to study")
+        return newConnection
+    }
+
+    public func removeSimulationConnection(studyId: UUID, connectionId: UUID) {
+        if selectedSimulationConnectionId == connectionId {
+            selectedSimulationConnectionId = nil
+        }
+        let result = document.removeSimulationConnection(studyId: studyId, connectionId: connectionId)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Removed connection \(connectionId)")
+        }
+    }
+
+    public func updateSimulationConnection(studyId: UUID, connection: SimulationConnection) {
+        let result = document.updateSimulationConnection(studyId: studyId, connection: connection)
+        if case .success = result {
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Updated connection '\(connection.name)'")
+        }
+    }
+
+    @discardableResult
     public func addSimulationMaterialAssignment(
         studyId: UUID,
         assignment: SimulationMaterialAssignment = SimulationMaterialAssignment()
@@ -7212,6 +7273,66 @@ final class WorkspaceModel {
 
     public func removeTargetReferenceFromLoad(studyId: UUID, loadId: UUID, referenceId: UUID) {
         _ = document.removeTargetReferenceFromLoad(studyId: studyId, loadId: loadId, referenceId: referenceId)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func assignSelectedSubElementToConnectionSource(studyId: UUID, connectionId: UUID) {
+        guard let sub = document.selectedSubElement else { return }
+        let targetName: String
+        switch sub.elementType {
+        case .face:
+            targetName = "Face \(sub.elementId)"
+        case .edge:
+            targetName = "Edge \(sub.elementId)"
+        case .vertex:
+            targetName = "Vertex \(sub.elementId)"
+        }
+        let targetId = sub.deterministicId ?? UUID(uuidString: sub.solidId.rawValue) ?? UUID()
+        let ref = SimulationGeometryReference(
+            targetId: targetId,
+            targetName: targetName,
+            subelementType: sub.elementType
+        )
+        _ = document.assignSourceReferenceToConnection(studyId: studyId, connectionId: connectionId, reference: ref)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func removeSourceReferenceFromConnection(studyId: UUID, connectionId: UUID, referenceId: UUID) {
+        _ = document.removeSourceReferenceFromConnection(studyId: studyId, connectionId: connectionId, referenceId: referenceId)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func assignSelectedSubElementToConnectionTarget(studyId: UUID, connectionId: UUID) {
+        guard let sub = document.selectedSubElement else { return }
+        let targetName: String
+        switch sub.elementType {
+        case .face:
+            targetName = "Face \(sub.elementId)"
+        case .edge:
+            targetName = "Edge \(sub.elementId)"
+        case .vertex:
+            targetName = "Vertex \(sub.elementId)"
+        }
+        let targetId = sub.deterministicId ?? UUID(uuidString: sub.solidId.rawValue) ?? UUID()
+        let ref = SimulationGeometryReference(
+            targetId: targetId,
+            targetName: targetName,
+            subelementType: sub.elementType
+        )
+        _ = document.assignTargetReferenceToConnection(studyId: studyId, connectionId: connectionId, reference: ref)
+        reassociateSimulationMeshSets(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func removeTargetReferenceFromConnection(studyId: UUID, connectionId: UUID, referenceId: UUID) {
+        _ = document.removeTargetReferenceFromConnection(studyId: studyId, connectionId: connectionId, referenceId: referenceId)
         reassociateSimulationMeshSets(studyId: studyId)
         markDocumentModified()
         invalidateViewport(.model)

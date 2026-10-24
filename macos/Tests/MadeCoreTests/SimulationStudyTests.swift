@@ -478,5 +478,26 @@ import simd
         #expect(decodedMode.loadFactor == 3.1415)
         #expect(decodedMode.nodalDisplacements[1] == SIMD3<Double>(0, 1, 0))
     }
+
+    @Test func testBackwardCompatibleDecodingOfSimulationConnection() throws {
+        let legacyConnectionJSON = """
+        {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "name": "Legacy Bonded",
+            "kind": "bonded",
+            "sourceReferences": [],
+            "targetReferences": [],
+            "stiffness": 500000.0
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(SimulationConnection.self, from: legacyConnectionJSON)
+        #expect(decoded.name == "Legacy Bonded")
+        #expect(decoded.kind == .bonded)
+        #expect(decoded.stiffness == 500000.0)
+        #expect(decoded.searchTolerance == nil)
+        #expect(decoded.sourceGroupNames.isEmpty)
+        #expect(decoded.targetGroupNames.isEmpty)
+    }
 }
 

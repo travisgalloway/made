@@ -153,6 +153,103 @@ public enum MeshGeometryAssociator {
             }
         }
 
+        // Associate connections (BL-FEA-04, #222)
+        for connection in study.connections {
+            // Source set
+            let sourceSet: VolumeMeshSet
+            if connection.sourceReferences.isEmpty && connection.sourceGroupNames.isEmpty {
+                let boundaryTriangles = getBoundaryTriangles(mesh: mesh)
+                let elIds = boundaryTriangles.map { $0.id }.sorted()
+                let nIds = Array(Set(boundaryTriangles.flatMap { $0.nodeIndices })).sorted()
+                sourceSet = VolumeMeshSet(
+                    id: UUID(),
+                    name: "\(connection.name)_Source",
+                    nodeIds: nIds,
+                    elementIds: elIds,
+                    subelementType: .face
+                )
+            } else {
+                var sElementIds = Set<Int>()
+                var sNodeIds = Set<Int>()
+                for ref in connection.sourceReferences {
+                    let res = associate(reference: ref, mesh: mesh)
+                    sElementIds.formUnion(res.elementIds)
+                    sNodeIds.formUnion(res.nodeIds)
+                }
+                for gName in connection.sourceGroupNames {
+                    if let grp = study.groups.first(where: { $0.name == gName }) {
+                        for ref in grp.targetReferences {
+                            let res = associate(reference: ref, mesh: mesh)
+                            sElementIds.formUnion(res.elementIds)
+                            sNodeIds.formUnion(res.nodeIds)
+                        }
+                    } else if let existing = resultSets.first(where: { $0.name == gName }) {
+                        sElementIds.formUnion(existing.elementIds)
+                        sNodeIds.formUnion(existing.nodeIds)
+                    }
+                }
+                sourceSet = VolumeMeshSet(
+                    id: UUID(),
+                    name: "\(connection.name)_Source",
+                    nodeIds: sNodeIds.sorted(),
+                    elementIds: sElementIds.sorted(),
+                    subelementType: .face
+                )
+            }
+            if let idx = resultSets.firstIndex(where: { $0.name == sourceSet.name }) {
+                resultSets[idx] = sourceSet
+            } else {
+                resultSets.append(sourceSet)
+            }
+
+            // Target set
+            let targetSet: VolumeMeshSet
+            if connection.targetReferences.isEmpty && connection.targetGroupNames.isEmpty {
+                let boundaryTriangles = getBoundaryTriangles(mesh: mesh)
+                let elIds = boundaryTriangles.map { $0.id }.sorted()
+                let nIds = Array(Set(boundaryTriangles.flatMap { $0.nodeIndices })).sorted()
+                targetSet = VolumeMeshSet(
+                    id: UUID(),
+                    name: "\(connection.name)_Target",
+                    nodeIds: nIds,
+                    elementIds: elIds,
+                    subelementType: .face
+                )
+            } else {
+                var tElementIds = Set<Int>()
+                var tNodeIds = Set<Int>()
+                for ref in connection.targetReferences {
+                    let res = associate(reference: ref, mesh: mesh)
+                    tElementIds.formUnion(res.elementIds)
+                    tNodeIds.formUnion(res.nodeIds)
+                }
+                for gName in connection.targetGroupNames {
+                    if let grp = study.groups.first(where: { $0.name == gName }) {
+                        for ref in grp.targetReferences {
+                            let res = associate(reference: ref, mesh: mesh)
+                            tElementIds.formUnion(res.elementIds)
+                            tNodeIds.formUnion(res.nodeIds)
+                        }
+                    } else if let existing = resultSets.first(where: { $0.name == gName }) {
+                        tElementIds.formUnion(existing.elementIds)
+                        tNodeIds.formUnion(existing.nodeIds)
+                    }
+                }
+                targetSet = VolumeMeshSet(
+                    id: UUID(),
+                    name: "\(connection.name)_Target",
+                    nodeIds: tNodeIds.sorted(),
+                    elementIds: tElementIds.sorted(),
+                    subelementType: .face
+                )
+            }
+            if let idx = resultSets.firstIndex(where: { $0.name == targetSet.name }) {
+                resultSets[idx] = targetSet
+            } else {
+                resultSets.append(targetSet)
+            }
+        }
+
         return resultSets
     }
 
@@ -407,5 +504,89 @@ public enum MeshGeometryAssociator {
             case .left: return SIMD3<Double>(-1, 0, 0)
             }
         }
+    }
+
+    /// Finds coincident or near-coincident node pairs across source and target node sets within contact tolerance (BL-FEA-04, #222).
+    public static func findBondedNodePairs(
+        sourceNodeIds: [Int],
+        targetNodeIds: [Int],
+        mesh: VolumeMesh,
+        searchTolerance: Double? = nil
+    ) -> [(sourceNodeId: Int, targetNodeId: Int, distance: Double)] {
+        guard !sourceNodeIds.isEmpty, !targetNodeIds.isEmpty, !mesh.nodes.isEmpty else {
+            return []
+        }
+        let nodeMap = Dictionary(uniqueKeysWithValues: mesh.nodes.map { ($0.id, $0.position) })
+
+        let tol: Double
+        if let st = searchTolerance, st > 0 {
+            tol = st
+        } else {
+            var minPos = SIMD3<Double>(repeating: .infinity)
+            var maxPos = SIMD3<Double>(repeating: -.infinity)
+            for node in mesh.nodes {
+                minPos = simd_min(minPos, node.position)
+                maxPos = simd_max(maxPos, node.position)
+            }
+            let extents = maxPos - minPos
+            let maxDim = max(max(extents.x, extents.y), extents.z)
+            tol = max(1e-4, maxDim * 0.005)
+        }
+
+        let isSelfOrIdentical = (Set(sourceNodeIds) == Set(targetNodeIds))
+
+        var pairs: [(sourceNodeId: Int, targetNodeId: Int, distance: Double)] = []
+        var usedTargetIds = Set<Int>()
+        var usedSourceIds = Set<Int>()
+
+        if isSelfOrIdentical {
+            // Automatic contact detection across boundary nodes: find distinct coincident node pairs
+            let sortedNodes = sourceNodeIds.sorted()
+            for i in 0..<sortedNodes.count {
+                let sId = sortedNodes[i]
+                if usedSourceIds.contains(sId) || usedTargetIds.contains(sId) { continue }
+                guard let sPos = nodeMap[sId] else { continue }
+                var bestTargetId: Int?
+                var bestDistance = Double.infinity
+                for j in (i + 1)..<sortedNodes.count {
+                    let tId = sortedNodes[j]
+                    if usedTargetIds.contains(tId) || usedSourceIds.contains(tId) { continue }
+                    guard let tPos = nodeMap[tId] else { continue }
+                    let dist = simd_distance(sPos, tPos)
+                    if dist <= tol && dist < bestDistance {
+                        bestDistance = dist
+                        bestTargetId = tId
+                    }
+                }
+                if let targetId = bestTargetId {
+                    usedSourceIds.insert(sId)
+                    usedTargetIds.insert(targetId)
+                    pairs.append((sourceNodeId: sId, targetNodeId: targetId, distance: bestDistance))
+                }
+            }
+        } else {
+            // Distinct source and target sets
+            let targetCandidateIds = targetNodeIds.sorted()
+            for sId in sourceNodeIds.sorted() {
+                guard let sPos = nodeMap[sId] else { continue }
+                var bestTargetId: Int?
+                var bestDistance = Double.infinity
+                for tId in targetCandidateIds {
+                    if tId == sId || usedTargetIds.contains(tId) { continue }
+                    guard let tPos = nodeMap[tId] else { continue }
+                    let dist = simd_distance(sPos, tPos)
+                    if dist <= tol && dist < bestDistance {
+                        bestDistance = dist
+                        bestTargetId = tId
+                    }
+                }
+                if let targetId = bestTargetId {
+                    usedTargetIds.insert(targetId)
+                    pairs.append((sourceNodeId: sId, targetNodeId: targetId, distance: bestDistance))
+                }
+            }
+        }
+
+        return pairs
     }
 }

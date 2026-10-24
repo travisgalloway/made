@@ -91,10 +91,12 @@ import simd
         }
         let fixture = SimulationFixture(name: "Base Clamp", kind: .fixed)
         let load = SimulationLoad(name: "Pushed Load", kind: .force, magnitude: 120)
+        let connection = SimulationConnection(name: "Bonded Joint", kind: .bonded)
 
         _ = InspectorSimulationStudyView(study: study).environment(ws)
         _ = InspectorSimulationFixtureView(study: study, fixture: fixture).environment(ws)
         _ = InspectorSimulationLoadView(study: study, load: load).environment(ws)
+        _ = InspectorSimulationConnectionView(study: study, connection: connection).environment(ws)
         _ = InspectorSimulationMeshView(study: study).environment(ws)
         _ = InspectorSimulationResultsView(study: study).environment(ws)
     }
@@ -1084,6 +1086,68 @@ import simd
         ws.updateSimulationLoad(studyId: study.id, load: forceLoad)
         let updatedStudy = ws.document.study(id: study.id)
         #expect(updatedStudy?.loads.first(where: { $0.id == forceLoad.id })?.forceDistribution == .total)
+    }
+
+    @Test func testWorkspaceSimulationConnectionLifecycle() throws {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Multi-body Contact Study") else {
+            Issue.record("Failed to create linear static simulation study")
+            return
+        }
+
+        // 1. Add connection
+        let connection = ws.addSimulationConnection(
+            studyId: study.id,
+            connection: SimulationConnection(name: "Block Interface", kind: .bonded, stiffness: 1e10, searchTolerance: 0.002)
+        )
+        #expect(connection != nil)
+        #expect(ws.selectedSimulationConnectionId == connection?.id)
+        #expect(ws.selectedSimulationConnection?.name == "Block Interface")
+        #expect(ws.selectedSimulationConnection?.searchTolerance == 0.002)
+
+        // 2. Mutual exclusion: selecting fixture clears connection selection
+        let fixture = ws.addSimulationFixture(studyId: study.id, fixture: SimulationFixture(name: "Base", kind: .fixed))
+        #expect(ws.selectedSimulationFixtureId == fixture?.id)
+        #expect(ws.selectedSimulationConnectionId == nil)
+
+        // 3. Re-selecting connection clears fixture selection
+        ws.selectSimulationConnection(studyId: study.id, connectionId: connection?.id)
+        #expect(ws.selectedSimulationConnectionId == connection?.id)
+        #expect(ws.selectedSimulationFixtureId == nil)
+        #expect(ws.selectedSimulationLoadId == nil)
+        #expect(ws.isSimulationMeshSelected == false)
+
+        // 4. Update connection
+        var updated = try #require(connection)
+        updated.name = "Renamed Bond"
+        updated.kind = .spring
+        updated.stiffness = 5e7
+        ws.updateSimulationConnection(studyId: study.id, connection: updated)
+        #expect(ws.selectedSimulationConnection?.name == "Renamed Bond")
+        #expect(ws.selectedSimulationConnection?.kind == .spring)
+        #expect(ws.selectedSimulationConnection?.stiffness == 5e7)
+
+        // 5. Geometry reference assignments
+        let sourceRef = SimulationGeometryReference(targetId: UUID(), targetName: "Contact Face 1", subelementType: .face)
+        let targetRef = SimulationGeometryReference(targetId: UUID(), targetName: "Contact Face 2", subelementType: .face)
+        _ = ws.document.assignSourceReferenceToConnection(studyId: study.id, connectionId: updated.id, reference: sourceRef)
+        _ = ws.document.assignTargetReferenceToConnection(studyId: study.id, connectionId: updated.id, reference: targetRef)
+
+        let connWithRefs = try #require(ws.selectedSimulationConnection)
+        #expect(connWithRefs.sourceReferences.count == 1)
+        #expect(connWithRefs.targetReferences.count == 1)
+
+        ws.removeSourceReferenceFromConnection(studyId: study.id, connectionId: updated.id, referenceId: sourceRef.id)
+        ws.removeTargetReferenceFromConnection(studyId: study.id, connectionId: updated.id, referenceId: targetRef.id)
+
+        let connCleared = try #require(ws.selectedSimulationConnection)
+        #expect(connCleared.sourceReferences.isEmpty)
+        #expect(connCleared.targetReferences.isEmpty)
+
+        // 6. Delete connection
+        ws.removeSimulationConnection(studyId: study.id, connectionId: updated.id)
+        #expect(ws.selectedSimulationConnectionId == nil)
+        #expect(ws.document.study(id: study.id)?.connections.isEmpty == true)
     }
 }
 

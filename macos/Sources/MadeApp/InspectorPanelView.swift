@@ -120,6 +120,10 @@ struct InspectorPanelView: View {
             ScrollView {
                 InspectorSimulationLoadView(study: study, load: load)
             }
+        } else if let connection = workspace.selectedSimulationConnection, let study = workspace.selectedSimulationStudy {
+            ScrollView {
+                InspectorSimulationConnectionView(study: study, connection: connection)
+            }
         } else if workspace.isSimulationMeshSelected, let study = workspace.selectedSimulationStudy {
             ScrollView {
                 InspectorSimulationMeshView(study: study)
@@ -3127,6 +3131,203 @@ struct InspectorSimulationLoadView: View {
                 .accessibilityIdentifier("inspector-simulation-delete-load-button")
             } header: {
                 sectionHeader("Targets & Actions")
+            }
+        }
+        .formStyle(.columns)
+        .controlSize(.small)
+        .padding()
+    }
+
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !isFirst { Divider() }
+            Text(title).font(.headline)
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Inspector view for simulation connection (BL-FEA-04, #222).
+struct InspectorSimulationConnectionView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    let connection: SimulationConnection
+
+    var body: some View {
+        let lengthUnit = workspace.document.settings.units.lengthUnit
+
+        return Form {
+            Section {
+                TextField("Name", text: Binding(
+                    get: { connection.name },
+                    set: { newName in
+                        var copy = connection
+                        copy.name = newName
+                        workspace.updateSimulationConnection(studyId: study.id, connection: copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-simulation-connection-name")
+
+                Picker("Kind", selection: Binding(
+                    get: { connection.kind },
+                    set: { newKind in
+                        var copy = connection
+                        copy.kind = newKind
+                        workspace.updateSimulationConnection(studyId: study.id, connection: copy)
+                    }
+                )) {
+                    ForEach(SimulationConnectionKind.allCases) { kind in
+                        Label(kind.displayName, systemImage: kind.systemImageName).tag(kind)
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-connection-kind")
+
+                Text("Ties translational degrees of freedom across touching source and target surfaces.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                sectionHeader("Connection Identity", isFirst: true)
+            }
+
+            Section {
+                LabeledContent("Search Tolerance (\(lengthUnit.symbol))") {
+                    TextField("Tolerance", value: Binding(
+                        get: {
+                            guard let tol = connection.searchTolerance else { return 0.0 }
+                            return SimulationUnitConversion.displayLength(tol, unit: lengthUnit)
+                        },
+                        set: { val in
+                            var copy = connection
+                            copy.searchTolerance = val > 0 ? SimulationUnitConversion.commitLength(val, unit: lengthUnit) : nil
+                            workspace.updateSimulationConnection(studyId: study.id, connection: copy)
+                        }
+                    ), format: .number)
+                    .accessibilityIdentifier("inspector-simulation-connection-tolerance")
+                }
+
+                if connection.kind == .spring {
+                    let stiffnessSymbol = SimulationUnitConversion.stiffnessUnitSymbol(unit: lengthUnit)
+                    LabeledContent("Stiffness (\(stiffnessSymbol))") {
+                        TextField("Stiffness", value: Binding(
+                            get: { SimulationUnitConversion.displayStiffness(connection.stiffness, unit: lengthUnit) },
+                            set: { val in
+                                var copy = connection
+                                copy.stiffness = max(0, SimulationUnitConversion.commitStiffness(val, unit: lengthUnit))
+                                workspace.updateSimulationConnection(studyId: study.id, connection: copy)
+                            }
+                        ), format: .number)
+                        .accessibilityIdentifier("inspector-simulation-connection-stiffness")
+                    }
+                }
+            } header: {
+                sectionHeader("Connection Parameters")
+            }
+
+            Section {
+                if connection.sourceReferences.isEmpty && connection.sourceGroupNames.isEmpty {
+                    LabeledContent("Source") {
+                        Text("All boundary surfaces")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(connection.sourceReferences) { ref in
+                        HStack {
+                            Label(ref.targetName.isEmpty ? "Source Entity" : ref.targetName, systemImage: "target")
+                            Spacer()
+                            Button {
+                                workspace.removeSourceReferenceFromConnection(studyId: study.id, connectionId: connection.id, referenceId: ref.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityIdentifier("inspector-simulation-connection-remove-source-\(ref.id)")
+                        }
+                    }
+                    ForEach(connection.sourceGroupNames, id: \.self) { gName in
+                        HStack {
+                            Label(gName, systemImage: "folder")
+                            Spacer()
+                            Button {
+                                var copy = connection
+                                copy.sourceGroupNames.removeAll { $0 == gName }
+                                workspace.updateSimulationConnection(studyId: study.id, connection: copy)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+
+                Button {
+                    workspace.assignSelectedSubElementToConnectionSource(studyId: study.id, connectionId: connection.id)
+                } label: {
+                    Label("Assign Active Selection as Source", systemImage: "plus.circle")
+                }
+                .disabled(workspace.document.selectedSubElement == nil)
+                .accessibilityIdentifier("inspector-simulation-assign-source-button")
+            } header: {
+                sectionHeader("Source References")
+            }
+
+            Section {
+                if connection.targetReferences.isEmpty && connection.targetGroupNames.isEmpty {
+                    LabeledContent("Target") {
+                        Text("All boundary surfaces")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(connection.targetReferences) { ref in
+                        HStack {
+                            Label(ref.targetName.isEmpty ? "Target Entity" : ref.targetName, systemImage: "target")
+                            Spacer()
+                            Button {
+                                workspace.removeTargetReferenceFromConnection(studyId: study.id, connectionId: connection.id, referenceId: ref.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityIdentifier("inspector-simulation-connection-remove-target-\(ref.id)")
+                        }
+                    }
+                    ForEach(connection.targetGroupNames, id: \.self) { gName in
+                        HStack {
+                            Label(gName, systemImage: "folder")
+                            Spacer()
+                            Button {
+                                var copy = connection
+                                copy.targetGroupNames.removeAll { $0 == gName }
+                                workspace.updateSimulationConnection(studyId: study.id, connection: copy)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+
+                Button {
+                    workspace.assignSelectedSubElementToConnectionTarget(studyId: study.id, connectionId: connection.id)
+                } label: {
+                    Label("Assign Active Selection as Target", systemImage: "plus.circle")
+                }
+                .disabled(workspace.document.selectedSubElement == nil)
+                .accessibilityIdentifier("inspector-simulation-assign-target-button")
+            } header: {
+                sectionHeader("Target References")
+            }
+
+            Section {
+                Button("Delete Connection", role: .destructive) {
+                    workspace.removeSimulationConnection(studyId: study.id, connectionId: connection.id)
+                }
+                .accessibilityIdentifier("inspector-simulation-connection-delete")
+            } header: {
+                sectionHeader("Actions")
             }
         }
         .formStyle(.columns)

@@ -2451,6 +2451,9 @@ struct NavigatorSimulationStudyRow: View {
                         Button("Add Load…") {
                             _ = workspace.addSimulationLoad(studyId: study.id)
                         }
+                        Button("Add Connection…") {
+                            _ = workspace.addSimulationConnection(studyId: study.id)
+                        }
                         Divider()
                         Button("Delete Study", role: .destructive) {
                             workspace.removeSimulationStudy(id: study.id)
@@ -2494,6 +2497,9 @@ struct NavigatorSimulationStudyRow: View {
                 Button("Add Load…") {
                     _ = workspace.addSimulationLoad(studyId: study.id)
                 }
+                Button("Add Connection…") {
+                    _ = workspace.addSimulationConnection(studyId: study.id)
+                }
                 Divider()
                 Button("Delete Study", role: .destructive) {
                     workspace.removeSimulationStudy(id: study.id)
@@ -2527,6 +2533,15 @@ struct NavigatorSimulationStudyRow: View {
                     } else {
                         ForEach(study.loads) { load in
                             NavigatorSimulationLoadRow(study: study, load: load)
+                        }
+                    }
+
+                    // Connections rows
+                    if study.connections.isEmpty {
+                        NavigatorSimulationConnectionRow(study: study, connection: nil)
+                    } else {
+                        ForEach(study.connections) { connection in
+                            NavigatorSimulationConnectionRow(study: study, connection: connection)
                         }
                     }
 
@@ -2719,6 +2734,66 @@ struct NavigatorSimulationLoadRow: View {
             }
         }
         .accessibilityIdentifier(load != nil ? "navigator-study-load-\(load!.id)" : "navigator-study-loads-\(study.id)")
+    }
+}
+
+/// Outline row for simulation connection (BL-FEA-04, #222).
+struct NavigatorSimulationConnectionRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let study: SimulationStudy
+    let connection: SimulationConnection?
+
+    var body: some View {
+        let isSelected = connection != nil && workspace.selectedSimulationConnectionId == connection?.id
+        HStack(spacing: 6) {
+            Image(systemName: connection?.kind.systemImageName ?? "link")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+
+            Text(connection?.name ?? "Connections")
+                .font(.caption)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let connection {
+                Text(connection.kind.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button {
+                    _ = workspace.addSimulationConnection(studyId: study.id)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .help("Add Connection")
+            }
+        }
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let connection {
+                workspace.selectSimulationConnection(studyId: study.id, connectionId: connection.id)
+            } else {
+                workspace.selectSimulationStudy(study.id)
+            }
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : nil)
+        .contextMenu {
+            if let connection {
+                Button("Delete Connection", role: .destructive) {
+                    workspace.removeSimulationConnection(studyId: study.id, connectionId: connection.id)
+                }
+            } else {
+                Button("Add Connection") {
+                    _ = workspace.addSimulationConnection(studyId: study.id)
+                }
+            }
+        }
+        .accessibilityIdentifier(connection != nil ? "navigator-study-connection-\(connection!.id)" : "navigator-study-connections-\(study.id)")
     }
 }
 
