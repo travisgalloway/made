@@ -282,4 +282,98 @@ import simd
         #expect(study.mesh.curvatureRefinement == false)
         #expect(study.mesh.curvatureElementsPerCircle == 12.0)
     }
+
+    @Test func testMeshSpecificationRefinementRegionsRoundTrip() throws {
+        let doc = DocumentModel()
+        var study = SimulationStudy(name: "Refinement Study", studyType: .linearStatic)
+        let region1 = MeshRefinementRegion(
+            id: UUID(),
+            name: "Hole Chamfer",
+            targetReferences: [
+                SimulationGeometryReference(targetId: UUID(), targetName: "Face 3", subelementType: .face)
+            ],
+            targetElementSize: 0.5
+        )
+        let region2 = MeshRefinementRegion(
+            id: UUID(),
+            name: "Fillet Edge",
+            targetReferences: [
+                SimulationGeometryReference(targetId: UUID(), targetName: "Edge 12", subelementType: .edge)
+            ],
+            targetElementSize: 0.25
+        )
+        study.mesh.refinementRegions = [region1, region2]
+        doc.addStudy(study)
+
+        let encodedData = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encodedData)
+
+        guard let restoredStudy = restoredDoc.studies.first else {
+            Issue.record("Expected 1 study")
+            return
+        }
+        #expect(restoredStudy.mesh.refinementRegions.count == 2)
+        #expect(restoredStudy.mesh.refinementRegions[0].name == "Hole Chamfer")
+        #expect(restoredStudy.mesh.refinementRegions[0].targetElementSize == 0.5)
+        #expect(restoredStudy.mesh.refinementRegions[0].targetReferences.first?.targetName == "Face 3")
+        #expect(restoredStudy.mesh.refinementRegions[1].name == "Fillet Edge")
+        #expect(restoredStudy.mesh.refinementRegions[1].targetElementSize == 0.25)
+        #expect(restoredStudy.mesh.refinementRegions[1].targetReferences.first?.targetName == "Edge 12")
+    }
+
+    @Test func testLegacyMeshSpecificationWithoutRefinementRegionsDecodesGracefully() throws {
+        let legacyJSONWithoutRegions = """
+        {
+          "version": 1,
+          "documentType": "part",
+          "objects": [],
+          "parameters": [],
+          "studies": [
+            {
+              "id": "22222222-3333-4444-5555-666666666666",
+              "name": "Legacy Study Without Regions",
+              "studyType": "linearStatic",
+              "materials": [],
+              "fixtures": [],
+              "loads": [],
+              "mesh": {
+                "elementOrder": "linear",
+                "targetElementSize": 3.0,
+                "minElementSize": 1.0,
+                "growthRate": 1.2
+              },
+              "solver": {
+                "engine": "calculix",
+                "maxIterations": 50,
+                "convergenceTolerance": 0.001,
+                "timeStep": 0.02
+              },
+              "results": {
+                "status": "notRun",
+                "meshStatistics": {
+                  "nodeCount": 0,
+                  "elementCount": 0,
+                  "minElementQuality": 1.0,
+                  "avgElementQuality": 1.0
+                },
+                "extrema": []
+              },
+              "isCollapsed": false
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyJSONWithoutRegions)
+
+        guard let study = restoredDoc.studies.first else {
+            Issue.record("Expected 1 study")
+            return
+        }
+        #expect(study.mesh.refinementRegions.isEmpty)
+        #expect(study.mesh.elementOrder == .linear)
+        #expect(study.mesh.targetElementSize == 3.0)
+    }
 }

@@ -104,6 +104,28 @@ import simd
         #expect(clampedCopy.curvatureElementsPerCircle == 3.0)
     }
 
+    @Test func testMeshRefinementRegionDefaultsAndClamping() {
+        let defaultRegion = MeshRefinementRegion()
+        #expect(defaultRegion.name == "Refinement")
+        #expect(defaultRegion.targetReferences.isEmpty)
+        #expect(defaultRegion.targetElementSize == 1.0)
+
+        var invalidRegion = MeshRefinementRegion(name: "   ", targetElementSize: -2.5)
+        invalidRegion.clamp()
+        #expect(invalidRegion.name == "Refinement")
+        #expect(invalidRegion.targetElementSize == 0.0001)
+
+        var spec = MeshSpecification(refinementRegions: [
+            MeshRefinementRegion(name: "Edge Blend", targetElementSize: 0.00001),
+            MeshRefinementRegion(name: "", targetElementSize: -1.0)
+        ])
+        spec.clamp()
+        #expect(spec.refinementRegions[0].name == "Edge Blend")
+        #expect(spec.refinementRegions[0].targetElementSize == 0.0001)
+        #expect(spec.refinementRegions[1].name == "Refinement")
+        #expect(spec.refinementRegions[1].targetElementSize == 0.0001)
+    }
+
     @Test func testCodableRoundTrip() throws {
         var study = SimulationStudy(name: "Bracket Simulation", studyType: .linearStatic)
         let fixture = SimulationFixture(name: "Bolt Restraint", kind: .fixed)

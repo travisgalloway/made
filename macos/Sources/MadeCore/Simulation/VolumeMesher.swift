@@ -112,6 +112,51 @@ public struct GmshBinaryResolver: Sendable {
 public actor VolumeMesherActor: VolumeMesherProtocol {
     public static let shared = VolumeMesherActor()
 
+    public static func resolveGmshEntityTag(from reference: SimulationGeometryReference) -> Int? {
+        var digitRun = ""
+        for char in reference.targetName {
+            if char.isNumber {
+                digitRun.append(char)
+            } else if !digitRun.isEmpty {
+                break
+            }
+        }
+        if let tag = Int(digitRun) {
+            return tag
+        }
+        if let sourceIndex = reference.topologicalReference?.historyPath.last?.sourceIndex {
+            return sourceIndex + 1
+        }
+        if reference.subelementType == nil {
+            return 1
+        }
+        return nil
+    }
+
+    public static func buildGmshRefinementString(specification: MeshSpecification) -> String? {
+        var statements: [String] = []
+        for region in specification.refinementRegions {
+            let size = max(0.0001, region.targetElementSize)
+            for reference in region.targetReferences {
+                guard let tag = resolveGmshEntityTag(from: reference) else { continue }
+                if let subelementType = reference.subelementType {
+                    switch subelementType {
+                    case .face:
+                        statements.append("MeshSize { PointsOf{ Surface{\(tag)}; }; } = \(size);")
+                    case .edge:
+                        statements.append("MeshSize { PointsOf{ Curve{\(tag)}; }; } = \(size);")
+                    case .vertex:
+                        statements.append("MeshSize { Point{\(tag)}; } = \(size);")
+                    }
+                } else {
+                    statements.append("MeshSize { PointsOf{ Volume{\(tag)}; }; } = \(size);")
+                }
+            }
+        }
+        guard !statements.isEmpty else { return nil }
+        return statements.joined(separator: " ")
+    }
+
     public static func buildGmshArguments(
         specification: MeshSpecification,
         outputFileName: String = "mesh.msh",
@@ -120,12 +165,16 @@ public actor VolumeMesherActor: VolumeMesherProtocol {
         var clampedSpec = specification
         clampedSpec.clamp()
 
+        let regionSizes = clampedSpec.refinementRegions.map(\.targetElementSize)
+        let effectiveClMin = (regionSizes + [clampedSpec.minElementSize]).min() ?? clampedSpec.minElementSize
+        let clampedClMin = max(0.0001, min(effectiveClMin, clampedSpec.targetElementSize))
+
         var arguments: [String] = [
             "-3",
             "-format", "msh2",
             "-o", outputFileName,
             "-clmax", "\(clampedSpec.targetElementSize)",
-            "-clmin", "\(clampedSpec.minElementSize)"
+            "-clmin", "\(clampedClMin)"
         ]
 
         if clampedSpec.elementOrder == .quadratic {
@@ -141,6 +190,10 @@ public actor VolumeMesherActor: VolumeMesherProtocol {
                 "Mesh.MeshSizeFromCurvature",
                 "\(clampedSpec.curvatureElementsPerCircle)"
             ])
+        }
+
+        if let refinementString = buildGmshRefinementString(specification: clampedSpec) {
+            arguments.append(contentsOf: ["-string", refinementString])
         }
 
         arguments.append(stepFileName)

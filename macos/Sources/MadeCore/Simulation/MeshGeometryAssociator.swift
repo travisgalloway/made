@@ -202,6 +202,15 @@ public enum MeshGeometryAssociator {
             return ([], [])
         }
 
+        // Vertex association
+        if reference.subelementType == .vertex || label.hasPrefix("vertex:") {
+            if let centroid = disambiguatorCentroid {
+                let matchedNodes = mesh.nodes.filter { simd_distance($0.position, centroid) <= tolerance * 2.0 }.map { $0.id }
+                return (matchedNodes.sorted(), [])
+            }
+            return ([], [])
+        }
+
         // Face association: evaluate boundary surface triangles
         let surfaceTriangles = getBoundaryTriangles(mesh: mesh)
         var matchedElementIds: [Int] = []
