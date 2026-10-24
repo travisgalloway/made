@@ -27,6 +27,9 @@ public enum SimulationUnitConversion: Sendable {
     /// Stress conversion factor to ksi: 1 MPa = 0.14503773773 ksi.
     public static let stressKsiFactor: Double = 0.14503773773
 
+    /// Spring stiffness conversion factor: 1 lbf/in = 4.4482216152605 / 0.0254 N/m (~175.126835246 N/m).
+    public static let springStiffnessFactor: Double = 4.4482216152605 / 0.0254
+
     // MARK: - Force Conversions
 
     /// Converts canonical force (Newtons) to the display value for the given document length unit.
@@ -196,6 +199,23 @@ public enum SimulationUnitConversion: Sendable {
     /// Display unit symbol for stress under the given document length unit.
     public static func stressUnitSymbol(unit: LengthUnit) -> String {
         unit.isImperial ? "psi" : "MPa"
+    }
+
+    // MARK: - Spring Stiffness Conversions
+
+    /// Converts canonical spring stiffness (N/m) to display value for the given document length unit.
+    public static func displayStiffness(_ canonicalNm: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? canonicalNm / springStiffnessFactor : canonicalNm
+    }
+
+    /// Converts display spring stiffness value back to canonical N/m.
+    public static func commitStiffness(_ displayVal: Double, unit: LengthUnit) -> Double {
+        unit.isImperial ? displayVal * springStiffnessFactor : displayVal
+    }
+
+    /// Display unit symbol for spring stiffness under the given document length unit.
+    public static func stiffnessUnitSymbol(unit: LengthUnit) -> String {
+        unit.isImperial ? "lbf/in" : "N/m"
     }
 
     // MARK: - General Load Magnitude Conversions

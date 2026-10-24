@@ -838,10 +838,19 @@ import simd
         _ = ws.document.updateStudy(study)
         _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
 
+        let symmetryFixture = SimulationFixture(name: "Symm", kind: .symmetry)
+        let elasticFixture = SimulationFixture(name: "Elastic", kind: .elasticSupport, elasticStiffness: SIMD3<Double>(1e6, 2e6, 3e6))
+        let pinnedFixture = SimulationFixture(name: "Pin", kind: .pinned)
+        let rollerFixture = SimulationFixture(name: "Roller", kind: .rollerSlider)
+
         // Instantiate all inspector views with metric units
         ws.document.setUnits(UnitSettings(lengthUnit: .millimeters))
         _ = InspectorSimulationStudyView(study: study).environment(ws)
         _ = InspectorSimulationFixtureView(study: study, fixture: fixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: symmetryFixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: elasticFixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: pinnedFixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: rollerFixture).environment(ws)
         _ = InspectorSimulationLoadView(study: study, load: load).environment(ws)
         _ = InspectorSimulationResultsView(study: study).environment(ws)
 
@@ -849,6 +858,10 @@ import simd
         ws.document.setUnits(UnitSettings(lengthUnit: .inches))
         _ = InspectorSimulationStudyView(study: study).environment(ws)
         _ = InspectorSimulationFixtureView(study: study, fixture: fixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: symmetryFixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: elasticFixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: pinnedFixture).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: rollerFixture).environment(ws)
         _ = InspectorSimulationLoadView(study: study, load: load).environment(ws)
         _ = InspectorSimulationResultsView(study: study).environment(ws)
 
@@ -860,6 +873,12 @@ import simd
         let fixturePrescribedX = "inspector-simulation-fixture-prescribed-x"
         let fixturePrescribedY = "inspector-simulation-fixture-prescribed-y"
         let fixturePrescribedZ = "inspector-simulation-fixture-prescribed-z"
+        let fixtureSymmetryX = "inspector-simulation-fixture-symmetry-x"
+        let fixtureSymmetryY = "inspector-simulation-fixture-symmetry-y"
+        let fixtureSymmetryZ = "inspector-simulation-fixture-symmetry-z"
+        let fixtureStiffnessX = "inspector-simulation-fixture-stiffness-x"
+        let fixtureStiffnessY = "inspector-simulation-fixture-stiffness-y"
+        let fixtureStiffnessZ = "inspector-simulation-fixture-stiffness-z"
         let loadMagnitude = "inspector-simulation-load-magnitude"
 
         #expect(studyUCSId == "inspector-simulation-study-ucs-picker")
@@ -869,6 +888,12 @@ import simd
         #expect(fixturePrescribedX == "inspector-simulation-fixture-prescribed-x")
         #expect(fixturePrescribedY == "inspector-simulation-fixture-prescribed-y")
         #expect(fixturePrescribedZ == "inspector-simulation-fixture-prescribed-z")
+        #expect(fixtureSymmetryX == "inspector-simulation-fixture-symmetry-x")
+        #expect(fixtureSymmetryY == "inspector-simulation-fixture-symmetry-y")
+        #expect(fixtureSymmetryZ == "inspector-simulation-fixture-symmetry-z")
+        #expect(fixtureStiffnessX == "inspector-simulation-fixture-stiffness-x")
+        #expect(fixtureStiffnessY == "inspector-simulation-fixture-stiffness-y")
+        #expect(fixtureStiffnessZ == "inspector-simulation-fixture-stiffness-z")
         #expect(loadMagnitude == "inspector-simulation-load-magnitude")
     }
 

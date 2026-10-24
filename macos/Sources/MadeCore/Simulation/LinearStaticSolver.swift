@@ -149,7 +149,7 @@ public enum LinearStaticSolver: Sendable {
         }
 
         var dirichletDOFs: [Int: Double] = [:] // globalDOF -> prescribed displacement in meters
-        var restrainedComponentCount = 0
+        var elasticDOFs: Set<Int> = []
 
         for fixture in study.fixtures {
             let matchedSet = (mesh.sets.first(where: { $0.name == fixture.name }))
@@ -171,34 +171,58 @@ public enum LinearStaticSolver: Sendable {
                 )
             }
 
-            let dispMeters = fixture.kind == .prescribedDisplacement
-                ? (fixture.prescribedDisplacement * 0.001)
-                : SIMD3<Double>.zero
+            if fixture.kind == .elasticSupport {
+                let kPerNode = fixture.elasticStiffness / Double(max(1, nodeIdsToConstrain.count))
+                for nId in nodeIdsToConstrain {
+                    guard let nodeIdx = nodeIndexById[nId] else { continue }
+                    if fixture.isRestrainedX && kPerNode.x > 0 {
+                        let dof = 3 * nodeIdx + 0
+                        K[dof][dof] = (K[dof][dof] ?? 0.0) + kPerNode.x
+                        elasticDOFs.insert(dof)
+                    }
+                    if fixture.isRestrainedY && kPerNode.y > 0 {
+                        let dof = 3 * nodeIdx + 1
+                        K[dof][dof] = (K[dof][dof] ?? 0.0) + kPerNode.y
+                        elasticDOFs.insert(dof)
+                    }
+                    if fixture.isRestrainedZ && kPerNode.z > 0 {
+                        let dof = 3 * nodeIdx + 2
+                        K[dof][dof] = (K[dof][dof] ?? 0.0) + kPerNode.z
+                        elasticDOFs.insert(dof)
+                    }
+                }
+            } else {
+                let dispMeters = fixture.kind == .prescribedDisplacement
+                    ? (fixture.prescribedDisplacement * 0.001)
+                    : SIMD3<Double>.zero
 
-            for nId in nodeIdsToConstrain {
-                guard let nodeIdx = nodeIndexById[nId] else { continue }
-                if fixture.isRestrainedX {
-                    let dof = 3 * nodeIdx + 0
-                    dirichletDOFs[dof] = dispMeters.x
-                    restrainedComponentCount += 1
-                }
-                if fixture.isRestrainedY {
-                    let dof = 3 * nodeIdx + 1
-                    dirichletDOFs[dof] = dispMeters.y
-                    restrainedComponentCount += 1
-                }
-                if fixture.isRestrainedZ {
-                    let dof = 3 * nodeIdx + 2
-                    dirichletDOFs[dof] = dispMeters.z
-                    restrainedComponentCount += 1
+                for nId in nodeIdsToConstrain {
+                    guard let nodeIdx = nodeIndexById[nId] else { continue }
+                    switch fixture.kind {
+                    case .fixed, .pinned:
+                        dirichletDOFs[3 * nodeIdx + 0] = 0.0
+                        dirichletDOFs[3 * nodeIdx + 1] = 0.0
+                        dirichletDOFs[3 * nodeIdx + 2] = 0.0
+                    case .rollerSlider, .symmetry:
+                        if fixture.isRestrainedX { dirichletDOFs[3 * nodeIdx + 0] = 0.0 }
+                        if fixture.isRestrainedY { dirichletDOFs[3 * nodeIdx + 1] = 0.0 }
+                        if fixture.isRestrainedZ { dirichletDOFs[3 * nodeIdx + 2] = 0.0 }
+                    case .prescribedDisplacement:
+                        if fixture.isRestrainedX { dirichletDOFs[3 * nodeIdx + 0] = dispMeters.x }
+                        if fixture.isRestrainedY { dirichletDOFs[3 * nodeIdx + 1] = dispMeters.y }
+                        if fixture.isRestrainedZ { dirichletDOFs[3 * nodeIdx + 2] = dispMeters.z }
+                    case .elasticSupport:
+                        break
+                    }
                 }
             }
         }
 
         // Ensure sufficient constraints to prevent rigid body modes (at least 6 DOFs constrained)
-        if dirichletDOFs.count < 6 {
+        let totalRestrainedDOFs = Set(dirichletDOFs.keys).union(elasticDOFs).count
+        if totalRestrainedDOFs < 6 {
             throw CAEErrorCode.invalidStudyConfiguration(
-                message: "Structural system is under-constrained (\(dirichletDOFs.count) restrained DOFs; at least 6 required to prevent rigid body motion)."
+                message: "Structural system is under-constrained (\(totalRestrainedDOFs) restrained DOFs; at least 6 required to prevent rigid body motion)."
             )
         }
 

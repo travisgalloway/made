@@ -2574,32 +2574,95 @@ struct InspectorSimulationFixtureView: View {
                 }
                 .accessibilityIdentifier("inspector-simulation-fixture-ucs-picker")
 
-                Toggle("Restrain X (Ux = 0)", isOn: Binding(
-                    get: { fixture.isRestrainedX },
-                    set: { val in
-                        var copy = fixture
-                        copy.isRestrainedX = val
-                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
-                    }
-                ))
-                Toggle("Restrain Y (Uy = 0)", isOn: Binding(
-                    get: { fixture.isRestrainedY },
-                    set: { val in
-                        var copy = fixture
-                        copy.isRestrainedY = val
-                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
-                    }
-                ))
-                Toggle("Restrain Z (Uz = 0)", isOn: Binding(
-                    get: { fixture.isRestrainedZ },
-                    set: { val in
-                        var copy = fixture
-                        copy.isRestrainedZ = val
-                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
-                    }
-                ))
+                switch fixture.kind {
+                case .fixed, .pinned:
+                    Text("Constrains all translational degrees of freedom (Ux = Uy = Uz = 0).")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
-                if fixture.kind == .prescribedDisplacement {
+                case .rollerSlider:
+                    Toggle("Restrain X (Ux = 0)", isOn: Binding(
+                        get: { fixture.isRestrainedX },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedX = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    Toggle("Restrain Y (Uy = 0)", isOn: Binding(
+                        get: { fixture.isRestrainedY },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedY = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    Toggle("Restrain Z (Uz = 0)", isOn: Binding(
+                        get: { fixture.isRestrainedZ },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedZ = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+
+                case .symmetry:
+                    Toggle("Restrain Normal X (Ux = 0)", isOn: Binding(
+                        get: { fixture.isRestrainedX },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedX = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-fixture-symmetry-x")
+
+                    Toggle("Restrain Normal Y (Uy = 0)", isOn: Binding(
+                        get: { fixture.isRestrainedY },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedY = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-fixture-symmetry-y")
+
+                    Toggle("Restrain Normal Z (Uz = 0)", isOn: Binding(
+                        get: { fixture.isRestrainedZ },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedZ = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-fixture-symmetry-z")
+
+                case .prescribedDisplacement:
+                    Toggle("Restrain X", isOn: Binding(
+                        get: { fixture.isRestrainedX },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedX = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    Toggle("Restrain Y", isOn: Binding(
+                        get: { fixture.isRestrainedY },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedY = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    Toggle("Restrain Z", isOn: Binding(
+                        get: { fixture.isRestrainedZ },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedZ = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+
                     LabeledContent("Prescribed X (\(lengthUnit.symbol))") {
                         TextField("X", value: Binding(
                             get: { SimulationUnitConversion.displayLength(fixture.prescribedDisplacement.x, unit: lengthUnit) },
@@ -2632,6 +2695,74 @@ struct InspectorSimulationFixtureView: View {
                             }
                         ), format: .number)
                         .accessibilityIdentifier("inspector-simulation-fixture-prescribed-z")
+                    }
+
+                case .elasticSupport:
+                    let stiffnessSymbol = SimulationUnitConversion.stiffnessUnitSymbol(unit: lengthUnit)
+                    Toggle("Spring Foundation X", isOn: Binding(
+                        get: { fixture.isRestrainedX },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedX = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    if fixture.isRestrainedX {
+                        LabeledContent("Stiffness X (\(stiffnessSymbol))") {
+                            TextField("Kx", value: Binding(
+                                get: { SimulationUnitConversion.displayStiffness(fixture.elasticStiffness.x, unit: lengthUnit) },
+                                set: { val in
+                                    var copy = fixture
+                                    copy.elasticStiffness.x = max(0, SimulationUnitConversion.commitStiffness(val, unit: lengthUnit))
+                                    workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                                }
+                            ), format: .number)
+                            .accessibilityIdentifier("inspector-simulation-fixture-stiffness-x")
+                        }
+                    }
+
+                    Toggle("Spring Foundation Y", isOn: Binding(
+                        get: { fixture.isRestrainedY },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedY = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    if fixture.isRestrainedY {
+                        LabeledContent("Stiffness Y (\(stiffnessSymbol))") {
+                            TextField("Ky", value: Binding(
+                                get: { SimulationUnitConversion.displayStiffness(fixture.elasticStiffness.y, unit: lengthUnit) },
+                                set: { val in
+                                    var copy = fixture
+                                    copy.elasticStiffness.y = max(0, SimulationUnitConversion.commitStiffness(val, unit: lengthUnit))
+                                    workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                                }
+                            ), format: .number)
+                            .accessibilityIdentifier("inspector-simulation-fixture-stiffness-y")
+                        }
+                    }
+
+                    Toggle("Spring Foundation Z", isOn: Binding(
+                        get: { fixture.isRestrainedZ },
+                        set: { val in
+                            var copy = fixture
+                            copy.isRestrainedZ = val
+                            workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                        }
+                    ))
+                    if fixture.isRestrainedZ {
+                        LabeledContent("Stiffness Z (\(stiffnessSymbol))") {
+                            TextField("Kz", value: Binding(
+                                get: { SimulationUnitConversion.displayStiffness(fixture.elasticStiffness.z, unit: lengthUnit) },
+                                set: { val in
+                                    var copy = fixture
+                                    copy.elasticStiffness.z = max(0, SimulationUnitConversion.commitStiffness(val, unit: lengthUnit))
+                                    workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                                }
+                            ), format: .number)
+                            .accessibilityIdentifier("inspector-simulation-fixture-stiffness-z")
+                        }
                     }
                 }
             } header: {

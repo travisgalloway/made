@@ -114,4 +114,87 @@ import simd
         #expect(text.contains("*DLOAD"))
         #expect(text.contains("EALL, GRAV, 9.8100, 0.0000, -1.0000, 0.0000"))
     }
+
+    @Test func testStructuralDeckPinnedSupport() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Pinned Deck Test", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "FixFace", kind: .pinned)
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*BOUNDARY"))
+        #expect(text.contains("1, 1, 3, 0.0"))
+    }
+
+    @Test func testStructuralDeckRollerSlider() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Roller Deck Test", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(
+                name: "FixFace",
+                kind: .rollerSlider,
+                isRestrainedX: false,
+                isRestrainedY: true,
+                isRestrainedZ: false
+            )
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*BOUNDARY"))
+        #expect(text.contains("1, 2, 2, 0.0"))
+        #expect(!text.contains("1, 1, 1, 0.0"))
+    }
+
+    @Test func testStructuralDeckSymmetrySupport() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Symmetry Deck Test", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(
+                name: "FixFace",
+                kind: .symmetry,
+                isRestrainedX: true,
+                isRestrainedY: false,
+                isRestrainedZ: false
+            )
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*BOUNDARY"))
+        #expect(text.contains("1, 1, 1, 0.0"))
+        #expect(!text.contains("1, 2, 2, 0.0"))
+    }
+
+    @Test func testStructuralDeckElasticSupport() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Elastic Deck Test", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(
+                name: "FixFace",
+                kind: .elasticSupport,
+                isRestrainedX: true,
+                isRestrainedY: false,
+                isRestrainedZ: false,
+                elasticStiffness: SIMD3<Double>(3e6, 0, 0)
+            )
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*ELEMENT, TYPE=SPRING1, ELSET=ESPRING_"))
+        #expect(text.contains("*SPRING, ELSET=ESPRING_"))
+        // 3e6 N/m distributed across 3 nodes = 1e6 N/m per node = 1000 N/mm
+        #expect(text.contains("1000.0000"))
+        #expect(!text.contains("*BOUNDARY"))
+    }
 }

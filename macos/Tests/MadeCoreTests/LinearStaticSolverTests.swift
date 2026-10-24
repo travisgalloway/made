@@ -374,4 +374,240 @@ import simd
         let stressError = abs(stressExtrema.maxValue - analyticMaxStressMPa) / analyticMaxStressMPa
         #expect(stressError < 0.02, "C3D10 max stress error \(stressError * 100)% exceeds 2% (computed \(stressExtrema.maxValue) MPa vs analytic \(analyticMaxStressMPa) MPa)")
     }
+
+    // MARK: - 7. Elastic Support Boundary Condition Analytic Verification
+
+    @Test func testElasticSupportBoundaryCondition() throws {
+        let L = 1.0 // 1 meter
+        let b = 0.05 // 50 mm
+        let h = 0.05 // 50 mm
+        let A = b * h // 0.0025 m²
+        let E = 200e9 // 200 GPa
+        let nu = 0.0 // Zero Poisson ratio for pure uniaxial response
+        let Fx = 10000.0 // 10 kN tensile force
+        let Kspring = 1e7 // 10^7 N/m total spring foundation stiffness
+
+        let (mesh, rootIds, tipIds) = Self.makeBeamMeshC3D4(length: L, width: b, height: h, nx: 10, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Elastic Foundation Bar", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(
+                name: "RootFace",
+                kind: .elasticSupport,
+                isRestrainedX: true,
+                isRestrainedY: true,
+                isRestrainedZ: true,
+                elasticStiffness: SIMD3<Double>(Kspring, Kspring, Kspring)
+            )
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: Fx, direction: SIMD3<Double>(1, 0, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: E,
+            poissonsRatio: nu
+        )
+
+        // Analytical root displacement: delta_root = F / K = 10000 / 1e7 = 0.001 m = 1.0 mm
+        let analyticRootDispMm = (Fx / Kspring) * 1000.0 // 1.0 mm
+        // Analytical tip displacement: delta_tip = delta_root + (F * L) / (E * A) = 1.0 mm + 0.02 mm = 1.02 mm
+        let barStretchMm = ((Fx * L) / (E * A)) * 1000.0 // 0.02 mm
+        let analyticTipDispMm = analyticRootDispMm + barStretchMm // 1.02 mm
+
+        // Verify root displacement
+        var sumRootX = 0.0
+        for rId in rootIds {
+            let d = try #require(result.nodalDisplacements[rId])
+            sumRootX += d.x
+            #expect(abs(d.y) < 0.01)
+            #expect(abs(d.z) < 0.01)
+        }
+        let avgRootX = sumRootX / Double(rootIds.count)
+        let rootError = abs(avgRootX - analyticRootDispMm) / analyticRootDispMm
+        #expect(rootError < 0.01, "Elastic root displacement error \(rootError * 100)% exceeds 1% (computed \(avgRootX) mm vs analytic \(analyticRootDispMm) mm)")
+
+        // Verify tip displacement
+        var sumTipX = 0.0
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            sumTipX += d.x
+            #expect(abs(d.y) < 0.01)
+            #expect(abs(d.z) < 0.01)
+        }
+        let avgTipX = sumTipX / Double(tipIds.count)
+        let tipError = abs(avgTipX - analyticTipDispMm) / analyticTipDispMm
+        #expect(tipError < 0.01, "Elastic tip displacement error \(tipError * 100)% exceeds 1% (computed \(avgTipX) mm vs analytic \(analyticTipDispMm) mm)")
+    }
+
+    // MARK: - 8. Pinned Boundary Condition
+
+    @Test func testPinnedBoundaryCondition() throws {
+        let (mesh, rootIds, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 8, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Pinned Beam", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .pinned)
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: 500.0, direction: SIMD3<Double>(0, -1, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(study: study, mesh: mesh)
+
+        // Pinned root enforces Ux = Uy = Uz = 0
+        for rId in rootIds {
+            let d = try #require(result.nodalDisplacements[rId])
+            #expect(abs(d.x) < 1e-6)
+            #expect(abs(d.y) < 1e-6)
+            #expect(abs(d.z) < 1e-6)
+        }
+
+        // Tip deflects downwards
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.y < -0.01)
+        }
+    }
+
+    // MARK: - 9. Roller Slider Boundary Condition
+
+    @Test func testRollerSliderBoundaryCondition() throws {
+        let (mesh, rootIds, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 8, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Roller Slider Test", studyType: .linearStatic)
+        // Root face allows Y and Z expansion but fixes axial X = 0
+        study.fixtures = [
+            SimulationFixture(
+                name: "RootFace",
+                kind: .rollerSlider,
+                isRestrainedX: true,
+                isRestrainedY: true,
+                isRestrainedZ: true
+            )
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: 5000.0, direction: SIMD3<Double>(1, 0, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(study: study, mesh: mesh)
+
+        for rId in rootIds {
+            let d = try #require(result.nodalDisplacements[rId])
+            #expect(abs(d.x) < 1e-6)
+        }
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.x > 0.005)
+        }
+    }
+
+    // MARK: - 10. Symmetry Boundary Condition
+
+    @Test func testSymmetryBoundaryCondition() throws {
+        let (mesh, rootIds, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 8, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Symmetry Test", studyType: .linearStatic)
+        // Symmetry condition on RootFace (normal = X, Ux = 0)
+        // Combine with elastic lateral support to prevent rigid body motion in Y/Z
+        study.fixtures = [
+            SimulationFixture(
+                name: "RootFace",
+                kind: .symmetry,
+                isRestrainedX: true,
+                isRestrainedY: false,
+                isRestrainedZ: false
+            ),
+            SimulationFixture(
+                name: "RootFace",
+                kind: .elasticSupport,
+                isRestrainedX: false,
+                isRestrainedY: true,
+                isRestrainedZ: true,
+                elasticStiffness: SIMD3<Double>(0, 1e7, 1e7)
+            )
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: 5000.0, direction: SIMD3<Double>(1, 0, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(study: study, mesh: mesh)
+
+        for rId in rootIds {
+            let d = try #require(result.nodalDisplacements[rId])
+            #expect(abs(d.x) < 1e-6)
+        }
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.x > 0.001)
+        }
+    }
+
+    // MARK: - 11. Mixed Elastic and Dirichlet Constraints
+
+    @Test func testMixedElasticAndDirichletConstraints() throws {
+        let (mesh, rootIds, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 8, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Mixed Constraints", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .fixed),
+            SimulationFixture(
+                name: "TipFace",
+                kind: .elasticSupport,
+                isRestrainedX: false,
+                isRestrainedY: true,
+                isRestrainedZ: false,
+                elasticStiffness: SIMD3<Double>(0, 1e5, 0)
+            )
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: 1000.0, direction: SIMD3<Double>(0, -1, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(study: study, mesh: mesh)
+
+        for rId in rootIds {
+            let d = try #require(result.nodalDisplacements[rId])
+            #expect(abs(d.x) < 1e-6)
+            #expect(abs(d.y) < 1e-6)
+            #expect(abs(d.z) < 1e-6)
+        }
+
+        // Tip deflection is restrained by elastic foundation
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.y < 0.0)
+        }
+    }
+
+    // MARK: - 12. Edge Cases and Error States
+
+    @Test func testUnderConstrainedThrowsInvalidStudyConfiguration() {
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(1, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 1, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 1))
+        let el = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4])
+        let singleNodeSet = VolumeMeshSet(name: "OneNode", nodeIds: [1], elementIds: [])
+        let mesh = VolumeMesh(nodes: [n1, n2, n3, n4], elements: [el], sets: [singleNodeSet])
+
+        var study = SimulationStudy(name: "UnderConstrained", studyType: .linearStatic)
+        // Only 1 node constrained in X, Y, Z -> 3 DOFs < 6 DOFs
+        study.fixtures = [
+            SimulationFixture(name: "OneNode", kind: .fixed)
+        ]
+
+        #expect(throws: CAEErrorCode.self) {
+            try LinearStaticSolver.solve(study: study, mesh: mesh)
+        }
+    }
+
+    @Test func testUnmappedTargetGeometryThrowsError() {
+        let (mesh, _, _) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.1, height: 0.1, nx: 2, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Missing Target", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "NonExistentFace", kind: .fixed, groupNames: ["NonExistentFace"])
+        ]
+
+        #expect(throws: CAEErrorCode.self) {
+            try LinearStaticSolver.solve(study: study, mesh: mesh)
+        }
+    }
 }

@@ -85,6 +85,33 @@ public enum CalculiXDeckBuilder: Sendable {
             }
         }
 
+        // Elastic support spring elements (grounded SPRING1 elements before *STEP)
+        if study.studyType != .thermalConduction {
+            var springElemId = mesh.elements.map(\.id).max() ?? 0
+            for fixture in study.fixtures where fixture.kind == .elasticSupport {
+                let targetNodes = resolveFixtureNodeIds(for: fixture, setByName: setByName)
+                let nodesToUse = targetNodes.isEmpty ? (mesh.nodes.prefix(3).map(\.id)) : targetNodes
+                guard !nodesToUse.isEmpty else { continue }
+                let axes: [(Int, Bool, Double)] = [
+                    (1, fixture.isRestrainedX, fixture.elasticStiffness.x),
+                    (2, fixture.isRestrainedY, fixture.elasticStiffness.y),
+                    (3, fixture.isRestrainedZ, fixture.elasticStiffness.z)
+                ]
+                for (axis, isRestrained, stiffnessVal) in axes where isRestrained && stiffnessVal > 0 {
+                    let kPerNodeMm = (stiffnessVal / Double(nodesToUse.count)) * 0.001
+                    for nId in nodesToUse {
+                        springElemId += 1
+                        let elsetName = "ESPRING_\(springElemId)_\(axis)"
+                        lines.append("*ELEMENT, TYPE=SPRING1, ELSET=\(elsetName)")
+                        lines.append("\(springElemId), \(nId)")
+                        lines.append("*SPRING, ELSET=\(elsetName)")
+                        lines.append("\(axis)")
+                        lines.append(String(format: "%.4f", kPerNodeMm))
+                    }
+                }
+            }
+        }
+
         // Analysis step
         lines.append("*STEP")
 
@@ -170,21 +197,20 @@ public enum CalculiXDeckBuilder: Sendable {
             // Structural analysis
             lines.append("*STATIC")
 
-            // Fixtures
+            // Fixtures (kinematic boundary conditions)
             var hasBoundaryHeader = false
-            for fixture in study.fixtures {
+            for fixture in study.fixtures where fixture.kind != .elasticSupport {
                 if !hasBoundaryHeader {
                     lines.append("*BOUNDARY")
                     hasBoundaryHeader = true
                 }
                 let targetNodes = resolveFixtureNodeIds(for: fixture, setByName: setByName)
-                let nodesToFix = targetNodes.isEmpty ? (mesh.nodes.prefix(3).map { $0.id }) : targetNodes
+                let nodesToFix = targetNodes.isEmpty ? (mesh.nodes.prefix(3).map(\.id)) : targetNodes
                 for nId in nodesToFix {
-                    if fixture.kind == .prescribedDisplacement {
-                        if fixture.isRestrainedX { lines.append(String(format: "%d, 1, 1, %.4f", nId, fixture.prescribedDisplacement.x)) }
-                        if fixture.isRestrainedY { lines.append(String(format: "%d, 2, 2, %.4f", nId, fixture.prescribedDisplacement.y)) }
-                        if fixture.isRestrainedZ { lines.append(String(format: "%d, 3, 3, %.4f", nId, fixture.prescribedDisplacement.z)) }
-                    } else {
+                    switch fixture.kind {
+                    case .fixed, .pinned:
+                        lines.append("\(nId), 1, 3, 0.0")
+                    case .rollerSlider, .symmetry:
                         if fixture.isRestrainedX && fixture.isRestrainedY && fixture.isRestrainedZ {
                             lines.append("\(nId), 1, 3, 0.0")
                         } else {
@@ -192,6 +218,12 @@ public enum CalculiXDeckBuilder: Sendable {
                             if fixture.isRestrainedY { lines.append("\(nId), 2, 2, 0.0") }
                             if fixture.isRestrainedZ { lines.append("\(nId), 3, 3, 0.0") }
                         }
+                    case .prescribedDisplacement:
+                        if fixture.isRestrainedX { lines.append(String(format: "%d, 1, 1, %.4f", nId, fixture.prescribedDisplacement.x)) }
+                        if fixture.isRestrainedY { lines.append(String(format: "%d, 2, 2, %.4f", nId, fixture.prescribedDisplacement.y)) }
+                        if fixture.isRestrainedZ { lines.append(String(format: "%d, 3, 3, %.4f", nId, fixture.prescribedDisplacement.z)) }
+                    case .elasticSupport:
+                        break
                     }
                 }
             }
