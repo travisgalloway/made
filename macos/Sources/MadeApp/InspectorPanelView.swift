@@ -2879,6 +2879,9 @@ struct InspectorSimulationMeshView: View {
                         set: { val in
                             var copy = study.mesh
                             copy.targetElementSize = max(0.1, val)
+                            if copy.minElementSize > copy.targetElementSize {
+                                copy.minElementSize = copy.targetElementSize
+                            }
                             workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
                         }
                     ), format: .number)
@@ -2890,7 +2893,7 @@ struct InspectorSimulationMeshView: View {
                         get: { study.mesh.minElementSize },
                         set: { val in
                             var copy = study.mesh
-                            copy.minElementSize = max(0.01, val)
+                            copy.minElementSize = max(0.01, min(val, copy.targetElementSize))
                             workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
                         }
                     ), format: .number)
@@ -2907,6 +2910,30 @@ struct InspectorSimulationMeshView: View {
                         }
                     ), format: .number)
                     .accessibilityIdentifier("inspector-simulation-mesh-growth-rate")
+                }
+
+                Toggle("Curvature Refinement", isOn: Binding(
+                    get: { study.mesh.curvatureRefinement },
+                    set: { enabled in
+                        var copy = study.mesh
+                        copy.curvatureRefinement = enabled
+                        workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
+                    }
+                ))
+                .accessibilityIdentifier("inspector-simulation-mesh-curvature-refinement")
+
+                if study.mesh.curvatureRefinement {
+                    LabeledContent("Elements Per Circle") {
+                        TextField("Elements Per Circle", value: Binding(
+                            get: { study.mesh.curvatureElementsPerCircle },
+                            set: { val in
+                                var copy = study.mesh
+                                copy.curvatureElementsPerCircle = max(3.0, val)
+                                workspace.updateSimulationMeshSpecification(studyId: study.id, mesh: copy)
+                            }
+                        ), format: .number)
+                        .accessibilityIdentifier("inspector-simulation-mesh-curvature-elements-per-circle")
+                    }
                 }
             } header: {
                 sectionHeader("Volume Meshing Specification")

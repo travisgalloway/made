@@ -385,12 +385,14 @@ public struct MeshRefinementRegion: Sendable, Codable, Equatable, Hashable, Iden
     }
 }
 
-/// Tetrahedral volume meshing parameters (ADR-D5, #157, #188).
+/// Tetrahedral volume meshing parameters (ADR-D5, #157, #188, #275).
 public struct MeshSpecification: Sendable, Codable, Equatable, Hashable {
     public var elementOrder: MeshElementOrder
     public var targetElementSize: Double
     public var minElementSize: Double
     public var growthRate: Double
+    public var curvatureRefinement: Bool
+    public var curvatureElementsPerCircle: Double
     public var refinementRegions: [MeshRefinementRegion]
 
     public init(
@@ -398,13 +400,62 @@ public struct MeshSpecification: Sendable, Codable, Equatable, Hashable {
         targetElementSize: Double = 5.0,
         minElementSize: Double = 1.0,
         growthRate: Double = 1.2,
+        curvatureRefinement: Bool = false,
+        curvatureElementsPerCircle: Double = 12.0,
         refinementRegions: [MeshRefinementRegion] = []
     ) {
         self.elementOrder = elementOrder
         self.targetElementSize = targetElementSize
         self.minElementSize = minElementSize
         self.growthRate = growthRate
+        self.curvatureRefinement = curvatureRefinement
+        self.curvatureElementsPerCircle = curvatureElementsPerCircle
         self.refinementRegions = refinementRegions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case elementOrder
+        case targetElementSize
+        case minElementSize
+        case growthRate
+        case curvatureRefinement
+        case curvatureElementsPerCircle
+        case refinementRegions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.elementOrder = try container.decodeIfPresent(MeshElementOrder.self, forKey: .elementOrder) ?? .quadratic
+        self.targetElementSize = try container.decodeIfPresent(Double.self, forKey: .targetElementSize) ?? 5.0
+        self.minElementSize = try container.decodeIfPresent(Double.self, forKey: .minElementSize) ?? 1.0
+        self.growthRate = try container.decodeIfPresent(Double.self, forKey: .growthRate) ?? 1.2
+        self.curvatureRefinement = try container.decodeIfPresent(Bool.self, forKey: .curvatureRefinement) ?? false
+        self.curvatureElementsPerCircle = try container.decodeIfPresent(Double.self, forKey: .curvatureElementsPerCircle) ?? 12.0
+        self.refinementRegions = try container.decodeIfPresent([MeshRefinementRegion].self, forKey: .refinementRegions) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(elementOrder, forKey: .elementOrder)
+        try container.encode(targetElementSize, forKey: .targetElementSize)
+        try container.encode(minElementSize, forKey: .minElementSize)
+        try container.encode(growthRate, forKey: .growthRate)
+        try container.encode(curvatureRefinement, forKey: .curvatureRefinement)
+        try container.encode(curvatureElementsPerCircle, forKey: .curvatureElementsPerCircle)
+        try container.encode(refinementRegions, forKey: .refinementRegions)
+    }
+
+    public mutating func clamp() {
+        targetElementSize = max(0.001, targetElementSize)
+        minElementSize = max(0.0001, min(minElementSize, targetElementSize))
+        growthRate = max(1.0, growthRate)
+        curvatureElementsPerCircle = max(3.0, curvatureElementsPerCircle)
+    }
+
+    public func clamped() -> MeshSpecification {
+        var copy = self
+        copy.clamp()
+        return copy
     }
 }
 

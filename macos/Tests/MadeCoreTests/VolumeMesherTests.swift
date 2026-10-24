@@ -432,4 +432,57 @@ import simd
             Issue.record("Unexpected error: \(error)")
         }
     }
+
+    @Test func testBuildGmshArgumentsLinearAndQuadraticOrder() {
+        let linearSpec = MeshSpecification(elementOrder: .linear, targetElementSize: 4.0, minElementSize: 1.0)
+        let linearArgs = VolumeMesherActor.buildGmshArguments(specification: linearSpec)
+        #expect(linearArgs.contains("-order"))
+        if let orderIdx = linearArgs.firstIndex(of: "-order"), orderIdx + 1 < linearArgs.count {
+            #expect(linearArgs[orderIdx + 1] == "1")
+        } else {
+            Issue.record("Missing -order 1")
+        }
+
+        let quadraticSpec = MeshSpecification(elementOrder: .quadratic, targetElementSize: 4.0, minElementSize: 1.0)
+        let quadraticArgs = VolumeMesherActor.buildGmshArguments(specification: quadraticSpec)
+        if let orderIdx = quadraticArgs.firstIndex(of: "-order"), orderIdx + 1 < quadraticArgs.count {
+            #expect(quadraticArgs[orderIdx + 1] == "2")
+        } else {
+            Issue.record("Missing -order 2")
+        }
+    }
+
+    @Test func testBuildGmshArgumentsCurvatureRefinementDisabled() {
+        let spec = MeshSpecification(curvatureRefinement: false)
+        let args = VolumeMesherActor.buildGmshArguments(specification: spec)
+        #expect(!args.contains("-clcurv"))
+        #expect(!args.contains("Mesh.MeshSizeFromCurvature"))
+    }
+
+    @Test func testBuildGmshArgumentsCurvatureRefinementEnabled() {
+        let spec = MeshSpecification(curvatureRefinement: true, curvatureElementsPerCircle: 18.0)
+        let args = VolumeMesherActor.buildGmshArguments(specification: spec)
+        #expect(args.contains("-clcurv"))
+        if let setnumberIdx = args.firstIndex(of: "-setnumber"), setnumberIdx + 2 < args.count {
+            #expect(args[setnumberIdx + 1] == "Mesh.MeshSizeFromCurvature")
+            #expect(args[setnumberIdx + 2] == "18.0")
+        } else {
+            Issue.record("Missing -setnumber Mesh.MeshSizeFromCurvature 18.0")
+        }
+    }
+
+    @Test func testBuildGmshArgumentsClampsMinGreaterThanTarget() {
+        let spec = MeshSpecification(targetElementSize: 2.0, minElementSize: 5.0)
+        let args = VolumeMesherActor.buildGmshArguments(specification: spec)
+        guard let clmaxIdx = args.firstIndex(of: "-clmax"), clmaxIdx + 1 < args.count,
+              let clminIdx = args.firstIndex(of: "-clmin"), clminIdx + 1 < args.count,
+              let clmax = Double(args[clmaxIdx + 1]),
+              let clmin = Double(args[clminIdx + 1]) else {
+            Issue.record("Missing -clmax or -clmin arguments")
+            return
+        }
+        #expect(clmax == 2.0)
+        #expect(clmin == 2.0)
+        #expect(clmin <= clmax)
+    }
 }

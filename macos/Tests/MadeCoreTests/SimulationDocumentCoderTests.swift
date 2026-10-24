@@ -220,5 +220,66 @@ import simd
         #expect(study.fixtures.first?.groupNames.isEmpty == true)
         #expect(study.loads.first?.groupNames.isEmpty == true)
         #expect(study.results.meshSets.isEmpty)
+        #expect(study.mesh.curvatureRefinement == false)
+        #expect(study.mesh.curvatureElementsPerCircle == 12.0)
+    }
+
+    @Test func testLegacyMeshSpecificationWithoutCurvatureDecodesGracefully() throws {
+        let legacyMeshJSON = """
+        {
+          "version": 1,
+          "documentType": "part",
+          "objects": [],
+          "parameters": [],
+          "studies": [
+            {
+              "id": "11111111-2222-3333-4444-555555555555",
+              "name": "Pre-Curvature Study",
+              "studyType": "linearStatic",
+              "materials": [],
+              "fixtures": [],
+              "loads": [],
+              "mesh": {
+                "elementOrder": "quadratic",
+                "targetElementSize": 4.5,
+                "minElementSize": 0.8,
+                "growthRate": 1.3,
+                "refinementRegions": []
+              },
+              "solver": {
+                "engine": "calculix",
+                "maxIterations": 100,
+                "convergenceTolerance": 0.0001,
+                "timeStep": 0.01
+              },
+              "results": {
+                "status": "notRun",
+                "meshStatistics": {
+                  "nodeCount": 0,
+                  "elementCount": 0,
+                  "minElementQuality": 1.0,
+                  "avgElementQuality": 1.0
+                },
+                "extrema": []
+              },
+              "isCollapsed": false
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyMeshJSON)
+
+        guard let study = restoredDoc.studies.first else {
+            Issue.record("Expected 1 study")
+            return
+        }
+        #expect(study.mesh.elementOrder == .quadratic)
+        #expect(study.mesh.targetElementSize == 4.5)
+        #expect(study.mesh.minElementSize == 0.8)
+        #expect(study.mesh.growthRate == 1.3)
+        #expect(study.mesh.curvatureRefinement == false)
+        #expect(study.mesh.curvatureElementsPerCircle == 12.0)
     }
 }

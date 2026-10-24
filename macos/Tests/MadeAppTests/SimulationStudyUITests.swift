@@ -319,6 +319,38 @@ import simd
         #expect(study.results.meshStatistics.elementCount == 420)
     }
 
+    @Test func testInspectorSimulationMeshViewCurvatureControls() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Curvature Mesh Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        #expect(study.mesh.curvatureRefinement == false)
+        #expect(study.mesh.curvatureElementsPerCircle == 12.0)
+
+        // Instantiate view with curvature disabled
+        let viewDisabled = InspectorSimulationMeshView(study: study).environment(ws)
+        _ = viewDisabled
+
+        // Update mesh specification with curvature enabled and custom elements per circle
+        var updatedMesh = study.mesh
+        updatedMesh.curvatureRefinement = true
+        updatedMesh.curvatureElementsPerCircle = 18.0
+        ws.updateSimulationMeshSpecification(studyId: study.id, mesh: updatedMesh)
+
+        guard let refreshedStudy = ws.document.study(id: study.id) else {
+            Issue.record("Failed to fetch refreshed study")
+            return
+        }
+        #expect(refreshedStudy.mesh.curvatureRefinement == true)
+        #expect(refreshedStudy.mesh.curvatureElementsPerCircle == 18.0)
+
+        // Instantiate view with curvature enabled
+        let viewEnabled = InspectorSimulationMeshView(study: refreshedStudy).environment(ws)
+        _ = viewEnabled
+    }
+
     @Test func testWorkspaceAssignSelectedSubElementToFixture() {
         let ws = WorkspaceModel()
         guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Fixture Selection Study") else {

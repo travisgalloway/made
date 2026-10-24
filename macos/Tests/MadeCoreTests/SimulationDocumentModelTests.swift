@@ -269,4 +269,49 @@ import Foundation
         #expect(doc.study(id: study.id)?.fixtures.first?.groupNames == ["Shared Group"])
         #expect(doc.study(id: study.id)?.loads.first?.groupNames == ["Shared Group"])
     }
+
+    @Test func testUpdateSimulationMeshSpecificationWithUndoRedo() {
+        let doc = DocumentModel()
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let study = SimulationStudy(name: "Mesh Undo Study", studyType: .linearStatic)
+        doc.addStudy(study)
+        undoManager.removeAllActions()
+
+        let initialMesh = doc.study(id: study.id)?.mesh
+        #expect(initialMesh?.elementOrder == .quadratic)
+        #expect(initialMesh?.targetElementSize == 5.0)
+        #expect(initialMesh?.curvatureRefinement == false)
+
+        var updatedMesh = initialMesh ?? MeshSpecification()
+        updatedMesh.elementOrder = .linear
+        updatedMesh.targetElementSize = 2.5
+        updatedMesh.minElementSize = 0.5
+        updatedMesh.curvatureRefinement = true
+        updatedMesh.curvatureElementsPerCircle = 16.0
+
+        let result = doc.updateSimulationMeshSpecification(studyId: study.id, mesh: updatedMesh)
+        #expect(result == .success(()))
+
+        let currentMesh = doc.study(id: study.id)?.mesh
+        #expect(currentMesh?.elementOrder == .linear)
+        #expect(currentMesh?.targetElementSize == 2.5)
+        #expect(currentMesh?.minElementSize == 0.5)
+        #expect(currentMesh?.curvatureRefinement == true)
+        #expect(currentMesh?.curvatureElementsPerCircle == 16.0)
+
+        undoManager.undo()
+        let undoneMesh = doc.study(id: study.id)?.mesh
+        #expect(undoneMesh == initialMesh)
+        #expect(undoneMesh?.elementOrder == .quadratic)
+        #expect(undoneMesh?.curvatureRefinement == false)
+
+        undoManager.redo()
+        let redoneMesh = doc.study(id: study.id)?.mesh
+        #expect(redoneMesh == updatedMesh)
+        #expect(redoneMesh?.elementOrder == .linear)
+        #expect(redoneMesh?.curvatureRefinement == true)
+        #expect(redoneMesh?.curvatureElementsPerCircle == 16.0)
+    }
 }

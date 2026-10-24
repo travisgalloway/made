@@ -17,6 +17,8 @@ import simd
         #expect(study.results.status == .notRun)
         #expect(study.mesh.elementOrder == .quadratic)
         #expect(study.mesh.growthRate == 1.2)
+        #expect(study.mesh.curvatureRefinement == false)
+        #expect(study.mesh.curvatureElementsPerCircle == 12.0)
         #expect(study.solver.engine == .calculix)
         #expect(study.solver.maxIterations == 100)
     }
@@ -64,6 +66,44 @@ import simd
         #expect(err7 == CAEErrorCode.executionCancelled)
     }
 
+    @Test func testMeshSpecificationDefaults() {
+        let spec = MeshSpecification()
+        #expect(spec.elementOrder == .quadratic)
+        #expect(spec.targetElementSize == 5.0)
+        #expect(spec.minElementSize == 1.0)
+        #expect(spec.growthRate == 1.2)
+        #expect(spec.curvatureRefinement == false)
+        #expect(spec.curvatureElementsPerCircle == 12.0)
+        #expect(spec.refinementRegions.isEmpty)
+    }
+
+    @Test func testMeshSpecificationClamping() {
+        var spec = MeshSpecification(
+            elementOrder: .linear,
+            targetElementSize: -5.0,
+            minElementSize: 10.0,
+            growthRate: 0.5,
+            curvatureRefinement: true,
+            curvatureElementsPerCircle: 1.0
+        )
+        spec.clamp()
+        #expect(spec.targetElementSize == 0.001)
+        #expect(spec.minElementSize == 0.001)
+        #expect(spec.growthRate == 1.0)
+        #expect(spec.curvatureElementsPerCircle == 3.0)
+
+        let clampedCopy = MeshSpecification(
+            targetElementSize: 2.0,
+            minElementSize: 4.0,
+            growthRate: -2.0,
+            curvatureElementsPerCircle: 0.0
+        ).clamped()
+        #expect(clampedCopy.targetElementSize == 2.0)
+        #expect(clampedCopy.minElementSize == 2.0)
+        #expect(clampedCopy.growthRate == 1.0)
+        #expect(clampedCopy.curvatureElementsPerCircle == 3.0)
+    }
+
     @Test func testCodableRoundTrip() throws {
         var study = SimulationStudy(name: "Bracket Simulation", studyType: .linearStatic)
         let fixture = SimulationFixture(name: "Bolt Restraint", kind: .fixed)
@@ -71,6 +111,8 @@ import simd
         study.fixtures.append(fixture)
         study.loads.append(load)
         study.mesh.targetElementSize = 3.5
+        study.mesh.curvatureRefinement = true
+        study.mesh.curvatureElementsPerCircle = 16.0
         study.solver.maxIterations = 500
 
         let encoder = JSONEncoder()
@@ -84,6 +126,8 @@ import simd
         #expect(decoded.fixtures.count == 1)
         #expect(decoded.loads.count == 1)
         #expect(decoded.mesh.targetElementSize == 3.5)
+        #expect(decoded.mesh.curvatureRefinement == true)
+        #expect(decoded.mesh.curvatureElementsPerCircle == 16.0)
         #expect(decoded.solver.maxIterations == 500)
     }
 
