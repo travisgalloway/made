@@ -9477,6 +9477,34 @@ public final class DocumentModel {
         return .success(())
     }
 
+    @discardableResult
+    public func updateSimulationFactorOfSafetySettings(
+        studyId: UUID,
+        settings: FactorOfSafetySettings,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldSettings = studies[sIdx].factorOfSafetySettings
+        guard oldSettings != settings else { return .success(()) }
+        studies[sIdx].factorOfSafetySettings = settings
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Factor of Safety Settings"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationFactorOfSafetySettings(studyId: studyId, settings: oldSettings, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
     // MARK: - Simulation Geometry Groups & Target Associations (BL-MSH-06, #189)
 
     @discardableResult

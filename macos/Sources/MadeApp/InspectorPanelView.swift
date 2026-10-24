@@ -4025,6 +4025,106 @@ struct InspectorSimulationResultsView: View {
                     sectionHeader("Result Extrema")
                 }
             }
+
+            if let fos = study.results.factorOfSafety ?? FactorOfSafetyCalculator.evaluate(study: study) {
+                Section {
+                    Picker("Strength Basis", selection: Binding(
+                        get: { study.factorOfSafetySettings.basis },
+                        set: { newBasis in
+                            workspace.updateFactorOfSafety(studyId: study.id, basis: newBasis)
+                        }
+                    )) {
+                        ForEach(FactorOfSafetyBasis.allCases) { basis in
+                            Text(basis.displayName).tag(basis)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-fos-basis-picker")
+
+                    Picker("Failure Criterion", selection: Binding(
+                        get: { study.factorOfSafetySettings.criterion },
+                        set: { newCriterion in
+                            workspace.updateFactorOfSafety(studyId: study.id, criterion: newCriterion)
+                        }
+                    )) {
+                        ForEach(FactorOfSafetyCriterion.allCases) { criterion in
+                            Text(criterion.displayName).tag(criterion)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-fos-criterion-picker")
+
+                    Stepper(value: Binding(
+                        get: { study.factorOfSafetySettings.targetDesignFactor },
+                        set: { newTarget in
+                            workspace.updateFactorOfSafety(studyId: study.id, targetDesignFactor: newTarget)
+                        }
+                    ), in: 0.1...20.0, step: 0.1) {
+                        LabeledContent("Target Design Factor") {
+                            Text(String(format: "%.2f", study.factorOfSafetySettings.targetDesignFactor))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-fos-target-stepper")
+
+                    HStack {
+                        if fos.meetsDesignFactor {
+                            Label(
+                                "Design Margin Satisfied (Min FOS: \(String(format: "%.2f", fos.minFactorOfSafety)))",
+                                systemImage: "checkmark.shield.fill"
+                            )
+                            .foregroundStyle(.green)
+                        } else {
+                            Label(
+                                "Design Margin Violated (Min FOS: \(String(format: "%.2f", fos.minFactorOfSafety)))",
+                                systemImage: "exclamationmark.shield.fill"
+                            )
+                            .foregroundStyle(.red)
+                        }
+                    }
+                    .font(.subheadline)
+                    .accessibilityIdentifier("inspector-simulation-fos-status-badge")
+
+                    LabeledContent("Allowable Strength") {
+                        Text(String(format: "%.1f MPa", fos.allowableStrengthMPa))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LabeledContent("Min Factor of Safety") {
+                        Text(String(format: "%.2f", fos.minFactorOfSafety))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LabeledContent("Max Factor of Safety") {
+                        Text(String(format: "%.2f", fos.maxFactorOfSafety))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let critNode = fos.criticalNodeId {
+                        LabeledContent("Critical Node") {
+                            if let critStress = fos.criticalStressMPa {
+                                Text("Node \(critNode) (\(String(format: "%.1f MPa", critStress)))")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Node \(critNode)")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Button {
+                        workspace.highlightFailingSafetyFactorElements(studyId: study.id)
+                    } label: {
+                        Label(
+                            workspace.highlightedMeshElementIds.isEmpty ? "Highlight Failing Elements" : "Clear Element Highlight",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("inspector-simulation-fos-highlight-button")
+                } header: {
+                    sectionHeader("Factor of Safety")
+                }
+            }
         }
         .formStyle(.columns)
         .controlSize(.small)

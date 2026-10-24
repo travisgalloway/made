@@ -908,6 +908,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var nodalVonMisesStresses: [Int: Double]?
     public var bucklingModes: [SimulationBucklingMode]?
     public var modeShapes: [SimulationModeShape]?
+    public var factorOfSafety: FactorOfSafetyResult?
+    public var nodalCauchyTensors: [Int: CauchyStressTensor]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -920,7 +922,9 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         nodalDisplacements: [Int: SIMD3<Double>]? = nil,
         nodalVonMisesStresses: [Int: Double]? = nil,
         bucklingModes: [SimulationBucklingMode]? = nil,
-        modeShapes: [SimulationModeShape]? = nil
+        modeShapes: [SimulationModeShape]? = nil,
+        factorOfSafety: FactorOfSafetyResult? = nil,
+        nodalCauchyTensors: [Int: CauchyStressTensor]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -933,10 +937,12 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.nodalVonMisesStresses = nodalVonMisesStresses
         self.bucklingModes = bucklingModes
         self.modeShapes = modeShapes
+        self.factorOfSafety = factorOfSafety
+        self.nodalCauchyTensors = nodalCauchyTensors
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes, factorOfSafety, nodalCauchyTensors
     }
 
     public init(from decoder: Decoder) throws {
@@ -952,6 +958,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.nodalVonMisesStresses = try container.decodeIfPresent([Int: Double].self, forKey: .nodalVonMisesStresses)
         self.bucklingModes = try container.decodeIfPresent([SimulationBucklingMode].self, forKey: .bucklingModes)
         self.modeShapes = try container.decodeIfPresent([SimulationModeShape].self, forKey: .modeShapes)
+        self.factorOfSafety = try container.decodeIfPresent(FactorOfSafetyResult.self, forKey: .factorOfSafety)
+        self.nodalCauchyTensors = try container.decodeIfPresent([Int: CauchyStressTensor].self, forKey: .nodalCauchyTensors)
     }
 }
 
@@ -972,6 +980,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
     public var results: SimulationStudyResults
     public var isCollapsed: Bool
     public var coordinateSystemId: UUID?
+    public var factorOfSafetySettings: FactorOfSafetySettings
 
     public init(
         id: UUID = UUID(),
@@ -988,7 +997,8 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         solver: SolverConfiguration = SolverConfiguration(),
         results: SimulationStudyResults = SimulationStudyResults(),
         isCollapsed: Bool = false,
-        coordinateSystemId: UUID? = nil
+        coordinateSystemId: UUID? = nil,
+        factorOfSafetySettings: FactorOfSafetySettings = FactorOfSafetySettings()
     ) {
         self.id = id
         self.name = name
@@ -1005,10 +1015,11 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.results = results
         self.isCollapsed = isCollapsed
         self.coordinateSystemId = coordinateSystemId
+        self.factorOfSafetySettings = factorOfSafetySettings
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed, coordinateSystemId
+        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed, coordinateSystemId, factorOfSafetySettings
     }
 
     public init(from decoder: Decoder) throws {
@@ -1028,6 +1039,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.results = try container.decodeIfPresent(SimulationStudyResults.self, forKey: .results) ?? SimulationStudyResults()
         self.isCollapsed = try container.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false
         self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
+        self.factorOfSafetySettings = try container.decodeIfPresent(FactorOfSafetySettings.self, forKey: .factorOfSafetySettings) ?? FactorOfSafetySettings()
     }
 }
 

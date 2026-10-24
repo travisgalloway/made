@@ -966,6 +966,90 @@ import simd
         #expect(!finishedStudy.results.extrema.isEmpty)
         #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Displacement Magnitude" })
         #expect(finishedStudy.results.extrema.contains { $0.fieldName == "von Mises Stress" })
+        #expect(finishedStudy.results.factorOfSafety != nil)
+        #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Factor of Safety" })
+    }
+
+    @Test func testFactorOfSafetyDynamicSwitching() async throws {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "FOS Dynamic Test") else {
+            Issue.record("Failed to create linear static simulation study")
+            return
+        }
+
+        var updatedStudy = study
+        updatedStudy.solver.engine = .pureSwift
+        updatedStudy.fixtures = [
+            SimulationFixture(name: "Fixed Base", kind: .fixed)
+        ]
+        updatedStudy.loads = [
+            SimulationLoad(name: "Tip Force", kind: .force, magnitude: 1000.0, direction: SIMD3<Double>(0, -1, 0))
+        ]
+        ws.updateSimulationStudy(updatedStudy)
+
+        ws.runSimulationStudy(id: study.id)
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        let finished = try #require(ws.document.study(id: study.id))
+        let initialFos = try #require(finished.results.factorOfSafety)
+        #expect(initialFos.basis == .yield)
+        #expect(initialFos.criterion == .vonMises)
+
+        // Switch to Ultimate Tensile Strength basis and Tresca criterion with target 2.5
+        ws.updateFactorOfSafety(
+            studyId: study.id,
+            basis: .ultimate,
+            criterion: .tresca,
+            targetDesignFactor: 2.5
+        )
+
+        let switched = try #require(ws.document.study(id: study.id))
+        #expect(switched.factorOfSafetySettings.basis == .ultimate)
+        #expect(switched.factorOfSafetySettings.criterion == .tresca)
+        #expect(switched.factorOfSafetySettings.targetDesignFactor == 2.5)
+
+        let switchedFos = try #require(switched.results.factorOfSafety)
+        #expect(switchedFos.basis == .ultimate)
+        #expect(switchedFos.criterion == .tresca)
+        #expect(switchedFos.targetDesignFactor == 2.5)
+        #expect(switchedFos.allowableStrengthMPa == 400.0)
+
+        let fosExtrema = try #require(switched.results.extrema.first { $0.fieldName == "Factor of Safety" })
+        #expect(abs(fosExtrema.minValue - switchedFos.minFactorOfSafety) < 1e-6)
+
+        // Highlight failing elements
+        ws.highlightFailingSafetyFactorElements(studyId: study.id)
+    }
+
+    @Test func testInspectorSimulationResultsViewFactorOfSafetySection() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "FOS Inspector Test") else {
+            Issue.record("Failed to create linear static simulation study")
+            return
+        }
+
+        study.results.status = .completed
+        study.results.nodalVonMisesStresses = [1: 50.0, 2: 100.0]
+        study.results.factorOfSafety = FactorOfSafetyResult(
+            basis: .yield,
+            criterion: .vonMises,
+            allowableStrengthMPa: 250.0,
+            minFactorOfSafety: 2.5,
+            maxFactorOfSafety: 5.0,
+            criticalNodeId: 2,
+            criticalStressMPa: 100.0,
+            targetDesignFactor: 2.0,
+            meetsDesignFactor: true,
+            failingNodeCount: 0,
+            totalNodeCount: 2,
+            nodalFactorsOfSafety: [1: 5.0, 2: 2.5]
+        )
+        ws.updateSimulationStudy(study)
+
+        _ = InspectorSimulationResultsView(study: study).environment(ws)
     }
 
     @Test func testLinearBucklingSolveLifecycle() async throws {

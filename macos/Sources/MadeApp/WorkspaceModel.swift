@@ -6490,6 +6490,8 @@ final class WorkspaceModel {
                             currentStudy.results.extrema = result.extrema
                             currentStudy.results.nodalDisplacements = result.nodalDisplacements
                             currentStudy.results.nodalVonMisesStresses = result.nodalVonMisesStresses
+                            currentStudy.results.factorOfSafety = result.factorOfSafety
+                            currentStudy.results.nodalCauchyTensors = result.nodalCauchyTensors
                             currentStudy.results.errorMessage = nil
                             _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
                             self.markDocumentModified()
@@ -7140,6 +7142,87 @@ final class WorkspaceModel {
         if let studyId = selectedSimulationStudyId ?? document.activeStudyId {
             updateSimulationMeshInViewport(studyId: studyId)
         }
+    }
+
+    // MARK: - Factor of Safety Actions (BL-FEA-09, #228)
+
+    public func updateFactorOfSafety(
+        studyId: UUID,
+        basis: FactorOfSafetyBasis? = nil,
+        criterion: FactorOfSafetyCriterion? = nil,
+        targetDesignFactor: Double? = nil
+    ) {
+        guard var study = document.study(id: studyId) else { return }
+        var settings = study.factorOfSafetySettings
+        if let basis { settings.basis = basis }
+        if let criterion { settings.criterion = criterion }
+        if let targetDesignFactor { settings.targetDesignFactor = targetDesignFactor }
+
+        study.factorOfSafetySettings = settings
+
+        guard let updatedFos = FactorOfSafetyCalculator.evaluate(study: study, settings: settings) else {
+            _ = document.updateSimulationFactorOfSafetySettings(studyId: studyId, settings: settings, registerUndo: true)
+            markDocumentModified()
+            return
+        }
+
+        study.results.factorOfSafety = updatedFos
+
+        if let idx = study.results.extrema.firstIndex(where: { $0.fieldName == "Factor of Safety" }) {
+            study.results.extrema[idx].minValue = updatedFos.minFactorOfSafety
+            study.results.extrema[idx].maxValue = updatedFos.maxFactorOfSafety
+        } else {
+            study.results.extrema.append(
+                SimulationFieldExtrema(
+                    fieldName: "Factor of Safety",
+                    unitSymbol: "",
+                    minValue: updatedFos.minFactorOfSafety,
+                    maxValue: updatedFos.maxFactorOfSafety
+                )
+            )
+        }
+
+        _ = document.updateSimulationFactorOfSafetySettings(studyId: studyId, settings: settings, registerUndo: true)
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results, registerUndo: false)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func highlightFailingSafetyFactorElements(studyId: UUID) {
+        guard let study = document.study(id: studyId),
+              let fos = study.results.factorOfSafety else { return }
+        let mesh = cachedStudyMeshes[studyId]
+        let elements = mesh?.elements ?? []
+        var failingIds: Set<Int> = []
+
+        if !elements.isEmpty {
+            for element in elements {
+                let hasFailingNode = element.nodeIndices.contains { nId in
+                    if let nFos = fos.nodalFactorsOfSafety[nId] {
+                        return nFos < fos.targetDesignFactor
+                    }
+                    return false
+                }
+                if hasFailingNode {
+                    failingIds.insert(element.id)
+                }
+            }
+        }
+
+        if failingIds.isEmpty && fos.failingNodeCount > 0 {
+            for element in elements {
+                if let crit = fos.criticalNodeId, element.nodeIndices.contains(crit) {
+                    failingIds.insert(element.id)
+                }
+            }
+        }
+
+        if highlightedMeshElementIds == failingIds && !failingIds.isEmpty {
+            highlightedMeshElementIds = []
+        } else {
+            highlightedMeshElementIds = failingIds
+        }
+        updateSimulationMeshInViewport(studyId: studyId)
     }
 
     // MARK: - Simulation Mesh Viewport Lifecycle (BL-MSH-05, #278)
