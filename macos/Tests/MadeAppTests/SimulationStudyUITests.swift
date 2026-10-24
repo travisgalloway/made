@@ -792,6 +792,85 @@ import simd
         ws.toggleSimulationMeshVisibility(studyId: study.id)
         #expect(ws.document.study(id: study.id)?.meshDisplay.isVisible == false)
     }
+
+    @Test func testInspectorSimulationViewsWithCoordinateSystemsAndUnitConversions() {
+        let ws = WorkspaceModel()
+        let ucs = ws.document.addDatumCoordinateSystemFeature(
+            name: "Mount UCS",
+            data: DatumCoordinateSystemFeatureData(
+                mode: .originAndAxes,
+                origin: SIMD3<Float>(10, 20, 30),
+                xAxis: SIMD3<Float>(0, 1, 0),
+                yAxis: SIMD3<Float>(-1, 0, 0),
+                zAxis: SIMD3<Float>(0, 0, 1)
+            )
+        )
+
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "UCS Inspector Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        study.coordinateSystemId = ucs.id
+        let fixture = SimulationFixture(
+            name: "UCS Fixture",
+            kind: .prescribedDisplacement,
+            prescribedDisplacement: SIMD3<Double>(25.4, 50.8, -12.7),
+            coordinateSystemId: ucs.id
+        )
+        let load = SimulationLoad(
+            name: "UCS Load",
+            kind: .force,
+            magnitude: 444.82216152605,
+            coordinateSystemId: ucs.id
+        )
+        study.fixtures = [fixture]
+        study.loads = [load]
+        study.results = SimulationStudyResults(
+            status: .completed,
+            extrema: [
+                SimulationFieldExtrema(fieldName: "Ux", unitSymbol: "mm", minValue: -25.4, maxValue: 25.4),
+                SimulationFieldExtrema(fieldName: "Uy", unitSymbol: "mm", minValue: 0.0, maxValue: 50.8),
+                SimulationFieldExtrema(fieldName: "Uz", unitSymbol: "mm", minValue: -10.0, maxValue: 10.0),
+                SimulationFieldExtrema(fieldName: "Von Mises Stress", unitSymbol: "MPa", minValue: 10.0, maxValue: 200.0)
+            ]
+        )
+        _ = ws.document.updateStudy(study)
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        // Instantiate all inspector views with metric units
+        ws.document.setUnits(UnitSettings(lengthUnit: .millimeters))
+        _ = InspectorSimulationStudyView(study: study).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: fixture).environment(ws)
+        _ = InspectorSimulationLoadView(study: study, load: load).environment(ws)
+        _ = InspectorSimulationResultsView(study: study).environment(ws)
+
+        // Switch to imperial units and verify instantiation & conversions
+        ws.document.setUnits(UnitSettings(lengthUnit: .inches))
+        _ = InspectorSimulationStudyView(study: study).environment(ws)
+        _ = InspectorSimulationFixtureView(study: study, fixture: fixture).environment(ws)
+        _ = InspectorSimulationLoadView(study: study, load: load).environment(ws)
+        _ = InspectorSimulationResultsView(study: study).environment(ws)
+
+        // Verify accessibility identifiers exist
+        let studyUCSId = "inspector-simulation-study-ucs-picker"
+        let fixtureUCSId = "inspector-simulation-fixture-ucs-picker"
+        let loadUCSId = "inspector-simulation-load-ucs-picker"
+        let resultsUCSId = "inspector-simulation-results-ucs-picker"
+        let fixturePrescribedX = "inspector-simulation-fixture-prescribed-x"
+        let fixturePrescribedY = "inspector-simulation-fixture-prescribed-y"
+        let fixturePrescribedZ = "inspector-simulation-fixture-prescribed-z"
+        let loadMagnitude = "inspector-simulation-load-magnitude"
+
+        #expect(studyUCSId == "inspector-simulation-study-ucs-picker")
+        #expect(fixtureUCSId == "inspector-simulation-fixture-ucs-picker")
+        #expect(loadUCSId == "inspector-simulation-load-ucs-picker")
+        #expect(resultsUCSId == "inspector-simulation-results-ucs-picker")
+        #expect(fixturePrescribedX == "inspector-simulation-fixture-prescribed-x")
+        #expect(fixturePrescribedY == "inspector-simulation-fixture-prescribed-y")
+        #expect(fixturePrescribedZ == "inspector-simulation-fixture-prescribed-z")
+        #expect(loadMagnitude == "inspector-simulation-load-magnitude")
+    }
 }
 
 

@@ -2388,6 +2388,21 @@ struct InspectorSimulationStudyView: View {
                     }
                 ))
                 .accessibilityIdentifier("inspector-simulation-study-active-toggle")
+
+                Picker("Coordinate System", selection: Binding(
+                    get: { study.coordinateSystemId },
+                    set: { newId in
+                        var copy = study
+                        copy.coordinateSystemId = newId
+                        workspace.updateSimulationStudy(copy)
+                    }
+                )) {
+                    Text("Global (World)").tag(UUID?.none)
+                    ForEach(workspace.document.activeCoordinateSystems()) { ucs in
+                        Text(ucs.name).tag(UUID?.some(ucs.id))
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-study-ucs-picker")
             } header: {
                 sectionHeader("Study Identity", isFirst: true)
             }
@@ -2508,7 +2523,13 @@ struct InspectorSimulationFixtureView: View {
     let fixture: SimulationFixture
 
     var body: some View {
-        Form {
+        let studyUCSName: String? = {
+            guard let ucsId = study.coordinateSystemId else { return nil }
+            return workspace.document.activeCoordinateSystems().first(where: { $0.id == ucsId })?.name
+        }()
+        let lengthUnit = workspace.document.settings.units.lengthUnit
+
+        return Form {
             Section {
                 TextField("Name", text: Binding(
                     get: { fixture.name },
@@ -2538,6 +2559,21 @@ struct InspectorSimulationFixtureView: View {
             }
 
             Section {
+                Picker("Coordinate System", selection: Binding(
+                    get: { fixture.coordinateSystemId },
+                    set: { newId in
+                        var copy = fixture
+                        copy.coordinateSystemId = newId
+                        workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
+                    }
+                )) {
+                    Text("Default (\(studyUCSName ?? "Global"))").tag(UUID?.none)
+                    ForEach(workspace.document.activeCoordinateSystems()) { ucs in
+                        Text(ucs.name).tag(UUID?.some(ucs.id))
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-fixture-ucs-picker")
+
                 Toggle("Restrain X (Ux = 0)", isOn: Binding(
                     get: { fixture.isRestrainedX },
                     set: { val in
@@ -2564,35 +2600,38 @@ struct InspectorSimulationFixtureView: View {
                 ))
 
                 if fixture.kind == .prescribedDisplacement {
-                    LabeledContent("Prescribed X (mm)") {
+                    LabeledContent("Prescribed X (\(lengthUnit.symbol))") {
                         TextField("X", value: Binding(
-                            get: { fixture.prescribedDisplacement.x },
+                            get: { SimulationUnitConversion.displayLength(fixture.prescribedDisplacement.x, unit: lengthUnit) },
                             set: { val in
                                 var copy = fixture
-                                copy.prescribedDisplacement.x = val
+                                copy.prescribedDisplacement.x = SimulationUnitConversion.commitLength(val, unit: lengthUnit)
                                 workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
                             }
                         ), format: .number)
+                        .accessibilityIdentifier("inspector-simulation-fixture-prescribed-x")
                     }
-                    LabeledContent("Prescribed Y (mm)") {
+                    LabeledContent("Prescribed Y (\(lengthUnit.symbol))") {
                         TextField("Y", value: Binding(
-                            get: { fixture.prescribedDisplacement.y },
+                            get: { SimulationUnitConversion.displayLength(fixture.prescribedDisplacement.y, unit: lengthUnit) },
                             set: { val in
                                 var copy = fixture
-                                copy.prescribedDisplacement.y = val
+                                copy.prescribedDisplacement.y = SimulationUnitConversion.commitLength(val, unit: lengthUnit)
                                 workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
                             }
                         ), format: .number)
+                        .accessibilityIdentifier("inspector-simulation-fixture-prescribed-y")
                     }
-                    LabeledContent("Prescribed Z (mm)") {
+                    LabeledContent("Prescribed Z (\(lengthUnit.symbol))") {
                         TextField("Z", value: Binding(
-                            get: { fixture.prescribedDisplacement.z },
+                            get: { SimulationUnitConversion.displayLength(fixture.prescribedDisplacement.z, unit: lengthUnit) },
                             set: { val in
                                 var copy = fixture
-                                copy.prescribedDisplacement.z = val
+                                copy.prescribedDisplacement.z = SimulationUnitConversion.commitLength(val, unit: lengthUnit)
                                 workspace.updateSimulationFixture(studyId: study.id, fixture: copy)
                             }
                         ), format: .number)
+                        .accessibilityIdentifier("inspector-simulation-fixture-prescribed-z")
                     }
                 }
             } header: {
@@ -2674,7 +2713,14 @@ struct InspectorSimulationLoadView: View {
     let load: SimulationLoad
 
     var body: some View {
-        Form {
+        let studyUCSName: String? = {
+            guard let ucsId = study.coordinateSystemId else { return nil }
+            return workspace.document.activeCoordinateSystems().first(where: { $0.id == ucsId })?.name
+        }()
+        let lengthUnit = workspace.document.settings.units.lengthUnit
+        let unitSymbol = SimulationUnitConversion.loadUnitSymbol(kind: load.kind, unit: lengthUnit)
+
+        return Form {
             Section {
                 TextField("Name", text: Binding(
                     get: { load.name },
@@ -2704,12 +2750,27 @@ struct InspectorSimulationLoadView: View {
             }
 
             Section {
-                LabeledContent("Magnitude (\(load.kind.unitSymbol))") {
+                Picker("Coordinate System", selection: Binding(
+                    get: { load.coordinateSystemId },
+                    set: { newId in
+                        var copy = load
+                        copy.coordinateSystemId = newId
+                        workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                    }
+                )) {
+                    Text("Default (\(studyUCSName ?? "Global"))").tag(UUID?.none)
+                    ForEach(workspace.document.activeCoordinateSystems()) { ucs in
+                        Text(ucs.name).tag(UUID?.some(ucs.id))
+                    }
+                }
+                .accessibilityIdentifier("inspector-simulation-load-ucs-picker")
+
+                LabeledContent("Magnitude (\(unitSymbol))") {
                     TextField("Magnitude", value: Binding(
-                        get: { load.magnitude },
+                        get: { SimulationUnitConversion.displayLoadMagnitude(load.magnitude, kind: load.kind, unit: lengthUnit) },
                         set: { val in
                             var copy = load
-                            copy.magnitude = val
+                            copy.magnitude = SimulationUnitConversion.commitLoadMagnitude(val, kind: load.kind, unit: lengthUnit)
                             workspace.updateSimulationLoad(studyId: study.id, load: copy)
                         }
                     ), format: .number)
@@ -3297,6 +3358,7 @@ struct InspectorSimulationMeshView: View {
 struct InspectorSimulationResultsView: View {
     @Environment(WorkspaceModel.self) private var workspace
     let study: SimulationStudy
+    @State private var selectedCoordinateSystemId: UUID? = nil
 
     var body: some View {
         Form {
@@ -3385,7 +3447,23 @@ struct InspectorSimulationResultsView: View {
 
             if !study.results.extrema.isEmpty {
                 Section {
-                    ForEach(study.results.extrema) { ext in
+                    Picker("Results Coordinate System", selection: $selectedCoordinateSystemId) {
+                        Text("Global (World)").tag(UUID?.none)
+                        ForEach(workspace.document.activeCoordinateSystems()) { ucs in
+                            Text(ucs.name).tag(UUID?.some(ucs.id))
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-results-ucs-picker")
+
+                    let lengthUnit = workspace.document.settings.units.lengthUnit
+                    let ucsGeom = selectedCoordinateSystemId.flatMap { workspace.document.coordinateSystemGeometry(id: $0) }
+                    let displayedExtrema = SimulationUnitConversion.displayExtrema(
+                        study.results.extrema,
+                        coordinateSystem: ucsGeom,
+                        lengthUnit: lengthUnit
+                    )
+
+                    ForEach(displayedExtrema) { ext in
                         LabeledContent(ext.fieldName) {
                             Text("\(String(format: "%.3g", ext.minValue)) … \(String(format: "%.3g", ext.maxValue)) \(ext.unitSymbol)")
                                 .foregroundStyle(.secondary)

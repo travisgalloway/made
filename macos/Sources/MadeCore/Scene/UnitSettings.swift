@@ -56,6 +56,14 @@ public enum LengthUnit: String, CaseIterable, Identifiable, Sendable, Codable, E
         case .feet: return 0.01
         }
     }
+
+    /// Whether this length unit belongs to the imperial unit system.
+    public var isImperial: Bool {
+        switch self {
+        case .inches, .feet: return true
+        case .millimeters, .centimeters, .meters: return false
+        }
+    }
 }
 
 /// Supported angular units in the CAD scene.

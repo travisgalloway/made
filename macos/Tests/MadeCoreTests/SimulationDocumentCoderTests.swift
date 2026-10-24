@@ -581,5 +581,86 @@ import simd
         #expect(study.meshDisplay.isSliceInverted == false)
         #expect(study.meshDisplay.hideSolidBody == false)
     }
+
+    @Test func testLegacySimulationStudyWithoutCoordinateSystemIdDecodesGracefully() throws {
+        let legacyJSON = """
+        {
+          "version": 1,
+          "studies": [
+            {
+              "id": "B2C3D4E5-F6A1-7890-ABCD-EF1234567890",
+              "name": "Legacy No UCS Study",
+              "studyType": "linearStatic",
+              "fixtures": [
+                {
+                  "id": "C3D4E5F6-A1B2-7890-ABCD-EF1234567890",
+                  "name": "Legacy Fixture",
+                  "kind": "fixed"
+                }
+              ],
+              "loads": [
+                {
+                  "id": "D4E5F6A1-B2C3-7890-ABCD-EF1234567890",
+                  "name": "Legacy Load",
+                  "kind": "force",
+                  "magnitude": 500.0,
+                  "direction": [0.0, 0.0, -1.0]
+                }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyJSON)
+
+        guard let study = restoredDoc.studies.first else {
+            Issue.record("Expected 1 restored study")
+            return
+        }
+
+        #expect(study.coordinateSystemId == nil)
+        #expect(study.fixtures.count == 1)
+        #expect(study.fixtures[0].coordinateSystemId == nil)
+        #expect(study.loads.count == 1)
+        #expect(study.loads[0].coordinateSystemId == nil)
+    }
+
+    @Test func testSimulationStudyWithCoordinateSystemIdRoundTrip() throws {
+        let studyUCS = UUID()
+        let fixtureUCS = UUID()
+        let loadUCS = UUID()
+
+        let study = SimulationStudy(
+            name: "Study With UCS",
+            studyType: .linearStatic,
+            fixtures: [
+                SimulationFixture(name: "Fixture with UCS", kind: .prescribedDisplacement, coordinateSystemId: fixtureUCS)
+            ],
+            loads: [
+                SimulationLoad(name: "Load with UCS", kind: .force, magnitude: 750.0, coordinateSystemId: loadUCS)
+            ],
+            coordinateSystemId: studyUCS
+        )
+
+        let doc = DocumentModel()
+        doc.addStudy(study)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encoded)
+
+        guard let restoredStudy = restoredDoc.studies.first else {
+            Issue.record("Expected 1 restored study")
+            return
+        }
+
+        #expect(restoredStudy.coordinateSystemId == studyUCS)
+        #expect(restoredStudy.fixtures.count == 1)
+        #expect(restoredStudy.fixtures[0].coordinateSystemId == fixtureUCS)
+        #expect(restoredStudy.loads.count == 1)
+        #expect(restoredStudy.loads[0].coordinateSystemId == loadUCS)
+    }
 }
 
