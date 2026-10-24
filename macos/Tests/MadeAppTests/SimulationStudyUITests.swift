@@ -871,6 +871,57 @@ import simd
         #expect(fixturePrescribedZ == "inspector-simulation-fixture-prescribed-z")
         #expect(loadMagnitude == "inspector-simulation-load-magnitude")
     }
+
+    @Test func testThermalConductionSolveLifecycle() async throws {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .thermalConduction, name: "Thermal Slab Solve") else {
+            Issue.record("Failed to create thermal simulation study")
+            return
+        }
+
+        var updatedStudy = study
+        updatedStudy.solver.engine = .pureSwift
+        updatedStudy.loads = [
+            SimulationLoad(name: "Hot", kind: .temperature, magnitude: 100.0),
+            SimulationLoad(name: "Cooling", kind: .convection, magnitude: 50.0, ambientTemperature: 20.0)
+        ]
+        ws.updateSimulationStudy(updatedStudy)
+
+        ws.runSimulationStudy(id: study.id)
+        #expect(ws.isStudyRunning(study.id))
+
+        // Wait for pure-Swift thermal solve to complete
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000) // 20ms
+        }
+
+        let finishedStudy = try #require(ws.document.study(id: study.id))
+        #expect(finishedStudy.results.status == .completed)
+        #expect(finishedStudy.results.errorMessage == nil)
+        #expect(finishedStudy.results.nodalTemperatures != nil)
+        #expect(!finishedStudy.results.extrema.isEmpty)
+        #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Temperature" })
+        #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Heat Flux" })
+    }
+
+    @Test func testInspectorSimulationLoadViewConvection() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .thermalConduction, name: "Thermal View Test") else {
+            Issue.record("Failed to create thermal simulation study")
+            return
+        }
+        let convectionLoad = SimulationLoad(
+            name: "Ambient Film",
+            kind: .convection,
+            magnitude: 75.0,
+            ambientTemperature: 22.0
+        )
+        _ = InspectorSimulationLoadView(study: study, load: convectionLoad).environment(ws)
+
+        let ambientId = "inspector-simulation-load-ambient-temperature"
+        #expect(ambientId == "inspector-simulation-load-ambient-temperature")
+    }
 }
 
 

@@ -256,6 +256,8 @@ public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatab
     case gravity
     case thermalFlux
     case temperature
+    case convection
+    case heatPower
 
     public var id: String { rawValue }
 
@@ -271,6 +273,10 @@ public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatab
             return "Heat Flux"
         case .temperature:
             return "Temperature"
+        case .convection:
+            return "Convection"
+        case .heatPower:
+            return "Heat Power"
         }
     }
 
@@ -286,6 +292,10 @@ public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatab
             return "W/m²"
         case .temperature:
             return "°C"
+        case .convection:
+            return "W/(m²·K)"
+        case .heatPower:
+            return "W"
         }
     }
 
@@ -301,6 +311,10 @@ public enum SimulationLoadKind: String, Sendable, Codable, CaseIterable, Equatab
             return "flame"
         case .temperature:
             return "thermometer.medium"
+        case .convection:
+            return "wind"
+        case .heatPower:
+            return "bolt.fill"
         }
     }
 }
@@ -315,6 +329,7 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
     public var magnitude: Double
     public var direction: SIMD3<Double>
     public var coordinateSystemId: UUID?
+    public var ambientTemperature: Double?
 
     public init(
         id: UUID = UUID(),
@@ -324,7 +339,8 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         groupNames: [String] = [],
         magnitude: Double = 1000.0,
         direction: SIMD3<Double> = SIMD3<Double>(0, 0, -1),
-        coordinateSystemId: UUID? = nil
+        coordinateSystemId: UUID? = nil,
+        ambientTemperature: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -335,10 +351,11 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         let len = simd_length(direction)
         self.direction = len > 1e-6 ? direction / len : SIMD3<Double>(0, 0, -1)
         self.coordinateSystemId = coordinateSystemId
+        self.ambientTemperature = ambientTemperature ?? (kind == .convection ? 20.0 : nil)
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, targetReferences, groupNames, magnitude, direction, coordinateSystemId
+        case id, name, kind, targetReferences, groupNames, magnitude, direction, coordinateSystemId, ambientTemperature
     }
 
     public init(from decoder: Decoder) throws {
@@ -353,6 +370,7 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         let len = simd_length(dir)
         self.direction = len > 1e-6 ? dir / len : SIMD3<Double>(0, 0, -1)
         self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
+        self.ambientTemperature = try container.decodeIfPresent(Double.self, forKey: .ambientTemperature) ?? (self.kind == .convection ? 20.0 : nil)
     }
 }
 
@@ -721,6 +739,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var meshSets: [VolumeMeshSet]
     public var extrema: [SimulationFieldExtrema]
     public var errorMessage: String?
+    public var nodalTemperatures: [Int: Double]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -728,7 +747,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         meshStatistics: SimulationMeshStatistics = SimulationMeshStatistics(),
         meshSets: [VolumeMeshSet] = [],
         extrema: [SimulationFieldExtrema] = [],
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        nodalTemperatures: [Int: Double]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -736,10 +756,11 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.meshSets = meshSets
         self.extrema = extrema
         self.errorMessage = errorMessage
+        self.nodalTemperatures = nodalTemperatures
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures
     }
 
     public init(from decoder: Decoder) throws {
@@ -750,6 +771,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.meshSets = try container.decodeIfPresent([VolumeMeshSet].self, forKey: .meshSets) ?? []
         self.extrema = try container.decodeIfPresent([SimulationFieldExtrema].self, forKey: .extrema) ?? []
         self.errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+        self.nodalTemperatures = try container.decodeIfPresent([Int: Double].self, forKey: .nodalTemperatures)
     }
 }
 
