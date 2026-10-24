@@ -38,6 +38,7 @@ import simd
         #expect(fixture.isRestrainedX == true)
         #expect(fixture.isRestrainedY == true)
         #expect(fixture.isRestrainedZ == true)
+        #expect(fixture.elasticStiffness == SIMD3<Double>(repeating: 1e6))
         #expect(fixture.coordinateSystemId == nil)
 
         let load = SimulationLoad(
@@ -52,6 +53,27 @@ import simd
         #expect(load.direction == SIMD3<Double>(0, -1, 0))
         #expect(load.kind.unitSymbol == "N")
         #expect(load.coordinateSystemId == nil)
+    }
+
+    @Test func testSimulationFixtureKindEnumeration() {
+        let allKinds = SimulationFixtureKind.allCases
+        #expect(allKinds.count == 6)
+        #expect(allKinds.contains(.fixed))
+        #expect(allKinds.contains(.rollerSlider))
+        #expect(allKinds.contains(.pinned))
+        #expect(allKinds.contains(.prescribedDisplacement))
+        #expect(allKinds.contains(.symmetry))
+        #expect(allKinds.contains(.elasticSupport))
+
+        #expect(SimulationFixtureKind.fixed.displayName == "Fixed Support")
+        #expect(SimulationFixtureKind.rollerSlider.displayName == "Roller / Slider")
+        #expect(SimulationFixtureKind.pinned.displayName == "Pinned Support")
+        #expect(SimulationFixtureKind.prescribedDisplacement.displayName == "Prescribed Displacement")
+        #expect(SimulationFixtureKind.symmetry.displayName == "Symmetry")
+        #expect(SimulationFixtureKind.elasticSupport.displayName == "Elastic Support")
+
+        #expect(SimulationFixtureKind.symmetry.systemImageName == "square.split.2x1")
+        #expect(SimulationFixtureKind.elasticSupport.systemImageName == "waveform")
     }
 
     @Test func testCAEErrorCodeCases() {
@@ -322,6 +344,27 @@ import simd
         #expect(decodedResults.status == .completed)
         #expect(decodedResults.nodalDisplacements == nil)
         #expect(decodedResults.nodalVonMisesStresses == nil)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfSimulationFixture() throws {
+        let legacyFixtureJSON = """
+        {
+            "id": "A1B2C3D4-E5F6-7A8B-9C0D-1E2F3A4B5C6D",
+            "name": "Legacy Fixed Base",
+            "kind": "fixed",
+            "targetReferences": [],
+            "groupNames": [],
+            "prescribedDisplacement": [0.0, 0.0, 0.0],
+            "isRestrainedX": true,
+            "isRestrainedY": true,
+            "isRestrainedZ": true
+        }
+        """.data(using: .utf8)!
+
+        let decodedFixture = try JSONDecoder().decode(SimulationFixture.self, from: legacyFixtureJSON)
+        #expect(decodedFixture.name == "Legacy Fixed Base")
+        #expect(decodedFixture.kind == .fixed)
+        #expect(decodedFixture.elasticStiffness == SIMD3<Double>(repeating: 1e6))
     }
 }
 

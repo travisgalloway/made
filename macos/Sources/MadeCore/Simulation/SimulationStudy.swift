@@ -163,6 +163,8 @@ public enum SimulationFixtureKind: String, Sendable, Codable, CaseIterable, Equa
     case rollerSlider
     case pinned
     case prescribedDisplacement
+    case symmetry
+    case elasticSupport
 
     public var id: String { rawValue }
 
@@ -176,6 +178,10 @@ public enum SimulationFixtureKind: String, Sendable, Codable, CaseIterable, Equa
             return "Pinned Support"
         case .prescribedDisplacement:
             return "Prescribed Displacement"
+        case .symmetry:
+            return "Symmetry"
+        case .elasticSupport:
+            return "Elastic Support"
         }
     }
 
@@ -189,6 +195,10 @@ public enum SimulationFixtureKind: String, Sendable, Codable, CaseIterable, Equa
             return "pin.fill"
         case .prescribedDisplacement:
             return "ruler"
+        case .symmetry:
+            return "square.split.2x1"
+        case .elasticSupport:
+            return "waveform"
         }
     }
 }
@@ -204,6 +214,7 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
     public var isRestrainedX: Bool
     public var isRestrainedY: Bool
     public var isRestrainedZ: Bool
+    public var elasticStiffness: SIMD3<Double>
     public var coordinateSystemId: UUID?
 
     public init(
@@ -216,6 +227,7 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         isRestrainedX: Bool = true,
         isRestrainedY: Bool = true,
         isRestrainedZ: Bool = true,
+        elasticStiffness: SIMD3<Double> = SIMD3<Double>(repeating: 1e6),
         coordinateSystemId: UUID? = nil
     ) {
         self.id = id
@@ -227,11 +239,12 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         self.isRestrainedX = isRestrainedX
         self.isRestrainedY = isRestrainedY
         self.isRestrainedZ = isRestrainedZ
+        self.elasticStiffness = elasticStiffness
         self.coordinateSystemId = coordinateSystemId
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, targetReferences, groupNames, prescribedDisplacement, isRestrainedX, isRestrainedY, isRestrainedZ, coordinateSystemId
+        case id, name, kind, targetReferences, groupNames, prescribedDisplacement, isRestrainedX, isRestrainedY, isRestrainedZ, elasticStiffness, coordinateSystemId
     }
 
     public init(from decoder: Decoder) throws {
@@ -245,6 +258,7 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         self.isRestrainedX = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedX) ?? true
         self.isRestrainedY = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedY) ?? true
         self.isRestrainedZ = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedZ) ?? true
+        self.elasticStiffness = try container.decodeIfPresent(SIMD3<Double>.self, forKey: .elasticStiffness) ?? SIMD3<Double>(repeating: 1e6)
         self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
     }
 }

@@ -346,4 +346,24 @@ import simd
         #expect(res[0].minValue == 1.0)
         #expect(res[0].maxValue == 9.0)
     }
+
+    // MARK: - Spring Stiffness Conversions
+
+    @Test func testSpringStiffnessConversions() {
+        // Metric: 1e6 N/m remains 1e6 N/m
+        #expect(abs(SimulationUnitConversion.displayStiffness(1e6, unit: .millimeters) - 1e6) < 1e-6)
+        #expect(abs(SimulationUnitConversion.commitStiffness(1e6, unit: .millimeters) - 1e6) < 1e-6)
+        #expect(SimulationUnitConversion.stiffnessUnitSymbol(unit: .millimeters) == "N/m")
+        #expect(SimulationUnitConversion.stiffnessUnitSymbol(unit: .meters) == "N/m")
+
+        // Imperial: 1 lbf/in = 4.4482216152605 / 0.0254 N/m (~175.126835246 N/m)
+        let factor = 4.4482216152605 / 0.0254
+        let canonicalNm = factor * 100.0 // 100 lbf/in
+        let displayLbfIn = SimulationUnitConversion.displayStiffness(canonicalNm, unit: .inches)
+        #expect(abs(displayLbfIn - 100.0) < 1e-6)
+        let committedNm = SimulationUnitConversion.commitStiffness(displayLbfIn, unit: .inches)
+        #expect(abs(committedNm - canonicalNm) < 1e-6)
+        #expect(SimulationUnitConversion.stiffnessUnitSymbol(unit: .inches) == "lbf/in")
+        #expect(SimulationUnitConversion.stiffnessUnitSymbol(unit: .feet) == "lbf/in")
+    }
 }
