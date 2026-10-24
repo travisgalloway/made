@@ -31,6 +31,26 @@
       "homepageURL": "https://github.com/SecondMouseAU/OCCTSwift",
       "licenseFile": "OCCTSwift-LGPL-2.1.txt",
       "kind": "package"
+    },
+    {
+      "id": "ccx",
+      "name": "CalculiX (ccx)",
+      "version": "2.21",
+      "spdxIdentifier": "GPL-2.0-or-later",
+      "copyright": "Copyright (C) 1998-2023 Guido Dhondt",
+      "homepageURL": "https://github.com/Dhondtguido/CalculiX",
+      "licenseFile": "CalculiX-GPL-2.0.txt",
+      "kind": "helper"
+    },
+    {
+      "id": "gmsh",
+      "name": "Gmsh",
+      "version": "4.13.1",
+      "spdxIdentifier": "GPL-2.0-or-later",
+      "copyright": "Copyright (C) 1997-2024 Christophe Geuzaine and Jean-Francois Remacle",
+      "homepageURL": "https://gmsh.info",
+      "licenseFile": "Gmsh-GPL-2.0.txt",
+      "kind": "helper"
     }
   ]
 }

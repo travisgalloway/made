@@ -82,6 +82,11 @@ if [ ! -f "$bin_dir/MadeApp" ] || [ ! -f "$bin_dir/MadeKernelService" ]; then
     swift build --package-path "$pkg_dir" --build-system swiftbuild
 fi
 
+if [ ! -x "$pkg_dir/Support/Helpers/ccx" ] || [ ! -x "$pkg_dir/Support/Helpers/gmsh" ]; then
+    echo "package-release: helper binaries missing in Support/Helpers, invoking fetch-helpers.sh..."
+    "$pkg_dir/scripts/fetch-helpers.sh"
+fi
+
 app="$pkg_dir/.build/Made.app"
 
 echo "package-release: assembling app bundle (version $version, build $build_number, identity $identity)..."

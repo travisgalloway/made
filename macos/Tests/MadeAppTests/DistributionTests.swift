@@ -86,6 +86,34 @@ import MadeCore
         #expect(v2Workspace.kernelTolerances.chordalTolerance == 0.1)
     }
 
+    @Test @MainActor func testUserDefaultsPersistenceForCAEHelperOverrides() {
+        let suiteName = "test.domain.\(UUID().uuidString)"
+        guard let customDefaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Could not create test UserDefaults suite")
+            return
+        }
+        defer { customDefaults.removePersistentDomain(forName: suiteName) }
+
+        let ws1 = WorkspaceModel(defaults: customDefaults)
+        #expect(ws1.calculixOverridePath == "")
+        #expect(ws1.gmshOverridePath == "")
+
+        ws1.calculixOverridePath = "/opt/custom/bin/ccx"
+        ws1.gmshOverridePath = "/opt/custom/bin/gmsh"
+
+        let ws2 = WorkspaceModel(defaults: customDefaults)
+        #expect(ws2.calculixOverridePath == "/opt/custom/bin/ccx")
+        #expect(ws2.gmshOverridePath == "/opt/custom/bin/gmsh")
+
+        ws2.resetSettingsToDefaults()
+        #expect(ws2.calculixOverridePath == "")
+        #expect(ws2.gmshOverridePath == "")
+
+        let ws3 = WorkspaceModel(defaults: customDefaults)
+        #expect(ws3.calculixOverridePath == "")
+        #expect(ws3.gmshOverridePath == "")
+    }
+
     @Test @MainActor func testDocumentPackageBackwardCompatibility() throws {
         let legacyJSON = """
         {
@@ -166,5 +194,42 @@ import MadeCore
         #expect(stdoutString.contains("package-release.sh"))
         #expect(stdoutString.contains("--dry-run"))
         #expect(stdoutString.contains("--notarize"))
+    }
+
+    @Test func testThirdPartyNoticesFileContent() throws {
+        let noticesURL = Self.macosRoot.appendingPathComponent("Support/THIRD_PARTY_NOTICES.md")
+        #expect(FileManager.default.fileExists(atPath: noticesURL.path))
+
+        let content = try String(contentsOf: noticesURL, encoding: .utf8)
+        #expect(content.contains("Third-Party Notices"))
+        #expect(content.contains("CalculiX (ccx)"))
+        #expect(content.contains("Gmsh"))
+        #expect(content.contains("OCCTSwift"))
+        #expect(content.contains("Euclid"))
+        #expect(content.contains("Written Offer for Corresponding Source Code"))
+        #expect(content.contains("GPL-2.0"))
+        #expect(content.contains("LGPL-2.1"))
+        #expect(content.contains("at least three years"))
+        #expect(content.contains("building-from-source.md"))
+    }
+
+    @Test func testBundledHelpersDirectoryAndInsideOutCodesigningConfiguration() throws {
+        let bundleScriptURL = Self.macosRoot.appendingPathComponent("scripts/bundle-app.sh")
+        let fetchScriptURL = Self.macosRoot.appendingPathComponent("scripts/fetch-helpers.sh")
+
+        #expect(FileManager.default.fileExists(atPath: bundleScriptURL.path))
+        #expect(FileManager.default.fileExists(atPath: fetchScriptURL.path))
+
+        let bundleScriptContent = try String(contentsOf: bundleScriptURL, encoding: .utf8)
+        #expect(bundleScriptContent.contains("Contents/Helpers"))
+        #expect(bundleScriptContent.contains("THIRD_PARTY_NOTICES.md"))
+        #expect(bundleScriptContent.contains("codesign \"${sign_args[@]}\" \"$helper\""))
+        #expect(bundleScriptContent.contains("codesign --verify --strict \"$helper\""))
+
+        let fetchScriptContent = try String(contentsOf: fetchScriptURL, encoding: .utf8)
+        #expect(fetchScriptContent.contains("--stub"))
+        #expect(fetchScriptContent.contains("--check"))
+        #expect(fetchScriptContent.contains("ccx"))
+        #expect(fetchScriptContent.contains("gmsh"))
     }
 }

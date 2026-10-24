@@ -689,6 +689,8 @@ final class WorkspaceModel {
     public static let linearToleranceDefaultsKey = "com.made.tolerances.linear"
     public static let angularToleranceDefaultsKey = "com.made.tolerances.angular"
     public static let chordalToleranceDefaultsKey = "com.made.tolerances.chordal"
+    public static let calculixOverridePathDefaultsKey = "com.made.cae.calculixPath"
+    public static let gmshOverridePathDefaultsKey = "com.made.cae.gmshPath"
 
     let defaults: UserDefaults
     var commandPanelPlacement: CommandPanelPlacement {
@@ -782,6 +784,18 @@ final class WorkspaceModel {
             defaults.set(clamped.angularTolerance, forKey: Self.angularToleranceDefaultsKey)
             defaults.set(clamped.chordalTolerance, forKey: Self.chordalToleranceDefaultsKey)
             setDocumentTolerances(clamped)
+        }
+    }
+    var calculixOverridePath: String {
+        didSet {
+            defaults.set(calculixOverridePath, forKey: Self.calculixOverridePathDefaultsKey)
+            reconfigureSolverResolvers()
+        }
+    }
+    var gmshOverridePath: String {
+        didSet {
+            defaults.set(gmshOverridePath, forKey: Self.gmshOverridePathDefaultsKey)
+            reconfigureSolverResolvers()
         }
     }
     var activeCommand: CommandSession?
@@ -890,6 +904,15 @@ final class WorkspaceModel {
         let chordal = defaults.object(forKey: Self.chordalToleranceDefaultsKey) != nil ? defaults.double(forKey: Self.chordalToleranceDefaultsKey) : KernelTolerances.defaultChordalTolerance
         self.kernelTolerances = KernelTolerances(linearTolerance: linear, angularTolerance: angular, chordalTolerance: chordal).clamped()
 
+        self.calculixOverridePath = defaults.string(forKey: Self.calculixOverridePathDefaultsKey) ?? ""
+        self.gmshOverridePath = defaults.string(forKey: Self.gmshOverridePathDefaultsKey) ?? ""
+        if !self.calculixOverridePath.isEmpty || !self.gmshOverridePath.isEmpty {
+            let calculixResolver = CalculiXBinaryResolver(userOverridePath: self.calculixOverridePath.isEmpty ? nil : self.calculixOverridePath)
+            let gmshResolver = GmshBinaryResolver(userOverridePath: self.gmshOverridePath.isEmpty ? nil : self.gmshOverridePath)
+            self.solverRunner = SolverRunnerActor(binaryResolver: calculixResolver)
+            self.volumeMesher = VolumeMesherActor(binaryResolver: gmshResolver)
+        }
+
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: self.lengthUnit, angleUnit: self.angleUnit, decimalPrecision: self.decimalPrecision),
             tolerances: self.kernelTolerances
@@ -900,6 +923,13 @@ final class WorkspaceModel {
         self.document.onUndoRedoMutation = { [weak self] mutation in
             self?.handleUndoRedoMutation(mutation)
         }
+    }
+
+    func reconfigureSolverResolvers() {
+        let calculixResolver = CalculiXBinaryResolver(userOverridePath: calculixOverridePath.isEmpty ? nil : calculixOverridePath)
+        let gmshResolver = GmshBinaryResolver(userOverridePath: gmshOverridePath.isEmpty ? nil : gmshOverridePath)
+        self.solverRunner = SolverRunnerActor(binaryResolver: calculixResolver)
+        self.volumeMesher = VolumeMesherActor(binaryResolver: gmshResolver)
     }
 
     convenience init(recoveryDirectoryURL: URL) {
@@ -926,6 +956,8 @@ final class WorkspaceModel {
         showsEdges = true
         displayMode = .shadedWithEdges
         kernelTolerances = KernelTolerances.default
+        calculixOverridePath = ""
+        gmshOverridePath = ""
     }
 
     func resetDisplaySettings() {

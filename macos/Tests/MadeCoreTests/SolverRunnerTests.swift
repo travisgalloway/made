@@ -4,6 +4,57 @@ import Foundation
 
 @Suite(.serialized) struct SolverRunnerTests {
 
+    @Test func testBinaryResolverUserOverridePath() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let userCCX = tempDir.appendingPathComponent("user-ccx")
+        try "#!/bin/sh\nexit 0\n".write(to: userCCX, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: userCCX.path)
+
+        let envCCX = tempDir.appendingPathComponent("env-ccx")
+        try "#!/bin/sh\nexit 0\n".write(to: envCCX, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: envCCX.path)
+
+        let resolver = CalculiXBinaryResolver(
+            userOverridePath: userCCX.path,
+            environment: ["MADE_CALCULIX_PATH": envCCX.path],
+            bundleURL: nil,
+            customSearchPaths: []
+        )
+        let resolved = try resolver.resolveBinary()
+        #expect(resolved.path == userCCX.path)
+
+        let invalidPath = tempDir.appendingPathComponent("nonexistent-ccx").path
+        let fallbackResolver = CalculiXBinaryResolver(
+            userOverridePath: invalidPath,
+            environment: ["MADE_CALCULIX_PATH": envCCX.path],
+            bundleURL: nil,
+            customSearchPaths: []
+        )
+        let fallbackResolved = try fallbackResolver.resolveBinary()
+        #expect(fallbackResolved.path == envCCX.path)
+
+        let failingResolver = CalculiXBinaryResolver(
+            userOverridePath: invalidPath,
+            environment: ["PATH": ""],
+            bundleURL: nil,
+            customSearchPaths: []
+        )
+        do {
+            _ = try failingResolver.resolveBinary()
+            Issue.record("Expected failingResolver to throw CAEErrorCode.solverBinaryNotFound")
+        } catch {
+            guard case .solverBinaryNotFound(let solver, let searchedPaths) = error else {
+                Issue.record("Expected solverBinaryNotFound but got \(error)")
+                return
+            }
+            #expect(solver == "CalculiX (ccx)")
+            #expect(searchedPaths.contains(invalidPath))
+        }
+    }
+
     @Test func testBinaryResolverEnvironmentVariableOverride() throws {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)

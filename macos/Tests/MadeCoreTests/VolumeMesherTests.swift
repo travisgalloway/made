@@ -5,6 +5,57 @@ import simd
 
 @Suite(.serialized) struct VolumeMesherTests {
 
+    @Test func testGmshBinaryResolverUserOverridePath() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let userGmsh = tempDir.appendingPathComponent("user-gmsh")
+        try "#!/bin/sh\nexit 0\n".write(to: userGmsh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: userGmsh.path)
+
+        let envGmsh = tempDir.appendingPathComponent("env-gmsh")
+        try "#!/bin/sh\nexit 0\n".write(to: envGmsh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: envGmsh.path)
+
+        let resolver = GmshBinaryResolver(
+            userOverridePath: userGmsh.path,
+            environment: ["MADE_GMSH_PATH": envGmsh.path],
+            bundleURL: nil,
+            customSearchPaths: []
+        )
+        let resolved = try resolver.resolveBinary()
+        #expect(resolved.path == userGmsh.path)
+
+        let invalidPath = tempDir.appendingPathComponent("nonexistent-gmsh").path
+        let fallbackResolver = GmshBinaryResolver(
+            userOverridePath: invalidPath,
+            environment: ["MADE_GMSH_PATH": envGmsh.path],
+            bundleURL: nil,
+            customSearchPaths: []
+        )
+        let fallbackResolved = try fallbackResolver.resolveBinary()
+        #expect(fallbackResolved.path == envGmsh.path)
+
+        let failingResolver = GmshBinaryResolver(
+            userOverridePath: invalidPath,
+            environment: ["PATH": ""],
+            bundleURL: nil,
+            customSearchPaths: []
+        )
+        do {
+            _ = try failingResolver.resolveBinary()
+            Issue.record("Expected failingResolver to throw CAEErrorCode.solverBinaryNotFound")
+        } catch {
+            guard case .solverBinaryNotFound(let solver, let searchedPaths) = error else {
+                Issue.record("Expected solverBinaryNotFound but got \(error)")
+                return
+            }
+            #expect(solver == "Gmsh (gmsh)")
+            #expect(searchedPaths.contains(invalidPath))
+        }
+    }
+
     @Test func testGmshBinaryResolverEnvironmentVariableOverride() throws {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)

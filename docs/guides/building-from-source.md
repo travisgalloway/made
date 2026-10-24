@@ -232,3 +232,61 @@ make bundle
 ```
 
 This ensures that the build artifacts match the source and dependency versions of the official distribution.
+
+## Corresponding Source for Bundled CAE Helper Programs
+
+Direct-download releases of `made` bundle pre-compiled arm64 executable binaries for external Computer-Aided Engineering (CAE) tools:
+- CalculiX (`ccx` 2.21), licensed under the GNU General Public License v2.0 or later (GPL-2.0-or-later).
+- Gmsh (4.13.1), licensed under the GNU General Public License v2.0 or later (GPL-2.0-or-later).
+
+These tools run strictly as isolated external subprocesses exchanging data through input decks and result files on disk. Per Architecture Decision Records ADR-D5 and ADR-D8, packaging these programs in `MadeApp.app/Contents/Helpers/` constitutes GPL mere aggregation.
+
+### Written Offer for Corresponding Source Code
+
+In accordance with Section 3(b) of the GNU General Public License v2.0, the distributors of `made` offer to furnish any third party a complete machine-readable copy of the corresponding source code for the bundled versions of CalculiX (`ccx`) and Gmsh, for at least three years from distribution.
+
+Corresponding source code is publicly accessible from official upstream repositories:
+- CalculiX (`ccx` 2.21): `https://github.com/Dhondtguido/CalculiX`
+- Gmsh (4.13.1): `https://gitlab.onelab.info/gmsh/gmsh`
+
+To request corresponding source archives directly, open an issue at:
+`https://github.com/travisgalloway/made/issues`
+
+### Compiling and Replacing Bundled Helpers
+
+Users can compile customized or updated versions of CalculiX or Gmsh from source and use them with `made`.
+
+1. **Compiling Gmsh from source**:
+   Clone the Gmsh repository and compile using CMake:
+   ```sh
+   git clone https://gitlab.onelab.info/gmsh/gmsh.git
+   cd gmsh
+   git checkout gmsh_4_13_1
+   mkdir build && cd build
+   cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_BUILD_DYNAMIC=OFF ..
+   make -j$(sysctl -n hw.ncpu)
+   ```
+
+2. **Compiling CalculiX ccx from source**:
+   Clone the CalculiX source repository and compile the `ccx` executable:
+   ```sh
+   git clone https://github.com/Dhondtguido/CalculiX.git
+   cd CalculiX/ccx_2.21/src
+   make -j$(sysctl -n hw.ncpu)
+   ```
+
+3. **Configuring Custom Binaries in Made**:
+   Custom executables can be supplied without modifying the application bundle using either of two methods:
+   - **Application Settings**: Open Settings > General > "CAE Solvers & Meshers" and enter the absolute file paths to your custom `ccx` or `gmsh` executables.
+   - **Environment Variables**: Set `MADE_CALCULIX_PATH` or `MADE_GMSH_PATH` in your shell environment before launching `made`.
+
+4. **Replacing Bundled Binaries in Made.app**:
+   To replace the binaries directly within an existing application bundle:
+   ```sh
+   cp /path/to/custom/ccx macos/.build/Made.app/Contents/Helpers/ccx
+   cp /path/to/custom/gmsh macos/.build/Made.app/Contents/Helpers/gmsh
+   chmod +x macos/.build/Made.app/Contents/Helpers/ccx macos/.build/Made.app/Contents/Helpers/gmsh
+   codesign --force --sign - --options runtime macos/.build/Made.app/Contents/Helpers/ccx
+   codesign --force --sign - --options runtime macos/.build/Made.app/Contents/Helpers/gmsh
+   codesign --force --sign - --options runtime --entitlements macos/Support/MadeApp.entitlements macos/.build/Made.app
+   ```

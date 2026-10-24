@@ -87,6 +87,26 @@ struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("CAE Solvers & Meshers") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CalculiX (ccx) Executable Path")
+                        .font(.subheadline)
+                    TextField("Default: Bundled binary (Contents/Helpers/ccx)", text: $workspace.calculixOverridePath)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Gmsh Executable Path")
+                        .font(.subheadline)
+                    TextField("Default: Bundled binary (Contents/Helpers/gmsh)", text: $workspace.gmshOverridePath)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Text("Custom paths to external finite element solvers and meshers. When left blank, Made uses pre-compiled arm64 binaries bundled in Contents/Helpers/.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("About Made") {
                 LabeledContent("Version", value: AppVersion.current.displayString)
             }
