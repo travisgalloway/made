@@ -489,9 +489,15 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         transform: Transform = .identity,
         color: SIMD4<Float>
     ) -> MetalMesh? {
-        guard let positions = makeBuffer(payload.positions, label: "\(solidId) Positions"),
-              let normals = makeBuffer(payload.normals, label: "\(solidId) Normals"),
-              let indices = makeBuffer(payload.indices, label: "\(solidId) Indices") else { return nil }
+        let positionsBuffer = makeBuffer(payload.positions, label: "\(solidId) Positions")
+            ?? (!payload.edgePolylines.isEmpty ? device.makeBuffer(length: 16, options: .storageModeShared) : nil)
+        let normalsBuffer = makeBuffer(payload.normals, label: "\(solidId) Normals")
+            ?? (!payload.edgePolylines.isEmpty ? device.makeBuffer(length: 16, options: .storageModeShared) : nil)
+        let indicesBuffer = makeBuffer(payload.indices, label: "\(solidId) Indices")
+            ?? (!payload.edgePolylines.isEmpty ? device.makeBuffer(length: 16, options: .storageModeShared) : nil)
+        guard let positions = positionsBuffer,
+              let normals = normalsBuffer,
+              let indices = indicesBuffer else { return nil }
 
         // Build triangleFaceIdBuffer
         let triangleCount = payload.triangleCount

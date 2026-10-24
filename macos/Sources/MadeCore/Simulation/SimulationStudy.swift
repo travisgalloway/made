@@ -476,6 +476,88 @@ public struct MeshSpecification: Sendable, Codable, Equatable, Hashable {
     }
 }
 
+/// Coordinate axes for mesh slicing planes (BL-MSH-05, #278).
+public enum MeshSliceAxis: String, Sendable, Codable, CaseIterable, Equatable, Hashable, Identifiable {
+    case x = "x"
+    case y = "y"
+    case z = "z"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .x: return "X Axis"
+        case .y: return "Y Axis"
+        case .z: return "Z Axis"
+        }
+    }
+}
+
+/// Viewport visualization and slicing configuration for finite element volume meshes (BL-MSH-05, #278).
+public struct SimulationMeshDisplaySettings: Sendable, Codable, Equatable, Hashable {
+    public var isVisible: Bool
+    public var showEdges: Bool
+    public var showFaces: Bool
+    public var elementShrink: Double // 0.0 ... 0.9
+    public var isSliceEnabled: Bool
+    public var sliceAxis: MeshSliceAxis
+    public var slicePosition: Double // 0.0 ... 1.0 (normalized bounding box position)
+    public var isSliceInverted: Bool
+    public var hideSolidBody: Bool
+
+    public init(
+        isVisible: Bool = true,
+        showEdges: Bool = true,
+        showFaces: Bool = true,
+        elementShrink: Double = 0.0,
+        isSliceEnabled: Bool = false,
+        sliceAxis: MeshSliceAxis = .z,
+        slicePosition: Double = 0.5,
+        isSliceInverted: Bool = false,
+        hideSolidBody: Bool = false
+    ) {
+        self.isVisible = isVisible
+        self.showEdges = showEdges
+        self.showFaces = showFaces
+        self.elementShrink = max(0.0, min(0.9, elementShrink))
+        self.isSliceEnabled = isSliceEnabled
+        self.sliceAxis = sliceAxis
+        self.slicePosition = max(0.0, min(1.0, slicePosition))
+        self.isSliceInverted = isSliceInverted
+        self.hideSolidBody = hideSolidBody
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isVisible, showEdges, showFaces, elementShrink, isSliceEnabled, sliceAxis, slicePosition, isSliceInverted, hideSolidBody
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        self.showEdges = try container.decodeIfPresent(Bool.self, forKey: .showEdges) ?? true
+        self.showFaces = try container.decodeIfPresent(Bool.self, forKey: .showFaces) ?? true
+        let rawShrink = try container.decodeIfPresent(Double.self, forKey: .elementShrink) ?? 0.0
+        self.elementShrink = max(0.0, min(0.9, rawShrink))
+        self.isSliceEnabled = try container.decodeIfPresent(Bool.self, forKey: .isSliceEnabled) ?? false
+        self.sliceAxis = try container.decodeIfPresent(MeshSliceAxis.self, forKey: .sliceAxis) ?? .z
+        let rawPos = try container.decodeIfPresent(Double.self, forKey: .slicePosition) ?? 0.5
+        self.slicePosition = max(0.0, min(1.0, rawPos))
+        self.isSliceInverted = try container.decodeIfPresent(Bool.self, forKey: .isSliceInverted) ?? false
+        self.hideSolidBody = try container.decodeIfPresent(Bool.self, forKey: .hideSolidBody) ?? false
+    }
+
+    public mutating func clamp() {
+        elementShrink = max(0.0, min(0.9, elementShrink))
+        slicePosition = max(0.0, min(1.0, slicePosition))
+    }
+
+    public func clamped() -> SimulationMeshDisplaySettings {
+        var copy = self
+        copy.clamp()
+        return copy
+    }
+}
+
 /// Supported numerical CAE solver engines.
 public enum SimulationSolverEngine: String, Sendable, Codable, CaseIterable, Equatable, Hashable, Identifiable {
     case calculix
@@ -675,6 +757,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
     public var fixtures: [SimulationFixture]
     public var loads: [SimulationLoad]
     public var mesh: MeshSpecification
+    public var meshDisplay: SimulationMeshDisplaySettings
     public var solver: SolverConfiguration
     public var results: SimulationStudyResults
     public var isCollapsed: Bool
@@ -690,6 +773,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         fixtures: [SimulationFixture] = [],
         loads: [SimulationLoad] = [],
         mesh: MeshSpecification = MeshSpecification(),
+        meshDisplay: SimulationMeshDisplaySettings = SimulationMeshDisplaySettings(),
         solver: SolverConfiguration = SolverConfiguration(),
         results: SimulationStudyResults = SimulationStudyResults(),
         isCollapsed: Bool = false
@@ -704,13 +788,14 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.fixtures = fixtures
         self.loads = loads
         self.mesh = mesh
+        self.meshDisplay = meshDisplay
         self.solver = solver
         self.results = results
         self.isCollapsed = isCollapsed
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, solver, results, isCollapsed
+        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed
     }
 
     public init(from decoder: Decoder) throws {
@@ -725,6 +810,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.fixtures = try container.decodeIfPresent([SimulationFixture].self, forKey: .fixtures) ?? []
         self.loads = try container.decodeIfPresent([SimulationLoad].self, forKey: .loads) ?? []
         self.mesh = try container.decodeIfPresent(MeshSpecification.self, forKey: .mesh) ?? MeshSpecification()
+        self.meshDisplay = try container.decodeIfPresent(SimulationMeshDisplaySettings.self, forKey: .meshDisplay) ?? SimulationMeshDisplaySettings()
         self.solver = try container.decodeIfPresent(SolverConfiguration.self, forKey: .solver) ?? SolverConfiguration()
         self.results = try container.decodeIfPresent(SimulationStudyResults.self, forKey: .results) ?? SimulationStudyResults()
         self.isCollapsed = try container.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false

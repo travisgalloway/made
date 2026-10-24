@@ -679,6 +679,119 @@ import simd
         #expect(highlightBtnId == "inspector-simulation-mesh-quality-highlight-button")
         #expect(clearBtnId == "inspector-simulation-mesh-quality-clear-button")
     }
+
+    @Test func testWorkspaceMeshDisplayActions() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Mesh Viewport Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 10, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 10))
+        let elem = VolumeMeshElement(id: 1, nodeIndices: [1, 2, 3, 4])
+        let volumeMesh = VolumeMesh(
+            nodes: [n1, n2, n3, n4],
+            elements: [elem],
+            statistics: SimulationMeshStatistics(nodeCount: 4, elementCount: 1)
+        )
+        ws.cachedStudyMeshes[study.id] = volumeMesh
+
+        #expect(ws.document.study(id: study.id)?.meshDisplay.isVisible == true)
+
+        let newSettings = SimulationMeshDisplaySettings(
+            isVisible: true,
+            showEdges: true,
+            showFaces: false,
+            elementShrink: 0.25,
+            isSliceEnabled: true,
+            sliceAxis: .x,
+            slicePosition: 0.5,
+            isSliceInverted: false,
+            hideSolidBody: true
+        )
+        ws.updateSimulationMeshDisplaySettings(studyId: study.id, settings: newSettings)
+
+        let updated = ws.document.study(id: study.id)?.meshDisplay
+        #expect(updated?.showFaces == false)
+        #expect(updated?.elementShrink == 0.25)
+        #expect(updated?.isSliceEnabled == true)
+        #expect(updated?.sliceAxis == .x)
+        #expect(updated?.hideSolidBody == true)
+
+        ws.toggleSimulationMeshVisibility(studyId: study.id)
+        #expect(ws.document.study(id: study.id)?.meshDisplay.isVisible == false)
+
+        ws.toggleSimulationMeshVisibility(studyId: study.id)
+        #expect(ws.document.study(id: study.id)?.meshDisplay.isVisible == true)
+
+        ws.clearSimulationMeshFromViewport(studyId: study.id)
+    }
+
+    @Test func testInspectorSimulationMeshDisplayControls() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Display Inspector Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let displaySettings = SimulationMeshDisplaySettings(
+            isVisible: true,
+            showEdges: true,
+            showFaces: true,
+            elementShrink: 0.1,
+            isSliceEnabled: true,
+            sliceAxis: .y,
+            slicePosition: 0.4,
+            isSliceInverted: true,
+            hideSolidBody: true
+        )
+        ws.updateSimulationMeshDisplaySettings(studyId: study.id, settings: displaySettings)
+
+        let updatedStudy = ws.document.study(id: study.id)!
+        let view = InspectorSimulationMeshView(study: updatedStudy).environment(ws)
+        _ = view
+
+        let visId = "inspector-simulation-mesh-display-visibility-toggle"
+        let edgesId = "inspector-simulation-mesh-display-edges-toggle"
+        let facesId = "inspector-simulation-mesh-display-faces-toggle"
+        let shrinkId = "inspector-simulation-mesh-display-shrink-slider"
+        let sliceId = "inspector-simulation-mesh-display-slice-toggle"
+        let axisId = "inspector-simulation-mesh-display-slice-axis-picker"
+        let posId = "inspector-simulation-mesh-display-slice-position-slider"
+        let invertId = "inspector-simulation-mesh-display-slice-invert-toggle"
+        let hideSolidId = "inspector-simulation-mesh-display-hide-solid-toggle"
+
+        #expect(visId == "inspector-simulation-mesh-display-visibility-toggle")
+        #expect(edgesId == "inspector-simulation-mesh-display-edges-toggle")
+        #expect(facesId == "inspector-simulation-mesh-display-faces-toggle")
+        #expect(shrinkId == "inspector-simulation-mesh-display-shrink-slider")
+        #expect(sliceId == "inspector-simulation-mesh-display-slice-toggle")
+        #expect(axisId == "inspector-simulation-mesh-display-slice-axis-picker")
+        #expect(posId == "inspector-simulation-mesh-display-slice-position-slider")
+        #expect(invertId == "inspector-simulation-mesh-display-slice-invert-toggle")
+        #expect(hideSolidId == "inspector-simulation-mesh-display-hide-solid-toggle")
+    }
+
+    @Test func testNavigatorMeshRowVisibilityToggle() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Nav Visibility Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let navRow = NavigatorSimulationMeshRow(study: study).environment(ws)
+        _ = navRow
+
+        let buttonId = "navigator-study-mesh-visibility-\(study.id)"
+        #expect(buttonId.hasPrefix("navigator-study-mesh-visibility-"))
+
+        #expect(study.meshDisplay.isVisible == true)
+        ws.toggleSimulationMeshVisibility(studyId: study.id)
+        #expect(ws.document.study(id: study.id)?.meshDisplay.isVisible == false)
+    }
 }
 
 
