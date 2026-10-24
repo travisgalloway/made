@@ -3053,6 +3053,88 @@ struct InspectorSimulationMeshView: View {
                 } header: {
                     sectionHeader("Mesh Statistics")
                 }
+
+                let qualityReport = study.results.meshStatistics.qualityReport
+                    ?? workspace.cachedStudyMeshes[study.id]?.statistics.qualityReport
+                    ?? (workspace.cachedStudyMeshes[study.id].map { MeshQualityCalculator.evaluate(mesh: $0) })
+                    ?? MeshQualityReport()
+
+                Section {
+                    Picker("Metric", selection: Binding(
+                        get: { workspace.selectedMeshQualityMetric },
+                        set: { workspace.selectMeshQualityMetric($0) }
+                    )) {
+                        ForEach(MeshQualityMetricKind.allCases) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("inspector-simulation-mesh-quality-picker")
+
+                    let summary = qualityReport.summary(for: workspace.selectedMeshQualityMetric)
+
+                    LabeledContent("Min") {
+                        Text(String(format: "%.3f", summary.minValue))
+                            .accessibilityIdentifier("inspector-simulation-mesh-quality-min")
+                    }
+                    LabeledContent("Max") {
+                        Text(String(format: "%.3f", summary.maxValue))
+                            .accessibilityIdentifier("inspector-simulation-mesh-quality-max")
+                    }
+                    LabeledContent("Avg") {
+                        Text(String(format: "%.3f", summary.averageValue))
+                            .accessibilityIdentifier("inspector-simulation-mesh-quality-avg")
+                    }
+                    LabeledContent("Failing") {
+                        Text("\(summary.failingCount) (\(String(format: "%.1f", summary.failingPercentage))%)")
+                            .accessibilityIdentifier("inspector-simulation-mesh-quality-failing-count")
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Distribution")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        let maxBinCount = max(1, summary.histogramBins.map(\.count).max() ?? 1)
+                        HStack(alignment: .bottom, spacing: 3) {
+                            ForEach(summary.histogramBins) { bin in
+                                let height = max(4.0, (CGFloat(bin.count) / CGFloat(maxBinCount)) * 40.0)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(bin.isFailing ? Color.red : Color.accentColor)
+                                    .frame(height: height)
+                                    .help("[\(String(format: "%.2f", bin.rangeMin)), \(String(format: "%.2f", bin.rangeMax))]: \(bin.count) elements\(bin.isFailing ? " (Failing)" : "")")
+                            }
+                        }
+                        .frame(height: 44)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .accessibilityIdentifier("inspector-simulation-mesh-quality-histogram")
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            workspace.highlightFailingElements(studyId: study.id, metric: workspace.selectedMeshQualityMetric)
+                        } label: {
+                            Label("Highlight Failing", systemImage: "exclamationmark.triangle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("inspector-simulation-mesh-quality-highlight-button")
+
+                        Button {
+                            workspace.clearMeshHighlight()
+                        } label: {
+                            Label("Clear", systemImage: "xmark.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(workspace.highlightedMeshElementIds.isEmpty)
+                        .accessibilityIdentifier("inspector-simulation-mesh-quality-clear-button")
+                    }
+                } header: {
+                    sectionHeader("Mesh Quality")
+                }
             }
 
             if !study.results.meshSets.isEmpty {

@@ -349,5 +349,6 @@ Table 1. Feature matrix, macos/ scope, status as of 2026-10-17. Source: audit ru
 | MSH-2 | (new) A person can assign CAD geometry faces, edges, and bodies to simulation fixtures and loads, define named geometry groups, inspect parsed Gmsh physical sets and generated node/element sets, and persist associations (BL-MSH-06) | done | done | done | Shipped | #189 | n/a |
 | MSH-3 | (new) A person can configure global mesh controls (linear and quadratic element order, target element size, minimum element size, growth rate, curvature-based refinement toggle and elements per circle), validate sizing bounds, and execute Gmsh with matched CLI parameters (BL-MSH-02) | done | done | done | Shipped | #275 | n/a |
 | MSH-4 | (new) A person can define local mesh refinement regions on faces, edges, vertices, and bodies with custom target element sizes, manage regions in the inspector, and execute Gmsh with matched entity sizing CLI commands (BL-MSH-03) | done | done | done | Shipped | #276 | n/a |
+| MSH-5 | (new) A person can evaluate tetrahedral volume mesh quality metrics (aspect ratio, scaled Jacobian determinant, equiangular skewness), view metric summary statistics and 10-bin distribution histograms in the inspector, and highlight failing elements in the workspace (BL-MSH-04) | done | done | done | Shipped | #277 | n/a |
 
 

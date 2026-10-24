@@ -113,6 +113,8 @@ import simd
         #expect(mesh.statistics.minElementQuality > 0.0)
         #expect(mesh.statistics.avgElementQuality > 0.0)
         #expect(mesh.statistics.minElementQuality <= 1.0)
+        #expect(mesh.statistics.qualityReport != nil)
+        #expect(mesh.statistics.qualityReport?.aspectRatioSummary.histogramBins.count == 1)
     }
 
     @Test func testMSHParserParsesQuadraticC3D10AndSurfaceTriangles() throws {
@@ -136,6 +138,8 @@ import simd
         #expect(mesh.statistics.nodeCount == 10)
         #expect(mesh.statistics.elementCount == 1)
         #expect(mesh.statistics.minElementQuality > 0.0)
+        #expect(mesh.statistics.qualityReport != nil)
+        #expect(mesh.statistics.qualityReport?.aspectRatioSummary.histogramBins.count == 1)
     }
 
     @Test func testMSHParserCorruptHeaderThrowsTypedError() {

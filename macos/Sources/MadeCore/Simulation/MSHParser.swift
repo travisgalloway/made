@@ -216,13 +216,15 @@ public enum MSHParser {
         }
 
         // Calculate mesh statistics
+        let qualityReport = MeshQualityCalculator.evaluate(nodes: nodes, elements: elements)
         let statistics: SimulationMeshStatistics
         if elements.isEmpty {
             statistics = SimulationMeshStatistics(
                 nodeCount: nodes.count,
                 elementCount: 0,
                 minElementQuality: 1.0,
-                avgElementQuality: 1.0
+                avgElementQuality: 1.0,
+                qualityReport: qualityReport
             )
         } else {
             var minQuality = 1.0
@@ -239,7 +241,8 @@ public enum MSHParser {
                 nodeCount: nodes.count,
                 elementCount: elements.count,
                 minElementQuality: minQuality,
-                avgElementQuality: avgQuality
+                avgElementQuality: avgQuality,
+                qualityReport: qualityReport
             )
         }
 

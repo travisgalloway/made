@@ -65,6 +65,10 @@ final class WorkspaceModel {
     @ObservationIgnored public var volumeMesher: any VolumeMesherProtocol
     @ObservationIgnored public var cachedStudyMeshes: [UUID: VolumeMesh] = [:]
 
+    // Mesh quality metrics and element highlighting (BL-MSH-04, #277)
+    public var selectedMeshQualityMetric: MeshQualityMetricKind = .aspectRatio
+    public var highlightedMeshElementIds: Set<Int> = []
+
     public var selectedSimulationStudy: SimulationStudy? {
         guard let id = selectedSimulationStudyId else { return nil }
         return document.study(id: id)
@@ -6845,6 +6849,33 @@ final class WorkspaceModel {
         cachedStudyMeshes[studyId] = mesh
         study.results.meshSets = sets
         _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+    }
+
+    public func selectMeshQualityMetric(_ metric: MeshQualityMetricKind) {
+        selectedMeshQualityMetric = metric
+    }
+
+    public func highlightFailingElements(studyId: UUID, metric: MeshQualityMetricKind) {
+        if let mesh = cachedStudyMeshes[studyId] {
+            let report = mesh.statistics.qualityReport ?? MeshQualityCalculator.evaluate(mesh: mesh)
+            let summary = report.summary(for: metric)
+            highlightedMeshElementIds = Set(summary.failingElementIds)
+        } else if let report = document.study(id: studyId)?.results.meshStatistics.qualityReport {
+            let summary = report.summary(for: metric)
+            highlightedMeshElementIds = Set(summary.failingElementIds)
+        }
+    }
+
+    public func clearMeshHighlight() {
+        highlightedMeshElementIds = []
+    }
+
+    public func toggleMeshElementHighlight(id: Int) {
+        if highlightedMeshElementIds.contains(id) {
+            highlightedMeshElementIds.remove(id)
+        } else {
+            highlightedMeshElementIds.insert(id)
+        }
     }
 
     public func assignSelectedSubElementToFixture(studyId: UUID, fixtureId: UUID) {
