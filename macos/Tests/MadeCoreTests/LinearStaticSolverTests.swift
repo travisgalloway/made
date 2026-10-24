@@ -610,4 +610,203 @@ import simd
             try LinearStaticSolver.solve(study: study, mesh: mesh)
         }
     }
+
+    // MARK: - 13. BL-FEA-03 Structural Loads (#221)
+
+    @Test func testForcePerUnitAreaDistribution() throws {
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var study = SimulationStudy(name: "Traction Beam", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(
+                name: "TipFace",
+                kind: .force,
+                magnitude: 400_000.0, // Pa (N/m²)
+                direction: SIMD3<Double>(0, -1, 0),
+                forceDistribution: .perUnitArea
+            )
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.y < 0.0) // Deflects downwards
+        }
+        #expect(result.iterationCount > 0)
+    }
+
+    @Test func testMomentCoupleTwistAndEquilibrium() throws {
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var study = SimulationStudy(name: "Twisting Moment", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(
+                name: "TipFace",
+                kind: .moment,
+                magnitude: 200.0, // N·m torque about X axis
+                direction: SIMD3<Double>(1, 0, 0)
+            )
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        // Nodes on opposite sides of centroid should have opposite transverse displacements (torque couple)
+        var posDisplacements = 0
+        var negDisplacements = 0
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            if d.y > 1e-6 { posDisplacements += 1 }
+            if d.y < -1e-6 { negDisplacements += 1 }
+        }
+        #expect(posDisplacements > 0)
+        #expect(negDisplacements > 0)
+        #expect(result.iterationCount > 0)
+    }
+
+    @Test func testRemoteLoadTransfer() throws {
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var study = SimulationStudy(name: "Remote Load Beam", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        // Remote point at x=1.0, y=0.5 (offset +0.475m above tip centroid in Y), pushing downwards in Y
+        study.loads = [
+            SimulationLoad(
+                name: "TipFace",
+                kind: .remoteLoad,
+                magnitude: 500.0,
+                direction: SIMD3<Double>(0, -1, 0),
+                remotePoint: SIMD3<Double>(1.0, 0.5, 0.025)
+            )
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.y < 0.0)
+        }
+        #expect(result.iterationCount > 0)
+    }
+
+    @Test func testBearingContactCompressiveLoad() throws {
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var study = SimulationStudy(name: "Bearing Contact", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(
+                name: "TipFace",
+                kind: .bearing,
+                magnitude: 1000.0,
+                direction: SIMD3<Double>(1, 0, 0) // Tension/bearing along X
+            )
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        // The beam should extend in +X
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.x > 0.0)
+        }
+        #expect(result.iterationCount > 0)
+    }
+
+    @Test func testCentrifugalBodyAcceleration() throws {
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var study = SimulationStudy(name: "Spinning Beam", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        // Spin about Z axis at origin with omega = 50 rad/s
+        study.loads = [
+            SimulationLoad(
+                name: "Spin",
+                kind: .centrifugal,
+                magnitude: 50.0,
+                direction: SIMD3<Double>(0, 0, 1),
+                axisOrigin: SIMD3<Double>(0, 0, 0)
+            )
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        // Centrifugal body force accelerates outward in +X away from rotation axis
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(d.x > 0.0)
+        }
+        #expect(result.iterationCount > 0)
+    }
+
+    @Test func testThermalExpansionCantileverBeam() throws {
+        let length = 1.0
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D4(length: length, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var study = SimulationStudy(name: "Thermal Cantilever", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        let alpha = 1.2e-5 // 1/K
+        let deltaT = 50.0  // °C
+        study.loads = [
+            SimulationLoad(
+                name: "ThermalStep",
+                kind: .thermalLoad,
+                magnitude: 70.0,
+                referenceTemperature: 20.0
+            )
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.0
+        )
+
+        // Expected free thermal expansion in X with nu=0: Delta L = alpha * Delta T * L
+        let expectedDeltaL_mm = (alpha * deltaT * length) * 1000.0 // mm
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(abs(d.x - expectedDeltaL_mm) < 0.05 * expectedDeltaL_mm)
+        }
+        #expect(result.iterationCount > 0)
+    }
+
+    @Test func testDegenerateLoadsAndZeroDelta() throws {
+        let (mesh, _, _) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 2, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Degenerate Edge Cases", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        study.loads = [
+            // Thermal load with zero delta
+            SimulationLoad(name: "ZeroDeltaThermal", kind: .thermalLoad, magnitude: 20.0, referenceTemperature: 20.0),
+            // Centrifugal with zero omega
+            SimulationLoad(name: "ZeroOmegaCentrif", kind: .centrifugal, magnitude: 0.0)
+        ]
+
+        let result = try LinearStaticSolver.solve(study: study, mesh: mesh, youngsModulus: 200e9, poissonsRatio: 0.3)
+        for (_, disp) in result.nodalDisplacements {
+            #expect(simd_length(disp) < 1e-6)
+        }
+    }
 }

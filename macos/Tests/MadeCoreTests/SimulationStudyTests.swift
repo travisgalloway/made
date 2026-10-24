@@ -366,5 +366,67 @@ import simd
         #expect(decodedFixture.kind == .fixed)
         #expect(decodedFixture.elasticStiffness == SIMD3<Double>(repeating: 1e6))
     }
+
+    @Test func testSimulationLoadKindBLFEA03Extensions() {
+        let allKinds = SimulationLoadKind.allCases
+        #expect(allKinds.contains(.moment))
+        #expect(allKinds.contains(.remoteLoad))
+        #expect(allKinds.contains(.bearing))
+        #expect(allKinds.contains(.centrifugal))
+        #expect(allKinds.contains(.thermalLoad))
+
+        #expect(SimulationLoadKind.moment.displayName == "Moment")
+        #expect(SimulationLoadKind.moment.unitSymbol == "N·m")
+        #expect(SimulationLoadKind.moment.systemImageName == "arrow.triangle.2.circlepath")
+
+        #expect(SimulationLoadKind.remoteLoad.displayName == "Remote Load")
+        #expect(SimulationLoadKind.remoteLoad.unitSymbol == "N")
+        #expect(SimulationLoadKind.remoteLoad.systemImageName == "arrow.up.and.line.horizontal.and.arrow.down")
+
+        #expect(SimulationLoadKind.bearing.displayName == "Bearing Load")
+        #expect(SimulationLoadKind.bearing.unitSymbol == "N")
+        #expect(SimulationLoadKind.bearing.systemImageName == "circle.circle")
+
+        #expect(SimulationLoadKind.centrifugal.displayName == "Centrifugal")
+        #expect(SimulationLoadKind.centrifugal.unitSymbol == "rad/s")
+        #expect(SimulationLoadKind.centrifugal.systemImageName == "arrow.counterclockwise")
+
+        #expect(SimulationLoadKind.thermalLoad.displayName == "Thermal Load")
+        #expect(SimulationLoadKind.thermalLoad.unitSymbol == "°C")
+        #expect(SimulationLoadKind.thermalLoad.systemImageName == "thermometer.sun.fill")
+
+        #expect(SimulationForceDistribution.allCases.count == 2)
+        #expect(SimulationForceDistribution.total.displayName == "Total")
+        #expect(SimulationForceDistribution.perUnitArea.displayName == "Per Unit Area")
+
+        let defaultLoad = SimulationLoad(kind: .moment)
+        #expect(defaultLoad.forceDistribution == .total)
+        #expect(defaultLoad.remotePoint == nil)
+        #expect(defaultLoad.remoteMoment == nil)
+        #expect(defaultLoad.axisOrigin == nil)
+        #expect(defaultLoad.referenceTemperature == nil)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfSimulationLoadBLFEA03() throws {
+        let legacyLoadJSON = """
+        {
+            "id": "11223344-5566-7788-99AA-BBCCDDEEFF00",
+            "name": "Legacy Point Force",
+            "kind": "force",
+            "magnitude": 2500.0,
+            "direction": [1.0, 0.0, 0.0]
+        }
+        """.data(using: .utf8)!
+
+        let decodedLoad = try JSONDecoder().decode(SimulationLoad.self, from: legacyLoadJSON)
+        #expect(decodedLoad.name == "Legacy Point Force")
+        #expect(decodedLoad.kind == .force)
+        #expect(decodedLoad.magnitude == 2500.0)
+        #expect(decodedLoad.forceDistribution == .total)
+        #expect(decodedLoad.remotePoint == nil)
+        #expect(decodedLoad.remoteMoment == nil)
+        #expect(decodedLoad.axisOrigin == nil)
+        #expect(decodedLoad.referenceTemperature == nil)
+    }
 }
 

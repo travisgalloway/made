@@ -2908,6 +2908,22 @@ struct InspectorSimulationLoadView: View {
                     .accessibilityIdentifier("inspector-simulation-load-magnitude")
                 }
 
+                if load.kind == .force {
+                    Picker("Force Distribution", selection: Binding(
+                        get: { load.forceDistribution },
+                        set: { newDist in
+                            var copy = load
+                            copy.forceDistribution = newDist
+                            workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                        }
+                    )) {
+                        ForEach(SimulationForceDistribution.allCases) { dist in
+                            Text(dist.displayName).tag(dist)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-load-distribution")
+                }
+
                 if load.kind == .convection {
                     LabeledContent("Ambient Temperature (\(SimulationUnitConversion.temperatureUnitSymbol(unit: lengthUnit)))") {
                         TextField("Ambient Temperature", value: Binding(
@@ -2922,7 +2938,22 @@ struct InspectorSimulationLoadView: View {
                     }
                 }
 
-                if load.kind == .force || load.kind == .gravity {
+                if load.kind == .thermalLoad || load.kind == .temperature {
+                    LabeledContent("Reference Temperature (\(SimulationUnitConversion.temperatureUnitSymbol(unit: lengthUnit)))") {
+                        TextField("Reference Temperature", value: Binding(
+                            get: { SimulationUnitConversion.displayTemperature(load.referenceTemperature ?? 20.0, unit: lengthUnit) },
+                            set: { val in
+                                var copy = load
+                                copy.referenceTemperature = SimulationUnitConversion.commitTemperature(val, unit: lengthUnit)
+                                workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                            }
+                        ), format: .number)
+                        .accessibilityIdentifier("inspector-simulation-load-reference-temperature")
+                    }
+                }
+
+                let hasDirection = load.kind == .force || load.kind == .gravity || load.kind == .moment || load.kind == .remoteLoad || load.kind == .bearing || load.kind == .centrifugal
+                if hasDirection {
                     LabeledContent("Direction (X, Y, Z)") {
                         HStack(spacing: 4) {
                             TextField("X", value: Binding(
@@ -2952,6 +2983,82 @@ struct InspectorSimulationLoadView: View {
                         }
                     }
                 }
+
+                if load.kind == .remoteLoad {
+                    LabeledContent("Remote Point (X, Y, Z)") {
+                        HStack(spacing: 4) {
+                            TextField("X", value: Binding(
+                                get: { load.remotePoint?.x ?? 0.0 },
+                                set: { val in
+                                    var copy = load
+                                    var pt = copy.remotePoint ?? .zero
+                                    pt.x = val
+                                    copy.remotePoint = pt
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                            TextField("Y", value: Binding(
+                                get: { load.remotePoint?.y ?? 0.0 },
+                                set: { val in
+                                    var copy = load
+                                    var pt = copy.remotePoint ?? .zero
+                                    pt.y = val
+                                    copy.remotePoint = pt
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                            TextField("Z", value: Binding(
+                                get: { load.remotePoint?.z ?? 0.0 },
+                                set: { val in
+                                    var copy = load
+                                    var pt = copy.remotePoint ?? .zero
+                                    pt.z = val
+                                    copy.remotePoint = pt
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                        }
+                        .accessibilityIdentifier("inspector-simulation-load-remote-point")
+                    }
+                }
+
+                if load.kind == .centrifugal {
+                    LabeledContent("Axis Origin (X, Y, Z)") {
+                        HStack(spacing: 4) {
+                            TextField("X", value: Binding(
+                                get: { load.axisOrigin?.x ?? 0.0 },
+                                set: { val in
+                                    var copy = load
+                                    var pt = copy.axisOrigin ?? .zero
+                                    pt.x = val
+                                    copy.axisOrigin = pt
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                            TextField("Y", value: Binding(
+                                get: { load.axisOrigin?.y ?? 0.0 },
+                                set: { val in
+                                    var copy = load
+                                    var pt = copy.axisOrigin ?? .zero
+                                    pt.y = val
+                                    copy.axisOrigin = pt
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                            TextField("Z", value: Binding(
+                                get: { load.axisOrigin?.z ?? 0.0 },
+                                set: { val in
+                                    var copy = load
+                                    var pt = copy.axisOrigin ?? .zero
+                                    pt.z = val
+                                    copy.axisOrigin = pt
+                                    workspace.updateSimulationLoad(studyId: study.id, load: copy)
+                                }
+                            ), format: .number)
+                        }
+                        .accessibilityIdentifier("inspector-simulation-load-axis-origin")
+                    }
+                }
             } header: {
                 sectionHeader("Load Magnitude & Vector")
             }
@@ -2959,7 +3066,7 @@ struct InspectorSimulationLoadView: View {
             Section {
                 if load.targetReferences.isEmpty && load.groupNames.isEmpty {
                     LabeledContent("Targets") {
-                        Text(load.kind == .gravity ? "All volume elements" : "All boundary surfaces")
+                        Text((load.kind == .gravity || load.kind == .centrifugal || load.kind == .thermalLoad) ? "All volume elements" : "All boundary surfaces")
                             .foregroundStyle(.secondary)
                     }
                 } else {

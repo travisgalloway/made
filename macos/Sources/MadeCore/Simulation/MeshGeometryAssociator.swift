@@ -93,7 +93,7 @@ public enum MeshGeometryAssociator {
         for load in study.loads {
             let set: VolumeMeshSet
             if load.targetReferences.isEmpty && load.groupNames.isEmpty {
-                if load.kind == .gravity {
+                if load.kind == .gravity || load.kind == .centrifugal || load.kind == .thermalLoad || load.kind == .temperature {
                     // Fallback: all volume elements and all nodes
                     let elIds = mesh.elements.map { $0.id }.sorted()
                     let nIds = mesh.nodes.map { $0.id }.sorted()
@@ -137,12 +137,13 @@ public enum MeshGeometryAssociator {
                         lNodeIds.formUnion(existing.nodeIds)
                     }
                 }
+                let isBodyLoad = load.kind == .gravity || load.kind == .centrifugal || load.kind == .thermalLoad || load.kind == .temperature
                 set = VolumeMeshSet(
                     id: load.id,
                     name: load.name,
                     nodeIds: lNodeIds.sorted(),
                     elementIds: lElementIds.sorted(),
-                    subelementType: load.kind == .gravity ? nil : .face
+                    subelementType: isBodyLoad ? nil : .face
                 )
             }
             if let idx = resultSets.firstIndex(where: { $0.name == set.name }) {

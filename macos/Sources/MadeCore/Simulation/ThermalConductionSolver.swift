@@ -119,7 +119,7 @@ public enum ThermalConductionSolver: Sendable {
             let targetElementIds = Set(matchedSet?.elementIds ?? [])
 
             switch load.kind {
-            case .temperature:
+            case .temperature, .thermalLoad:
                 let prescribedT = load.magnitude
                 if !targetNodeIds.isEmpty {
                     for nId in targetNodeIds {
@@ -230,7 +230,7 @@ public enum ThermalConductionSolver: Sendable {
                     }
                 }
 
-            case .force, .pressure, .gravity:
+            case .force, .pressure, .gravity, .moment, .remoteLoad, .bearing, .centrifugal:
                 break
             }
         }

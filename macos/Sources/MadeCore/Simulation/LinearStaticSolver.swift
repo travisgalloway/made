@@ -55,14 +55,20 @@ public enum LinearStaticSolver: Sendable {
             throw CAEErrorCode.invalidStudyConfiguration(message: "Mesh contains no nodes or elements.")
         }
 
-        // 1. Resolve material elastic properties (Young's modulus E and Poisson's ratio nu)
+        // 1. Resolve material elastic properties (Young's modulus E, Poisson's ratio nu, density rho, thermal expansion alpha)
         var E: Double
         var nu: Double
         var rho: Double = 7850.0 // Default structural steel density kg/m³
+        var alpha: Double = 1.2e-5 // Default structural steel thermal expansion 1/K
 
         if let y = youngsModulus, let p = poissonsRatio {
             E = y
             nu = p
+            if let matId = study.materials.first?.materialId,
+               let mat = MaterialLibrary.standard.material(withId: matId) {
+                if mat.densityKgPerM3 > 0 { rho = mat.densityKgPerM3 }
+                if mat.thermalExpansionPerK > 0 { alpha = mat.thermalExpansionPerK }
+            }
         } else {
             let matId = study.materials.first?.materialId
             let mat = matId.flatMap { MaterialLibrary.standard.material(withId: $0) }
@@ -70,6 +76,7 @@ public enum LinearStaticSolver: Sendable {
                 E = youngsModulus ?? (mat.youngsModulusGPa * 1e9)
                 nu = poissonsRatio ?? mat.poissonsRatioValue
                 if mat.densityKgPerM3 > 0 { rho = mat.densityKgPerM3 }
+                if mat.thermalExpansionPerK > 0 { alpha = mat.thermalExpansionPerK }
             } else {
                 E = youngsModulus ?? 200e9 // 200 GPa
                 nu = poissonsRatio ?? 0.3
@@ -239,24 +246,77 @@ public enum LinearStaticSolver: Sendable {
 
             switch load.kind {
             case .force:
-                let nodesToUse: [Int]
-                if !targetNodeIds.isEmpty {
-                    nodesToUse = Array(targetNodeIds)
-                } else if load.targetReferences.isEmpty && load.groupNames.isEmpty {
-                    nodesToUse = mesh.nodes.last.map { [$0.id] } ?? []
+                if load.forceDistribution == .perUnitArea {
+                    let tractionPa = load.direction * load.magnitude // N/m² (Pa)
+                    let matchedTriangles = filterBoundaryTriangles(
+                        triangles: boundaryTriangles,
+                        targetElementIds: targetElementIds,
+                        targetNodeIds: targetNodeIds,
+                        hasExplicitTargets: !load.targetReferences.isEmpty || !load.groupNames.isEmpty
+                    )
+
+                    if !matchedTriangles.isEmpty {
+                        for tri in matchedTriangles {
+                            let triIndices = tri.nodeIndices.prefix(3).compactMap { nodeIndexById[$0] }
+                            guard triIndices.count == 3 else { continue }
+
+                            let p0 = positions[triIndices[0]]
+                            let p1 = positions[triIndices[1]]
+                            let p2 = positions[triIndices[2]]
+
+                            let cross = simd_cross(p1 - p0, p2 - p0)
+                            let normalLength = simd_length(cross)
+                            guard normalLength > 1e-15 else { continue }
+
+                            let area = 0.5 * normalLength
+                            let triForce = tractionPa * area
+                            let nodalForce = triForce / 3.0
+
+                            for nodeIdx in triIndices {
+                                F[3 * nodeIdx + 0] += nodalForce.x
+                                F[3 * nodeIdx + 1] += nodalForce.y
+                                F[3 * nodeIdx + 2] += nodalForce.z
+                            }
+                        }
+                    } else {
+                        let nodesToUse: [Int]
+                        if !targetNodeIds.isEmpty {
+                            nodesToUse = Array(targetNodeIds)
+                        } else if load.targetReferences.isEmpty && load.groupNames.isEmpty {
+                            nodesToUse = mesh.nodes.last.map { [$0.id] } ?? []
+                        } else {
+                            continue
+                        }
+                        guard !nodesToUse.isEmpty else { continue }
+                        let totalForce = load.direction * load.magnitude
+                        let forcePerNode = totalForce / Double(nodesToUse.count)
+                        for nId in nodesToUse {
+                            guard let nodeIdx = nodeIndexById[nId] else { continue }
+                            F[3 * nodeIdx + 0] += forcePerNode.x
+                            F[3 * nodeIdx + 1] += forcePerNode.y
+                            F[3 * nodeIdx + 2] += forcePerNode.z
+                        }
+                    }
                 } else {
-                    continue
-                }
+                    let nodesToUse: [Int]
+                    if !targetNodeIds.isEmpty {
+                        nodesToUse = Array(targetNodeIds)
+                    } else if load.targetReferences.isEmpty && load.groupNames.isEmpty {
+                        nodesToUse = mesh.nodes.last.map { [$0.id] } ?? []
+                    } else {
+                        continue
+                    }
 
-                guard !nodesToUse.isEmpty else { continue }
-                let totalForce = load.direction * load.magnitude // Newtons
-                let forcePerNode = totalForce / Double(nodesToUse.count)
+                    guard !nodesToUse.isEmpty else { continue }
+                    let totalForce = load.direction * load.magnitude // Newtons
+                    let forcePerNode = totalForce / Double(nodesToUse.count)
 
-                for nId in nodesToUse {
-                    guard let nodeIdx = nodeIndexById[nId] else { continue }
-                    F[3 * nodeIdx + 0] += forcePerNode.x
-                    F[3 * nodeIdx + 1] += forcePerNode.y
-                    F[3 * nodeIdx + 2] += forcePerNode.z
+                    for nId in nodesToUse {
+                        guard let nodeIdx = nodeIndexById[nId] else { continue }
+                        F[3 * nodeIdx + 0] += forcePerNode.x
+                        F[3 * nodeIdx + 1] += forcePerNode.y
+                        F[3 * nodeIdx + 2] += forcePerNode.z
+                    }
                 }
 
             case .pressure:
@@ -317,6 +377,306 @@ public enum LinearStaticSolver: Sendable {
                         F[3 * nodeIdx + 0] += nodalForce.x
                         F[3 * nodeIdx + 1] += nodalForce.y
                         F[3 * nodeIdx + 2] += nodalForce.z
+                    }
+                }
+
+            case .moment:
+                let nodesToUse: [Int]
+                if !targetNodeIds.isEmpty {
+                    nodesToUse = Array(targetNodeIds)
+                } else if load.targetReferences.isEmpty && load.groupNames.isEmpty {
+                    let boundary = filterBoundaryTriangles(
+                        triangles: boundaryTriangles,
+                        targetElementIds: targetElementIds,
+                        targetNodeIds: targetNodeIds,
+                        hasExplicitTargets: false
+                    )
+                    nodesToUse = Array(Set(boundary.flatMap { $0.nodeIndices }))
+                } else {
+                    continue
+                }
+
+                guard nodesToUse.count > 1 else { continue }
+                let nodeIndices = nodesToUse.compactMap { nodeIndexById[$0] }
+                guard nodeIndices.count > 1 else { continue }
+
+                var rc = SIMD3<Double>.zero
+                for idx in nodeIndices {
+                    rc += positions[idx]
+                }
+                rc /= Double(nodeIndices.count)
+
+                let momentVec = load.direction * load.magnitude
+                guard simd_length(momentVec) > 1e-15 else { continue }
+
+                var J0 = SIMD3<Double>.zero
+                var J1 = SIMD3<Double>.zero
+                var J2 = SIMD3<Double>.zero
+                var drList = [SIMD3<Double>]()
+                drList.reserveCapacity(nodeIndices.count)
+
+                for idx in nodeIndices {
+                    let dr = positions[idx] - rc
+                    drList.append(dr)
+                    let rSq = simd_dot(dr, dr)
+                    J0 += SIMD3<Double>(rSq - dr.x * dr.x, -dr.x * dr.y, -dr.x * dr.z)
+                    J1 += SIMD3<Double>(-dr.y * dr.x, rSq - dr.y * dr.y, -dr.y * dr.z)
+                    J2 += SIMD3<Double>(-dr.z * dr.x, -dr.z * dr.y, rSq - dr.z * dr.z)
+                }
+
+                guard let Jinv = invert3x3((J0, J1, J2)) else { continue }
+                let omega = multiply3x3(Jinv, momentVec)
+
+                for (i, nodeIdx) in nodeIndices.enumerated() {
+                    let Fi = simd_cross(omega, drList[i])
+                    F[3 * nodeIdx + 0] += Fi.x
+                    F[3 * nodeIdx + 1] += Fi.y
+                    F[3 * nodeIdx + 2] += Fi.z
+                }
+
+            case .remoteLoad:
+                let nodesToUse: [Int]
+                if !targetNodeIds.isEmpty {
+                    nodesToUse = Array(targetNodeIds)
+                } else if load.targetReferences.isEmpty && load.groupNames.isEmpty {
+                    let boundary = filterBoundaryTriangles(
+                        triangles: boundaryTriangles,
+                        targetElementIds: targetElementIds,
+                        targetNodeIds: targetNodeIds,
+                        hasExplicitTargets: false
+                    )
+                    nodesToUse = Array(Set(boundary.flatMap { $0.nodeIndices }))
+                } else {
+                    continue
+                }
+
+                guard !nodesToUse.isEmpty else { continue }
+                let nodeIndices = nodesToUse.compactMap { nodeIndexById[$0] }
+                guard !nodeIndices.isEmpty else { continue }
+
+                var rc = SIMD3<Double>.zero
+                for idx in nodeIndices {
+                    rc += positions[idx]
+                }
+                rc /= Double(nodeIndices.count)
+
+                let remotePt = (load.remotePoint ?? rc) * lengthScaleToMeters
+                let netForce = load.direction * load.magnitude // N
+                let extMoment = load.remoteMoment ?? .zero // N·m
+
+                let forcePerNode = netForce / Double(nodeIndices.count)
+                for nodeIdx in nodeIndices {
+                    F[3 * nodeIdx + 0] += forcePerNode.x
+                    F[3 * nodeIdx + 1] += forcePerNode.y
+                    F[3 * nodeIdx + 2] += forcePerNode.z
+                }
+
+                // Induced moment about centroid: M = M_ext + (rc - r_remote) x F
+                let inducedMoment = extMoment + simd_cross(rc - remotePt, netForce)
+
+                if simd_length(inducedMoment) > 1e-15 && nodeIndices.count > 1 {
+                    var J0 = SIMD3<Double>.zero
+                    var J1 = SIMD3<Double>.zero
+                    var J2 = SIMD3<Double>.zero
+                    var drList = [SIMD3<Double>]()
+                    drList.reserveCapacity(nodeIndices.count)
+
+                    for idx in nodeIndices {
+                        let dr = positions[idx] - rc
+                        drList.append(dr)
+                        let rSq = simd_dot(dr, dr)
+                        J0 += SIMD3<Double>(rSq - dr.x * dr.x, -dr.x * dr.y, -dr.x * dr.z)
+                        J1 += SIMD3<Double>(-dr.y * dr.x, rSq - dr.y * dr.y, -dr.y * dr.z)
+                        J2 += SIMD3<Double>(-dr.z * dr.x, -dr.z * dr.y, rSq - dr.z * dr.z)
+                    }
+
+                    if let Jinv = invert3x3((J0, J1, J2)) {
+                        let omega = multiply3x3(Jinv, inducedMoment)
+                        for (i, nodeIdx) in nodeIndices.enumerated() {
+                            let Fi = simd_cross(omega, drList[i])
+                            F[3 * nodeIdx + 0] += Fi.x
+                            F[3 * nodeIdx + 1] += Fi.y
+                            F[3 * nodeIdx + 2] += Fi.z
+                        }
+                    }
+                }
+
+            case .bearing:
+                let dir = load.direction
+                let netForceMag = load.magnitude
+                guard abs(netForceMag) > 1e-15 else { continue }
+
+                let matchedTriangles = filterBoundaryTriangles(
+                    triangles: boundaryTriangles,
+                    targetElementIds: targetElementIds,
+                    targetNodeIds: targetNodeIds,
+                    hasExplicitTargets: !load.targetReferences.isEmpty || !load.groupNames.isEmpty
+                )
+
+                var triangleData: [(indices: [Int], forceDir: SIMD3<Double>, weight: Double, area: Double)] = []
+                var totalProjected = 0.0
+
+                for tri in matchedTriangles {
+                    let triIndices = tri.nodeIndices.prefix(3).compactMap { nodeIndexById[$0] }
+                    guard triIndices.count == 3 else { continue }
+
+                    let p0 = positions[triIndices[0]]
+                    let p1 = positions[triIndices[1]]
+                    let p2 = positions[triIndices[2]]
+
+                    let cross = simd_cross(p1 - p0, p2 - p0)
+                    let normalLength = simd_length(cross)
+                    guard normalLength > 1e-15 else { continue }
+
+                    let area = 0.5 * normalLength
+                    let outwardNormal = cross / normalLength
+                    let inwardNormal = -outwardNormal
+
+                    // Compressive half-cosine traction: cos(theta) = max(0, -n · d)
+                    let cosTheta = max(0.0, simd_dot(inwardNormal, dir))
+                    if cosTheta > 1e-12 {
+                        let unscaledTriForce = inwardNormal * (cosTheta * area)
+                        let proj = simd_dot(unscaledTriForce, dir)
+                        totalProjected += proj
+                        triangleData.append((triIndices, inwardNormal, cosTheta, area))
+                    }
+                }
+
+                if totalProjected > 1e-15 {
+                    let scale = netForceMag / totalProjected
+                    for item in triangleData {
+                        let triForce = item.forceDir * (scale * item.weight * item.area)
+                        let nodalForce = triForce / 3.0
+                        for nodeIdx in item.indices {
+                            F[3 * nodeIdx + 0] += nodalForce.x
+                            F[3 * nodeIdx + 1] += nodalForce.y
+                            F[3 * nodeIdx + 2] += nodalForce.z
+                        }
+                    }
+                } else {
+                    let nodesToUse: [Int] = !targetNodeIds.isEmpty ? Array(targetNodeIds) : (mesh.nodes.last.map { [$0.id] } ?? [])
+                    guard !nodesToUse.isEmpty else { continue }
+                    let forcePerNode = (dir * netForceMag) / Double(nodesToUse.count)
+                    for nId in nodesToUse {
+                        guard let nodeIdx = nodeIndexById[nId] else { continue }
+                        F[3 * nodeIdx + 0] += forcePerNode.x
+                        F[3 * nodeIdx + 1] += forcePerNode.y
+                        F[3 * nodeIdx + 2] += forcePerNode.z
+                    }
+                }
+
+            case .centrifugal:
+                let omega = load.magnitude // rad/s
+                let omegaSq = omega * omega
+                guard omegaSq > 1e-15 else { continue }
+
+                let axisLen = simd_length(load.direction)
+                let axis = axisLen > 1e-6 ? load.direction / axisLen : SIMD3<Double>(0, 0, 1)
+                let origin = (load.axisOrigin ?? .zero) * lengthScaleToMeters
+
+                for element in mesh.elements {
+                    if !targetElementIds.isEmpty && !targetElementIds.contains(element.id) {
+                        continue
+                    }
+
+                    let elIndices = element.nodeIndices.compactMap { nodeIndexById[$0] }
+                    guard elIndices.count >= 4 else { continue }
+
+                    let vol = computeTetrahedronVolume(el: element, positions: positions, nodeIndexById: nodeIndexById)
+                    guard vol > 1e-15 else { continue }
+
+                    let count = Double(element.order == .quadratic && elIndices.count >= 10 ? 10 : 4)
+                    let nodeMass = (rho * vol) / count
+
+                    for i in 0..<Int(count) {
+                        let nodeIdx = elIndices[i]
+                        let r = positions[nodeIdx]
+                        let dr = r - origin
+                        let rPerp = dr - simd_dot(dr, axis) * axis
+                        let aCentrif = omegaSq * rPerp
+                        let Fi = nodeMass * aCentrif
+
+                        F[3 * nodeIdx + 0] += Fi.x
+                        F[3 * nodeIdx + 1] += Fi.y
+                        F[3 * nodeIdx + 2] += Fi.z
+                    }
+                }
+
+            case .thermalLoad, .temperature:
+                let targetTemp = load.magnitude // °C
+                let refTemp = load.referenceTemperature ?? 20.0 // °C
+                let deltaT = targetTemp - refTemp
+                guard abs(deltaT) > 1e-15 else { continue }
+
+                let beta = (3.0 * lambda + 2.0 * mu) * alpha
+
+                for element in mesh.elements {
+                    if !targetElementIds.isEmpty && !targetElementIds.contains(element.id) {
+                        continue
+                    }
+
+                    let elIndices = element.nodeIndices.compactMap { nodeIndexById[$0] }
+                    guard elIndices.count >= 4 else { continue }
+
+                    if element.order == .quadratic && elIndices.count >= 10 {
+                        let p = elIndices.prefix(10).map { positions[$0] }
+                        let alphaQuad = (5.0 - sqrt(5.0)) / 20.0
+                        let betaQuad = (5.0 + 3.0 * sqrt(5.0)) / 20.0
+                        let quadPoints: [(SIMD4<Double>, Double)] = [
+                            (SIMD4<Double>(betaQuad, alphaQuad, alphaQuad, alphaQuad), 1.0 / 24.0),
+                            (SIMD4<Double>(alphaQuad, betaQuad, alphaQuad, alphaQuad), 1.0 / 24.0),
+                            (SIMD4<Double>(alphaQuad, alphaQuad, betaQuad, alphaQuad), 1.0 / 24.0),
+                            (SIMD4<Double>(alphaQuad, alphaQuad, alphaQuad, betaQuad), 1.0 / 24.0)
+                        ]
+
+                        for (L, weight) in quadPoints {
+                            let dNdL = evaluateC3D10LocalGradients(L: L)
+                            var J = (SIMD3<Double>.zero, SIMD3<Double>.zero, SIMD3<Double>.zero)
+                            for a in 0..<10 {
+                                let grad = dNdL[a]
+                                J.0 += grad.x * p[a]
+                                J.1 += grad.y * p[a]
+                                J.2 += grad.z * p[a]
+                            }
+
+                            let detJ = simd_dot(simd_cross(J.0, J.1), J.2)
+                            let absDetJ = abs(detJ)
+                            guard absDetJ > 1e-15, let Jinv = invert3x3(J) else { continue }
+
+                            let dOmega = weight * absDetJ
+                            for a in 0..<10 {
+                                let nodeIdx = elIndices[a]
+                                let gradNa = multiply3x3(Jinv, dNdL[a])
+                                let Fth = dOmega * (beta * deltaT) * gradNa
+                                F[3 * nodeIdx + 0] += Fth.x
+                                F[3 * nodeIdx + 1] += Fth.y
+                                F[3 * nodeIdx + 2] += Fth.z
+                            }
+                        }
+                    } else {
+                        let p0 = positions[elIndices[0]]
+                        let p1 = positions[elIndices[1]]
+                        let p2 = positions[elIndices[2]]
+                        let p3 = positions[elIndices[3]]
+
+                        let C: [[Double]] = [
+                            [1.0, p0.x, p0.y, p0.z],
+                            [1.0, p1.x, p1.y, p1.z],
+                            [1.0, p2.x, p2.y, p2.z],
+                            [1.0, p3.x, p3.y, p3.z]
+                        ]
+                        guard let Cinv = invert4x4(C) else { continue }
+                        let vol = computeTetrahedronVolume(el: element, positions: positions, nodeIndexById: nodeIndexById)
+                        guard vol > 1e-15 else { continue }
+
+                        for a in 0..<4 {
+                            let nodeIdx = elIndices[a]
+                            let gradNa = SIMD3<Double>(Cinv[1][a], Cinv[2][a], Cinv[3][a])
+                            let Fth = vol * (beta * deltaT) * gradNa
+                            F[3 * nodeIdx + 0] += Fth.x
+                            F[3 * nodeIdx + 1] += Fth.y
+                            F[3 * nodeIdx + 2] += Fth.z
+                        }
                     }
                 }
 
@@ -390,12 +750,38 @@ public enum LinearStaticSolver: Sendable {
         }
 
         // 9. Recover Cauchy stresses and calculate element and nodal von Mises stresses (in MPa)
+        var elementThermalStrain = [Int: Double]()
+        for load in study.loads where load.kind == .thermalLoad || load.kind == .temperature {
+            let targetTemp = load.magnitude
+            let refTemp = load.referenceTemperature ?? 20.0
+            let deltaT = targetTemp - refTemp
+            let eth = alpha * deltaT
+
+            let matchedSet = (mesh.sets.first(where: { $0.name == load.name }))
+                ?? setById[load.id]
+                ?? load.targetReferences.compactMap({ setByName[$0.targetName] ?? setById[$0.targetId] }).first
+                ?? load.groupNames.compactMap({ setByName[$0] }).first
+                ?? setByName[load.name]
+
+            let targetElIds = Set(matchedSet?.elementIds ?? [])
+            if targetElIds.isEmpty {
+                for element in mesh.elements {
+                    elementThermalStrain[element.id] = (elementThermalStrain[element.id] ?? 0.0) + eth
+                }
+            } else {
+                for elId in targetElIds {
+                    elementThermalStrain[elId] = (elementThermalStrain[elId] ?? 0.0) + eth
+                }
+            }
+        }
+
         var elementVonMisesStresses: [Int: Double] = [:]
         elementVonMisesStresses.reserveCapacity(mesh.elements.count)
 
         var nodalStressAccumulator = [Int: (sum: Double, count: Int)](minimumCapacity: nodeCount)
 
         for element in mesh.elements {
+            let eth = elementThermalStrain[element.id] ?? 0.0
             if element.order == .quadratic && element.nodeIndices.count >= 10 {
                 let (elemStress, nodeStresses) = computeC3D10Stresses(
                     element: element,
@@ -403,7 +789,8 @@ public enum LinearStaticSolver: Sendable {
                     nodeIndexById: nodeIndexById,
                     nodalU: solutionU,
                     lambda: lambda,
-                    mu: mu
+                    mu: mu,
+                    thermalStrain: eth
                 )
                 elementVonMisesStresses[element.id] = elemStress
                 for (nId, s) in nodeStresses {
@@ -417,7 +804,8 @@ public enum LinearStaticSolver: Sendable {
                     nodeIndexById: nodeIndexById,
                     nodalU: solutionU,
                     lambda: lambda,
-                    mu: mu
+                    mu: mu,
+                    thermalStrain: eth
                 )
                 elementVonMisesStresses[element.id] = elemStress
                 for nId in element.nodeIndices.prefix(4) {
@@ -604,7 +992,8 @@ public enum LinearStaticSolver: Sendable {
         nodeIndexById: [Int: Int],
         nodalU: [Double],
         lambda: Double,
-        mu: Double
+        mu: Double,
+        thermalStrain: Double = 0.0
     ) -> Double {
         let indices = element.nodeIndices.prefix(4).compactMap { nodeIndexById[$0] }
         guard indices.count == 4 else { return 0.0 }
@@ -645,6 +1034,10 @@ public enum LinearStaticSolver: Sendable {
             ezx += 0.5 * (g.x * uz + g.z * ux)
         }
 
+        exx -= thermalStrain
+        eyy -= thermalStrain
+        ezz -= thermalStrain
+
         return evaluateVonMisesStress(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
     }
 
@@ -654,7 +1047,8 @@ public enum LinearStaticSolver: Sendable {
         nodeIndexById: [Int: Int],
         nodalU: [Double],
         lambda: Double,
-        mu: Double
+        mu: Double,
+        thermalStrain: Double = 0.0
     ) -> (elementStress: Double, nodeStresses: [Int: Double]) {
         let indices = element.nodeIndices.prefix(10).compactMap { nodeIndexById[$0] }
         guard indices.count == 10 else { return (0.0, [:]) }
@@ -692,6 +1086,9 @@ public enum LinearStaticSolver: Sendable {
                 eyz += 0.5 * (g.z * uy + g.y * uz)
                 ezx += 0.5 * (g.x * uz + g.z * ux)
             }
+            exx -= thermalStrain
+            eyy -= thermalStrain
+            ezz -= thermalStrain
             elemStress = evaluateVonMisesStress(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
         }
 
@@ -739,6 +1136,9 @@ public enum LinearStaticSolver: Sendable {
                 eyz += 0.5 * (g.z * uy + g.y * uz)
                 ezx += 0.5 * (g.x * uz + g.z * ux)
             }
+            exx -= thermalStrain
+            eyy -= thermalStrain
+            ezz -= thermalStrain
             let s = evaluateVonMisesStress(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
             nodeStresses[elementNodeIds[k]] = s
         }
