@@ -10,6 +10,8 @@ public struct LinearStaticResult: Sendable, Codable, Equatable {
     public var iterationCount: Int
     public var finalResidual: Double
     public var runtimeDuration: Double
+    public var factorOfSafety: FactorOfSafetyResult?
+    public var nodalCauchyTensors: [Int: CauchyStressTensor]?
 
     public init(
         nodalDisplacements: [Int: SIMD3<Double>],
@@ -18,7 +20,9 @@ public struct LinearStaticResult: Sendable, Codable, Equatable {
         extrema: [SimulationFieldExtrema] = [],
         iterationCount: Int = 0,
         finalResidual: Double = 0.0,
-        runtimeDuration: Double = 0.0
+        runtimeDuration: Double = 0.0,
+        factorOfSafety: FactorOfSafetyResult? = nil,
+        nodalCauchyTensors: [Int: CauchyStressTensor]? = nil
     ) {
         self.nodalDisplacements = nodalDisplacements
         self.nodalVonMisesStresses = nodalVonMisesStresses
@@ -27,6 +31,8 @@ public struct LinearStaticResult: Sendable, Codable, Equatable {
         self.iterationCount = iterationCount
         self.finalResidual = finalResidual
         self.runtimeDuration = runtimeDuration
+        self.factorOfSafety = factorOfSafety
+        self.nodalCauchyTensors = nodalCauchyTensors
     }
 }
 
@@ -830,11 +836,12 @@ public enum LinearStaticSolver: Sendable {
         elementVonMisesStresses.reserveCapacity(mesh.elements.count)
 
         var nodalStressAccumulator = [Int: (sum: Double, count: Int)](minimumCapacity: nodeCount)
+        var nodalTensorAccumulator = [Int: (sxx: Double, syy: Double, szz: Double, sxy: Double, syz: Double, szx: Double, count: Int)](minimumCapacity: nodeCount)
 
         for element in mesh.elements {
             let eth = elementThermalStrain[element.id] ?? 0.0
             if element.order == .quadratic && element.nodeIndices.count >= 10 {
-                let (elemStress, nodeStresses) = computeC3D10Stresses(
+                let (elemStress, _, nodeStresses, nodeTensors) = computeC3D10Stresses(
                     element: element,
                     positions: positions,
                     nodeIndexById: nodeIndexById,
@@ -848,8 +855,12 @@ public enum LinearStaticSolver: Sendable {
                     let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
                     nodalStressAccumulator[nId] = (cur.sum + s, cur.count + 1)
                 }
+                for (nId, t) in nodeTensors {
+                    let cur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+                    nodalTensorAccumulator[nId] = (cur.sxx + t.sxx, cur.syy + t.syy, cur.szz + t.szz, cur.sxy + t.sxy, cur.syz + t.syz, cur.szx + t.szx, cur.count + 1)
+                }
             } else if element.nodeIndices.count >= 4 {
-                let elemStress = computeC3D4Stresses(
+                let (elemTensor, elemStress) = computeC3D4Stresses(
                     element: element,
                     positions: positions,
                     nodeIndexById: nodeIndexById,
@@ -862,12 +873,17 @@ public enum LinearStaticSolver: Sendable {
                 for nId in element.nodeIndices.prefix(4) {
                     let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
                     nodalStressAccumulator[nId] = (cur.sum + elemStress, cur.count + 1)
+
+                    let tCur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+                    nodalTensorAccumulator[nId] = (tCur.sxx + elemTensor.sxx, tCur.syy + elemTensor.syy, tCur.szz + elemTensor.szz, tCur.sxy + elemTensor.sxy, tCur.syz + elemTensor.syz, tCur.szx + elemTensor.szx, tCur.count + 1)
                 }
             }
         }
 
         var nodalVonMisesStresses: [Int: Double] = [:]
+        var nodalCauchyTensors: [Int: CauchyStressTensor] = [:]
         nodalVonMisesStresses.reserveCapacity(nodeCount)
+        nodalCauchyTensors.reserveCapacity(nodeCount)
 
         var minStress = Double.infinity
         var maxStress = 0.0
@@ -882,6 +898,20 @@ public enum LinearStaticSolver: Sendable {
             nodalVonMisesStresses[nId] = smoothed
             minStress = min(minStress, smoothed)
             maxStress = max(maxStress, smoothed)
+
+            if let tAcc = nodalTensorAccumulator[nId], tAcc.count > 0 {
+                let cnt = Double(tAcc.count)
+                nodalCauchyTensors[nId] = CauchyStressTensor(
+                    sxx: tAcc.sxx / cnt,
+                    syy: tAcc.syy / cnt,
+                    szz: tAcc.szz / cnt,
+                    sxy: tAcc.sxy / cnt,
+                    syz: tAcc.syz / cnt,
+                    szx: tAcc.szx / cnt
+                )
+            } else {
+                nodalCauchyTensors[nId] = CauchyStressTensor()
+            }
         }
 
         if minStress.isInfinite {
@@ -889,12 +919,20 @@ public enum LinearStaticSolver: Sendable {
             maxStress = 0.0
         }
 
+        let resolvedMat = study.materials.first.flatMap { MaterialLibrary.standard.material(withId: $0.materialId) }
+        let fosResult = FactorOfSafetyCalculator.evaluate(
+            nodalTensors: nodalCauchyTensors,
+            material: resolvedMat,
+            settings: study.factorOfSafetySettings
+        )
+
         let extrema: [SimulationFieldExtrema] = [
             SimulationFieldExtrema(fieldName: "Displacement Magnitude", unitSymbol: "mm", minValue: minMag, maxValue: maxMag),
             SimulationFieldExtrema(fieldName: "Displacement X", unitSymbol: "mm", minValue: minUx, maxValue: maxUx),
             SimulationFieldExtrema(fieldName: "Displacement Y", unitSymbol: "mm", minValue: minUy, maxValue: maxUy),
             SimulationFieldExtrema(fieldName: "Displacement Z", unitSymbol: "mm", minValue: minUz, maxValue: maxUz),
-            SimulationFieldExtrema(fieldName: "von Mises Stress", unitSymbol: "MPa", minValue: minStress, maxValue: maxStress)
+            SimulationFieldExtrema(fieldName: "von Mises Stress", unitSymbol: "MPa", minValue: minStress, maxValue: maxStress),
+            SimulationFieldExtrema(fieldName: "Factor of Safety", unitSymbol: "", minValue: fosResult.minFactorOfSafety, maxValue: fosResult.maxFactorOfSafety)
         ]
 
         let elapsed = Double(startTime.duration(to: .now).components.seconds) +
@@ -907,7 +945,9 @@ public enum LinearStaticSolver: Sendable {
             extrema: extrema,
             iterationCount: iterations,
             finalResidual: finalRes,
-            runtimeDuration: elapsed
+            runtimeDuration: elapsed,
+            factorOfSafety: fosResult,
+            nodalCauchyTensors: nodalCauchyTensors
         )
     }
 
@@ -1045,9 +1085,9 @@ public enum LinearStaticSolver: Sendable {
         lambda: Double,
         mu: Double,
         thermalStrain: Double = 0.0
-    ) -> Double {
+    ) -> (elementTensor: CauchyStressTensor, elementStress: Double) {
         let indices = element.nodeIndices.prefix(4).compactMap { nodeIndexById[$0] }
-        guard indices.count == 4 else { return 0.0 }
+        guard indices.count == 4 else { return (CauchyStressTensor(), 0.0) }
 
         let p0 = positions[indices[0]]
         let p1 = positions[indices[1]]
@@ -1060,7 +1100,7 @@ public enum LinearStaticSolver: Sendable {
             [1.0, p2.x, p2.y, p2.z],
             [1.0, p3.x, p3.y, p3.z]
         ]
-        guard let Cinv = invert4x4(C) else { return 0.0 }
+        guard let Cinv = invert4x4(C) else { return (CauchyStressTensor(), 0.0) }
 
         var gradN = [SIMD3<Double>](repeating: .zero, count: 4)
         for i in 0..<4 {
@@ -1089,7 +1129,8 @@ public enum LinearStaticSolver: Sendable {
         eyy -= thermalStrain
         ezz -= thermalStrain
 
-        return evaluateVonMisesStress(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
+        let tensor = evaluateCauchyStressTensor(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
+        return (tensor, tensor.vonMisesStress)
     }
 
     private static func computeC3D10Stresses(
@@ -1100,9 +1141,9 @@ public enum LinearStaticSolver: Sendable {
         lambda: Double,
         mu: Double,
         thermalStrain: Double = 0.0
-    ) -> (elementStress: Double, nodeStresses: [Int: Double]) {
+    ) -> (elementStress: Double, elementTensor: CauchyStressTensor, nodeStresses: [Int: Double], nodeTensors: [Int: CauchyStressTensor]) {
         let indices = element.nodeIndices.prefix(10).compactMap { nodeIndexById[$0] }
-        guard indices.count == 10 else { return (0.0, [:]) }
+        guard indices.count == 10 else { return (0.0, CauchyStressTensor(), [:], [:]) }
 
         let p = indices.map { positions[$0] }
         let elementNodeIds = Array(element.nodeIndices.prefix(10))
@@ -1117,6 +1158,7 @@ public enum LinearStaticSolver: Sendable {
             JCentroid.1 += g.y * p[a]
             JCentroid.2 += g.z * p[a]
         }
+        var elemTensor = CauchyStressTensor()
         var elemStress = 0.0
         if let Jinv = invert3x3(JCentroid) {
             var gradN = [SIMD3<Double>](repeating: .zero, count: 10)
@@ -1140,7 +1182,8 @@ public enum LinearStaticSolver: Sendable {
             exx -= thermalStrain
             eyy -= thermalStrain
             ezz -= thermalStrain
-            elemStress = evaluateVonMisesStress(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
+            elemTensor = evaluateCauchyStressTensor(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
+            elemStress = elemTensor.vonMisesStress
         }
 
         // 2. Exact stresses at each of the 10 nodes
@@ -1158,6 +1201,7 @@ public enum LinearStaticSolver: Sendable {
         ]
 
         var nodeStresses: [Int: Double] = [:]
+        var nodeTensors: [Int: CauchyStressTensor] = [:]
         for k in 0..<10 {
             let Lk = nodeCoords[k]
             let dNdLk = evaluateC3D10LocalGradients(L: Lk)
@@ -1190,11 +1234,28 @@ public enum LinearStaticSolver: Sendable {
             exx -= thermalStrain
             eyy -= thermalStrain
             ezz -= thermalStrain
-            let s = evaluateVonMisesStress(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
-            nodeStresses[elementNodeIds[k]] = s
+            let nodeTensor = evaluateCauchyStressTensor(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
+            nodeStresses[elementNodeIds[k]] = nodeTensor.vonMisesStress
+            nodeTensors[elementNodeIds[k]] = nodeTensor
         }
 
-        return (elemStress, nodeStresses)
+        return (elemStress, elemTensor, nodeStresses, nodeTensors)
+    }
+
+    @inline(__always)
+    package static func evaluateCauchyStressTensor(
+        exx: Double, eyy: Double, ezz: Double,
+        exy: Double, eyz: Double, ezx: Double,
+        lambda: Double, mu: Double
+    ) -> CauchyStressTensor {
+        let trE = exx + eyy + ezz
+        let sxx = (lambda * trE + 2.0 * mu * exx) * 1e-6
+        let syy = (lambda * trE + 2.0 * mu * eyy) * 1e-6
+        let szz = (lambda * trE + 2.0 * mu * ezz) * 1e-6
+        let sxy = (2.0 * mu * exy) * 1e-6
+        let syz = (2.0 * mu * eyz) * 1e-6
+        let szx = (2.0 * mu * ezx) * 1e-6
+        return CauchyStressTensor(sxx: sxx, syy: syy, szz: szz, sxy: sxy, syz: syz, szx: szx)
     }
 
     @inline(__always)
@@ -1203,22 +1264,8 @@ public enum LinearStaticSolver: Sendable {
         exy: Double, eyz: Double, ezx: Double,
         lambda: Double, mu: Double
     ) -> Double {
-        let trE = exx + eyy + ezz
-        let sxx = lambda * trE + 2.0 * mu * exx
-        let syy = lambda * trE + 2.0 * mu * eyy
-        let szz = lambda * trE + 2.0 * mu * ezz
-        let sxy = 2.0 * mu * exy
-        let syz = 2.0 * mu * eyz
-        let szx = 2.0 * mu * ezx
-
-        let diff1 = sxx - syy
-        let diff2 = syy - szz
-        let diff3 = szz - sxx
-        let shearSq = sxy * sxy + syz * syz + szx * szx
-
-        let vmSq = 0.5 * (diff1 * diff1 + diff2 * diff2 + diff3 * diff3) + 3.0 * shearSq
-        let vmPa = sqrt(max(0.0, vmSq))
-        return vmPa * 1e-6 // Return in MPa
+        let tensor = evaluateCauchyStressTensor(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
+        return tensor.vonMisesStress
     }
 
     // MARK: - Linear Solver (Preconditioned Conjugate Gradient)

@@ -344,6 +344,33 @@ import simd
         #expect(decodedResults.status == .completed)
         #expect(decodedResults.nodalDisplacements == nil)
         #expect(decodedResults.nodalVonMisesStresses == nil)
+        #expect(decodedResults.factorOfSafety == nil)
+        #expect(decodedResults.nodalCauchyTensors == nil)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfLinearStaticResultsWithoutFactorOfSafety() throws {
+        let legacyStudyJSON = """
+        {
+            "id": "11112222-3333-4444-5555-666677778888",
+            "name": "Legacy Study",
+            "studyType": "linearStatic",
+            "results": {
+                "status": "completed",
+                "meshStatistics": {
+                    "nodeCount": 10,
+                    "elementCount": 4
+                },
+                "extrema": []
+            }
+        }
+        """.data(using: .utf8)!
+
+        let decodedStudy = try JSONDecoder().decode(SimulationStudy.self, from: legacyStudyJSON)
+        #expect(decodedStudy.name == "Legacy Study")
+        #expect(decodedStudy.factorOfSafetySettings.basis == .yield)
+        #expect(decodedStudy.factorOfSafetySettings.criterion == .vonMises)
+        #expect(decodedStudy.factorOfSafetySettings.targetDesignFactor == 1.0)
+        #expect(decodedStudy.results.factorOfSafety == nil)
     }
 
     @Test func testBackwardCompatibleDecodingOfSimulationFixture() throws {
