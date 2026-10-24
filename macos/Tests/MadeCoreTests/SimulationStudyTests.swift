@@ -21,6 +21,7 @@ import simd
         #expect(study.mesh.curvatureElementsPerCircle == 12.0)
         #expect(study.solver.engine == .calculix)
         #expect(study.solver.maxIterations == 100)
+        #expect(study.coordinateSystemId == nil)
     }
 
     @Test func testStudyTypeDisplayNames() {
@@ -37,6 +38,7 @@ import simd
         #expect(fixture.isRestrainedX == true)
         #expect(fixture.isRestrainedY == true)
         #expect(fixture.isRestrainedZ == true)
+        #expect(fixture.coordinateSystemId == nil)
 
         let load = SimulationLoad(
             name: "Top Force",
@@ -49,6 +51,7 @@ import simd
         #expect(load.magnitude == 500.0)
         #expect(load.direction == SIMD3<Double>(0, -1, 0))
         #expect(load.kind.unitSymbol == "N")
+        #expect(load.coordinateSystemId == nil)
     }
 
     @Test func testCAEErrorCodeCases() {
@@ -128,8 +131,13 @@ import simd
 
     @Test func testCodableRoundTrip() throws {
         var study = SimulationStudy(name: "Bracket Simulation", studyType: .linearStatic)
-        let fixture = SimulationFixture(name: "Bolt Restraint", kind: .fixed)
-        let load = SimulationLoad(name: "Tensile Load", kind: .pressure, magnitude: 1.5e6)
+        let studyUCS = UUID()
+        let fixtureUCS = UUID()
+        let loadUCS = UUID()
+
+        study.coordinateSystemId = studyUCS
+        let fixture = SimulationFixture(name: "Bolt Restraint", kind: .fixed, coordinateSystemId: fixtureUCS)
+        let load = SimulationLoad(name: "Tensile Load", kind: .pressure, magnitude: 1.5e6, coordinateSystemId: loadUCS)
         study.fixtures.append(fixture)
         study.loads.append(load)
         study.mesh.targetElementSize = 3.5
@@ -145,12 +153,26 @@ import simd
         let decoded = try decoder.decode(SimulationStudy.self, from: data)
 
         #expect(decoded == study)
+        #expect(decoded.coordinateSystemId == studyUCS)
         #expect(decoded.fixtures.count == 1)
+        #expect(decoded.fixtures[0].coordinateSystemId == fixtureUCS)
         #expect(decoded.loads.count == 1)
+        #expect(decoded.loads[0].coordinateSystemId == loadUCS)
         #expect(decoded.mesh.targetElementSize == 3.5)
         #expect(decoded.mesh.curvatureRefinement == true)
         #expect(decoded.mesh.curvatureElementsPerCircle == 16.0)
         #expect(decoded.solver.maxIterations == 500)
+    }
+
+    @Test func testCoordinateSystemIdInitialization() {
+        let ucsId = UUID()
+        let study = SimulationStudy(name: "UCS Study", coordinateSystemId: ucsId)
+        let fixture = SimulationFixture(name: "Restraint", coordinateSystemId: ucsId)
+        let load = SimulationLoad(name: "Load", coordinateSystemId: ucsId)
+
+        #expect(study.coordinateSystemId == ucsId)
+        #expect(fixture.coordinateSystemId == ucsId)
+        #expect(load.coordinateSystemId == ucsId)
     }
 
     @Test func testResultsModelAndSummary() {

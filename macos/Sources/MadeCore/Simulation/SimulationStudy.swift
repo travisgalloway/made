@@ -204,6 +204,7 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
     public var isRestrainedX: Bool
     public var isRestrainedY: Bool
     public var isRestrainedZ: Bool
+    public var coordinateSystemId: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -214,7 +215,8 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         prescribedDisplacement: SIMD3<Double> = .zero,
         isRestrainedX: Bool = true,
         isRestrainedY: Bool = true,
-        isRestrainedZ: Bool = true
+        isRestrainedZ: Bool = true,
+        coordinateSystemId: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -225,10 +227,11 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         self.isRestrainedX = isRestrainedX
         self.isRestrainedY = isRestrainedY
         self.isRestrainedZ = isRestrainedZ
+        self.coordinateSystemId = coordinateSystemId
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, targetReferences, groupNames, prescribedDisplacement, isRestrainedX, isRestrainedY, isRestrainedZ
+        case id, name, kind, targetReferences, groupNames, prescribedDisplacement, isRestrainedX, isRestrainedY, isRestrainedZ, coordinateSystemId
     }
 
     public init(from decoder: Decoder) throws {
@@ -242,6 +245,7 @@ public struct SimulationFixture: Sendable, Codable, Equatable, Hashable, Identif
         self.isRestrainedX = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedX) ?? true
         self.isRestrainedY = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedY) ?? true
         self.isRestrainedZ = try container.decodeIfPresent(Bool.self, forKey: .isRestrainedZ) ?? true
+        self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
     }
 }
 
@@ -310,6 +314,7 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
     public var groupNames: [String]
     public var magnitude: Double
     public var direction: SIMD3<Double>
+    public var coordinateSystemId: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -318,7 +323,8 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         targetReferences: [SimulationGeometryReference] = [],
         groupNames: [String] = [],
         magnitude: Double = 1000.0,
-        direction: SIMD3<Double> = SIMD3<Double>(0, 0, -1)
+        direction: SIMD3<Double> = SIMD3<Double>(0, 0, -1),
+        coordinateSystemId: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -328,10 +334,11 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         self.magnitude = magnitude
         let len = simd_length(direction)
         self.direction = len > 1e-6 ? direction / len : SIMD3<Double>(0, 0, -1)
+        self.coordinateSystemId = coordinateSystemId
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, targetReferences, groupNames, magnitude, direction
+        case id, name, kind, targetReferences, groupNames, magnitude, direction, coordinateSystemId
     }
 
     public init(from decoder: Decoder) throws {
@@ -345,6 +352,7 @@ public struct SimulationLoad: Sendable, Codable, Equatable, Hashable, Identifiab
         let dir = try container.decodeIfPresent(SIMD3<Double>.self, forKey: .direction) ?? SIMD3<Double>(0, 0, -1)
         let len = simd_length(dir)
         self.direction = len > 1e-6 ? dir / len : SIMD3<Double>(0, 0, -1)
+        self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
     }
 }
 
@@ -761,6 +769,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
     public var solver: SolverConfiguration
     public var results: SimulationStudyResults
     public var isCollapsed: Bool
+    public var coordinateSystemId: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -776,7 +785,8 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         meshDisplay: SimulationMeshDisplaySettings = SimulationMeshDisplaySettings(),
         solver: SolverConfiguration = SolverConfiguration(),
         results: SimulationStudyResults = SimulationStudyResults(),
-        isCollapsed: Bool = false
+        isCollapsed: Bool = false,
+        coordinateSystemId: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -792,10 +802,11 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.solver = solver
         self.results = results
         self.isCollapsed = isCollapsed
+        self.coordinateSystemId = coordinateSystemId
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed
+        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed, coordinateSystemId
     }
 
     public init(from decoder: Decoder) throws {
@@ -814,6 +825,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.solver = try container.decodeIfPresent(SolverConfiguration.self, forKey: .solver) ?? SolverConfiguration()
         self.results = try container.decodeIfPresent(SimulationStudyResults.self, forKey: .results) ?? SimulationStudyResults()
         self.isCollapsed = try container.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false
+        self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
     }
 }
 

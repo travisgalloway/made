@@ -401,4 +401,64 @@ import Foundation
         #expect(redoneSettings?.elementShrink == 0.4)
         #expect(redoneSettings?.isSliceEnabled == true)
     }
+
+    @Test func testCoordinateSystemIdUpdatesWithUndoRedo() {
+        let doc = DocumentModel()
+        let undoManager = UndoManager()
+        doc.undoManager = undoManager
+
+        let fixtureId = UUID()
+        let loadId = UUID()
+        var study = SimulationStudy(
+            name: "UCS Analysis",
+            studyType: .linearStatic,
+            fixtures: [
+                SimulationFixture(id: fixtureId, name: "Fixture", kind: .fixed)
+            ],
+            loads: [
+                SimulationLoad(id: loadId, name: "Load", kind: .force, magnitude: 100.0)
+            ]
+        )
+        doc.addStudy(study)
+        undoManager.removeAllActions()
+
+        let ucsStudy = UUID()
+        let ucsFixture = UUID()
+        let ucsLoad = UUID()
+
+        // 1. Update study coordinate system
+        study.coordinateSystemId = ucsStudy
+        doc.updateStudy(study)
+        #expect(doc.study(id: study.id)?.coordinateSystemId == ucsStudy)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.coordinateSystemId == nil)
+
+        undoManager.redo()
+        #expect(doc.study(id: study.id)?.coordinateSystemId == ucsStudy)
+
+        // 2. Update fixture coordinate system
+        var fixture = doc.study(id: study.id)?.fixtures.first(where: { $0.id == fixtureId })!
+        fixture?.coordinateSystemId = ucsFixture
+        doc.updateSimulationFixture(studyId: study.id, fixture: fixture!)
+        #expect(doc.study(id: study.id)?.fixtures.first(where: { $0.id == fixtureId })?.coordinateSystemId == ucsFixture)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.fixtures.first(where: { $0.id == fixtureId })?.coordinateSystemId == nil)
+
+        undoManager.redo()
+        #expect(doc.study(id: study.id)?.fixtures.first(where: { $0.id == fixtureId })?.coordinateSystemId == ucsFixture)
+
+        // 3. Update load coordinate system
+        var load = doc.study(id: study.id)?.loads.first(where: { $0.id == loadId })!
+        load?.coordinateSystemId = ucsLoad
+        doc.updateSimulationLoad(studyId: study.id, load: load!)
+        #expect(doc.study(id: study.id)?.loads.first(where: { $0.id == loadId })?.coordinateSystemId == ucsLoad)
+
+        undoManager.undo()
+        #expect(doc.study(id: study.id)?.loads.first(where: { $0.id == loadId })?.coordinateSystemId == nil)
+
+        undoManager.redo()
+        #expect(doc.study(id: study.id)?.loads.first(where: { $0.id == loadId })?.coordinateSystemId == ucsLoad)
+    }
 }
