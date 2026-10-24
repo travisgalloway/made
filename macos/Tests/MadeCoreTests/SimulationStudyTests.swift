@@ -290,5 +290,38 @@ import simd
         #expect(decodedResults.status == .completed)
         #expect(decodedResults.nodalTemperatures == nil)
     }
+
+    @Test func testLinearStaticResultsFields() {
+        var results = SimulationStudyResults()
+        #expect(results.nodalDisplacements == nil)
+        #expect(results.nodalVonMisesStresses == nil)
+
+        results.nodalDisplacements = [1: SIMD3<Double>(0.01, -0.05, 0.002), 2: SIMD3<Double>(0.02, -0.10, 0.004)]
+        results.nodalVonMisesStresses = [1: 150.5, 2: 240.2]
+
+        #expect(results.nodalDisplacements?[1] == SIMD3<Double>(0.01, -0.05, 0.002))
+        #expect(results.nodalDisplacements?[2]?.y == -0.10)
+        #expect(results.nodalVonMisesStresses?[1] == 150.5)
+        #expect(results.nodalVonMisesStresses?[2] == 240.2)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfLinearStaticResults() throws {
+        let legacyResultsJSON = """
+        {
+            "status": "completed",
+            "runtimeDuration": 2.1,
+            "meshStatistics": {
+                "nodeCount": 120,
+                "elementCount": 60
+            },
+            "extrema": []
+        }
+        """.data(using: .utf8)!
+
+        let decodedResults = try JSONDecoder().decode(SimulationStudyResults.self, from: legacyResultsJSON)
+        #expect(decodedResults.status == .completed)
+        #expect(decodedResults.nodalDisplacements == nil)
+        #expect(decodedResults.nodalVonMisesStresses == nil)
+    }
 }
 

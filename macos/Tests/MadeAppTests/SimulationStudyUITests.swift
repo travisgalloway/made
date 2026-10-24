@@ -905,6 +905,42 @@ import simd
         #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Heat Flux" })
     }
 
+    @Test func testLinearStaticSolveLifecycle() async throws {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Linear Static Solve") else {
+            Issue.record("Failed to create linear static simulation study")
+            return
+        }
+
+        var updatedStudy = study
+        updatedStudy.solver.engine = .pureSwift
+        updatedStudy.fixtures = [
+            SimulationFixture(name: "Fixed Base", kind: .fixed)
+        ]
+        updatedStudy.loads = [
+            SimulationLoad(name: "Tip Force", kind: .force, magnitude: 1000.0, direction: SIMD3<Double>(0, -1, 0))
+        ]
+        ws.updateSimulationStudy(updatedStudy)
+
+        ws.runSimulationStudy(id: study.id)
+        #expect(ws.isStudyRunning(study.id))
+
+        // Wait for pure-Swift linear static solve to complete
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000) // 20ms
+        }
+
+        let finishedStudy = try #require(ws.document.study(id: study.id))
+        #expect(finishedStudy.results.status == .completed)
+        #expect(finishedStudy.results.errorMessage == nil)
+        #expect(finishedStudy.results.nodalDisplacements != nil)
+        #expect(finishedStudy.results.nodalVonMisesStresses != nil)
+        #expect(!finishedStudy.results.extrema.isEmpty)
+        #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Displacement Magnitude" })
+        #expect(finishedStudy.results.extrema.contains { $0.fieldName == "von Mises Stress" })
+    }
+
     @Test func testInspectorSimulationLoadViewConvection() {
         let ws = WorkspaceModel()
         guard let study = ws.createSimulationStudy(type: .thermalConduction, name: "Thermal View Test") else {
