@@ -5,7 +5,7 @@ import simd
 
 @Suite struct LinearBucklingSolverTests {
 
-    // MARK: - 1. Cantilever Euler Buckling Verification (C3D4)
+    // MARK: - 1. Cantilever Euler Buckling Verification (C3D10)
 
     @Test func testCantileverBeamEulerBucklingVerification() throws {
         let L = 1.0       // 1.0 meter
@@ -24,12 +24,12 @@ import simd
             length: L,
             width: b,
             height: h,
-            nx: 12,
-            ny: 2,
-            nz: 2
+            nx: 6,
+            ny: 1,
+            nz: 1
         )
 
-        var study = SimulationStudy(name: "Cantilever Buckling C3D4", studyType: .linearBuckling)
+        var study = SimulationStudy(name: "Cantilever Buckling C3D10", studyType: .linearBuckling)
         study.solver.bucklingModesCount = 1
 
         let rootSet = VolumeMeshSet(name: "FixedRoot", nodeIds: Array(rootIds), elementIds: [])
@@ -137,9 +137,9 @@ import simd
             length: L,
             width: b,
             height: h,
-            nx: 8,
-            ny: 2,
-            nz: 2
+            nx: 6,
+            ny: 1,
+            nz: 1
         )
 
         var study = SimulationStudy(name: "Multi-Mode Buckling", studyType: .linearBuckling)
