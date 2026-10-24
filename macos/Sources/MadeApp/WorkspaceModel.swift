@@ -6523,6 +6523,32 @@ final class WorkspaceModel {
                         let summary = result.extrema.map { "\($0.fieldName): \(String(format: "%.3g", $0.minValue)) … \(String(format: "%.3g", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
                         self.log(.info, "CAE", "Linear buckling study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) iters). \(summary)")
                     }
+                } else if study.studyType == .modalFrequency && study.solver.engine == .pureSwift {
+                    let maxCoord = mesh.nodes.reduce(0.0) { max($0, max(abs($1.position.x), max(abs($1.position.y), abs($1.position.z)))) }
+                    let scale: Double = maxCoord > 2.0 ? 0.001 : 1.0
+                    let result = try ModalFrequencySolver.solve(study: study, mesh: mesh, lengthScaleToMeters: scale)
+                    let elapsed = Double(startTime.duration(to: .now).components.seconds) +
+                                  Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
+
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.activeRunningStudyIds.remove(id)
+                        self.activeSolveTasks.removeValue(forKey: id)
+                        if var currentStudy = self.document.study(id: id) {
+                            currentStudy.results.status = .completed
+                            currentStudy.results.runtimeDuration = elapsed
+                            currentStudy.results.extrema = result.extrema
+                            currentStudy.results.modeShapes = result.modeShapes
+                            currentStudy.results.nodalDisplacements = result.modeShapes.first?.nodalDisplacements
+                            currentStudy.results.errorMessage = nil
+                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
+                            self.markDocumentModified()
+                            self.updateSimulationMeshInViewport(studyId: id)
+                            self.invalidateViewport(.model)
+                        }
+                        let summary = result.modeShapes.map { "Mode \($0.modeNumber): \(String(format: "%.2f", $0.frequencyHz)) Hz" }.joined(separator: ", ")
+                        self.log(.info, "CAE", "Modal frequency study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(summary)")
+                    }
                 } else {
                     let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
                     let result = try await runner.run(
@@ -7039,6 +7065,21 @@ final class WorkspaceModel {
             invalidateViewport(.model)
             log(.info, "CAE", "Updated solver configuration for study")
         }
+    }
+
+    /// Selects an active eigenmode shape for viewport deformation contour rendering (#225).
+    public func selectModeShape(studyId: UUID, modeNumber: Int) {
+        guard var study = document.study(id: studyId),
+              let modeShapes = study.results.modeShapes,
+              let selectedMode = modeShapes.first(where: { $0.modeNumber == modeNumber }) else {
+            return
+        }
+        study.results.nodalDisplacements = selectedMode.nodalDisplacements
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+        markDocumentModified()
+        updateSimulationMeshInViewport(studyId: studyId)
+        invalidateViewport(.model)
+        log(.info, "CAE", "Active mode shape set to Mode \(modeNumber) (\(String(format: "%.2f", selectedMode.frequencyHz)) Hz)")
     }
 
     public func volumeMesh(for studyId: UUID) -> VolumeMesh? {

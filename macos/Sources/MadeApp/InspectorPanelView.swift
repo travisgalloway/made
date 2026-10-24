@@ -2478,6 +2478,28 @@ struct InspectorSimulationStudyView: View {
                     ), format: .number)
                     .accessibilityIdentifier("inspector-study-solver-buckling-modes")
                 }
+
+                if study.studyType == .modalFrequency {
+                    Stepper("Mode Count: \(study.solver.modeCount)", value: Binding(
+                        get: { study.solver.modeCount },
+                        set: { newCount in
+                            var copy = study.solver
+                            copy.modeCount = max(1, min(50, newCount))
+                            workspace.updateSimulationSolverConfiguration(studyId: study.id, solver: copy)
+                        }
+                    ), in: 1...50)
+                    .accessibilityIdentifier("inspector-simulation-study-mode-count")
+
+                    Toggle("Enable Prestress", isOn: Binding(
+                        get: { study.solver.isPrestressEnabled },
+                        set: { enabled in
+                            var copy = study.solver
+                            copy.isPrestressEnabled = enabled
+                            workspace.updateSimulationSolverConfiguration(studyId: study.id, solver: copy)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-study-prestress-toggle")
+                }
             } header: {
                 sectionHeader("Solver Configuration")
             }
@@ -3945,6 +3967,34 @@ struct InspectorSimulationResultsView: View {
                     sectionHeader("Buckling Modes")
                 }
                 .accessibilityIdentifier("inspector-simulation-buckling-modes-table")
+            }
+
+            if let modeShapes = study.results.modeShapes, !modeShapes.isEmpty {
+                Section {
+                    Picker("Active Mode", selection: Binding(
+                        get: { selectedModeNumber },
+                        set: { newMode in
+                            selectedModeNumber = newMode
+                            workspace.selectModeShape(studyId: study.id, modeNumber: newMode)
+                        }
+                    )) {
+                        ForEach(modeShapes, id: \.modeNumber) { mode in
+                            Text("Mode \(mode.modeNumber) (\(String(format: "%.2f", mode.frequencyHz)) Hz)").tag(mode.modeNumber)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-results-mode-picker")
+
+                    ForEach(modeShapes, id: \.modeNumber) { mode in
+                        let rpm = mode.frequencyHz * 60.0
+                        let periodMs = mode.frequencyHz > 0 ? (1000.0 / mode.frequencyHz) : 0.0
+                        LabeledContent("Mode \(mode.modeNumber)") {
+                            Text("\(String(format: "%.2f", mode.frequencyHz)) Hz (\(String(format: "%.0f", rpm)) RPM, \(String(format: "%.1f", periodMs)) ms)")
+                                .foregroundStyle(mode.modeNumber == selectedModeNumber ? .primary : .secondary)
+                        }
+                    }
+                } header: {
+                    sectionHeader("Natural Frequencies & Mode Shapes")
+                }
             }
 
             if !study.results.extrema.isEmpty {

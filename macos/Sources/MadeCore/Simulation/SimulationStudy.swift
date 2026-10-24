@@ -724,23 +724,29 @@ public struct SolverConfiguration: Sendable, Codable, Equatable, Hashable {
     public var convergenceTolerance: Double
     public var timeStep: Double
     public var bucklingModesCount: Int
+    public var modeCount: Int
+    public var isPrestressEnabled: Bool
 
     public init(
         engine: SimulationSolverEngine = .calculix,
         maxIterations: Int = 100,
         convergenceTolerance: Double = 1e-4,
         timeStep: Double = 0.01,
-        bucklingModesCount: Int = 1
+        bucklingModesCount: Int = 1,
+        modeCount: Int = 5,
+        isPrestressEnabled: Bool = false
     ) {
         self.engine = engine
         self.maxIterations = maxIterations
         self.convergenceTolerance = convergenceTolerance
         self.timeStep = timeStep
         self.bucklingModesCount = bucklingModesCount
+        self.modeCount = modeCount
+        self.isPrestressEnabled = isPrestressEnabled
     }
 
     enum CodingKeys: String, CodingKey {
-        case engine, maxIterations, convergenceTolerance, timeStep, bucklingModesCount
+        case engine, maxIterations, convergenceTolerance, timeStep, bucklingModesCount, modeCount, isPrestressEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -750,6 +756,8 @@ public struct SolverConfiguration: Sendable, Codable, Equatable, Hashable {
         self.convergenceTolerance = try container.decodeIfPresent(Double.self, forKey: .convergenceTolerance) ?? 1e-4
         self.timeStep = try container.decodeIfPresent(Double.self, forKey: .timeStep) ?? 0.01
         self.bucklingModesCount = try container.decodeIfPresent(Int.self, forKey: .bucklingModesCount) ?? 1
+        self.modeCount = try container.decodeIfPresent(Int.self, forKey: .modeCount) ?? 5
+        self.isPrestressEnabled = try container.decodeIfPresent(Bool.self, forKey: .isPrestressEnabled) ?? false
     }
 }
 
@@ -874,6 +882,19 @@ public struct SimulationBucklingMode: Sendable, Codable, Equatable, Hashable, Id
     }
 }
 
+/// Mode shape displacement eigenmode resulting from modal frequency analysis (#225).
+public struct SimulationModeShape: Sendable, Codable, Equatable, Hashable {
+    public var modeNumber: Int
+    public var frequencyHz: Double
+    public var nodalDisplacements: [Int: SIMD3<Double>]
+
+    public init(modeNumber: Int, frequencyHz: Double, nodalDisplacements: [Int: SIMD3<Double>]) {
+        self.modeNumber = modeNumber
+        self.frequencyHz = frequencyHz
+        self.nodalDisplacements = nodalDisplacements
+    }
+}
+
 /// Aggregate simulation solve results and metadata.
 public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var status: SimulationExecutionStatus
@@ -886,6 +907,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var nodalDisplacements: [Int: SIMD3<Double>]?
     public var nodalVonMisesStresses: [Int: Double]?
     public var bucklingModes: [SimulationBucklingMode]?
+    public var modeShapes: [SimulationModeShape]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -897,7 +919,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         nodalTemperatures: [Int: Double]? = nil,
         nodalDisplacements: [Int: SIMD3<Double>]? = nil,
         nodalVonMisesStresses: [Int: Double]? = nil,
-        bucklingModes: [SimulationBucklingMode]? = nil
+        bucklingModes: [SimulationBucklingMode]? = nil,
+        modeShapes: [SimulationModeShape]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -909,10 +932,11 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.nodalDisplacements = nodalDisplacements
         self.nodalVonMisesStresses = nodalVonMisesStresses
         self.bucklingModes = bucklingModes
+        self.modeShapes = modeShapes
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes
     }
 
     public init(from decoder: Decoder) throws {
@@ -927,6 +951,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.nodalDisplacements = try container.decodeIfPresent([Int: SIMD3<Double>].self, forKey: .nodalDisplacements)
         self.nodalVonMisesStresses = try container.decodeIfPresent([Int: Double].self, forKey: .nodalVonMisesStresses)
         self.bucklingModes = try container.decodeIfPresent([SimulationBucklingMode].self, forKey: .bucklingModes)
+        self.modeShapes = try container.decodeIfPresent([SimulationModeShape].self, forKey: .modeShapes)
     }
 }
 

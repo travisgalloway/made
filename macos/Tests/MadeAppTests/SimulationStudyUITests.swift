@@ -1012,6 +1012,70 @@ import simd
         }
     }
 
+    @Test func testModalFrequencySolveLifecycle() async throws {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .modalFrequency, name: "Modal Frequency Solve") else {
+            Issue.record("Failed to create modal frequency simulation study")
+            return
+        }
+
+        var updatedStudy = study
+        updatedStudy.solver.engine = .pureSwift
+        updatedStudy.solver.modeCount = 3
+        updatedStudy.fixtures = [
+            SimulationFixture(name: "Fixed Base", kind: .fixed)
+        ]
+        ws.updateSimulationStudy(updatedStudy)
+
+        ws.runSimulationStudy(id: study.id)
+        #expect(ws.isStudyRunning(study.id))
+
+        // Wait for pure-Swift modal solve to complete
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000) // 20ms
+        }
+
+        let finishedStudy = try #require(ws.document.study(id: study.id))
+        #expect(finishedStudy.results.status == .completed)
+        #expect(finishedStudy.results.errorMessage == nil)
+        #expect(finishedStudy.results.modeShapes != nil)
+        #expect(finishedStudy.results.modeShapes?.count == 3)
+        #expect(finishedStudy.results.nodalDisplacements != nil)
+        #expect(!finishedStudy.results.extrema.isEmpty)
+        #expect(finishedStudy.results.extrema.contains { $0.fieldName == "Natural Frequency" })
+
+        // Test selectModeShape
+        ws.selectModeShape(studyId: study.id, modeNumber: 2)
+        let mode2Study = try #require(ws.document.study(id: study.id))
+        let mode2Disps = finishedStudy.results.modeShapes?[1].nodalDisplacements
+        #expect(mode2Study.results.nodalDisplacements == mode2Disps)
+    }
+
+    @Test func testInspectorSimulationStudyModalControls() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .modalFrequency, name: "Modal Controls Test") else {
+            Issue.record("Failed to create modal simulation study")
+            return
+        }
+
+        var copy = study
+        copy.solver.modeCount = 8
+        copy.solver.isPrestressEnabled = true
+        copy.results.modeShapes = [
+            SimulationModeShape(modeNumber: 1, frequencyHz: 40.5, nodalDisplacements: [1: .zero]),
+            SimulationModeShape(modeNumber: 2, frequencyHz: 95.2, nodalDisplacements: [1: .zero])
+        ]
+        ws.updateSimulationStudy(copy)
+
+        _ = InspectorSimulationStudyView(study: copy).environment(ws)
+        _ = InspectorSimulationResultsView(study: copy).environment(ws)
+
+        #expect(copy.solver.modeCount == 8)
+        #expect(copy.solver.isPrestressEnabled == true)
+        #expect(copy.results.modeShapes?.count == 2)
+    }
+
     @Test func testInspectorSimulationLoadViewConvection() {
         let ws = WorkspaceModel()
         guard let study = ws.createSimulationStudy(type: .thermalConduction, name: "Thermal View Test") else {

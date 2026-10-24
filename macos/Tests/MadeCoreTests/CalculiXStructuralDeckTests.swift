@@ -377,4 +377,41 @@ import simd
             #expect(tieRange.lowerBound < stepRange.lowerBound)
         }
     }
+
+    @Test func testModalFrequencyDeckSingleStep() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Modal Analysis Test", studyType: .modalFrequency)
+        study.solver.modeCount = 5
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*FREQUENCY\n5"))
+        #expect(text.contains("*DENSITY"))
+        #expect(text.contains("*BOUNDARY"))
+        #expect(text.contains("*NODE FILE\nU"))
+        #expect(!text.contains("*STATIC"))
+        #expect(!text.contains("*EL FILE"))
+    }
+
+    @Test func testModalFrequencyDeckPrestressedTwoStep() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Prestressed Modal Analysis Test", studyType: .modalFrequency)
+        study.solver.modeCount = 6
+        study.solver.isPrestressEnabled = true
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+        study.loads = [
+            SimulationLoad(name: "LoadFace", kind: .force, magnitude: 1000.0, direction: SIMD3<Double>(0, -1, 0))
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+        let text = deck.deckContent
+
+        #expect(text.contains("*STATIC"))
+        #expect(text.contains("*CLOAD"))
+        #expect(text.contains("*STEP, PERTURBATION\n*FREQUENCY\n6"))
+        #expect(text.contains("*NODE FILE\nU"))
+        #expect(text.contains("*DENSITY"))
+    }
 }
