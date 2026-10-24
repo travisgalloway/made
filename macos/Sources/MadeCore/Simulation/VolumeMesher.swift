@@ -111,6 +111,41 @@ public struct GmshBinaryResolver: Sendable {
 /// Background actor executing Gmsh CLI subprocesses with process group isolation and cancellation (ADR-D5 §9, #188).
 public actor VolumeMesherActor: VolumeMesherProtocol {
     public static let shared = VolumeMesherActor()
+
+    public static func buildGmshArguments(
+        specification: MeshSpecification,
+        outputFileName: String = "mesh.msh",
+        stepFileName: String = "geometry.step"
+    ) -> [String] {
+        var clampedSpec = specification
+        clampedSpec.clamp()
+
+        var arguments: [String] = [
+            "-3",
+            "-format", "msh2",
+            "-o", outputFileName,
+            "-clmax", "\(clampedSpec.targetElementSize)",
+            "-clmin", "\(clampedSpec.minElementSize)"
+        ]
+
+        if clampedSpec.elementOrder == .quadratic {
+            arguments.append(contentsOf: ["-order", "2"])
+        } else {
+            arguments.append(contentsOf: ["-order", "1"])
+        }
+
+        if clampedSpec.curvatureRefinement {
+            arguments.append("-clcurv")
+            arguments.append(contentsOf: [
+                "-setnumber",
+                "Mesh.MeshSizeFromCurvature",
+                "\(clampedSpec.curvatureElementsPerCircle)"
+            ])
+        }
+
+        arguments.append(stepFileName)
+        return arguments
+    }
     public let binaryResolver: GmshBinaryResolver
 
     private var activeProcesses: [UUID: Process] = [:]
@@ -178,19 +213,11 @@ public actor VolumeMesherActor: VolumeMesherProtocol {
             throw CAEErrorCode.executionCancelled
         }
 
-        var arguments: [String] = [
-            "-3",
-            "-format", "msh2",
-            "-o", "mesh.msh",
-            "-clmax", "\(specification.targetElementSize)",
-            "-clmin", "\(specification.minElementSize)"
-        ]
-        if specification.elementOrder == .quadratic {
-            arguments.append(contentsOf: ["-order", "2"])
-        } else {
-            arguments.append(contentsOf: ["-order", "1"])
-        }
-        arguments.append("geometry.step")
+        let arguments = Self.buildGmshArguments(
+            specification: specification,
+            outputFileName: "mesh.msh",
+            stepFileName: "geometry.step"
+        )
 
         let process = Process()
         process.executableURL = binaryURL
