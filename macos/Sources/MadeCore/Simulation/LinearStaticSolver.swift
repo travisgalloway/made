@@ -862,7 +862,7 @@ public enum LinearStaticSolver: Sendable {
 
     // MARK: - Stiffness Assembly (C3D4 Linear Tetrahedra)
 
-    private static func assembleC3D4Stiffness(
+    package static func assembleC3D4Stiffness(
         element: VolumeMeshElement,
         positions: [SIMD3<Double>],
         nodeIndexById: [Int: Int],
@@ -919,7 +919,7 @@ public enum LinearStaticSolver: Sendable {
 
     // MARK: - Stiffness Assembly (C3D10 Quadratic Tetrahedra)
 
-    private static func assembleC3D10Stiffness(
+    package static func assembleC3D10Stiffness(
         element: VolumeMeshElement,
         positions: [SIMD3<Double>],
         nodeIndexById: [Int: Int],
@@ -1172,7 +1172,7 @@ public enum LinearStaticSolver: Sendable {
 
     // MARK: - Linear Solver (Preconditioned Conjugate Gradient)
 
-    private static func solvePCG(
+    package static func solvePCG(
         K: [[Int: Double]],
         b: [Double],
         dirichlet: [Int: Double],
@@ -1268,7 +1268,7 @@ public enum LinearStaticSolver: Sendable {
     // MARK: - Mathematical Helpers
 
     @inline(__always)
-    private static func computeNodalStiffnessBlock(
+    package static func computeNodalStiffnessBlock(
         ga: SIMD3<Double>,
         gb: SIMD3<Double>,
         lambda: Double,
@@ -1294,7 +1294,7 @@ public enum LinearStaticSolver: Sendable {
     }
 
     @inline(__always)
-    private static func add3x3Block(
+    package static func add3x3Block(
         K: inout [[Int: Double]],
         rowNode: Int,
         colNode: Int,
@@ -1326,7 +1326,7 @@ public enum LinearStaticSolver: Sendable {
         K[r2][c2, default: 0.0] += weight * block.k22
     }
 
-    private static func evaluateC3D10LocalGradients(L: SIMD4<Double>) -> [SIMD3<Double>] {
+    package static func evaluateC3D10LocalGradients(L: SIMD4<Double>) -> [SIMD3<Double>] {
         let L1 = L.x, L2 = L.y, L3 = L.z, L4 = L.w
         var grad = [SIMD3<Double>](repeating: .zero, count: 10)
 
@@ -1347,7 +1347,7 @@ public enum LinearStaticSolver: Sendable {
         return grad
     }
 
-    private static func computeTetrahedronVolume(
+    package static func computeTetrahedronVolume(
         el: VolumeMeshElement,
         positions: [SIMD3<Double>],
         nodeIndexById: [Int: Int]
@@ -1362,7 +1362,7 @@ public enum LinearStaticSolver: Sendable {
         return abs(det) / 6.0
     }
 
-    private static func getEffectiveBoundaryTriangles(mesh: VolumeMesh) -> [VolumeMeshElement] {
+    package static func getEffectiveBoundaryTriangles(mesh: VolumeMesh) -> [VolumeMeshElement] {
         if !mesh.surfaceTriangles.isEmpty {
             return mesh.surfaceTriangles
         }
@@ -1425,7 +1425,7 @@ public enum LinearStaticSolver: Sendable {
         }
     }
 
-    private static func invert4x4(_ m: [[Double]]) -> [[Double]]? {
+    package static func invert4x4(_ m: [[Double]]) -> [[Double]]? {
         var a = m
         var inv = [[Double]](repeating: [Double](repeating: 0.0, count: 4), count: 4)
         for i in 0..<4 { inv[i][i] = 1.0 }
@@ -1465,7 +1465,7 @@ public enum LinearStaticSolver: Sendable {
         return inv
     }
 
-    private static func invert3x3(_ J: (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)) -> (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)? {
+    package static func invert3x3(_ J: (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)) -> (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>)? {
         let r0 = J.0, r1 = J.1, r2 = J.2
         let det = simd_dot(simd_cross(r0, r1), r2)
         guard abs(det) > 1e-15 else { return nil }
@@ -1482,7 +1482,7 @@ public enum LinearStaticSolver: Sendable {
         )
     }
 
-    private static func multiply3x3(_ M: (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>), _ v: SIMD3<Double>) -> SIMD3<Double> {
+    package static func multiply3x3(_ M: (SIMD3<Double>, SIMD3<Double>, SIMD3<Double>), _ v: SIMD3<Double>) -> SIMD3<Double> {
         SIMD3<Double>(
             simd_dot(M.0, v),
             simd_dot(M.1, v),

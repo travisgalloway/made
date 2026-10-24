@@ -2462,6 +2462,18 @@ struct InspectorSimulationStudyView: View {
                         workspace.updateSimulationSolverConfiguration(studyId: study.id, solver: copy)
                     }
                 ), format: .number)
+
+                if study.studyType == .linearBuckling {
+                    TextField("Buckling Modes", value: Binding(
+                        get: { study.solver.bucklingModesCount },
+                        set: { newCount in
+                            var copy = study.solver
+                            copy.bucklingModesCount = max(1, newCount)
+                            workspace.updateSimulationSolverConfiguration(studyId: study.id, solver: copy)
+                        }
+                    ), format: .number)
+                    .accessibilityIdentifier("inspector-study-solver-buckling-modes")
+                }
             } header: {
                 sectionHeader("Solver Configuration")
             }
@@ -3613,6 +3625,7 @@ struct InspectorSimulationResultsView: View {
     @Environment(WorkspaceModel.self) private var workspace
     let study: SimulationStudy
     @State private var selectedCoordinateSystemId: UUID? = nil
+    @State private var selectedModeNumber: Int = 1
 
     var body: some View {
         Form {
@@ -3697,6 +3710,40 @@ struct InspectorSimulationResultsView: View {
                 }
             } header: {
                 sectionHeader("Discretization Statistics")
+            }
+
+            if let modes = study.results.bucklingModes, !modes.isEmpty {
+                Section {
+                    Picker("Buckling Mode", selection: Binding(
+                        get: { selectedModeNumber },
+                        set: { newMode in
+                            selectedModeNumber = newMode
+                            workspace.selectBucklingMode(studyId: study.id, modeNumber: newMode)
+                        }
+                    )) {
+                        ForEach(modes) { mode in
+                            Text("Mode \(mode.modeNumber): λ = \(String(format: "%.4g", mode.loadFactor))").tag(mode.modeNumber)
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-buckling-modes-picker")
+
+                    ForEach(modes) { mode in
+                        LabeledContent("Mode \(mode.modeNumber)") {
+                            HStack {
+                                Text("λ = \(String(format: "%.4g", mode.loadFactor))")
+                                    .foregroundStyle(.secondary)
+                                if selectedModeNumber == mode.modeNumber {
+                                    Image(systemName: "checkmark")
+                                        .font(.caption)
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    sectionHeader("Buckling Modes")
+                }
+                .accessibilityIdentifier("inspector-simulation-buckling-modes-table")
             }
 
             if !study.results.extrema.isEmpty {

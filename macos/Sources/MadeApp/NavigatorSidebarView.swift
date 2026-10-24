@@ -159,6 +159,9 @@ struct NavigatorSidebarView: View {
                                     Button("New Modal Frequency Study") {
                                         _ = workspace.createSimulationStudy(type: .modalFrequency)
                                     }
+                                    Button("New Linear Buckling Study") {
+                                        _ = workspace.createSimulationStudy(type: .linearBuckling)
+                                    }
                                 } label: {
                                     Image(systemName: "plus")
                                 }

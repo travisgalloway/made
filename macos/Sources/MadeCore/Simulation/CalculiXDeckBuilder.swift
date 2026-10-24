@@ -210,8 +210,13 @@ public enum CalculiXDeckBuilder: Sendable {
             lines.append("HFL")
 
         } else {
-            // Structural analysis
-            lines.append("*STATIC")
+            // Structural analysis or linear buckling
+            if study.studyType == .linearBuckling {
+                lines.append("*BUCKLE")
+                lines.append("\(max(1, study.solver.bucklingModesCount))")
+            } else {
+                lines.append("*STATIC")
+            }
 
             // Fixtures (kinematic boundary conditions)
             var hasBoundaryHeader = false
@@ -423,11 +428,13 @@ public enum CalculiXDeckBuilder: Sendable {
                 }
             }
 
-            // Output requests for structural
+            // Output requests for structural / buckling
             lines.append("*NODE FILE")
             lines.append("U")
-            lines.append("*EL FILE")
-            lines.append("S")
+            if study.studyType != .linearBuckling {
+                lines.append("*EL FILE")
+                lines.append("S")
+            }
         }
 
         lines.append("*END STEP")
