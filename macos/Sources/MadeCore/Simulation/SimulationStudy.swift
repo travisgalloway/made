@@ -981,6 +981,8 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
     public var isCollapsed: Bool
     public var coordinateSystemId: UUID?
     public var factorOfSafetySettings: FactorOfSafetySettings
+    public var thermalStudyId: UUID?
+    public var thermalReferenceTemperature: Double?
 
     public init(
         id: UUID = UUID(),
@@ -998,7 +1000,9 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         results: SimulationStudyResults = SimulationStudyResults(),
         isCollapsed: Bool = false,
         coordinateSystemId: UUID? = nil,
-        factorOfSafetySettings: FactorOfSafetySettings = FactorOfSafetySettings()
+        factorOfSafetySettings: FactorOfSafetySettings = FactorOfSafetySettings(),
+        thermalStudyId: UUID? = nil,
+        thermalReferenceTemperature: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -1016,10 +1020,12 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.isCollapsed = isCollapsed
         self.coordinateSystemId = coordinateSystemId
         self.factorOfSafetySettings = factorOfSafetySettings
+        self.thermalStudyId = thermalStudyId
+        self.thermalReferenceTemperature = thermalReferenceTemperature
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed, coordinateSystemId, factorOfSafetySettings
+        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed, coordinateSystemId, factorOfSafetySettings, thermalStudyId, thermalReferenceTemperature
     }
 
     public init(from decoder: Decoder) throws {
@@ -1040,6 +1046,8 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.isCollapsed = try container.decodeIfPresent(Bool.self, forKey: .isCollapsed) ?? false
         self.coordinateSystemId = try container.decodeIfPresent(UUID.self, forKey: .coordinateSystemId)
         self.factorOfSafetySettings = try container.decodeIfPresent(FactorOfSafetySettings.self, forKey: .factorOfSafetySettings) ?? FactorOfSafetySettings()
+        self.thermalStudyId = try container.decodeIfPresent(UUID.self, forKey: .thermalStudyId)
+        self.thermalReferenceTemperature = try container.decodeIfPresent(Double.self, forKey: .thermalReferenceTemperature)
     }
 }
 

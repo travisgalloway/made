@@ -6448,6 +6448,26 @@ final class WorkspaceModel {
         let task = Task { [weak self] in
             let startTime = ContinuousClock.now
             do {
+                var coupledNodalTemperatures: [Int: Double]? = nil
+                if study.studyType == .linearStatic, let thermalId = study.thermalStudyId {
+                    guard let thermalStudy = await MainActor.run(body: { self?.document.study(id: thermalId) }) else {
+                        throw CAEErrorCode.invalidStudyConfiguration(message: "Coupled thermal study not found.")
+                    }
+                    guard thermalStudy.results.status == .completed,
+                          let temps = thermalStudy.results.nodalTemperatures,
+                          !temps.isEmpty else {
+                        throw CAEErrorCode.invalidStudyConfiguration(message: "Coupled thermal study '\(thermalStudy.name)' has not been solved or contains no temperature results.")
+                    }
+                    let sourceMesh = await MainActor.run(body: { self?.cachedStudyMeshes[thermalId] })
+                    let refTemp = study.thermalReferenceTemperature ?? 20.0
+                    coupledNodalTemperatures = SimulationCouplingMapper.mapNodalTemperatures(
+                        sourceTemperatures: temps,
+                        sourceMesh: sourceMesh,
+                        targetMesh: mesh,
+                        fallbackTemperature: refTemp
+                    )
+                }
+
                 if study.studyType == .thermalConduction && study.solver.engine == .pureSwift {
                     let maxCoord = mesh.nodes.reduce(0.0) { max($0, max(abs($1.position.x), max(abs($1.position.y), abs($1.position.z)))) }
                     let scale: Double = maxCoord > 2.0 ? 0.001 : 1.0
@@ -6476,7 +6496,7 @@ final class WorkspaceModel {
                 } else if study.studyType == .linearStatic && study.solver.engine == .pureSwift {
                     let maxCoord = mesh.nodes.reduce(0.0) { max($0, max(abs($1.position.x), max(abs($1.position.y), abs($1.position.z)))) }
                     let scale: Double = maxCoord > 2.0 ? 0.001 : 1.0
-                    let result = try LinearStaticSolver.solve(study: study, mesh: mesh, lengthScaleToMeters: scale)
+                    let result = try LinearStaticSolver.solve(study: study, mesh: mesh, lengthScaleToMeters: scale, nodalTemperatures: coupledNodalTemperatures)
                     let elapsed = Double(startTime.duration(to: .now).components.seconds) +
                                   Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
 
@@ -6552,7 +6572,7 @@ final class WorkspaceModel {
                         self.log(.info, "CAE", "Modal frequency study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(summary)")
                     }
                 } else {
-                    let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh)
+                    let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh, nodalTemperatures: coupledNodalTemperatures)
                     let result = try await runner.run(
                         deck: deck,
                         configuration: solverConfig,

@@ -9,8 +9,11 @@ public enum CalculiXDeckBuilder: Sendable {
     /// - Parameters:
     ///   - study: CAE simulation study containing materials, boundary conditions, and solver parameters.
     ///   - mesh: Discretized finite element volume mesh.
-    /// - Returns: A `CAEDeck` containing the formatted deck and auxiliary files.
-    public static func buildDeck(study: SimulationStudy, mesh: VolumeMesh) -> CAEDeck {
+    public static func buildDeck(
+        study: SimulationStudy,
+        mesh: VolumeMesh,
+        nodalTemperatures: [Int: Double]? = nil
+    ) -> CAEDeck {
         let cleanId = study.id.uuidString.replacingOccurrences(of: "-", with: "").prefix(8).lowercased()
         let jobName = "study_\(cleanId)"
 
@@ -197,11 +200,17 @@ public enum CalculiXDeckBuilder: Sendable {
 
         // Initial conditions for structural thermal loads
         if study.studyType != .thermalConduction {
-            let thermalLoads = study.loads.filter { $0.kind == .thermalLoad || $0.kind == .temperature }
-            if !thermalLoads.isEmpty {
-                let refTemp = thermalLoads.first?.referenceTemperature ?? 20.0
+            let refTemp = study.thermalReferenceTemperature ?? 20.0
+            if (nodalTemperatures != nil && !nodalTemperatures!.isEmpty) || study.thermalStudyId != nil {
                 lines.append("*INITIAL CONDITIONS, TYPE=TEMPERATURE")
                 lines.append(String(format: "NALL, %.4f", refTemp))
+            } else {
+                let thermalLoads = study.loads.filter { $0.kind == .thermalLoad || $0.kind == .temperature }
+                if !thermalLoads.isEmpty {
+                    let ref = thermalLoads.first?.referenceTemperature ?? refTemp
+                    lines.append("*INITIAL CONDITIONS, TYPE=TEMPERATURE")
+                    lines.append(String(format: "NALL, %.4f", ref))
+                }
             }
         }
 
@@ -291,7 +300,7 @@ public enum CalculiXDeckBuilder: Sendable {
                 // Step 1: Static preload step
                 lines.append("*STATIC")
                 emitBoundaryCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
-                emitStructuralLoadCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
+                emitStructuralLoadCards(study: study, mesh: mesh, setByName: setByName, nodalTemperatures: nodalTemperatures, lines: &lines)
                 lines.append("*END STEP")
 
                 // Step 2: Frequency perturbation extraction step
@@ -317,7 +326,7 @@ public enum CalculiXDeckBuilder: Sendable {
                 lines.append("*STATIC")
             }
             emitBoundaryCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
-            emitStructuralLoadCards(study: study, mesh: mesh, setByName: setByName, lines: &lines)
+            emitStructuralLoadCards(study: study, mesh: mesh, setByName: setByName, nodalTemperatures: nodalTemperatures, lines: &lines)
 
             // Output requests for structural / buckling
             lines.append("*NODE FILE")
@@ -375,6 +384,7 @@ public enum CalculiXDeckBuilder: Sendable {
         study: SimulationStudy,
         mesh: VolumeMesh,
         setByName: [String: VolumeMeshSet],
+        nodalTemperatures: [Int: Double]? = nil,
         lines: inout [String]
     ) {
         // Concentrated and equivalent nodal forces (*CLOAD)
@@ -540,19 +550,28 @@ public enum CalculiXDeckBuilder: Sendable {
         }
 
         // Structural temperature loads (*TEMPERATURE)
-        var hasTempHeader = false
-        for load in study.loads where load.kind == .thermalLoad || load.kind == .temperature {
-            if !hasTempHeader {
-                lines.append("*TEMPERATURE")
-                hasTempHeader = true
-            }
-            let targetNodes = resolveNodeIds(for: load, setByName: setByName)
-            if !targetNodes.isEmpty {
-                for nId in targetNodes {
-                    lines.append(String(format: "%d, %.4f", nId, load.magnitude))
+        if let nodalTemperatures, !nodalTemperatures.isEmpty {
+            lines.append("*TEMPERATURE")
+            for node in mesh.nodes.sorted(by: { $0.id < $1.id }) {
+                if let temp = nodalTemperatures[node.id] {
+                    lines.append(String(format: "%d, %.4f", node.id, temp))
                 }
-            } else {
-                lines.append(String(format: "NALL, %.4f", load.magnitude))
+            }
+        } else {
+            var hasTempHeader = false
+            for load in study.loads where load.kind == .thermalLoad || load.kind == .temperature {
+                if !hasTempHeader {
+                    lines.append("*TEMPERATURE")
+                    hasTempHeader = true
+                }
+                let targetNodes = resolveNodeIds(for: load, setByName: setByName)
+                if !targetNodes.isEmpty {
+                    for nId in targetNodes {
+                        lines.append(String(format: "%d, %.4f", nId, load.magnitude))
+                    }
+                } else {
+                    lines.append(String(format: "NALL, %.4f", load.magnitude))
+                }
             }
         }
     }

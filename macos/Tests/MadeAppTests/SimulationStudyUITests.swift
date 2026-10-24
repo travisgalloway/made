@@ -1052,6 +1052,113 @@ import simd
         _ = InspectorSimulationResultsView(study: study).environment(ws)
     }
 
+    @Test func testCoupledThermalStressSolveLifecycle() async throws {
+        let ws = WorkspaceModel()
+
+        // 1. Create and solve thermal conduction study
+        guard let thermalStudy = ws.createSimulationStudy(type: .thermalConduction, name: "Conduction Source") else {
+            Issue.record("Failed to create thermal conduction simulation study")
+            return
+        }
+        var updatedThermal = thermalStudy
+        updatedThermal.solver.engine = .pureSwift
+        updatedThermal.loads = [
+            SimulationLoad(name: "BaseHeat", kind: .temperature, magnitude: 100.0),
+            SimulationLoad(name: "SurfaceChill", kind: .convection, magnitude: 25.0, ambientTemperature: 20.0)
+        ]
+        ws.updateSimulationStudy(updatedThermal)
+        ws.runSimulationStudy(id: thermalStudy.id)
+
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(thermalStudy.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        let completedThermal = try #require(ws.document.study(id: thermalStudy.id))
+        #expect(completedThermal.results.status == .completed)
+        #expect(completedThermal.results.nodalTemperatures != nil)
+
+        // 2. Create and solve linear static study coupled to the thermal study
+        guard let staticStudy = ws.createSimulationStudy(type: .linearStatic, name: "Coupled Static") else {
+            Issue.record("Failed to create linear static simulation study")
+            return
+        }
+        var updatedStatic = staticStudy
+        updatedStatic.solver.engine = .pureSwift
+        updatedStatic.thermalStudyId = thermalStudy.id
+        updatedStatic.thermalReferenceTemperature = 20.0
+        updatedStatic.fixtures = [
+            SimulationFixture(name: "BaseConstraint", kind: .fixed)
+        ]
+        ws.updateSimulationStudy(updatedStatic)
+
+        // Verify Inspector view instantiates with thermal coupling controls
+        _ = InspectorSimulationStudyView(study: updatedStatic).environment(ws)
+
+        ws.runSimulationStudy(id: staticStudy.id)
+        #expect(ws.isStudyRunning(staticStudy.id))
+
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(staticStudy.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        let completedStatic = try #require(ws.document.study(id: staticStudy.id))
+        #expect(completedStatic.results.status == .completed)
+        #expect(completedStatic.results.errorMessage == nil)
+        #expect(completedStatic.results.nodalDisplacements != nil)
+        #expect(completedStatic.results.nodalVonMisesStresses != nil)
+        #expect(!completedStatic.results.extrema.isEmpty)
+        #expect(completedStatic.results.extrema.contains { $0.fieldName == "Displacement Magnitude" })
+        #expect(completedStatic.results.extrema.contains { $0.fieldName == "von Mises Stress" })
+    }
+
+    @Test func testCoupledThermalStressMissingOrUnsolvedValidation() async throws {
+        let ws = WorkspaceModel()
+
+        // 1. Missing study ID
+        guard let studyMissing = ws.createSimulationStudy(type: .linearStatic, name: "Missing Thermal Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+        var updatedMissing = studyMissing
+        updatedMissing.solver.engine = .pureSwift
+        updatedMissing.thermalStudyId = UUID()
+        ws.updateSimulationStudy(updatedMissing)
+
+        ws.runSimulationStudy(id: studyMissing.id)
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(studyMissing.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let failedMissing = try #require(ws.document.study(id: studyMissing.id))
+        #expect(failedMissing.results.status == .failed)
+        #expect(failedMissing.results.errorMessage?.contains("Coupled thermal study not found") == true)
+
+        // 2. Unsolved study
+        guard let unsolvedThermal = ws.createSimulationStudy(type: .thermalConduction, name: "Unsolved Thermal") else {
+            Issue.record("Failed to create thermal study")
+            return
+        }
+        guard let studyUnsolved = ws.createSimulationStudy(type: .linearStatic, name: "Coupled to Unsolved") else {
+            Issue.record("Failed to create static study")
+            return
+        }
+        var updatedUnsolved = studyUnsolved
+        updatedUnsolved.solver.engine = .pureSwift
+        updatedUnsolved.thermalStudyId = unsolvedThermal.id
+        ws.updateSimulationStudy(updatedUnsolved)
+
+        ws.runSimulationStudy(id: studyUnsolved.id)
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(studyUnsolved.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let failedUnsolved = try #require(ws.document.study(id: studyUnsolved.id))
+        #expect(failedUnsolved.results.status == .failed)
+        #expect(failedUnsolved.results.errorMessage?.contains("has not been solved or contains no temperature results") == true)
+    }
+
     @Test func testLinearBucklingSolveLifecycle() async throws {
         let ws = WorkspaceModel()
         guard let study = ws.createSimulationStudy(type: .linearBuckling, name: "Linear Buckling Solve") else {

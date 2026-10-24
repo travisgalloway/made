@@ -925,6 +925,146 @@ import simd
         #expect(result.iterationCount > 0)
     }
 
+    @Test func testCoupledThermalStressGradientFreeExpansionC3D4() throws {
+        let length = 1.0
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D4(length: length, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var study = SimulationStudy(name: "Thermal Gradient Free Expansion C3D4", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        study.thermalReferenceTemperature = 20.0
+
+        // Linear temperature gradient: T(0) = 20 °C, T(L) = 120 °C
+        var nodalTemps: [Int: Double] = [:]
+        for node in mesh.nodes {
+            nodalTemps[node.id] = 20.0 + 100.0 * (node.position.x / length)
+        }
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.0,
+            nodalTemperatures: nodalTemps
+        )
+
+        // Analytical Delta L = alpha * Delta T_mean * L = 1.2e-5 * 50 * 1.0 = 0.6 mm
+        let expectedDeltaL_mm = 0.6
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(abs(d.x - expectedDeltaL_mm) < 0.01 * expectedDeltaL_mm) // Within 1%
+        }
+
+        // C3D4 linear tetrahedra approximate the quadratic free expansion profile x^2 with < 20 MPa discretization stress
+        for (_, stress) in result.nodalVonMisesStresses {
+            #expect(stress < 20.0)
+        }
+    }
+
+    @Test func testCoupledThermalStressGradientFreeExpansionC3D10() throws {
+        let length = 1.0
+        let (mesh, _, tipIds) = Self.makeBeamMeshC3D10(length: length, width: 0.05, height: 0.05, nx: 6, ny: 1, nz: 1)
+        var study = SimulationStudy(name: "Thermal Gradient Free Expansion C3D10", studyType: .linearStatic)
+        study.fixtures = [SimulationFixture(name: "RootFace", kind: .fixed)]
+        study.thermalReferenceTemperature = 20.0
+
+        var nodalTemps: [Int: Double] = [:]
+        for node in mesh.nodes {
+            nodalTemps[node.id] = 20.0 + 100.0 * (node.position.x / length)
+        }
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.0,
+            nodalTemperatures: nodalTemps
+        )
+
+        let expectedDeltaL_mm = 0.6
+        for tId in tipIds {
+            let d = try #require(result.nodalDisplacements[tId])
+            #expect(abs(d.x - expectedDeltaL_mm) < 0.01 * expectedDeltaL_mm) // Within 1%
+        }
+
+        // Quadratic C3D10 elements represent the quadratic expansion field with near-zero interior stress
+        for node in mesh.nodes where node.position.x >= 0.2 {
+            let stress = try #require(result.nodalVonMisesStresses[node.id])
+            #expect(stress < 1.0)
+        }
+    }
+
+    @Test func testCoupledThermalStressGradientConstrainedC3D4() throws {
+        let length = 1.0
+        let (baseMesh, _, _) = Self.makeBeamMeshC3D4(length: length, width: 0.05, height: 0.05, nx: 10, ny: 2, nz: 2)
+        var mesh = baseMesh
+        let allNodeSet = VolumeMeshSet(name: "AllNodes", nodeIds: mesh.nodes.map(\.id), elementIds: [])
+        mesh.sets.append(allNodeSet)
+
+        var study = SimulationStudy(name: "Thermal Gradient Constrained C3D4", studyType: .linearStatic)
+        // Restrain X on all nodes (zero total axial strain) and fix RootFace to eliminate rigid body modes
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .fixed),
+            SimulationFixture(name: "AllNodes", kind: .rollerSlider, isRestrainedX: true, isRestrainedY: false, isRestrainedZ: false)
+        ]
+        study.thermalReferenceTemperature = 20.0
+
+        var nodalTemps: [Int: Double] = [:]
+        for node in mesh.nodes {
+            nodalTemps[node.id] = 20.0 + 100.0 * (node.position.x / length)
+        }
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.0,
+            nodalTemperatures: nodalTemps
+        )
+
+        let nodePositions = Dictionary(uniqueKeysWithValues: mesh.nodes.map { ($0.id, $0.position) })
+        for element in mesh.elements {
+            let stress = try #require(result.elementVonMisesStresses[element.id])
+            var centroidX = 0.0
+            for nid in element.nodeIndices {
+                centroidX += nodePositions[nid]!.x
+            }
+            centroidX /= Double(element.nodeIndices.count)
+            let analyticalStress = 240.0 * (centroidX / length)
+            let error = abs(stress - analyticalStress)
+            #expect(error < 14.0) // Within 6% of 240 MPa (14 MPa) accounting for transverse expansion shear
+        }
+    }
+
+    @Test func testCoupledThermalStressGradientConstrainedC3D10() throws {
+        let length = 1.0
+        let (mesh, _, _) = Self.makeBeamMeshC3D10(length: length, width: 0.05, height: 0.05, nx: 6, ny: 1, nz: 1)
+
+        var study = SimulationStudy(name: "Thermal Gradient Constrained C3D10", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .fixed),
+            SimulationFixture(name: "TipFace", kind: .rollerSlider, isRestrainedX: true, isRestrainedY: false, isRestrainedZ: false)
+        ]
+        study.thermalReferenceTemperature = 20.0
+
+        var nodalTemps: [Int: Double] = [:]
+        for node in mesh.nodes {
+            nodalTemps[node.id] = 20.0 + 100.0 * (node.position.x / length)
+        }
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.0,
+            nodalTemperatures: nodalTemps
+        )
+
+        let expectedStress = 120.0 // MPa
+        for (_, stress) in result.elementVonMisesStresses {
+            let error = abs(stress - expectedStress)
+            #expect(error < 0.02 * expectedStress)
+        }
+    }
+
     @Test func testDegenerateLoadsAndZeroDelta() throws {
         let (mesh, _, _) = Self.makeBeamMeshC3D4(length: 1.0, width: 0.05, height: 0.05, nx: 2, ny: 1, nz: 1)
         var study = SimulationStudy(name: "Degenerate Edge Cases", studyType: .linearStatic)
