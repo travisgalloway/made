@@ -2028,6 +2028,129 @@ import simd
         let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
         _ = inspectorView
     }
+
+    // MARK: - Simulation VTU & ParaView Export UI Tests (BL-RES-09, #329)
+
+    @Test func testWorkspaceSimulationVTUExportLifecycle() throws {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "VTU Export Lifecycle Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        // Test unsolved study error
+        let tempExportURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".vtu")
+        #expect(throws: SimulationExportError.studyNotSolved(study.id)) {
+            try ws.exportSimulationVTU(studyId: study.id, to: tempExportURL)
+        }
+
+        // Test missing study error
+        let randomStudyId = UUID()
+        #expect(throws: SimulationExportError.studyNotFound(randomStudyId)) {
+            try ws.exportSimulationVTU(studyId: randomStudyId, to: tempExportURL)
+        }
+
+        // Setup mesh and fields for completed study
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 10, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 10))
+        let elem = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 1)
+        let mesh = VolumeMesh(nodes: [n1, n2, n3, n4], elements: [elem])
+        ws.cachedStudyMeshes[study.id] = mesh
+
+        let fields = SimulationResultFields(
+            studyId: study.id,
+            nodalDisplacements: [
+                1: .zero,
+                2: SIMD3<Double>(0.1, 0, 0),
+                3: SIMD3<Double>(0, 0.2, 0),
+                4: SIMD3<Double>(0, 0, 0.5)
+            ],
+            nodalVonMisesStresses: [
+                1: 15.0,
+                2: 75.0,
+                3: 120.0,
+                4: 250.0
+            ]
+        )
+        ws.cachedStudyResultFields[study.id] = fields
+        study.results.status = .completed
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        // Successful export
+        try ws.exportSimulationVTU(studyId: study.id, to: tempExportURL)
+        #expect(FileManager.default.fileExists(atPath: tempExportURL.path))
+        let content = try String(contentsOf: tempExportURL, encoding: .utf8)
+        #expect(content.contains("<VTKFile type=\"UnstructuredGrid\""))
+        #expect(content.contains("<Piece NumberOfPoints=\"4\" NumberOfCells=\"1\">"))
+        #expect(content.contains("Name=\"Displacement\""))
+        #expect(content.contains("Name=\"VonMisesStress\""))
+        try? FileManager.default.removeItem(at: tempExportURL)
+
+        // Missing/empty mesh error
+        ws.cachedStudyMeshes[study.id] = VolumeMesh(nodes: [], elements: [])
+        #expect(throws: SimulationExportError.meshNotFound(study.id)) {
+            try ws.exportSimulationVTU(studyId: study.id, to: tempExportURL)
+        }
+        ws.cachedStudyMeshes[study.id] = mesh
+
+        // Missing fields error
+        ws.cachedStudyResultFields[study.id] = SimulationResultFields(studyId: study.id)
+        #expect(throws: SimulationExportError.fieldsNotFound(study.id)) {
+            try ws.exportSimulationVTU(studyId: study.id, to: tempExportURL)
+        }
+    }
+
+    @Test func testWorkspaceOpenResultsInParaViewLifecycle() throws {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "ParaView Launch Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let n1 = VolumeMeshNode(id: 1, position: .zero)
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(5, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 5, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 5))
+        let elem = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 1)
+        ws.cachedStudyMeshes[study.id] = VolumeMesh(nodes: [n1, n2, n3, n4], elements: [elem])
+
+        ws.cachedStudyResultFields[study.id] = SimulationResultFields(
+            studyId: study.id,
+            nodalDisplacements: [1: .zero, 2: .zero, 3: .zero, 4: .zero]
+        )
+        study.results.status = .completed
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        var openedURL: URL? = nil
+        let resultURL = try ws.openResultsInParaView(studyId: study.id) { url in
+            openedURL = url
+            return FileManager.default.fileExists(atPath: url.path)
+        }
+
+        #expect(openedURL != nil)
+        #expect(resultURL == openedURL)
+        #expect(resultURL.pathExtension == "vtu")
+        #expect(resultURL.lastPathComponent.contains("paraview-launch-test"))
+        try? FileManager.default.removeItem(at: resultURL)
+
+        // Test opener returning false causes openFailed error
+        #expect(throws: SimulationExportError.openFailed("Could not open '\(resultURL.lastPathComponent)' in ParaView.")) {
+            try ws.openResultsInParaView(studyId: study.id) { _ in false }
+        }
+    }
+
+    @Test func testInspectorSimulationResultsViewParaViewExportSection() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "ParaView Section Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
+        _ = inspectorView
+    }
 }
 
 

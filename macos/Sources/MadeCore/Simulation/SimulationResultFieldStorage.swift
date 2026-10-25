@@ -389,6 +389,35 @@ private final class VTUParserDelegate: NSObject, XMLParserDelegate, @unchecked S
     }
 }
 
+// MARK: - Simulation Export Errors
+
+/// Errors produced during simulation VTU result export or ParaView launch (BL-RES-09, #329).
+public enum SimulationExportError: Error, LocalizedError, Equatable, Sendable {
+    case studyNotFound(UUID)
+    case studyNotSolved(UUID)
+    case meshNotFound(UUID)
+    case fieldsNotFound(UUID)
+    case writeFailed(String)
+    case openFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .studyNotFound(let id):
+            return "Simulation study with ID \(id) was not found."
+        case .studyNotSolved(let id):
+            return "Simulation study with ID \(id) has not completed solving."
+        case .meshNotFound(let id):
+            return "Volume mesh for simulation study with ID \(id) was not found."
+        case .fieldsNotFound(let id):
+            return "Result fields for simulation study with ID \(id) were not found."
+        case .writeFailed(let reason):
+            return "Failed to write VTU export file: \(reason)"
+        case .openFailed(let reason):
+            return "Failed to open results in ParaView: \(reason)"
+        }
+    }
+}
+
 // MARK: - VTU Result Format
 
 /// Serializer and deserializer for VTK XML UnstructuredGrid format (BL-RES-01, #192).
@@ -542,6 +571,32 @@ public enum VTUResultFormat: Sendable {
                 xml += "        <DataArray type=\"Float64\" Name=\"CauchyStress\" NumberOfComponents=\"6\" format=\"ascii\">\n"
                 xml += cauchyText + "\n"
                 xml += "        </DataArray>\n"
+            }
+
+            if let modes = fields.modeShapes {
+                for mode in modes {
+                    var mDispText = ""
+                    for node in mesh.nodes {
+                        let d = mode.nodalDisplacements[node.id] ?? .zero
+                        mDispText += " \(d.x) \(d.y) \(d.z)"
+                    }
+                    xml += "        <DataArray type=\"Float64\" Name=\"ModeShape_\(mode.modeNumber)_Displacement\" NumberOfComponents=\"3\" format=\"ascii\">\n"
+                    xml += mDispText + "\n"
+                    xml += "        </DataArray>\n"
+                }
+            }
+
+            if let bModes = fields.bucklingModes {
+                for mode in bModes {
+                    var bDispText = ""
+                    for node in mesh.nodes {
+                        let d = mode.nodalDisplacements[node.id] ?? .zero
+                        bDispText += " \(d.x) \(d.y) \(d.z)"
+                    }
+                    xml += "        <DataArray type=\"Float64\" Name=\"BucklingMode_\(mode.modeNumber)_Displacement\" NumberOfComponents=\"3\" format=\"ascii\">\n"
+                    xml += bDispText + "\n"
+                    xml += "        </DataArray>\n"
+                }
             }
         }
         xml += "      </PointData>\n"
@@ -764,6 +819,40 @@ public enum VTUResultFormat: Sendable {
             }
         }
 
+        var modeShapes: [SimulationModeShape] = []
+        for (key, entry) in delegate.dataArrays where key.hasPrefix("ModeShape_") && key.hasSuffix("_Displacement") {
+            let parts = key.components(separatedBy: "_")
+            if parts.count == 3, let modeNum = Int(parts[1]) {
+                let vals = parseDoubles(entry.text)
+                if vals.count == nPoints * 3 {
+                    var mDisp: [Int: SIMD3<Double>] = [:]
+                    mDisp.reserveCapacity(nPoints)
+                    for i in 0..<nPoints {
+                        mDisp[nodeIds[i]] = SIMD3<Double>(vals[3 * i], vals[3 * i + 1], vals[3 * i + 2])
+                    }
+                    modeShapes.append(SimulationModeShape(modeNumber: modeNum, frequencyHz: 0.0, nodalDisplacements: mDisp))
+                }
+            }
+        }
+        modeShapes.sort { $0.modeNumber < $1.modeNumber }
+
+        var bucklingModes: [SimulationBucklingMode] = []
+        for (key, entry) in delegate.dataArrays where key.hasPrefix("BucklingMode_") && key.hasSuffix("_Displacement") {
+            let parts = key.components(separatedBy: "_")
+            if parts.count == 3, let modeNum = Int(parts[1]) {
+                let vals = parseDoubles(entry.text)
+                if vals.count == nPoints * 3 {
+                    var bDisp: [Int: SIMD3<Double>] = [:]
+                    bDisp.reserveCapacity(nPoints)
+                    for i in 0..<nPoints {
+                        bDisp[nodeIds[i]] = SIMD3<Double>(vals[3 * i], vals[3 * i + 1], vals[3 * i + 2])
+                    }
+                    bucklingModes.append(SimulationBucklingMode(modeNumber: modeNum, loadFactor: 0.0, nodalDisplacements: bDisp))
+                }
+            }
+        }
+        bucklingModes.sort { $0.modeNumber < $1.modeNumber }
+
         let mesh: VolumeMesh? = (nPoints > 0 || nCells > 0) ? VolumeMesh(nodes: nodes, elements: elements) : VolumeMesh()
         let fields = SimulationResultFields(
             studyId: studyId,
@@ -772,7 +861,9 @@ public enum VTUResultFormat: Sendable {
             nodalTemperatures: nodalTemperatures,
             nodalCauchyTensors: nodalCauchyTensors,
             elementVonMisesStresses: elementVonMisesStresses,
-            elementHeatFluxes: elementHeatFluxes
+            elementHeatFluxes: elementHeatFluxes,
+            bucklingModes: bucklingModes.isEmpty ? nil : bucklingModes,
+            modeShapes: modeShapes.isEmpty ? nil : modeShapes
         )
         return (mesh: mesh, fields: fields)
     }

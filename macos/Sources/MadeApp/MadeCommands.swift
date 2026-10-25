@@ -97,8 +97,20 @@ struct FileMenuCommands: Commands {
                     }
                 }
                 .disabled(!workspace.canExportDrawing)
+
+                Divider()
+
+                Menu("Simulation") {
+                    Button("VTU (ParaView)…") {
+                        if let study = workspace.activeSimulationStudy {
+                            workspace.promptExportSimulationVTU(studyId: study.id)
+                        }
+                    }
+                    .disabled(workspace.activeSimulationStudy?.results.status != .completed)
+                }
+                .disabled(workspace.activeSimulationStudy?.results.status != .completed)
             }
-            .disabled(workspace.document.objects.isEmpty && !workspace.canExportBillOfMaterials && !workspace.canExportDrawing)
+            .disabled(workspace.document.objects.isEmpty && !workspace.canExportBillOfMaterials && !workspace.canExportDrawing && workspace.activeSimulationStudy?.results.status != .completed)
 
             Button("Reload Part Scripts") {
                 workspace.reloadAllParts()

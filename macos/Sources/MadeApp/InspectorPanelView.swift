@@ -4949,6 +4949,27 @@ struct InspectorSimulationResultsView: View {
                 sectionHeader("Report Export")
             }
             .accessibilityIdentifier("inspector-simulation-report-section")
+
+            Section {
+                Button("Export VTU (ParaView)…") {
+                    workspace.promptExportSimulationVTU(studyId: study.id)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("inspector-simulation-export-vtu-button")
+
+                Button("Open in ParaView") {
+                    do {
+                        _ = try workspace.openResultsInParaView(studyId: study.id)
+                    } catch {
+                        workspace.log(.error, "CAE", "Failed to open results in ParaView: \(error.localizedDescription)")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("inspector-simulation-open-paraview-button")
+            } header: {
+                sectionHeader("ParaView Export")
+            }
+            .accessibilityIdentifier("inspector-simulation-paraview-section")
         }
         .formStyle(.columns)
         .controlSize(.small)
