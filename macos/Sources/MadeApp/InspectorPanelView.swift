@@ -4914,6 +4914,41 @@ struct InspectorSimulationResultsView: View {
                 }
                 .accessibilityIdentifier("inspector-simulation-probes-section")
             }
+
+            Section {
+                Button("Export HTML Report") {
+                    let panel = NSSavePanel()
+                    panel.allowedContentTypes = [.html]
+                    panel.nameFieldStringValue = "\(study.name)-report.html"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        do {
+                            try workspace.exportSimulationReport(studyId: study.id, format: .html, to: url)
+                        } catch {
+                            workspace.log(.error, "CAE", "Failed to export HTML report: \(error.localizedDescription)")
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("inspector-simulation-report-export-html-button")
+
+                Button("Export PDF Report") {
+                    let panel = NSSavePanel()
+                    panel.allowedContentTypes = [.pdf]
+                    panel.nameFieldStringValue = "\(study.name)-report.pdf"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        do {
+                            try workspace.exportSimulationReport(studyId: study.id, format: .pdf, to: url)
+                        } catch {
+                            workspace.log(.error, "CAE", "Failed to export PDF report: \(error.localizedDescription)")
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("inspector-simulation-report-export-pdf-button")
+            } header: {
+                sectionHeader("Report Export")
+            }
+            .accessibilityIdentifier("inspector-simulation-report-section")
         }
         .formStyle(.columns)
         .controlSize(.small)
