@@ -817,6 +817,107 @@ import simd
         #expect(study.contourSettings.isDeformed == false)
         #expect(study.contourSettings.deformationScale == 1.0)
         #expect(study.contourSettings.showMeshEdges == true)
+        #expect(study.contourSettings.showUndeformedWireframe == false)
+        #expect(study.contourSettings.animationMode == .harmonic)
+        #expect(study.contourSettings.animationSpeed == 1.0)
+        #expect(study.contourSettings.activeLoadStepNumber == nil)
+    }
+
+    // MARK: - Animation Settings and Load Steps Persistence (BL-RES-03, #324)
+
+    @Test func testSimulationContourSettingsAnimationRoundTrip() throws {
+        var settings = SimulationContourSettings()
+        settings.isVisible = true
+        settings.isDeformed = true
+        settings.deformationScale = 3.5
+        settings.showUndeformedWireframe = true
+        settings.animationMode = .linearRamp
+        settings.animationSpeed = 2.0
+        settings.activeLoadStepNumber = 4
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let data = try encoder.encode(settings)
+        let restored = try decoder.decode(SimulationContourSettings.self, from: data)
+
+        #expect(restored.showUndeformedWireframe == true)
+        #expect(restored.animationMode == .linearRamp)
+        #expect(restored.animationSpeed == 2.0)
+        #expect(restored.activeLoadStepNumber == 4)
+        #expect(restored.deformationScale == 3.5)
+        #expect(restored.isDeformed == true)
+    }
+
+    @Test func testSimulationStudyResultsWithLoadStepsRoundTrip() throws {
+        let step1 = SimulationLoadStep(
+            stepNumber: 1,
+            timeOrFactor: 0.25,
+            nodalDisplacements: [1: SIMD3<Double>(0.01, 0, 0), 2: SIMD3<Double>(0.05, 0, 0)],
+            nodalVonMisesStresses: [1: 25.0, 2: 75.0],
+            elementVonMisesStresses: [1: 50.0]
+        )
+        let step2 = SimulationLoadStep(
+            stepNumber: 2,
+            timeOrFactor: 0.50,
+            nodalDisplacements: [1: SIMD3<Double>(0.02, 0, 0), 2: SIMD3<Double>(0.10, 0, 0)],
+            nodalVonMisesStresses: [1: 50.0, 2: 150.0],
+            elementVonMisesStresses: [1: 100.0]
+        )
+
+        var results = SimulationStudyResults(status: .completed)
+        results.loadSteps = [step1, step2]
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let data = try encoder.encode(results)
+        let restored = try decoder.decode(SimulationStudyResults.self, from: data)
+
+        #expect(restored.loadSteps?.count == 2)
+        #expect(restored.loadSteps?[0].stepNumber == 1)
+        #expect(restored.loadSteps?[0].timeOrFactor == 0.25)
+        #expect(restored.loadSteps?[0].nodalDisplacements[2] == SIMD3<Double>(0.05, 0, 0))
+        #expect(restored.loadSteps?[0].nodalVonMisesStresses?[2] == 75.0)
+        #expect(restored.loadSteps?[0].elementVonMisesStresses?[1] == 50.0)
+
+        #expect(restored.loadSteps?[1].stepNumber == 2)
+        #expect(restored.loadSteps?[1].timeOrFactor == 0.50)
+        #expect(restored.loadSteps?[1].nodalDisplacements[2] == SIMD3<Double>(0.10, 0, 0))
+    }
+
+    @Test func testLegacyStudyResultsWithoutLoadStepsDecodesCleanly() throws {
+        let json = """
+        {
+          "status": "completed",
+          "meshStatistics": {
+            "nodeCount": 10,
+            "elementCount": 4
+          }
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let results = try decoder.decode(SimulationStudyResults.self, from: json)
+        #expect(results.status == .completed)
+        #expect(results.loadSteps == nil)
+        #expect(results.isFieldsLoaded == false)
+    }
+
+    @Test func testLoadStepsMemoryUnloading() {
+        var results = SimulationStudyResults(status: .completed)
+        #expect(results.isFieldsLoaded == false)
+
+        results.loadSteps = [
+            SimulationLoadStep(
+                stepNumber: 1,
+                timeOrFactor: 1.0,
+                nodalDisplacements: [1: .zero]
+            )
+        ]
+        #expect(results.isFieldsLoaded == true)
+
+        results.unloadFields()
+        #expect(results.loadSteps == nil)
+        #expect(results.isFieldsLoaded == false)
     }
 }
 

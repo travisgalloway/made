@@ -155,6 +155,7 @@ public struct SimulationResultFields: Sendable, Codable, Equatable {
     public var elementHeatFluxes: [Int: SIMD3<Double>]?
     public var bucklingModes: [SimulationBucklingMode]?
     public var modeShapes: [SimulationModeShape]?
+    public var loadSteps: [SimulationLoadStep]?
 
     public init(
         studyId: UUID,
@@ -165,7 +166,8 @@ public struct SimulationResultFields: Sendable, Codable, Equatable {
         elementVonMisesStresses: [Int: Double]? = nil,
         elementHeatFluxes: [Int: SIMD3<Double>]? = nil,
         bucklingModes: [SimulationBucklingMode]? = nil,
-        modeShapes: [SimulationModeShape]? = nil
+        modeShapes: [SimulationModeShape]? = nil,
+        loadSteps: [SimulationLoadStep]? = nil
     ) {
         self.studyId = studyId
         self.nodalDisplacements = nodalDisplacements
@@ -176,6 +178,7 @@ public struct SimulationResultFields: Sendable, Codable, Equatable {
         self.elementHeatFluxes = elementHeatFluxes
         self.bucklingModes = bucklingModes
         self.modeShapes = modeShapes
+        self.loadSteps = loadSteps
     }
 
     public var isEmpty: Bool {
@@ -186,7 +189,8 @@ public struct SimulationResultFields: Sendable, Codable, Equatable {
         elementVonMisesStresses == nil &&
         elementHeatFluxes == nil &&
         bucklingModes == nil &&
-        modeShapes == nil
+        modeShapes == nil &&
+        loadSteps == nil
     }
 
     public func metadataList() -> [ResultFieldMetadata] {

@@ -27,7 +27,9 @@ public enum SimulationContourGenerator: Sendable {
         fields: SimulationResultFields?,
         settings: SimulationContourSettings,
         displaySettings: SimulationMeshDisplaySettings,
-        elementFilter: Set<Int>? = nil
+        elementFilter: Set<Int>? = nil,
+        deformationMultiplier: Double = 1.0,
+        displacementsOverride: [Int: SIMD3<Double>]? = nil
     ) -> (payload: MeshPayload, extrema: SimulationContourExtrema) {
         let fieldName = settings.field.displayName
         let unitSymbol = settings.field.defaultUnitSymbol
@@ -64,12 +66,14 @@ public enum SimulationContourGenerator: Sendable {
             maxZ = max(maxZ, node.position.z)
         }
 
-        let displacements = fields?.nodalDisplacements ?? results.nodalDisplacements
+        let displacements = displacementsOverride ?? (fields?.nodalDisplacements ?? results.nodalDisplacements)
+        let effectiveScale = max(0.0, settings.deformationScale)
 
         func nodeRenderPosition(_ id: Int) -> SIMD3<Double> {
             guard let pos = nodeMap[id] else { return .zero }
             if settings.isDeformed, let disp = displacements?[id] {
-                return pos + settings.deformationScale * disp
+                if disp.x.isNaN || disp.y.isNaN || disp.z.isNaN { return pos }
+                return pos + effectiveScale * deformationMultiplier * disp
             }
             return pos
         }
@@ -79,7 +83,8 @@ public enum SimulationContourGenerator: Sendable {
             field: settings.field,
             study: study,
             results: results,
-            fields: fields
+            fields: fields,
+            displacementsOverride: displacementsOverride
         )
 
         // 2. Compute actual extrema and spatial anchors
@@ -433,8 +438,11 @@ public enum SimulationContourGenerator: Sendable {
         field: SimulationResultFieldKind,
         study: SimulationStudy,
         results: SimulationStudyResults,
-        fields: SimulationResultFields?
+        fields: SimulationResultFields?,
+        displacementsOverride: [Int: SIMD3<Double>]? = nil
     ) -> (nodal: [Int: Double], element: [Int: Double]) {
+        let activeDisplacements = displacementsOverride ?? (fields?.nodalDisplacements ?? results.nodalDisplacements)
+
         switch field {
         case .vonMisesStress:
             if let vm = fields?.nodalVonMisesStresses ?? results.nodalVonMisesStresses, !vm.isEmpty {
@@ -451,7 +459,7 @@ public enum SimulationContourGenerator: Sendable {
             return ([:], [:])
 
         case .displacementMagnitude:
-            if let disp = fields?.nodalDisplacements ?? results.nodalDisplacements, !disp.isEmpty {
+            if let disp = activeDisplacements, !disp.isEmpty {
                 var map: [Int: Double] = [:]
                 map.reserveCapacity(disp.count)
                 for (id, d) in disp {
@@ -462,7 +470,7 @@ public enum SimulationContourGenerator: Sendable {
             return ([:], [:])
 
         case .displacementX:
-            if let disp = fields?.nodalDisplacements ?? results.nodalDisplacements, !disp.isEmpty {
+            if let disp = activeDisplacements, !disp.isEmpty {
                 var map: [Int: Double] = [:]
                 map.reserveCapacity(disp.count)
                 for (id, d) in disp { map[id] = d.x }
@@ -471,7 +479,7 @@ public enum SimulationContourGenerator: Sendable {
             return ([:], [:])
 
         case .displacementY:
-            if let disp = fields?.nodalDisplacements ?? results.nodalDisplacements, !disp.isEmpty {
+            if let disp = activeDisplacements, !disp.isEmpty {
                 var map: [Int: Double] = [:]
                 map.reserveCapacity(disp.count)
                 for (id, d) in disp { map[id] = d.y }
@@ -480,7 +488,7 @@ public enum SimulationContourGenerator: Sendable {
             return ([:], [:])
 
         case .displacementZ:
-            if let disp = fields?.nodalDisplacements ?? results.nodalDisplacements, !disp.isEmpty {
+            if let disp = activeDisplacements, !disp.isEmpty {
                 var map: [Int: Double] = [:]
                 map.reserveCapacity(disp.count)
                 for (id, d) in disp { map[id] = d.z }
@@ -556,5 +564,111 @@ public enum SimulationContourGenerator: Sendable {
             }
             return ([:], [:])
         }
+    }
+
+    /// Generates boundary wireframe polylines on undeformed mesh geometry (BL-RES-03, #324).
+    public static func generateUndeformedWireframePayload(
+        mesh: VolumeMesh,
+        displaySettings: SimulationMeshDisplaySettings
+    ) -> MeshPayload {
+        guard !mesh.nodes.isEmpty, !mesh.elements.isEmpty else {
+            return MeshPayload(positions: [], normals: [], indices: [], edgePolylines: [], colors: [])
+        }
+
+        var nodeMap: [Int: SIMD3<Double>] = [:]
+        nodeMap.reserveCapacity(mesh.nodes.count)
+
+        var minX = Double.greatestFiniteMagnitude
+        var maxX = -Double.greatestFiniteMagnitude
+        var minY = Double.greatestFiniteMagnitude
+        var maxY = -Double.greatestFiniteMagnitude
+        var minZ = Double.greatestFiniteMagnitude
+        var maxZ = -Double.greatestFiniteMagnitude
+
+        for node in mesh.nodes {
+            nodeMap[node.id] = node.position
+            minX = min(minX, node.position.x)
+            maxX = max(maxX, node.position.x)
+            minY = min(minY, node.position.y)
+            maxY = max(maxY, node.position.y)
+            minZ = min(minZ, node.position.z)
+            maxZ = max(maxZ, node.position.z)
+        }
+
+        let sliceAxisMin: Double
+        let sliceAxisMax: Double
+        switch displaySettings.sliceAxis {
+        case .x: sliceAxisMin = minX; sliceAxisMax = maxX
+        case .y: sliceAxisMin = minY; sliceAxisMax = maxY
+        case .z: sliceAxisMin = minZ; sliceAxisMax = maxZ
+        }
+        let axisRange = max(0.0, sliceAxisMax - sliceAxisMin)
+        let clampedSlicePos = max(0.0, min(1.0, displaySettings.slicePosition))
+        let sliceThreshold = axisRange > 1e-9 ? sliceAxisMin + clampedSlicePos * axisRange : sliceAxisMin
+
+        var seenEdges = Set<EdgeKey>()
+        var edgePolylines: [EdgePolyline] = []
+        var edgeCounter = 0
+
+        for elem in mesh.elements where elem.nodeIndices.count >= 4 {
+            let n0 = elem.nodeIndices[0]
+            let n1 = elem.nodeIndices[1]
+            let n2 = elem.nodeIndices[2]
+            let n3 = elem.nodeIndices[3]
+
+            guard let p0 = nodeMap[n0],
+                  let p1 = nodeMap[n1],
+                  let p2 = nodeMap[n2],
+                  let p3 = nodeMap[n3] else {
+                continue
+            }
+
+            if displaySettings.isSliceEnabled, axisRange > 1e-9 {
+                let centroid = (p0 + p1 + p2 + p3) * 0.25
+                let centroidComponent: Double
+                switch displaySettings.sliceAxis {
+                case .x: centroidComponent = centroid.x
+                case .y: centroidComponent = centroid.y
+                case .z: centroidComponent = centroid.z
+                }
+                if !displaySettings.isSliceInverted {
+                    if centroidComponent > sliceThreshold + 1e-9 { continue }
+                } else {
+                    if centroidComponent < sliceThreshold - 1e-9 { continue }
+                }
+            }
+
+            let edgeDefs: [(n1: Int, n2: Int, pA: SIMD3<Double>, pB: SIMD3<Double>)] = [
+                (n0, n1, p0, p1),
+                (n1, n2, p1, p2),
+                (n2, n0, p2, p0),
+                (n0, n3, p0, p3),
+                (n1, n3, p1, p3),
+                (n2, n3, p2, p3)
+            ]
+
+            for edge in edgeDefs {
+                let key = EdgeKey(edge.n1, edge.n2)
+                guard seenEdges.insert(key).inserted else { continue }
+
+                let ptA = SIMD3<Float>(Float(edge.pA.x), Float(edge.pA.y), Float(edge.pA.z))
+                let ptB = SIMD3<Float>(Float(edge.pB.x), Float(edge.pB.y), Float(edge.pB.z))
+                let polyline = EdgePolyline(
+                    edgeId: edgeCounter,
+                    points: [ptA, ptB],
+                    segmentRange: edgeCounter..<(edgeCounter + 1)
+                )
+                edgePolylines.append(polyline)
+                edgeCounter += 1
+            }
+        }
+
+        return MeshPayload(
+            positions: [],
+            normals: [],
+            indices: [],
+            edgePolylines: edgePolylines,
+            colors: []
+        )
     }
 }

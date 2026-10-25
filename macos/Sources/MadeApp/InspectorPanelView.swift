@@ -4098,6 +4098,16 @@ struct InspectorSimulationResultsView: View {
                         .accessibilityIdentifier("inspector-simulation-contour-deformed-toggle")
 
                         if study.contourSettings.isDeformed {
+                            Toggle("Show Undeformed Wireframe", isOn: Binding(
+                                get: { study.contourSettings.showUndeformedWireframe },
+                                set: { show in
+                                    var updated = study.contourSettings
+                                    updated.showUndeformedWireframe = show
+                                    workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                                }
+                            ))
+                            .accessibilityIdentifier("inspector-simulation-contour-undeformed-wireframe-toggle")
+
                             LabeledContent("Deformation Scale") {
                                 HStack {
                                     Slider(value: Binding(
@@ -4114,6 +4124,76 @@ struct InspectorSimulationResultsView: View {
                                 }
                             }
                             .accessibilityIdentifier("inspector-simulation-contour-deformation-scale")
+
+                            let animState = workspace.simulationAnimationStates[study.id]
+                            let isPlaying = animState?.isPlaying ?? false
+                            let currentPhase = animState?.phase ?? 0.0
+
+                            HStack {
+                                Button {
+                                    workspace.toggleSimulationAnimation(studyId: study.id)
+                                } label: {
+                                    Label(isPlaying ? "Pause Animation" : "Play Animation", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                                }
+                                .accessibilityIdentifier("inspector-simulation-animation-play-pause-button")
+
+                                Spacer()
+
+                                Picker("Mode", selection: Binding(
+                                    get: { study.contourSettings.animationMode },
+                                    set: { newMode in
+                                        var updated = study.contourSettings
+                                        updated.animationMode = newMode
+                                        workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                                        if var state = workspace.simulationAnimationStates[study.id] {
+                                            state.mode = newMode
+                                            workspace.simulationAnimationStates[study.id] = state
+                                        }
+                                    }
+                                )) {
+                                    ForEach(SimulationAnimationMode.allCases) { mode in
+                                        Text(mode.displayName).tag(mode)
+                                    }
+                                }
+                                .labelsHidden()
+                                .accessibilityIdentifier("inspector-simulation-animation-mode-picker")
+
+                                Picker("Speed", selection: Binding(
+                                    get: { study.contourSettings.animationSpeed },
+                                    set: { newSpeed in
+                                        var updated = study.contourSettings
+                                        updated.animationSpeed = newSpeed
+                                        workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                                        if var state = workspace.simulationAnimationStates[study.id] {
+                                            state.speed = newSpeed
+                                            workspace.simulationAnimationStates[study.id] = state
+                                        }
+                                    }
+                                )) {
+                                    Text("0.25x").tag(0.25)
+                                    Text("0.5x").tag(0.5)
+                                    Text("1.0x").tag(1.0)
+                                    Text("2.0x").tag(2.0)
+                                    Text("4.0x").tag(4.0)
+                                }
+                                .labelsHidden()
+                                .accessibilityIdentifier("inspector-simulation-animation-speed-picker")
+                            }
+
+                            LabeledContent("Animation Phase") {
+                                HStack {
+                                    Slider(value: Binding(
+                                        get: { currentPhase },
+                                        set: { newPhase in
+                                            workspace.scrubSimulationAnimation(studyId: study.id, phase: newPhase)
+                                        }
+                                    ), in: 0.0...1.0)
+                                    Text("\(Int(currentPhase * 100))%")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 40, alignment: .trailing)
+                                }
+                            }
+                            .accessibilityIdentifier("inspector-simulation-animation-scrubber")
                         }
 
                         if let extrema = workspace.activeContourExtrema[study.id] {
@@ -4141,6 +4221,64 @@ struct InspectorSimulationResultsView: View {
                     sectionHeader("Contour Plot")
                 }
                 .accessibilityIdentifier("inspector-simulation-contour-section")
+            }
+
+            if let loadSteps = study.results.loadSteps, !loadSteps.isEmpty {
+                Section {
+                    let currentStepNumber = study.contourSettings.activeLoadStepNumber ?? loadSteps.first?.stepNumber ?? 1
+                    let currentStep = loadSteps.first(where: { $0.stepNumber == currentStepNumber }) ?? loadSteps[0]
+                    let currentIndex = loadSteps.firstIndex(where: { $0.stepNumber == currentStepNumber }) ?? 0
+
+                    HStack {
+                        Picker("Load Step", selection: Binding(
+                            get: { currentStepNumber },
+                            set: { newStep in
+                                workspace.selectLoadStep(studyId: study.id, stepNumber: newStep)
+                            }
+                        )) {
+                            ForEach(loadSteps) { step in
+                                Text("Step \(step.stepNumber) (t = \(String(format: "%.3g", step.timeOrFactor)))").tag(step.stepNumber)
+                            }
+                        }
+                        .accessibilityIdentifier("inspector-simulation-load-step-picker")
+
+                        Button {
+                            if currentIndex > 0 {
+                                let prevStep = loadSteps[currentIndex - 1]
+                                workspace.selectLoadStep(studyId: study.id, stepNumber: prevStep.stepNumber)
+                            }
+                        } label: {
+                            Image(systemName: "chevron.backward")
+                        }
+                        .disabled(currentIndex <= 0)
+                        .accessibilityIdentifier("inspector-simulation-load-step-prev-button")
+
+                        Button {
+                            if currentIndex < loadSteps.count - 1 {
+                                let nextStep = loadSteps[currentIndex + 1]
+                                workspace.selectLoadStep(studyId: study.id, stepNumber: nextStep.stepNumber)
+                            }
+                        } label: {
+                            Image(systemName: "chevron.forward")
+                        }
+                        .disabled(currentIndex >= loadSteps.count - 1)
+                        .accessibilityIdentifier("inspector-simulation-load-step-next-button")
+                    }
+
+                    LabeledContent("Step Number") {
+                        Text("\(currentStep.stepNumber) of \(loadSteps.count)")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LabeledContent("Time / Load Factor") {
+                        Text(String(format: "%.4g", currentStep.timeOrFactor))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("inspector-simulation-load-step-value-readout")
+                } header: {
+                    sectionHeader("Load Steps")
+                }
+                .accessibilityIdentifier("inspector-simulation-load-steps-section")
             }
 
             if let modes = study.results.bucklingModes, !modes.isEmpty {
@@ -4179,18 +4317,34 @@ struct InspectorSimulationResultsView: View {
 
             if let modeShapes = study.results.modeShapes, !modeShapes.isEmpty {
                 Section {
-                    Picker("Active Mode", selection: Binding(
-                        get: { selectedModeNumber },
-                        set: { newMode in
-                            selectedModeNumber = newMode
-                            workspace.selectModeShape(studyId: study.id, modeNumber: newMode)
+                    HStack {
+                        Picker("Active Mode", selection: Binding(
+                            get: { selectedModeNumber },
+                            set: { newMode in
+                                selectedModeNumber = newMode
+                                workspace.selectModeShape(studyId: study.id, modeNumber: newMode)
+                            }
+                        )) {
+                            ForEach(modeShapes, id: \.modeNumber) { mode in
+                                Text("Mode \(mode.modeNumber) (\(String(format: "%.2f", mode.frequencyHz)) Hz)").tag(mode.modeNumber)
+                            }
                         }
-                    )) {
-                        ForEach(modeShapes, id: \.modeNumber) { mode in
-                            Text("Mode \(mode.modeNumber) (\(String(format: "%.2f", mode.frequencyHz)) Hz)").tag(mode.modeNumber)
+                        .accessibilityIdentifier("inspector-simulation-results-mode-picker")
+
+                        Button {
+                            if !study.contourSettings.isVisible || !study.contourSettings.isDeformed {
+                                var updated = study.contourSettings
+                                updated.isVisible = true
+                                updated.isDeformed = true
+                                workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                            }
+                            workspace.selectModeShape(studyId: study.id, modeNumber: selectedModeNumber)
+                            workspace.startSimulationAnimation(studyId: study.id)
+                        } label: {
+                            Label("Animate Mode Shape", systemImage: "play.circle")
                         }
+                        .accessibilityIdentifier("inspector-simulation-animate-mode-shape-button")
                     }
-                    .accessibilityIdentifier("inspector-simulation-results-mode-picker")
 
                     ForEach(modeShapes, id: \.modeNumber) { mode in
                         let rpm = mode.frequencyHz * 60.0
