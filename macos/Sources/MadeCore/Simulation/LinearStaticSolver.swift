@@ -12,6 +12,8 @@ public struct LinearStaticResult: Sendable, Codable, Equatable {
     public var runtimeDuration: Double
     public var factorOfSafety: FactorOfSafetyResult?
     public var nodalCauchyTensors: [Int: CauchyStressTensor]?
+    public var constraintReactions: [SimulationConstraintReaction]?
+    public var bodySummaries: [SimulationBodySummary]?
 
     public init(
         nodalDisplacements: [Int: SIMD3<Double>],
@@ -22,7 +24,9 @@ public struct LinearStaticResult: Sendable, Codable, Equatable {
         finalResidual: Double = 0.0,
         runtimeDuration: Double = 0.0,
         factorOfSafety: FactorOfSafetyResult? = nil,
-        nodalCauchyTensors: [Int: CauchyStressTensor]? = nil
+        nodalCauchyTensors: [Int: CauchyStressTensor]? = nil,
+        constraintReactions: [SimulationConstraintReaction]? = nil,
+        bodySummaries: [SimulationBodySummary]? = nil
     ) {
         self.nodalDisplacements = nodalDisplacements
         self.nodalVonMisesStresses = nodalVonMisesStresses
@@ -33,6 +37,8 @@ public struct LinearStaticResult: Sendable, Codable, Equatable {
         self.runtimeDuration = runtimeDuration
         self.factorOfSafety = factorOfSafety
         self.nodalCauchyTensors = nodalCauchyTensors
+        self.constraintReactions = constraintReactions
+        self.bodySummaries = bodySummaries
     }
 }
 
@@ -216,6 +222,15 @@ public enum LinearStaticSolver: Sendable {
         var dirichletDOFs: [Int: Double] = [:] // globalDOF -> prescribed displacement in meters
         var elasticDOFs: Set<Int> = []
 
+        struct FixtureRecord {
+            let fixture: SimulationFixture
+            let nodeIds: [Int]
+            let isElastic: Bool
+            let kPerNode: SIMD3<Double>
+        }
+        var fixtureRecords: [FixtureRecord] = []
+        fixtureRecords.reserveCapacity(study.fixtures.count)
+
         for fixture in study.fixtures {
             let matchedSet = (mesh.sets.first(where: { $0.name == fixture.name }))
                 ?? setById[fixture.id]
@@ -238,6 +253,7 @@ public enum LinearStaticSolver: Sendable {
 
             if fixture.kind == .elasticSupport {
                 let kPerNode = fixture.elasticStiffness / Double(max(1, nodeIdsToConstrain.count))
+                fixtureRecords.append(FixtureRecord(fixture: fixture, nodeIds: nodeIdsToConstrain, isElastic: true, kPerNode: kPerNode))
                 for nId in nodeIdsToConstrain {
                     guard let nodeIdx = nodeIndexById[nId] else { continue }
                     if fixture.isRestrainedX && kPerNode.x > 0 {
@@ -257,6 +273,7 @@ public enum LinearStaticSolver: Sendable {
                     }
                 }
             } else {
+                fixtureRecords.append(FixtureRecord(fixture: fixture, nodeIds: nodeIdsToConstrain, isElastic: false, kPerNode: .zero))
                 let dispMeters = fixture.kind == .prescribedDisplacement
                     ? (fixture.prescribedDisplacement * 0.001)
                     : SIMD3<Double>.zero
@@ -836,6 +853,13 @@ public enum LinearStaticSolver: Sendable {
         }
 
         // 6. Apply symmetric Dirichlet elimination
+        var originalKRows: [Int: [Int: Double]] = [:]
+        originalKRows.reserveCapacity(dirichletDOFs.count)
+        for dIdx in dirichletDOFs.keys {
+            originalKRows[dIdx] = K[dIdx]
+        }
+        let originalF = F
+
         for (dIdx, dVal) in dirichletDOFs {
             for j in 0..<totalDOFs {
                 if j != dIdx, let kjd = K[j][dIdx] {
@@ -858,6 +882,100 @@ public enum LinearStaticSolver: Sendable {
             maxIterations: maxIter,
             tolerance: tol
         )
+
+        // 7b. Compute reaction forces and moments at boundary constraint fixtures
+        var dirichletReactions: [Int: Double] = [:]
+        dirichletReactions.reserveCapacity(dirichletDOFs.count)
+        for (dIdx, _) in dirichletDOFs {
+            var fInt = 0.0
+            if let row = originalKRows[dIdx] {
+                for (j, kVal) in row {
+                    fInt += kVal * solutionU[j]
+                }
+            }
+            dirichletReactions[dIdx] = fInt - originalF[dIdx]
+        }
+
+        var constraintReactions: [SimulationConstraintReaction] = []
+        constraintReactions.reserveCapacity(fixtureRecords.count)
+
+        for record in fixtureRecords {
+            let fixture = record.fixture
+            let nodeIds = record.nodeIds
+            guard !nodeIds.isEmpty else { continue }
+
+            var nodalReactionForces: [Int: SIMD3<Double>] = [:]
+            nodalReactionForces.reserveCapacity(nodeIds.count)
+            var totalForce = SIMD3<Double>.zero
+
+            // Compute fixture node centroid in canonical mm
+            var centroidMm = SIMD3<Double>.zero
+            for nId in nodeIds {
+                guard let nodeIdx = nodeIndexById[nId] else { continue }
+                centroidMm += mesh.nodes[nodeIdx].position
+            }
+            centroidMm /= Double(nodeIds.count)
+            let centroidMeters = centroidMm * lengthScaleToMeters
+
+            // Compute nodal reaction forces and resultant moment
+            var totalMoment = SIMD3<Double>.zero
+
+            for nId in nodeIds {
+                guard let nodeIdx = nodeIndexById[nId] else { continue }
+                let dofX = 3 * nodeIdx + 0
+                let dofY = 3 * nodeIdx + 1
+                let dofZ = 3 * nodeIdx + 2
+
+                var rx = 0.0
+                var ry = 0.0
+                var rz = 0.0
+
+                if record.isElastic {
+                    if fixture.isRestrainedX && record.kPerNode.x > 0 {
+                        rx = -record.kPerNode.x * solutionU[dofX]
+                    }
+                    if fixture.isRestrainedY && record.kPerNode.y > 0 {
+                        ry = -record.kPerNode.y * solutionU[dofY]
+                    }
+                    if fixture.isRestrainedZ && record.kPerNode.z > 0 {
+                        rz = -record.kPerNode.z * solutionU[dofZ]
+                    }
+                } else {
+                    switch fixture.kind {
+                    case .fixed, .pinned:
+                        rx = dirichletReactions[dofX] ?? 0.0
+                        ry = dirichletReactions[dofY] ?? 0.0
+                        rz = dirichletReactions[dofZ] ?? 0.0
+                    case .rollerSlider, .symmetry, .prescribedDisplacement:
+                        if fixture.isRestrainedX { rx = dirichletReactions[dofX] ?? 0.0 }
+                        if fixture.isRestrainedY { ry = dirichletReactions[dofY] ?? 0.0 }
+                        if fixture.isRestrainedZ { rz = dirichletReactions[dofZ] ?? 0.0 }
+                    case .elasticSupport:
+                        break
+                    }
+                }
+
+                let rVec = SIMD3<Double>(rx, ry, rz)
+                nodalReactionForces[nId] = rVec
+                totalForce += rVec
+
+                let nodePosMeters = positions[nodeIdx]
+                let arm = nodePosMeters - centroidMeters
+                totalMoment += simd_cross(arm, rVec)
+            }
+
+            constraintReactions.append(
+                SimulationConstraintReaction(
+                    id: fixture.id,
+                    fixtureName: fixture.name,
+                    reactionForce: totalForce,
+                    reactionMoment: totalMoment,
+                    referencePoint: centroidMm,
+                    nodeCount: nodeIds.count,
+                    nodalReactionForces: nodalReactionForces
+                )
+            )
+        }
 
         // 8. Post-process displacements and von Mises stresses
         var nodalDisplacements: [Int: SIMD3<Double>] = [:]
@@ -1091,6 +1209,16 @@ public enum LinearStaticSolver: Sendable {
         let elapsed = Double(startTime.duration(to: .now).components.seconds) +
                       Double(startTime.duration(to: .now).components.attoseconds) * 1e-18
 
+        let bodySummaries = SimulationSummaryEvaluator.evaluateBodySummaries(
+            study: study,
+            mesh: mesh,
+            nodalDisplacements: nodalDisplacements,
+            nodalVonMisesStresses: nodalVonMisesStresses,
+            elementVonMisesStresses: elementVonMisesStresses,
+            nodalTemperatures: nodalTemperatures,
+            factorOfSafety: fosResult
+        )
+
         return LinearStaticResult(
             nodalDisplacements: nodalDisplacements,
             nodalVonMisesStresses: nodalVonMisesStresses,
@@ -1100,7 +1228,9 @@ public enum LinearStaticSolver: Sendable {
             finalResidual: finalRes,
             runtimeDuration: elapsed,
             factorOfSafety: fosResult,
-            nodalCauchyTensors: nodalCauchyTensors
+            nodalCauchyTensors: nodalCauchyTensors,
+            constraintReactions: constraintReactions,
+            bodySummaries: bodySummaries
         )
     }
 

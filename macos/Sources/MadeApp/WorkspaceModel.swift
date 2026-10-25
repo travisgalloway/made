@@ -6504,6 +6504,11 @@ final class WorkspaceModel {
                             currentStudy.results.extrema = result.extrema
                             currentStudy.results.nodalTemperatures = result.nodalTemperatures
                             currentStudy.results.elementHeatFluxes = result.elementHeatFluxes
+                            currentStudy.results.bodySummaries = SimulationSummaryEvaluator.evaluateBodySummaries(
+                                study: currentStudy,
+                                mesh: mesh,
+                                nodalTemperatures: result.nodalTemperatures
+                            )
                             currentStudy.results.errorMessage = nil
                             self.finalizeSuccessfulSolve(studyId: id, study: &currentStudy, mesh: mesh)
                         }
@@ -6530,6 +6535,8 @@ final class WorkspaceModel {
                             currentStudy.results.elementVonMisesStresses = result.elementVonMisesStresses
                             currentStudy.results.factorOfSafety = result.factorOfSafety
                             currentStudy.results.nodalCauchyTensors = result.nodalCauchyTensors
+                            currentStudy.results.constraintReactions = result.constraintReactions
+                            currentStudy.results.bodySummaries = result.bodySummaries
                             currentStudy.results.errorMessage = nil
                             self.finalizeSuccessfulSolve(studyId: id, study: &currentStudy, mesh: mesh)
                         }
@@ -6704,6 +6711,14 @@ final class WorkspaceModel {
     ) {
         let fields = study.results.extractFields(studyId: studyId)
         cachedStudyResultFields[studyId] = fields
+
+        if study.results.bodySummaries == nil {
+            study.results.bodySummaries = SimulationSummaryEvaluator.evaluateBodySummaries(
+                study: study,
+                mesh: mesh,
+                results: study.results
+            )
+        }
 
         if let packageURL = currentDocumentURL {
             do {

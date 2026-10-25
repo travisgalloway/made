@@ -914,6 +914,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var elementVonMisesStresses: [Int: Double]?
     public var elementHeatFluxes: [Int: SIMD3<Double>]?
     public var loadSteps: [SimulationLoadStep]?
+    public var constraintReactions: [SimulationConstraintReaction]?
+    public var bodySummaries: [SimulationBodySummary]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -932,7 +934,9 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         fieldStorage: ResultFieldStorageDescriptor? = nil,
         elementVonMisesStresses: [Int: Double]? = nil,
         elementHeatFluxes: [Int: SIMD3<Double>]? = nil,
-        loadSteps: [SimulationLoadStep]? = nil
+        loadSteps: [SimulationLoadStep]? = nil,
+        constraintReactions: [SimulationConstraintReaction]? = nil,
+        bodySummaries: [SimulationBodySummary]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -951,10 +955,12 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.elementVonMisesStresses = elementVonMisesStresses
         self.elementHeatFluxes = elementHeatFluxes
         self.loadSteps = loadSteps
+        self.constraintReactions = constraintReactions
+        self.bodySummaries = bodySummaries
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes, factorOfSafety, nodalCauchyTensors, fieldStorage, elementVonMisesStresses, elementHeatFluxes, loadSteps
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes, factorOfSafety, nodalCauchyTensors, fieldStorage, elementVonMisesStresses, elementHeatFluxes, loadSteps, constraintReactions, bodySummaries
     }
 
     public init(from decoder: Decoder) throws {
@@ -976,6 +982,20 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.elementVonMisesStresses = try container.decodeIfPresent([Int: Double].self, forKey: .elementVonMisesStresses)
         self.elementHeatFluxes = try container.decodeIfPresent([Int: SIMD3<Double>].self, forKey: .elementHeatFluxes)
         self.loadSteps = try container.decodeIfPresent([SimulationLoadStep].self, forKey: .loadSteps)
+        self.constraintReactions = try container.decodeIfPresent([SimulationConstraintReaction].self, forKey: .constraintReactions)
+        self.bodySummaries = try container.decodeIfPresent([SimulationBodySummary].self, forKey: .bodySummaries)
+    }
+
+    /// Total resultant reaction force across all constrained boundary fixtures in canonical Newtons (N).
+    public var totalReactionForce: SIMD3<Double>? {
+        guard let reactions = constraintReactions, !reactions.isEmpty else { return nil }
+        return reactions.reduce(.zero) { $0 + $1.reactionForce }
+    }
+
+    /// Total resultant reaction moment across all constrained boundary fixtures in canonical Newton-meters (N·m).
+    public var totalReactionMoment: SIMD3<Double>? {
+        guard let reactions = constraintReactions, !reactions.isEmpty else { return nil }
+        return reactions.reduce(.zero) { $0 + $1.reactionMoment }
     }
 
     /// True when any heavy numerical result field array is currently resident in memory.
