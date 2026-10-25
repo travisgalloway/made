@@ -1514,6 +1514,102 @@ import simd
         unloadedStudy.results.unloadFields()
         _ = InspectorSimulationResultsView(study: unloadedStudy).environment(ws)
     }
+
+    @Test func testWorkspaceContourLifecycle() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Contour FEA Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 10, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 10))
+        let elem = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 1)
+        let mesh = VolumeMesh(nodes: [n1, n2, n3, n4], elements: [elem])
+        ws.cachedStudyMeshes[study.id] = mesh
+
+        let fields = SimulationResultFields(
+            studyId: study.id,
+            nodalDisplacements: [
+                1: .zero,
+                2: SIMD3<Double>(0.1, 0, 0),
+                3: SIMD3<Double>(0, 0.2, 0),
+                4: SIMD3<Double>(0, 0, 0.5)
+            ],
+            nodalVonMisesStresses: [
+                1: 15.0,
+                2: 75.0,
+                3: 120.0,
+                4: 250.0
+            ]
+        )
+        ws.cachedStudyResultFields[study.id] = fields
+
+        study.results.status = .completed
+        study.results.nodalVonMisesStresses = fields.nodalVonMisesStresses
+        study.results.nodalDisplacements = fields.nodalDisplacements
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        var contourSettings = SimulationContourSettings()
+        contourSettings.isVisible = true
+        contourSettings.field = .vonMisesStress
+        contourSettings.colorMap = .turbo
+        contourSettings.showMinMaxMarkers = true
+        contourSettings.showMeshEdges = true
+
+        ws.updateSimulationContourSettings(studyId: study.id, settings: contourSettings)
+
+        let extrema = ws.activeContourExtrema[study.id]
+        #expect(extrema != nil)
+        #expect(extrema?.actualMin == 15.0)
+        #expect(extrema?.actualMax == 250.0)
+        #expect(extrema?.minNodeId == 1)
+        #expect(extrema?.maxNodeId == 4)
+
+        // Select results tab
+        ws.selectSimulationResults(studyId: study.id)
+        #expect(ws.isSimulationResultsSelected == true)
+        #expect(ws.activeContourExtrema[study.id] != nil)
+
+        // Clear contour
+        ws.clearSimulationContourFromViewport(studyId: study.id)
+        #expect(ws.activeContourExtrema[study.id] == nil)
+    }
+
+    @Test func testInspectorContourControlsAndLegendOverlay() {
+        let ws = WorkspaceModel()
+        let studyId = UUID()
+        var study = SimulationStudy(id: studyId, name: "Solved Study", studyType: .linearStatic)
+        study.results.status = .completed
+        study.contourSettings.isVisible = true
+        study.contourSettings.field = .vonMisesStress
+
+        let extrema = SimulationContourExtrema(
+            fieldName: "von Mises Stress",
+            unitSymbol: "MPa",
+            actualMin: 12.5,
+            actualMax: 245.0,
+            effectiveMin: 12.5,
+            effectiveMax: 245.0,
+            minNodeId: 1,
+            maxNodeId: 10,
+            minPosition: SIMD3<Double>(0, 0, 0),
+            maxPosition: SIMD3<Double>(10, 10, 10)
+        )
+        ws.activeContourExtrema[studyId] = extrema
+
+        let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
+        _ = inspectorView
+
+        let legendView = SimulationContourLegendOverlayView(
+            studyId: studyId,
+            settings: study.contourSettings,
+            extrema: extrema
+        ).environment(ws)
+        _ = legendView
+    }
 }
 
 

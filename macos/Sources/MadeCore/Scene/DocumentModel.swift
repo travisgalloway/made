@@ -9505,6 +9505,34 @@ public final class DocumentModel {
         return .success(())
     }
 
+    @discardableResult
+    public func updateSimulationContourSettings(
+        studyId: UUID,
+        settings: SimulationContourSettings,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldSettings = studies[sIdx].contourSettings
+        guard oldSettings != settings else { return .success(()) }
+        studies[sIdx].contourSettings = settings
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Contour Settings"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationContourSettings(studyId: studyId, settings: oldSettings, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
     // MARK: - Simulation Geometry Groups & Target Associations (BL-MSH-06, #189)
 
     @discardableResult

@@ -273,6 +273,7 @@ public struct MetalMesh: @unchecked Sendable {
     public var edgeSegmentCount: Int
     public var vertexBuffer: MTLBuffer?
     public var vertexCount: Int
+    public var colorBuffer: MTLBuffer?
     
     public init(
         positionBuffer: MTLBuffer,
@@ -289,7 +290,8 @@ public struct MetalMesh: @unchecked Sendable {
         edgeSegmentBuffer: MTLBuffer? = nil,
         edgeSegmentCount: Int = 0,
         vertexBuffer: MTLBuffer? = nil,
-        vertexCount: Int = 0
+        vertexCount: Int = 0,
+        colorBuffer: MTLBuffer? = nil
     ) {
         self.positionBuffer = positionBuffer
         self.normalBuffer = normalBuffer
@@ -306,6 +308,7 @@ public struct MetalMesh: @unchecked Sendable {
         self.edgeSegmentCount = edgeSegmentCount
         self.vertexBuffer = vertexBuffer
         self.vertexCount = vertexCount
+        self.colorBuffer = colorBuffer
     }
     
     public func faceNormal(forFaceId faceId: Int) -> SIMD3<Float>? {

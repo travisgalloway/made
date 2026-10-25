@@ -748,5 +748,75 @@ import simd
         #expect(study.results.elementHeatFluxes == nil)
         #expect(study.results.isFieldsLoaded == true)
     }
+
+    @Test func testSimulationContourSettingsRoundTripSerialization() throws {
+        var study = SimulationStudy(name: "Contour Test Study", studyType: .linearStatic)
+        study.contourSettings = SimulationContourSettings(
+            isVisible: true,
+            field: .displacementMagnitude,
+            colorMap: .magma,
+            autoRange: false,
+            customMin: 2.5,
+            customMax: 80.0,
+            showMinMaxMarkers: false,
+            isDeformed: true,
+            deformationScale: 5.0,
+            showMeshEdges: false
+        )
+
+        let doc = DocumentModel()
+        doc.addStudy(study)
+        doc.setActiveStudy(id: study.id)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encoded)
+
+        let restoredStudy = try #require(restoredDoc.study(id: study.id))
+        let settings = restoredStudy.contourSettings
+        #expect(settings.isVisible == true)
+        #expect(settings.field == .displacementMagnitude)
+        #expect(settings.colorMap == .magma)
+        #expect(settings.autoRange == false)
+        #expect(settings.customMin == 2.5)
+        #expect(settings.customMax == 80.0)
+        #expect(settings.showMinMaxMarkers == false)
+        #expect(settings.isDeformed == true)
+        #expect(settings.deformationScale == 5.0)
+        #expect(settings.showMeshEdges == false)
+    }
+
+    @Test func testLegacyStudyWithoutContourSettingsDecodesWithDefaults() throws {
+        let legacyJSON = """
+        {
+          "version": 1,
+          "documentType": "part",
+          "objects": [],
+          "parameters": [],
+          "studies": [
+            {
+              "id": "22222222-3333-4444-5555-666666666666",
+              "name": "Legacy Study",
+              "studyType": "linearStatic"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyJSON)
+
+        let study = try #require(restoredDoc.studies.first)
+        #expect(study.contourSettings.isVisible == false)
+        #expect(study.contourSettings.field == .vonMisesStress)
+        #expect(study.contourSettings.colorMap == .turbo)
+        #expect(study.contourSettings.autoRange == true)
+        #expect(study.contourSettings.customMin == nil)
+        #expect(study.contourSettings.customMax == nil)
+        #expect(study.contourSettings.showMinMaxMarkers == true)
+        #expect(study.contourSettings.isDeformed == false)
+        #expect(study.contourSettings.deformationScale == 1.0)
+        #expect(study.contourSettings.showMeshEdges == true)
+    }
 }
 

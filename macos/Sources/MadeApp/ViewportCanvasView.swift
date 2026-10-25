@@ -240,6 +240,17 @@ struct ViewportCanvasView: View {
                         }
                     }
 
+                    if let studyId = workspace.selectedSimulationStudyId,
+                       let study = workspace.document.study(id: studyId),
+                       study.contourSettings.isVisible,
+                       let extrema = workspace.activeContourExtrema[studyId] {
+                        SimulationContourLegendOverlayView(
+                            studyId: studyId,
+                            settings: study.contourSettings,
+                            extrema: extrema
+                        )
+                    }
+
                     ViewCubeOverlayView()
                         .padding(.top, 16)
                         .padding(.trailing, 16)

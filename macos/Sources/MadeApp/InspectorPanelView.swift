@@ -3990,6 +3990,159 @@ struct InspectorSimulationResultsView: View {
                 sectionHeader("Discretization Statistics")
             }
 
+            if study.results.status == .completed {
+                Section {
+                    Toggle("Show Contour Plot", isOn: Binding(
+                        get: { study.contourSettings.isVisible },
+                        set: { isVisible in
+                            var updated = study.contourSettings
+                            updated.isVisible = isVisible
+                            workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-contour-visible-toggle")
+
+                    if study.contourSettings.isVisible {
+                        Picker("Result Field", selection: Binding(
+                            get: { study.contourSettings.field },
+                            set: { field in
+                                var updated = study.contourSettings
+                                updated.field = field
+                                workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                            }
+                        )) {
+                            ForEach(SimulationResultFieldKind.allCases) { field in
+                                Text(field.displayName).tag(field)
+                            }
+                        }
+                        .accessibilityIdentifier("inspector-simulation-contour-field-picker")
+
+                        Picker("Color Palette", selection: Binding(
+                            get: { study.contourSettings.colorMap },
+                            set: { map in
+                                var updated = study.contourSettings
+                                updated.colorMap = map
+                                workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                            }
+                        )) {
+                            ForEach(SimulationColorMapKind.allCases) { map in
+                                Text(map.displayName).tag(map)
+                            }
+                        }
+                        .accessibilityIdentifier("inspector-simulation-contour-palette-picker")
+
+                        Toggle("Auto Range", isOn: Binding(
+                            get: { study.contourSettings.autoRange },
+                            set: { autoRange in
+                                var updated = study.contourSettings
+                                updated.autoRange = autoRange
+                                workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                            }
+                        ))
+                        .accessibilityIdentifier("inspector-simulation-contour-autorange-toggle")
+
+                        if !study.contourSettings.autoRange {
+                            HStack {
+                                TextField("Min", value: Binding(
+                                    get: { study.contourSettings.customMin ?? (workspace.activeContourExtrema[study.id]?.actualMin ?? 0.0) },
+                                    set: { newVal in
+                                        var updated = study.contourSettings
+                                        updated.customMin = newVal
+                                        workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                                    }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-contour-custom-min")
+
+                                TextField("Max", value: Binding(
+                                    get: { study.contourSettings.customMax ?? (workspace.activeContourExtrema[study.id]?.actualMax ?? 100.0) },
+                                    set: { newVal in
+                                        var updated = study.contourSettings
+                                        updated.customMax = newVal
+                                        workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                                    }
+                                ), format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-contour-custom-max")
+                            }
+                        }
+
+                        Toggle("Show Min/Max Markers", isOn: Binding(
+                            get: { study.contourSettings.showMinMaxMarkers },
+                            set: { show in
+                                var updated = study.contourSettings
+                                updated.showMinMaxMarkers = show
+                                workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                            }
+                        ))
+                        .accessibilityIdentifier("inspector-simulation-contour-markers-toggle")
+
+                        Toggle("Show Mesh Edges", isOn: Binding(
+                            get: { study.contourSettings.showMeshEdges },
+                            set: { show in
+                                var updated = study.contourSettings
+                                updated.showMeshEdges = show
+                                workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                            }
+                        ))
+                        .accessibilityIdentifier("inspector-simulation-contour-edges-toggle")
+
+                        Toggle("Deformed Mesh", isOn: Binding(
+                            get: { study.contourSettings.isDeformed },
+                            set: { deformed in
+                                var updated = study.contourSettings
+                                updated.isDeformed = deformed
+                                workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                            }
+                        ))
+                        .accessibilityIdentifier("inspector-simulation-contour-deformed-toggle")
+
+                        if study.contourSettings.isDeformed {
+                            LabeledContent("Deformation Scale") {
+                                HStack {
+                                    Slider(value: Binding(
+                                        get: { study.contourSettings.deformationScale },
+                                        set: { scale in
+                                            var updated = study.contourSettings
+                                            updated.deformationScale = scale
+                                            workspace.updateSimulationContourSettings(studyId: study.id, settings: updated)
+                                        }
+                                    ), in: 0.1...100.0, step: 0.5)
+                                    Text("\(String(format: "%.1f", study.contourSettings.deformationScale))x")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 45, alignment: .trailing)
+                                }
+                            }
+                            .accessibilityIdentifier("inspector-simulation-contour-deformation-scale")
+                        }
+
+                        if let extrema = workspace.activeContourExtrema[study.id] {
+                            LabeledContent("Actual Range") {
+                                Text("\(String(format: "%.2f", extrema.actualMin)) … \(String(format: "%.2f", extrema.actualMax)) \(extrema.unitSymbol)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityIdentifier("inspector-simulation-contour-range-readout")
+
+                            if let minId = extrema.minNodeId {
+                                LabeledContent("Min Location") {
+                                    Text("Node \(minId)")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let maxId = extrema.maxNodeId {
+                                LabeledContent("Max Location") {
+                                    Text("Node \(maxId)")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    sectionHeader("Contour Plot")
+                }
+                .accessibilityIdentifier("inspector-simulation-contour-section")
+            }
+
             if let modes = study.results.bucklingModes, !modes.isEmpty {
                 Section {
                     Picker("Buckling Mode", selection: Binding(

@@ -42,6 +42,28 @@ vertex VertexOut cadVertexShader(
     return out;
 }
 
+vertex VertexOut contourVertexShader(
+    uint vertexID [[vertex_id]],
+    constant packed_float3 *positions [[buffer(0)]],
+    constant packed_float3 *normals [[buffer(1)]],
+    constant Uniforms &uniforms [[buffer(2)]],
+    constant float4 *colors [[buffer(3)]]
+) {
+    VertexOut out;
+    float3 pos = float3(positions[vertexID]);
+    float3 norm = float3(normals[vertexID]);
+    float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+    float4 viewPos = uniforms.viewMatrix * worldPos;
+    out.position = uniforms.projectionMatrix * viewPos;
+    out.worldPos = worldPos.xyz;
+    out.worldNormal = uniforms.normalMatrix * norm;
+    bool isOrtho = abs(uniforms.projectionMatrix[3][3] - 1.0) < 1e-3;
+    out.viewPos = isOrtho ? float3(0.0, 0.0, -1.0) : viewPos.xyz;
+    out.viewNormal = (uniforms.viewMatrix * float4(out.worldNormal, 0.0)).xyz;
+    out.color = colors[vertexID];
+    return out;
+}
+
 fragment float4 cadFragmentShader(VertexOut in [[stage_in]]) {
     float3 N = normalize(in.worldNormal);
     // Key light from upper-front right
