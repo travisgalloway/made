@@ -1190,4 +1190,160 @@ import simd
             )
         }
     }
+
+    // MARK: - Reaction Forces, Moments & Summaries Verification (BL-RES-06, #326)
+
+    @Test func testCantileverBeamStaticEquilibrium() throws {
+        let L = 1.0
+        let b = 0.05
+        let h = 0.05
+        let F = 1000.0
+        let (mesh, _, _) = Self.makeBeamMeshC3D4(length: L, width: b, height: h, nx: 10, ny: 2, nz: 2)
+
+        var study = SimulationStudy(name: "Equilibrium Cantilever", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .fixed)
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: F, direction: SIMD3<Double>(0, -1, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        let reactions = try #require(result.constraintReactions)
+        #expect(reactions.count == 1)
+        let rootReaction = reactions[0]
+        #expect(rootReaction.fixtureName == "RootFace")
+        #expect(rootReaction.nodeCount > 0)
+
+        // Applied load is (0, -1000, 0). Root reaction Fy should balance with +1000 N within 0.1% (< 1 N)
+        #expect(abs(rootReaction.reactionForce.x) < 1.0)
+        #expect(abs(rootReaction.reactionForce.y - 1000.0) < 1.0)
+        #expect(abs(rootReaction.reactionForce.z) < 1.0)
+
+        // Check body summaries
+        let summaries = try #require(result.bodySummaries)
+        #expect(summaries.count == 1)
+        #expect(summaries[0].bodyName == "Full Model")
+        #expect(summaries[0].nodeCount == mesh.nodes.count)
+        #expect(summaries[0].maxVonMisesStress ?? 0.0 > 0.0)
+        #expect(summaries[0].maxDisplacement ?? 0.0 > 0.0)
+    }
+
+    @Test func testCantileverBeamReactionMoment() throws {
+        let L = 1.0
+        let b = 0.05
+        let h = 0.05
+        let F = 1000.0
+        let (mesh, _, _) = Self.makeBeamMeshC3D4(length: L, width: b, height: h, nx: 10, ny: 2, nz: 2)
+
+        var study = SimulationStudy(name: "Moment Cantilever", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .fixed)
+        ]
+        study.loads = [
+            SimulationLoad(name: "TipFace", kind: .force, magnitude: F, direction: SIMD3<Double>(0, -1, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        let reactions = try #require(result.constraintReactions)
+        let rootReaction = reactions[0]
+
+        // External moment about root centroid: (L, 0, 0) x (0, -F, 0) = -F * L k = -1000 N·m
+        // Reaction moment M_R must balance: M_ext + M_R = 0 => M_R,z ≈ +1000 N·m
+        #expect(abs(rootReaction.reactionMoment.x) < 5.0)
+        #expect(abs(rootReaction.reactionMoment.y) < 5.0)
+        #expect(abs(rootReaction.reactionMoment.z - 1000.0) < 20.0)
+    }
+
+    @Test func testMultipleFixturesStaticEquilibrium() throws {
+        let L = 1.0
+        let b = 0.05
+        let h = 0.05
+        let F = 1200.0
+        let (mesh, _, _) = Self.makeBeamMeshC3D4(length: L, width: b, height: h, nx: 10, ny: 2, nz: 2)
+
+        let midNodeIds = mesh.nodes.filter { abs($0.position.x - 0.5) < 0.06 }.map { $0.id }
+        var updatedSets = mesh.sets
+        updatedSets.append(VolumeMeshSet(name: "MidFace", nodeIds: midNodeIds, elementIds: []))
+        let twoSupportMesh = VolumeMesh(
+            nodes: mesh.nodes,
+            elements: mesh.elements,
+            statistics: mesh.statistics,
+            sets: updatedSets
+        )
+
+        var study = SimulationStudy(name: "Two Supports Equilibrium", studyType: .linearStatic)
+        study.fixtures = [
+            SimulationFixture(name: "RootFace", kind: .pinned),
+            SimulationFixture(name: "TipFace", kind: .rollerSlider, isRestrainedX: false, isRestrainedY: true, isRestrainedZ: true)
+        ]
+        study.loads = [
+            SimulationLoad(name: "MidFace", kind: .force, magnitude: F, direction: SIMD3<Double>(0, -1, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: twoSupportMesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        let reactions = try #require(result.constraintReactions)
+        #expect(reactions.count == 2)
+
+        let totalFy = reactions.reduce(0.0) { $0 + $1.reactionForce.y }
+        #expect(abs(totalFy - F) < 1.0)
+
+        let totalFx = reactions.reduce(0.0) { $0 + $1.reactionForce.x }
+        let totalFz = reactions.reduce(0.0) { $0 + $1.reactionForce.z }
+        #expect(abs(totalFx) < 1.0)
+        #expect(abs(totalFz) < 1.0)
+    }
+
+    @Test func testElasticSupportReaction() throws {
+        let L = 0.5
+        let b = 0.05
+        let h = 0.05
+        let F = 500.0
+        let (mesh, _, _) = Self.makeBeamMeshC3D4(length: L, width: b, height: h, nx: 6, ny: 2, nz: 2)
+
+        var study = SimulationStudy(name: "Elastic Foundation", studyType: .linearStatic)
+        var elasticFix = SimulationFixture(name: "RootFace", kind: .elasticSupport)
+        elasticFix.elasticStiffness = SIMD3<Double>(1e8, 1e7, 1e8)
+        elasticFix.isRestrainedX = true
+        elasticFix.isRestrainedY = true
+        elasticFix.isRestrainedZ = true
+
+        study.fixtures = [
+            elasticFix,
+            SimulationFixture(name: "TipFace", kind: .fixed)
+        ]
+        study.loads = [
+            SimulationLoad(name: "RootFace", kind: .force, magnitude: F, direction: SIMD3<Double>(0, -1, 0))
+        ]
+
+        let result = try LinearStaticSolver.solve(
+            study: study,
+            mesh: mesh,
+            youngsModulus: 200e9,
+            poissonsRatio: 0.3
+        )
+
+        let reactions = try #require(result.constraintReactions)
+        #expect(reactions.count == 2)
+        let totalFy = reactions.reduce(0.0) { $0 + $1.reactionForce.y }
+        #expect(abs(totalFy - F) < 2.0)
+    }
 }

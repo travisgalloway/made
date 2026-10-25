@@ -43,6 +43,15 @@ public enum SimulationUnitConversion: Sendable {
         unit.isImperial ? canonicalN / forceFactor : canonicalN
     }
 
+    /// Converts a canonical 3D force vector (Newtons) to display units.
+    public static func displayForce(_ canonicalN: SIMD3<Double>, unit: LengthUnit) -> SIMD3<Double> {
+        SIMD3<Double>(
+            displayForce(canonicalN.x, unit: unit),
+            displayForce(canonicalN.y, unit: unit),
+            displayForce(canonicalN.z, unit: unit)
+        )
+    }
+
     /// Converts display force value back to canonical Newtons.
     public static func commitForce(_ displayVal: Double, unit: LengthUnit) -> Double {
         unit.isImperial ? displayVal * forceFactor : displayVal
@@ -229,6 +238,15 @@ public enum SimulationUnitConversion: Sendable {
     /// Converts canonical moment (N·m) to the display value for the given document length unit.
     public static func displayMoment(_ canonicalNm: Double, unit: LengthUnit) -> Double {
         unit.isImperial ? canonicalNm * momentFactor : canonicalNm
+    }
+
+    /// Converts a canonical 3D moment vector (N·m) to display units.
+    public static func displayMoment(_ canonicalNm: SIMD3<Double>, unit: LengthUnit) -> SIMD3<Double> {
+        SIMD3<Double>(
+            displayMoment(canonicalNm.x, unit: unit),
+            displayMoment(canonicalNm.y, unit: unit),
+            displayMoment(canonicalNm.z, unit: unit)
+        )
     }
 
     /// Converts display moment value back to canonical N·m.

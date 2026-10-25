@@ -986,5 +986,140 @@ import simd
         #expect(study.probeTable.showProbeBadges == true)
         #expect(study.probeTable.isProbingActive == false)
     }
+
+    // MARK: - Constraint Reactions & Body Summaries Round-Trip Serialization (BL-RES-06, #326)
+
+    @Test func testSimulationStudyWithConstraintReactionsRoundTrip() throws {
+        let fixtureId1 = UUID()
+        let fixtureId2 = UUID()
+        let bodyId = UUID()
+
+        let rxn1 = SimulationConstraintReaction(
+            id: fixtureId1,
+            fixtureName: "Clamp A",
+            reactionForce: SIMD3<Double>(10.5, 250.0, -5.2),
+            reactionMoment: SIMD3<Double>(0.0, 15.2, 85.0),
+            referencePoint: SIMD3<Double>(100.0, 50.0, 25.0),
+            nodeCount: 16,
+            nodalReactionForces: [1: SIMD3<Double>(0.5, 12.5, -0.2), 2: SIMD3<Double>(1.0, 15.0, -0.5)]
+        )
+
+        let rxn2 = SimulationConstraintReaction(
+            id: fixtureId2,
+            fixtureName: "Support B",
+            reactionForce: SIMD3<Double>(-10.5, 750.0, 5.2),
+            reactionMoment: SIMD3<Double>(0.0, -15.2, 115.0),
+            referencePoint: SIMD3<Double>(900.0, 50.0, 25.0),
+            nodeCount: 24,
+            nodalReactionForces: nil
+        )
+
+        let summary = SimulationBodySummary(
+            id: bodyId,
+            bodyName: "Main Bracket",
+            nodeCount: 120,
+            elementCount: 450,
+            maxVonMisesStress: 185.4,
+            maxDisplacement: 1.25,
+            minFactorOfSafety: 2.15,
+            maxTemperature: 65.0,
+            extrema: [
+                SimulationFieldExtrema(fieldName: "von Mises Stress", unitSymbol: "MPa", minValue: 10.0, maxValue: 185.4),
+                SimulationFieldExtrema(fieldName: "Displacement Magnitude", unitSymbol: "mm", minValue: 0.0, maxValue: 1.25)
+            ]
+        )
+
+        var study = SimulationStudy(name: "Reaction Serialization Test", studyType: .linearStatic)
+        study.results.status = .completed
+        study.results.constraintReactions = [rxn1, rxn2]
+        study.results.bodySummaries = [summary]
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoded = try encoder.encode(study)
+
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(SimulationStudy.self, from: encoded)
+
+        let decodedReactions = try #require(decoded.results.constraintReactions)
+        #expect(decodedReactions.count == 2)
+        #expect(decodedReactions[0].id == fixtureId1)
+        #expect(decodedReactions[0].fixtureName == "Clamp A")
+        #expect(decodedReactions[0].reactionForce == SIMD3<Double>(10.5, 250.0, -5.2))
+        #expect(decodedReactions[0].reactionMoment == SIMD3<Double>(0.0, 15.2, 85.0))
+        #expect(decodedReactions[0].referencePoint == SIMD3<Double>(100.0, 50.0, 25.0))
+        #expect(decodedReactions[0].nodeCount == 16)
+        #expect(decodedReactions[0].nodalReactionForces?[1] == SIMD3<Double>(0.5, 12.5, -0.2))
+
+        #expect(decodedReactions[1].id == fixtureId2)
+        #expect(decodedReactions[1].fixtureName == "Support B")
+        #expect(decodedReactions[1].nodalReactionForces == nil)
+
+        // Verify total reaction computed properties
+        let totalF = try #require(decoded.results.totalReactionForce)
+        #expect(abs(totalF.x) < 1e-6)
+        #expect(abs(totalF.y - 1000.0) < 1e-6)
+        #expect(abs(totalF.z) < 1e-6)
+
+        let totalM = try #require(decoded.results.totalReactionMoment)
+        #expect(abs(totalM.x) < 1e-6)
+        #expect(abs(totalM.y) < 1e-6)
+        #expect(abs(totalM.z - 200.0) < 1e-6)
+
+        let decodedSummaries = try #require(decoded.results.bodySummaries)
+        #expect(decodedSummaries.count == 1)
+        #expect(decodedSummaries[0].id == bodyId)
+        #expect(decodedSummaries[0].bodyName == "Main Bracket")
+        #expect(decodedSummaries[0].nodeCount == 120)
+        #expect(decodedSummaries[0].elementCount == 450)
+        #expect(decodedSummaries[0].maxVonMisesStress == 185.4)
+        #expect(decodedSummaries[0].maxDisplacement == 1.25)
+        #expect(decodedSummaries[0].minFactorOfSafety == 2.15)
+        #expect(decodedSummaries[0].maxTemperature == 65.0)
+        #expect(decodedSummaries[0].extrema.count == 2)
+    }
+
+    @Test func testLegacyDocumentResultsWithoutReactionsDecodeCleanly() throws {
+        let legacyJSON = """
+        {
+          "version": 1,
+          "documentType": "part",
+          "objects": [],
+          "parameters": [],
+          "studies": [
+            {
+              "id": "22222222-3333-4444-5555-666666666666",
+              "name": "Legacy Solved Study Without Reactions",
+              "studyType": "linearStatic",
+              "targets": [],
+              "groups": [],
+              "materials": [],
+              "connections": [],
+              "fixtures": [],
+              "loads": [],
+              "results": {
+                "status": "completed",
+                "nodalDisplacements": {
+                  "1": [0.01, 0.02, 0.03]
+                },
+                "nodalVonMisesStresses": {
+                  "1": 45.6
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyJSON)
+
+        let study = try #require(restoredDoc.studies.first)
+        #expect(study.results.status == .completed)
+        #expect(study.results.constraintReactions == nil)
+        #expect(study.results.bodySummaries == nil)
+        #expect(study.results.totalReactionForce == nil)
+        #expect(study.results.totalReactionMoment == nil)
+    }
 }
 

@@ -1902,6 +1902,80 @@ import simd
         ).environment(ws)
         _ = overlayView
     }
+
+    // MARK: - Reaction Forces & Body Summaries UI Tests (BL-RES-06, #326)
+
+    @Test func testInspectorSimulationResultsViewReactionForcesSection() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Reactions UI Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let fixtureId1 = UUID()
+        let fixtureId2 = UUID()
+        let rxn1 = SimulationConstraintReaction(
+            id: fixtureId1,
+            fixtureName: "Fixed Clamp",
+            reactionForce: SIMD3<Double>(0.0, 600.0, 0.0),
+            reactionMoment: SIMD3<Double>(0.0, 0.0, 150.0),
+            referencePoint: SIMD3<Double>(0.0, 25.0, 25.0),
+            nodeCount: 12
+        )
+        let rxn2 = SimulationConstraintReaction(
+            id: fixtureId2,
+            fixtureName: "Roller Support",
+            reactionForce: SIMD3<Double>(0.0, 400.0, 0.0),
+            reactionMoment: SIMD3<Double>(0.0, 0.0, 50.0),
+            referencePoint: SIMD3<Double>(500.0, 25.0, 25.0),
+            nodeCount: 8
+        )
+
+        study.results.status = .completed
+        study.results.constraintReactions = [rxn1, rxn2]
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        let totalF = study.results.totalReactionForce
+        #expect(totalF == SIMD3<Double>(0.0, 1000.0, 0.0))
+        let totalM = study.results.totalReactionMoment
+        #expect(totalM == SIMD3<Double>(0.0, 0.0, 200.0))
+
+        let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
+        _ = inspectorView
+    }
+
+    @Test func testInspectorSimulationResultsViewBodySummariesSection() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Body Summaries UI Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let bodyId = UUID()
+        let summary = SimulationBodySummary(
+            id: bodyId,
+            bodyName: "Casing Solid",
+            nodeCount: 85,
+            elementCount: 320,
+            maxVonMisesStress: 210.5,
+            maxDisplacement: 0.85,
+            minFactorOfSafety: 1.85,
+            maxTemperature: 80.0,
+            extrema: [
+                SimulationFieldExtrema(fieldName: "von Mises Stress", unitSymbol: "MPa", minValue: 15.0, maxValue: 210.5)
+            ]
+        )
+
+        study.results.status = .completed
+        study.results.bodySummaries = [summary]
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        #expect(study.results.bodySummaries?.count == 1)
+        #expect(study.results.bodySummaries?[0].bodyName == "Casing Solid")
+
+        let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
+        _ = inspectorView
+    }
 }
 
 

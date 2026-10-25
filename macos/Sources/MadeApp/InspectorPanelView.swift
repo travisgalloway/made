@@ -4395,6 +4395,170 @@ struct InspectorSimulationResultsView: View {
                 }
             }
 
+            if study.results.status == .completed, let reactions = study.results.constraintReactions, !reactions.isEmpty {
+                Section {
+                    let lengthUnit = workspace.document.settings.units.lengthUnit
+                    let ucsGeom = selectedCoordinateSystemId.flatMap { workspace.document.coordinateSystemGeometry(id: $0) }
+                    let forceUnit = SimulationUnitConversion.forceUnitSymbol(unit: lengthUnit)
+                    let momentUnit = SimulationUnitConversion.momentUnitSymbol(unit: lengthUnit)
+                    let lengthUnitSym = SimulationUnitConversion.lengthUnitSymbol(unit: lengthUnit)
+
+                    ForEach(reactions) { rxn in
+                        let localF = SimulationUnitConversion.transformWorldVectorToLocal(rxn.reactionForce, coordinateSystem: ucsGeom)
+                        let dispFx = SimulationUnitConversion.displayForce(localF.x, unit: lengthUnit)
+                        let dispFy = SimulationUnitConversion.displayForce(localF.y, unit: lengthUnit)
+                        let dispFz = SimulationUnitConversion.displayForce(localF.z, unit: lengthUnit)
+                        let fMag = simd_length(rxn.reactionForce)
+                        let dispFMag = SimulationUnitConversion.displayForce(fMag, unit: lengthUnit)
+
+                        let localM = SimulationUnitConversion.transformWorldVectorToLocal(rxn.reactionMoment, coordinateSystem: ucsGeom)
+                        let dispMx = SimulationUnitConversion.displayMoment(localM.x, unit: lengthUnit)
+                        let dispMy = SimulationUnitConversion.displayMoment(localM.y, unit: lengthUnit)
+                        let dispMz = SimulationUnitConversion.displayMoment(localM.z, unit: lengthUnit)
+                        let mMag = simd_length(rxn.reactionMoment)
+                        let dispMMag = SimulationUnitConversion.displayMoment(mMag, unit: lengthUnit)
+
+                        let localCentroid = SimulationUnitConversion.transformWorldPointToLocal(rxn.referencePoint, coordinateSystem: ucsGeom)
+                        let dispCx = SimulationUnitConversion.displayLength(localCentroid.x, unit: lengthUnit)
+                        let dispCy = SimulationUnitConversion.displayLength(localCentroid.y, unit: lengthUnit)
+                        let dispCz = SimulationUnitConversion.displayLength(localCentroid.z, unit: lengthUnit)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(rxn.fixtureName)
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Text("\(rxn.nodeCount) nodes")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            LabeledContent("Resultant Force") {
+                                Text("\(String(format: "%.2f", dispFMag)) \(forceUnit) [\(String(format: "%.2f", dispFx)), \(String(format: "%.2f", dispFy)), \(String(format: "%.2f", dispFz))]")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityIdentifier("inspector-simulation-reaction-force-\(rxn.id.uuidString)")
+
+                            LabeledContent("Resultant Moment") {
+                                Text("\(String(format: "%.2f", dispMMag)) \(momentUnit) [\(String(format: "%.2f", dispMx)), \(String(format: "%.2f", dispMy)), \(String(format: "%.2f", dispMz))]")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityIdentifier("inspector-simulation-reaction-moment-\(rxn.id.uuidString)")
+
+                            LabeledContent("Centroid") {
+                                Text("[\(String(format: "%.2f", dispCx)), \(String(format: "%.2f", dispCy)), \(String(format: "%.2f", dispCz))] \(lengthUnitSym)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityIdentifier("inspector-simulation-reaction-centroid-\(rxn.id.uuidString)")
+                        }
+                        .padding(.vertical, 2)
+                        .accessibilityIdentifier("inspector-simulation-reaction-card-\(rxn.id.uuidString)")
+                    }
+
+                    if reactions.count > 1, let totalF = study.results.totalReactionForce, let totalM = study.results.totalReactionMoment {
+                        let localTF = SimulationUnitConversion.transformWorldVectorToLocal(totalF, coordinateSystem: ucsGeom)
+                        let dispTFx = SimulationUnitConversion.displayForce(localTF.x, unit: lengthUnit)
+                        let dispTFy = SimulationUnitConversion.displayForce(localTF.y, unit: lengthUnit)
+                        let dispTFz = SimulationUnitConversion.displayForce(localTF.z, unit: lengthUnit)
+                        let tfMag = simd_length(totalF)
+                        let dispTFMag = SimulationUnitConversion.displayForce(tfMag, unit: lengthUnit)
+
+                        let localTM = SimulationUnitConversion.transformWorldVectorToLocal(totalM, coordinateSystem: ucsGeom)
+                        let dispTMx = SimulationUnitConversion.displayMoment(localTM.x, unit: lengthUnit)
+                        let dispTMy = SimulationUnitConversion.displayMoment(localTM.y, unit: lengthUnit)
+                        let dispTMz = SimulationUnitConversion.displayMoment(localTM.z, unit: lengthUnit)
+                        let tmMag = simd_length(totalM)
+                        let dispTMMag = SimulationUnitConversion.displayMoment(tmMag, unit: lengthUnit)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Total Equilibrium Resultants")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+
+                            LabeledContent("Total Force") {
+                                Text("\(String(format: "%.2f", dispTFMag)) \(forceUnit) [\(String(format: "%.2f", dispTFx)), \(String(format: "%.2f", dispTFy)), \(String(format: "%.2f", dispTFz))]")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityIdentifier("inspector-simulation-total-reaction-force")
+
+                            LabeledContent("Total Moment") {
+                                Text("\(String(format: "%.2f", dispTMMag)) \(momentUnit) [\(String(format: "%.2f", dispTMx)), \(String(format: "%.2f", dispTMy)), \(String(format: "%.2f", dispTMz))]")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityIdentifier("inspector-simulation-total-reaction-moment")
+                        }
+                        .padding(.vertical, 2)
+                    }
+                } header: {
+                    sectionHeader("Reaction Forces & Moments")
+                }
+                .accessibilityIdentifier("inspector-simulation-reactions-section")
+            }
+
+            if study.results.status == .completed, let summaries = study.results.bodySummaries, !summaries.isEmpty {
+                Section {
+                    let lengthUnit = workspace.document.settings.units.lengthUnit
+                    let stressUnit = SimulationUnitConversion.stressUnitSymbol(unit: lengthUnit)
+                    let lengthUnitSym = SimulationUnitConversion.lengthUnitSymbol(unit: lengthUnit)
+                    let tempUnit = SimulationUnitConversion.temperatureUnitSymbol(unit: lengthUnit)
+
+                    ForEach(summaries) { summary in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(summary.bodyName)
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Text("\(summary.nodeCount) nodes, \(summary.elementCount) elements")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let maxStress = summary.maxVonMisesStress {
+                                let dispStress = SimulationUnitConversion.displayStress(maxStress, unit: lengthUnit)
+                                LabeledContent("Max von Mises Stress") {
+                                    Text("\(String(format: "%.1f", dispStress)) \(stressUnit)")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .accessibilityIdentifier("inspector-simulation-body-stress-\(summary.id.uuidString)")
+                            }
+
+                            if let maxDisp = summary.maxDisplacement {
+                                let dispD = SimulationUnitConversion.displayLength(maxDisp, unit: lengthUnit)
+                                LabeledContent("Max Displacement") {
+                                    Text("\(String(format: "%.3f", dispD)) \(lengthUnitSym)")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .accessibilityIdentifier("inspector-simulation-body-displacement-\(summary.id.uuidString)")
+                            }
+
+                            if let minFos = summary.minFactorOfSafety {
+                                LabeledContent("Min Factor of Safety") {
+                                    Text(String(format: "%.2f", minFos))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .accessibilityIdentifier("inspector-simulation-body-fos-\(summary.id.uuidString)")
+                            }
+
+                            if let maxTemp = summary.maxTemperature {
+                                let dispT = SimulationUnitConversion.displayTemperature(maxTemp, unit: lengthUnit)
+                                LabeledContent("Max Temperature") {
+                                    Text("\(String(format: "%.1f", dispT)) \(tempUnit)")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .accessibilityIdentifier("inspector-simulation-body-temp-\(summary.id.uuidString)")
+                            }
+                        }
+                        .padding(.vertical, 2)
+                        .accessibilityIdentifier("inspector-simulation-body-summary-card-\(summary.id.uuidString)")
+                    }
+                } header: {
+                    sectionHeader("Body Summaries")
+                }
+                .accessibilityIdentifier("inspector-simulation-body-summaries-section")
+            }
+
             if let fos = study.results.factorOfSafety ?? FactorOfSafetyCalculator.evaluate(study: study) {
                 Section {
                     Picker("Strength Basis", selection: Binding(
