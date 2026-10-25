@@ -662,5 +662,91 @@ import simd
         #expect(restoredStudy.loads.count == 1)
         #expect(restoredStudy.loads[0].coordinateSystemId == loadUCS)
     }
+
+    @Test func testSimulationStudyWithResultFieldStorageDescriptorRoundTrip() throws {
+        let storage = ResultFieldStorageDescriptor(
+            storagePath: "cache/results/study-1/results.vtu",
+            format: .vtu,
+            availableFields: [
+                ResultFieldMetadata(name: "Displacement", kind: .displacement, componentCount: 3, entityCount: 100, unitSymbol: "mm")
+            ],
+            byteSize: 1024,
+            isResident: false
+        )
+
+        let results = SimulationStudyResults(
+            status: .completed,
+            fieldStorage: storage,
+            elementVonMisesStresses: [1: 25.0, 2: 50.0],
+            elementHeatFluxes: [1: SIMD3<Double>(0, 10, 0)]
+        )
+
+        let study = SimulationStudy(
+            name: "Study With Storage Descriptor",
+            studyType: .linearStatic,
+            results: results
+        )
+
+        let doc = DocumentModel()
+        doc.addStudy(study)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encoded)
+
+        let restoredStudy = try #require(restoredDoc.studies.first)
+        #expect(restoredStudy.results.fieldStorage?.storagePath == "cache/results/study-1/results.vtu")
+        #expect(restoredStudy.results.fieldStorage?.format == .vtu)
+        #expect(restoredStudy.results.fieldStorage?.byteSize == 1024)
+        #expect(restoredStudy.results.fieldStorage?.isResident == false)
+        #expect(restoredStudy.results.fieldStorage?.availableFields.count == 1)
+        #expect(restoredStudy.results.elementVonMisesStresses?[2] == 50.0)
+        #expect(restoredStudy.results.elementHeatFluxes?[1]?.y == 10.0)
+    }
+
+    @Test func testLegacyDocumentResultsWithoutFieldStorageDecodeCleanly() throws {
+        let legacyJSON = """
+        {
+          "version": 1,
+          "documentType": "part",
+          "objects": [],
+          "parameters": [],
+          "studies": [
+            {
+              "id": "11111111-2222-3333-4444-555555555555",
+              "name": "Legacy Solved Study",
+              "studyType": "linearStatic",
+              "targets": [],
+              "groups": [],
+              "materials": [],
+              "connections": [],
+              "fixtures": [],
+              "loads": [],
+              "results": {
+                "status": "completed",
+                "nodalDisplacements": {
+                  "1": [0.01, 0.02, 0.03]
+                },
+                "nodalVonMisesStresses": {
+                  "1": 45.6
+                }
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: legacyJSON)
+
+        let study = try #require(restoredDoc.studies.first)
+        #expect(study.results.status == .completed)
+        #expect(study.results.nodalDisplacements?[1] == SIMD3<Double>(0.01, 0.02, 0.03))
+        #expect(study.results.nodalVonMisesStresses?[1] == 45.6)
+        #expect(study.results.fieldStorage == nil)
+        #expect(study.results.elementVonMisesStresses == nil)
+        #expect(study.results.elementHeatFluxes == nil)
+        #expect(study.results.isFieldsLoaded == true)
+    }
 }
 

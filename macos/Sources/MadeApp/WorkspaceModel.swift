@@ -65,6 +65,7 @@ final class WorkspaceModel {
     @ObservationIgnored private var activeMeshTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored public var volumeMesher: any VolumeMesherProtocol
     @ObservationIgnored public var cachedStudyMeshes: [UUID: VolumeMesh] = [:]
+    @ObservationIgnored public var cachedStudyResultFields: [UUID: SimulationResultFields] = [:]
 
     // Mesh quality metrics and element highlighting (BL-MSH-04, #277)
     public var selectedMeshQualityMetric: MeshQualityMetricKind = .aspectRatio
@@ -3783,8 +3784,11 @@ final class WorkspaceModel {
             componentMirrors: document.componentMirrors,
             explodedViews: document.explodedViews,
             activeExplodedViewId: document.activeExplodedViewId,
+            studies: document.studies.isEmpty ? nil : document.studies,
+            activeStudyId: document.activeStudyId,
             sheets: document.sheets,
-            activeSheetId: document.activeSheetId
+            activeSheetId: document.activeSheetId,
+            customMaterials: document.customMaterials.isEmpty ? nil : document.customMaterials
         )
 
         var assets: [String: Data] = [:]
@@ -6341,6 +6345,7 @@ final class WorkspaceModel {
         }
         clearSimulationMeshFromViewport(studyId: id)
         cachedStudyMeshes.removeValue(forKey: id)
+        cachedStudyResultFields.removeValue(forKey: id)
         let studyName = document.study(id: id)?.name ?? "\(id)"
         let result = document.removeStudy(id: id)
         if case .success = result {
@@ -6485,10 +6490,9 @@ final class WorkspaceModel {
                             currentStudy.results.runtimeDuration = elapsed
                             currentStudy.results.extrema = result.extrema
                             currentStudy.results.nodalTemperatures = result.nodalTemperatures
+                            currentStudy.results.elementHeatFluxes = result.elementHeatFluxes
                             currentStudy.results.errorMessage = nil
-                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
-                            self.markDocumentModified()
-                            self.invalidateViewport(.model)
+                            self.finalizeSuccessfulSolve(studyId: id, study: &currentStudy, mesh: mesh)
                         }
                         let extremaSummary = result.extrema.map { "\($0.fieldName): \(String(format: "%.2f", $0.minValue)) to \(String(format: "%.2f", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
                         self.log(.info, "CAE", "Thermal conduction study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(extremaSummary)")
@@ -6510,12 +6514,11 @@ final class WorkspaceModel {
                             currentStudy.results.extrema = result.extrema
                             currentStudy.results.nodalDisplacements = result.nodalDisplacements
                             currentStudy.results.nodalVonMisesStresses = result.nodalVonMisesStresses
+                            currentStudy.results.elementVonMisesStresses = result.elementVonMisesStresses
                             currentStudy.results.factorOfSafety = result.factorOfSafety
                             currentStudy.results.nodalCauchyTensors = result.nodalCauchyTensors
                             currentStudy.results.errorMessage = nil
-                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
-                            self.markDocumentModified()
-                            self.invalidateViewport(.model)
+                            self.finalizeSuccessfulSolve(studyId: id, study: &currentStudy, mesh: mesh)
                         }
                         let summary = result.extrema.map { "\($0.fieldName): \(String(format: "%.3g", $0.minValue)) … \(String(format: "%.3g", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
                         self.log(.info, "CAE", "Linear static study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(summary)")
@@ -6538,9 +6541,7 @@ final class WorkspaceModel {
                             currentStudy.results.bucklingModes = result.modes
                             currentStudy.results.nodalDisplacements = result.modes.first?.nodalDisplacements
                             currentStudy.results.errorMessage = nil
-                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
-                            self.markDocumentModified()
-                            self.invalidateViewport(.model)
+                            self.finalizeSuccessfulSolve(studyId: id, study: &currentStudy, mesh: mesh)
                         }
                         let summary = result.extrema.map { "\($0.fieldName): \(String(format: "%.3g", $0.minValue)) … \(String(format: "%.3g", $0.maxValue)) \($0.unitSymbol)" }.joined(separator: ", ")
                         self.log(.info, "CAE", "Linear buckling study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) iters). \(summary)")
@@ -6563,10 +6564,8 @@ final class WorkspaceModel {
                             currentStudy.results.modeShapes = result.modeShapes
                             currentStudy.results.nodalDisplacements = result.modeShapes.first?.nodalDisplacements
                             currentStudy.results.errorMessage = nil
-                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
-                            self.markDocumentModified()
+                            self.finalizeSuccessfulSolve(studyId: id, study: &currentStudy, mesh: mesh)
                             self.updateSimulationMeshInViewport(studyId: id)
-                            self.invalidateViewport(.model)
                         }
                         let summary = result.modeShapes.map { "Mode \($0.modeNumber): \(String(format: "%.2f", $0.frequencyHz)) Hz" }.joined(separator: ", ")
                         self.log(.info, "CAE", "Modal frequency study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s (\(result.iterationCount) PCG iters). \(summary)")
@@ -6594,9 +6593,7 @@ final class WorkspaceModel {
                             currentStudy.results.status = .completed
                             currentStudy.results.runtimeDuration = result.runtimeDuration > 0 ? result.runtimeDuration : elapsed
                             currentStudy.results.errorMessage = nil
-                            _ = self.document.updateSimulationStudyResults(studyId: id, results: currentStudy.results)
-                            self.markDocumentModified()
-                            self.invalidateViewport(.model)
+                            self.finalizeSuccessfulSolve(studyId: id, study: &currentStudy, mesh: mesh)
                         }
                         self.log(.info, "CAE", "Simulation study '\(study.name)' completed in \(String(format: "%.2f", elapsed)) s")
                     }
@@ -6683,6 +6680,74 @@ final class WorkspaceModel {
         Task {
             await runner.cancel(studyId: id)
         }
+    }
+
+    // MARK: - Simulation Result Fields & Storage (BL-RES-01, #192)
+
+    private func finalizeSuccessfulSolve(
+        studyId: UUID,
+        study: inout SimulationStudy,
+        mesh: VolumeMesh
+    ) {
+        let fields = study.results.extractFields(studyId: studyId)
+        cachedStudyResultFields[studyId] = fields
+
+        if let packageURL = currentDocumentURL {
+            do {
+                let descriptor = try SimulationResultFieldStorage.saveResultFields(
+                    fields: fields,
+                    mesh: mesh,
+                    toPackageURL: packageURL
+                )
+                study.results.fieldStorage = descriptor
+            } catch {
+                log(.warning, "CAE", "Failed to cache result fields to package: \(error.localizedDescription)")
+            }
+        }
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func loadResultFields(studyId: UUID) {
+        guard var study = document.study(id: studyId) else { return }
+        guard let packageURL = currentDocumentURL else {
+            log(.warning, "CAE", "Cannot load result fields: document has not been saved to disk")
+            return
+        }
+        do {
+            try study.results.loadFields(from: packageURL)
+            let fields = study.results.extractFields(studyId: studyId)
+            cachedStudyResultFields[studyId] = fields
+            _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+            markDocumentModified()
+            invalidateViewport(.model)
+            log(.info, "CAE", "Loaded result fields for study '\(study.name)'")
+        } catch {
+            log(.error, "CAE", "Failed to load result fields for study '\(study.name)': \(error.localizedDescription)")
+        }
+    }
+
+    public func unloadResultFields(studyId: UUID) {
+        guard var study = document.study(id: studyId) else { return }
+        cachedStudyResultFields.removeValue(forKey: studyId)
+        study.results.unloadFields()
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Unloaded result fields from memory for study '\(study.name)'")
+    }
+
+    public func resultFields(for studyId: UUID) -> SimulationResultFields? {
+        if let cached = cachedStudyResultFields[studyId] {
+            return cached
+        }
+        if let study = document.study(id: studyId), study.results.isFieldsLoaded {
+            let extracted = study.results.extractFields(studyId: studyId)
+            cachedStudyResultFields[studyId] = extracted
+            return extracted
+        }
+        return nil
     }
 
     // MARK: - Simulation Volume Meshing Execution (BL-MSH-01, #188)

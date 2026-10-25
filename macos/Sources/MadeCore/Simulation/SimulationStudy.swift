@@ -910,6 +910,9 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var modeShapes: [SimulationModeShape]?
     public var factorOfSafety: FactorOfSafetyResult?
     public var nodalCauchyTensors: [Int: CauchyStressTensor]?
+    public var fieldStorage: ResultFieldStorageDescriptor?
+    public var elementVonMisesStresses: [Int: Double]?
+    public var elementHeatFluxes: [Int: SIMD3<Double>]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -924,7 +927,10 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         bucklingModes: [SimulationBucklingMode]? = nil,
         modeShapes: [SimulationModeShape]? = nil,
         factorOfSafety: FactorOfSafetyResult? = nil,
-        nodalCauchyTensors: [Int: CauchyStressTensor]? = nil
+        nodalCauchyTensors: [Int: CauchyStressTensor]? = nil,
+        fieldStorage: ResultFieldStorageDescriptor? = nil,
+        elementVonMisesStresses: [Int: Double]? = nil,
+        elementHeatFluxes: [Int: SIMD3<Double>]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -939,10 +945,13 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.modeShapes = modeShapes
         self.factorOfSafety = factorOfSafety
         self.nodalCauchyTensors = nodalCauchyTensors
+        self.fieldStorage = fieldStorage
+        self.elementVonMisesStresses = elementVonMisesStresses
+        self.elementHeatFluxes = elementHeatFluxes
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes, factorOfSafety, nodalCauchyTensors
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes, factorOfSafety, nodalCauchyTensors, fieldStorage, elementVonMisesStresses, elementHeatFluxes
     }
 
     public init(from decoder: Decoder) throws {
@@ -960,6 +969,89 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.modeShapes = try container.decodeIfPresent([SimulationModeShape].self, forKey: .modeShapes)
         self.factorOfSafety = try container.decodeIfPresent(FactorOfSafetyResult.self, forKey: .factorOfSafety)
         self.nodalCauchyTensors = try container.decodeIfPresent([Int: CauchyStressTensor].self, forKey: .nodalCauchyTensors)
+        self.fieldStorage = try container.decodeIfPresent(ResultFieldStorageDescriptor.self, forKey: .fieldStorage)
+        self.elementVonMisesStresses = try container.decodeIfPresent([Int: Double].self, forKey: .elementVonMisesStresses)
+        self.elementHeatFluxes = try container.decodeIfPresent([Int: SIMD3<Double>].self, forKey: .elementHeatFluxes)
+    }
+
+    /// True when any heavy numerical result field array is currently resident in memory.
+    public var isFieldsLoaded: Bool {
+        nodalDisplacements != nil ||
+        nodalVonMisesStresses != nil ||
+        nodalTemperatures != nil ||
+        nodalCauchyTensors != nil ||
+        elementVonMisesStresses != nil ||
+        elementHeatFluxes != nil ||
+        bucklingModes != nil ||
+        modeShapes != nil
+    }
+
+    /// Unloads heavy result arrays from memory while retaining metadata, extrema, and mesh statistics.
+    public mutating func unloadFields() {
+        nodalDisplacements = nil
+        nodalVonMisesStresses = nil
+        nodalTemperatures = nil
+        nodalCauchyTensors = nil
+        elementVonMisesStresses = nil
+        elementHeatFluxes = nil
+        bucklingModes = nil
+        modeShapes = nil
+        fieldStorage?.isResident = false
+    }
+
+    /// Lazy loads result fields into memory from the associated package cache file.
+    public mutating func loadFields(from packageURL: URL) throws(CAEErrorCode) {
+        guard let storage = fieldStorage else {
+            throw CAEErrorCode.resultParsingFailed(details: "No field storage descriptor available to load results.")
+        }
+        let fileURL = packageURL.appendingPathComponent(storage.storagePath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw CAEErrorCode.resultParsingFailed(details: "Result file not found at \(fileURL.path).")
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            throw CAEErrorCode.resultParsingFailed(details: "Failed to read result file at \(fileURL.path): \(error.localizedDescription)")
+        }
+
+        switch storage.format {
+        case .vtu:
+            let (_, fields) = try VTUResultFormat.importVTU(data: data)
+            applyFields(fields)
+        case .compactBinary:
+            let fields = try CompactBinaryResultFormat.deserialize(data: data)
+            applyFields(fields)
+        }
+        fieldStorage?.isResident = true
+    }
+
+    /// Applies populated field arrays from a `SimulationResultFields` container.
+    public mutating func applyFields(_ fields: SimulationResultFields) {
+        if let d = fields.nodalDisplacements { self.nodalDisplacements = d }
+        if let v = fields.nodalVonMisesStresses { self.nodalVonMisesStresses = v }
+        if let t = fields.nodalTemperatures { self.nodalTemperatures = t }
+        if let c = fields.nodalCauchyTensors { self.nodalCauchyTensors = c }
+        if let ev = fields.elementVonMisesStresses { self.elementVonMisesStresses = ev }
+        if let hf = fields.elementHeatFluxes { self.elementHeatFluxes = hf }
+        if let bm = fields.bucklingModes { self.bucklingModes = bm }
+        if let ms = fields.modeShapes { self.modeShapes = ms }
+        self.fieldStorage?.isResident = true
+    }
+
+    /// Extracts resident field arrays into a standalone `SimulationResultFields` container.
+    public func extractFields(studyId: UUID) -> SimulationResultFields {
+        SimulationResultFields(
+            studyId: studyId,
+            nodalDisplacements: nodalDisplacements,
+            nodalVonMisesStresses: nodalVonMisesStresses,
+            nodalTemperatures: nodalTemperatures,
+            nodalCauchyTensors: nodalCauchyTensors,
+            elementVonMisesStresses: elementVonMisesStresses,
+            elementHeatFluxes: elementHeatFluxes,
+            bucklingModes: bucklingModes,
+            modeShapes: modeShapes
+        )
     }
 }
 
