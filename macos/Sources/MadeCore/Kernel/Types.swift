@@ -189,6 +189,7 @@ public struct MeshPayload: Sendable {
     public let edgePolylines: [EdgePolyline]
     public let edgeSegmentRanges: [EdgeSegmentRange]
     public let vertexPoints: [VertexPoint]
+    public let colors: [Float]?
 
     public var positions: MeshComponent<Float> { storage.positions }
     public var normals: MeshComponent<Float> { storage.normals }
@@ -201,13 +202,15 @@ public struct MeshPayload: Sendable {
         faceRanges: [FaceTriangleRange] = [],
         edgePolylines: [EdgePolyline] = [],
         edgeSegmentRanges: [EdgeSegmentRange] = [],
-        vertexPoints: [VertexPoint] = []
+        vertexPoints: [VertexPoint] = [],
+        colors: [Float]? = nil
     ) {
         self.storage = storage
         self.faceRanges = faceRanges
         self.edgePolylines = edgePolylines
         self.edgeSegmentRanges = edgeSegmentRanges
         self.vertexPoints = vertexPoints
+        self.colors = colors
     }
     
     public init(
@@ -217,7 +220,8 @@ public struct MeshPayload: Sendable {
         faceRanges: [FaceTriangleRange] = [],
         edgePolylines: [EdgePolyline] = [],
         edgeSegmentRanges: [EdgeSegmentRange] = [],
-        vertexPoints: [VertexPoint] = []
+        vertexPoints: [VertexPoint] = [],
+        colors: [Float]? = nil
     ) {
         self.storage = MeshStorage(positionCount: positions.count, normalCount: normals.count, indexCount: indices.count) { p, n, i in
             _ = p.initialize(from: positions)
@@ -228,6 +232,7 @@ public struct MeshPayload: Sendable {
         self.edgePolylines = edgePolylines
         self.edgeSegmentRanges = edgeSegmentRanges
         self.vertexPoints = vertexPoints
+        self.colors = colors
     }
 
     /// Returns the vertex point for the given vertex ID.

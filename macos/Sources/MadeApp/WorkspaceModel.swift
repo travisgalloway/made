@@ -66,6 +66,7 @@ final class WorkspaceModel {
     @ObservationIgnored public var volumeMesher: any VolumeMesherProtocol
     @ObservationIgnored public var cachedStudyMeshes: [UUID: VolumeMesh] = [:]
     @ObservationIgnored public var cachedStudyResultFields: [UUID: SimulationResultFields] = [:]
+    public var activeContourExtrema: [UUID: SimulationContourExtrema] = [:]
 
     // Mesh quality metrics and element highlighting (BL-MSH-04, #277)
     public var selectedMeshQualityMetric: MeshQualityMetricKind = .aspectRatio
@@ -132,6 +133,7 @@ final class WorkspaceModel {
         isSimulationResultsSelected = false
         if let id {
             updateSimulationMeshInViewport(studyId: id)
+            updateSimulationContourInViewport(studyId: id)
         }
     }
 
@@ -212,6 +214,9 @@ final class WorkspaceModel {
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = isSelected
+        if isSelected {
+            updateSimulationContourInViewport(studyId: studyId)
+        }
     }
 
     public func selectExplodedView(_ id: UUID?) {
@@ -6344,6 +6349,7 @@ final class WorkspaceModel {
             clearSimulationSelections()
         }
         clearSimulationMeshFromViewport(studyId: id)
+        clearSimulationContourFromViewport(studyId: id)
         cachedStudyMeshes.removeValue(forKey: id)
         cachedStudyResultFields.removeValue(forKey: id)
         let studyName = document.study(id: id)?.name ?? "\(id)"
@@ -6706,6 +6712,7 @@ final class WorkspaceModel {
         }
         _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
         markDocumentModified()
+        updateSimulationContourInViewport(studyId: studyId)
         invalidateViewport(.model)
     }
 
@@ -6721,6 +6728,7 @@ final class WorkspaceModel {
             cachedStudyResultFields[studyId] = fields
             _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
             markDocumentModified()
+            updateSimulationContourInViewport(studyId: studyId)
             invalidateViewport(.model)
             log(.info, "CAE", "Loaded result fields for study '\(study.name)'")
         } catch {
@@ -6734,6 +6742,7 @@ final class WorkspaceModel {
         study.results.unloadFields()
         _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
         markDocumentModified()
+        updateSimulationContourInViewport(studyId: studyId)
         invalidateViewport(.model)
         log(.info, "CAE", "Unloaded result fields from memory for study '\(study.name)'")
     }
@@ -7347,7 +7356,9 @@ final class WorkspaceModel {
         }
 
         let basePayload = MeshDisplayGenerator.generatePayload(mesh: volumeMesh, settings: study.meshDisplay)
-        if !basePayload.isEmpty || !basePayload.edgePolylines.isEmpty {
+        if study.contourSettings.isVisible {
+            _ = viewportManager.renderer?.removeMesh(for: baseMeshId)
+        } else if !basePayload.isEmpty || !basePayload.edgePolylines.isEmpty {
             _ = viewportManager.renderer?.installMesh(
                 basePayload,
                 for: baseMeshId,
@@ -7425,6 +7436,111 @@ final class WorkspaceModel {
         guard var study = document.study(id: studyId) else { return }
         study.meshDisplay.isVisible.toggle()
         updateSimulationMeshDisplaySettings(studyId: studyId, settings: study.meshDisplay)
+    }
+
+    // MARK: - Simulation Contour Viewport Lifecycle (BL-RES-02, #193)
+
+    public func updateSimulationContourInViewport(studyId: UUID) {
+        let contourMeshId = SolidId("simulation-contour-\(studyId.uuidString)")
+        let baseMeshId = SolidId("simulation-mesh-\(studyId.uuidString)")
+
+        guard let study = document.study(id: studyId) else {
+            _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
+            activeContourExtrema.removeValue(forKey: studyId)
+            invalidateViewport(.model)
+            return
+        }
+
+        var targetSolidIds: [SolidId] = []
+        if !study.targets.isEmpty {
+            let targetStrings = Set(study.targets.map { $0.targetId.uuidString.lowercased() })
+            for obj in document.objects {
+                if targetStrings.contains(obj.id.rawValue.lowercased()) || study.targets.contains(where: { $0.targetName == obj.name }) {
+                    targetSolidIds.append(SolidId(obj.id.rawValue))
+                }
+            }
+        }
+        if targetSolidIds.isEmpty {
+            targetSolidIds = document.objects.map { SolidId($0.id.rawValue) }
+        }
+
+        guard study.contourSettings.isVisible,
+              study.results.status == .completed,
+              let volumeMesh = cachedStudyMeshes[studyId] else {
+            _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
+            activeContourExtrema.removeValue(forKey: studyId)
+            if !study.meshDisplay.hideSolidBody {
+                for solidId in targetSolidIds {
+                    viewportManager.renderer?.hiddenSolidIds.remove(solidId)
+                }
+            }
+            if study.meshDisplay.isVisible {
+                updateSimulationMeshInViewport(studyId: studyId)
+            }
+            invalidateViewport(.model)
+            return
+        }
+
+        // Hide base uncolored mesh to avoid Z-fighting
+        _ = viewportManager.renderer?.removeMesh(for: baseMeshId)
+
+        // Hide CAD solids under contour plot
+        for solidId in targetSolidIds {
+            viewportManager.renderer?.hiddenSolidIds.insert(solidId)
+        }
+
+        let fields = resultFields(for: studyId)
+        let (payload, extrema) = SimulationContourGenerator.generatePayload(
+            mesh: volumeMesh,
+            study: study,
+            results: study.results,
+            fields: fields,
+            settings: study.contourSettings,
+            displaySettings: study.meshDisplay
+        )
+
+        activeContourExtrema[studyId] = extrema
+
+        if !payload.isEmpty || !payload.edgePolylines.isEmpty {
+            _ = viewportManager.renderer?.installMesh(
+                payload,
+                for: contourMeshId,
+                transform: .identity,
+                color: SIMD4<Float>(1.0, 1.0, 1.0, 1.0),
+                isHidden: false
+            )
+        } else {
+            _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
+        }
+
+        invalidateViewport(.model)
+    }
+
+    public func clearSimulationContourFromViewport(studyId: UUID) {
+        let contourMeshId = SolidId("simulation-contour-\(studyId.uuidString)")
+        _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
+        activeContourExtrema.removeValue(forKey: studyId)
+
+        if let study = document.study(id: studyId) {
+            let targetStrings = Set(study.targets.map { $0.targetId.uuidString.lowercased() })
+            for obj in document.objects {
+                if targetStrings.contains(obj.id.rawValue.lowercased()) || study.targets.contains(where: { $0.targetName == obj.name }) {
+                    if !study.meshDisplay.hideSolidBody {
+                        viewportManager.renderer?.hiddenSolidIds.remove(SolidId(obj.id.rawValue))
+                    }
+                }
+            }
+        }
+        invalidateViewport(.model)
+    }
+
+    public func updateSimulationContourSettings(studyId: UUID, settings: SimulationContourSettings) {
+        let result = document.updateSimulationContourSettings(studyId: studyId, settings: settings)
+        if case .success = result {
+            markDocumentModified()
+            updateSimulationContourInViewport(studyId: studyId)
+            log(.info, "CAE", "Updated contour plot settings for study")
+        }
     }
 
     public func assignSelectedSubElementToFixture(studyId: UUID, fixtureId: UUID) {

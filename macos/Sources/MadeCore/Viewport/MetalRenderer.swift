@@ -37,6 +37,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     // Pipelines and fixed-function state
     private let solidPipeline: MTLRenderPipelineState
+    private let contourPipeline: MTLRenderPipelineState
     private let cadEdgePipeline: MTLRenderPipelineState
     private let unshadedPipeline: MTLRenderPipelineState
     let linePipeline: MTLRenderPipelineState
@@ -213,6 +214,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             let library = try Self.makeShaderLibrary(device: device)
             let compiler = try device.makeCompiler(descriptor: MTL4CompilerDescriptor())
             self.solidPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "cadFragmentShader")
+            self.contourPipeline = try Self.makePipeline(compiler, library, vertex: "contourVertexShader", fragment: "cadFragmentShader")
             self.cadEdgePipeline = try Self.makePipeline(compiler, library, vertex: "cadEdgeVertexShader", fragment: "cadEdgeFragmentShader", alphaBlend: true)
             self.unshadedPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "unshadedFragmentShader")
             self.linePipeline = try Self.makePipeline(compiler, library, vertex: "gridVertexShader", fragment: "gridFragmentShader")
@@ -281,7 +283,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     /// Shader entry points the renderer links; tests check the bundled library against this list.
     public static let shaderFunctionNames = [
-        "cadVertexShader", "cadFragmentShader", "unshadedFragmentShader",
+        "cadVertexShader", "contourVertexShader", "cadFragmentShader", "unshadedFragmentShader",
         "cadEdgeVertexShader", "cadEdgeFragmentShader",
         "gridVertexShader", "gridFragmentShader",
         "billboardVertexShader", "billboardFragmentShader",
@@ -556,6 +558,14 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             vertexBuffer = nil
         }
 
+        let colorBuffer: MTLBuffer?
+        if let colors = payload.colors, !colors.isEmpty {
+            colorBuffer = device.makeBuffer(bytes: colors, length: colors.count * MemoryLayout<Float>.stride, options: .storageModeShared)
+            colorBuffer?.label = "\(solidId) Colors"
+        } else {
+            colorBuffer = nil
+        }
+
         return MetalMesh(
             positionBuffer: positions,
             normalBuffer: normals,
@@ -571,7 +581,8 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             edgeSegmentBuffer: edgeSegmentBuffer,
             edgeSegmentCount: edgeSegmentCount,
             vertexBuffer: vertexBuffer,
-            vertexCount: vertexCount
+            vertexCount: vertexCount,
+            colorBuffer: colorBuffer
         )
     }
 
@@ -634,6 +645,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             if let tf = mesh.triangleFaceIdBuffer { allocations.append(tf) }
             if let es = mesh.edgeSegmentBuffer { allocations.append(es) }
             if let vb = mesh.vertexBuffer { allocations.append(vb) }
+            if let cb = mesh.colorBuffer { allocations.append(cb) }
         }
         for geom in gizmoGeometry.values {
             allocations += [geom.positionBuffer, geom.defaultColorBuffer, geom.activeColorBuffer]
@@ -854,6 +866,12 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
                 guard ctx.bindUniforms(uniforms, at: 2) else { break }
                 ctx.bind(mesh.positionBuffer, at: 0)
                 ctx.bind(mesh.normalBuffer, at: 1)
+                if let colorBuf = mesh.colorBuffer, !isUnshaded {
+                    encoder.setRenderPipelineState(contourPipeline)
+                    ctx.bind(colorBuf, at: 3)
+                } else {
+                    encoder.setRenderPipelineState(solidPipeline)
+                }
                 encoder.drawIndexedPrimitives(
                     primitiveType: .triangle,
                     indexCount: mesh.indexCount,
