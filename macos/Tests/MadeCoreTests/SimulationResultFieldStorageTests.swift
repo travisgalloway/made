@@ -336,4 +336,100 @@ import simd
         #expect(fluxMeta.maxMagnitude == 50.0)
         #expect(fluxMeta.unitSymbol == "W/m²")
     }
+
+    // MARK: - Simulation VTU Export & Error Tests (BL-RES-09, #329)
+
+    @Test func testVTUExportWithModeShapesAndBucklingModes() throws {
+        let studyId = UUID()
+        let nodes = [
+            VolumeMeshNode(id: 1, position: SIMD3<Double>(0.0, 0.0, 0.0)),
+            VolumeMeshNode(id: 2, position: SIMD3<Double>(10.0, 0.0, 0.0)),
+            VolumeMeshNode(id: 3, position: SIMD3<Double>(0.0, 10.0, 0.0)),
+            VolumeMeshNode(id: 4, position: SIMD3<Double>(0.0, 0.0, 10.0))
+        ]
+        let elements = [
+            VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 0)
+        ]
+        let mesh = VolumeMesh(nodes: nodes, elements: elements)
+
+        let mode1 = SimulationModeShape(
+            modeNumber: 1,
+            frequencyHz: 42.5,
+            nodalDisplacements: [
+                1: .zero,
+                2: SIMD3<Double>(0.0, 1.5, 0.0),
+                3: SIMD3<Double>(0.0, 2.0, 0.0),
+                4: SIMD3<Double>(0.0, 0.5, 0.0)
+            ]
+        )
+        let mode2 = SimulationModeShape(
+            modeNumber: 2,
+            frequencyHz: 128.0,
+            nodalDisplacements: [
+                1: .zero,
+                2: SIMD3<Double>(0.0, 0.0, 3.2),
+                3: SIMD3<Double>(0.0, 0.0, 4.1),
+                4: SIMD3<Double>(0.0, 0.0, 1.0)
+            ]
+        )
+
+        let buckling1 = SimulationBucklingMode(
+            modeNumber: 1,
+            loadFactor: 2.75,
+            nodalDisplacements: [
+                1: .zero,
+                2: SIMD3<Double>(0.2, 0.0, 0.0),
+                3: SIMD3<Double>(0.4, 0.0, 0.0),
+                4: SIMD3<Double>(0.1, 0.0, 0.0)
+            ]
+        )
+
+        let fields = SimulationResultFields(
+            studyId: studyId,
+            bucklingModes: [buckling1],
+            modeShapes: [mode1, mode2]
+        )
+
+        let xml = try VTUResultFormat.exportVTU(mesh: mesh, fields: fields)
+        #expect(xml.contains("<VTKFile type=\"UnstructuredGrid\""))
+        #expect(xml.contains("Name=\"ModeShape_1_Displacement\""))
+        #expect(xml.contains("Name=\"ModeShape_2_Displacement\""))
+        #expect(xml.contains("Name=\"BucklingMode_1_Displacement\""))
+
+        let roundTrip = try VTUResultFormat.importVTU(xmlString: xml)
+        #expect(roundTrip.fields.modeShapes?.count == 2)
+        #expect(roundTrip.fields.modeShapes?[0].modeNumber == 1)
+        #expect(roundTrip.fields.modeShapes?[0].nodalDisplacements[2] == SIMD3<Double>(0.0, 1.5, 0.0))
+        #expect(roundTrip.fields.modeShapes?[1].modeNumber == 2)
+        #expect(roundTrip.fields.modeShapes?[1].nodalDisplacements[3] == SIMD3<Double>(0.0, 0.0, 4.1))
+
+        #expect(roundTrip.fields.bucklingModes?.count == 1)
+        #expect(roundTrip.fields.bucklingModes?[0].modeNumber == 1)
+        #expect(roundTrip.fields.bucklingModes?[0].nodalDisplacements[3] == SIMD3<Double>(0.4, 0.0, 0.0))
+    }
+
+    @Test func testSimulationExportErrorDescriptions() {
+        let testId = UUID()
+        let errStudyNotFound = SimulationExportError.studyNotFound(testId)
+        #expect(errStudyNotFound.errorDescription?.contains("was not found") == true)
+        #expect(errStudyNotFound.errorDescription?.contains(testId.uuidString) == true)
+
+        let errStudyNotSolved = SimulationExportError.studyNotSolved(testId)
+        #expect(errStudyNotSolved.errorDescription?.contains("has not completed solving") == true)
+
+        let errMeshNotFound = SimulationExportError.meshNotFound(testId)
+        #expect(errMeshNotFound.errorDescription?.contains("Volume mesh") == true)
+
+        let errFieldsNotFound = SimulationExportError.fieldsNotFound(testId)
+        #expect(errFieldsNotFound.errorDescription?.contains("Result fields") == true)
+
+        let errWriteFailed = SimulationExportError.writeFailed("disk space exhausted")
+        #expect(errWriteFailed.errorDescription?.contains("disk space exhausted") == true)
+
+        let errOpenFailed = SimulationExportError.openFailed("application not found")
+        #expect(errOpenFailed.errorDescription?.contains("application not found") == true)
+
+        #expect(errStudyNotFound == SimulationExportError.studyNotFound(testId))
+        #expect(errStudyNotFound != errStudyNotSolved)
+    }
 }

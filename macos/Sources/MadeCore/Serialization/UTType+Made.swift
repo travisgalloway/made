@@ -13,4 +13,8 @@ extension UTType {
     /// AutoCAD Drawing Interchange Format (.dxf) Uniform Type Identifier.
     public static let dxf = UTType(filenameExtension: "dxf", conformingTo: .plainText)
         ?? UTType(importedAs: "com.autodesk.dxf", conformingTo: .plainText)
+
+    /// Standard VTK XML UnstructuredGrid 3D finite element result format (.vtu).
+    public static let vtu = UTType(filenameExtension: "vtu", conformingTo: .xml)
+        ?? UTType(importedAs: "org.vtk.vtu", conformingTo: .xml)
 }

@@ -82,6 +82,11 @@ final class WorkspaceModel {
         return document.study(id: id)
     }
 
+    public var activeSimulationStudy: SimulationStudy? {
+        guard let id = selectedSimulationStudyId ?? document.activeStudyId else { return nil }
+        return document.study(id: id)
+    }
+
     public var selectedSimulationFixture: SimulationFixture? {
         guard let study = selectedSimulationStudy, let fixtureId = selectedSimulationFixtureId else { return nil }
         return study.fixtures.first(where: { $0.id == fixtureId })
@@ -7918,6 +7923,121 @@ public struct SimulationAnimationState: Sendable, Equatable {
             }
         }
         log(.info, "CAE", "Exported simulation report (\(format.rawValue.uppercased())) for study '\(study.name)' to \(url.lastPathComponent)")
+    }
+
+    // MARK: - Simulation VTU & ParaView Export (BL-RES-09, #329)
+
+    public func exportSimulationVTU(studyId: UUID, to url: URL) throws {
+        guard let study = document.study(id: studyId) else {
+            throw SimulationExportError.studyNotFound(studyId)
+        }
+        guard study.results.status == .completed else {
+            throw SimulationExportError.studyNotSolved(studyId)
+        }
+
+        let mesh = cachedStudyMeshes[studyId] ?? ensureMeshForStudy(study)
+        guard !mesh.nodes.isEmpty && !mesh.elements.isEmpty else {
+            throw SimulationExportError.meshNotFound(studyId)
+        }
+
+        if !study.results.isFieldsLoaded && currentDocumentURL != nil {
+            loadResultFields(studyId: studyId)
+        }
+
+        guard let fields = resultFields(for: studyId), !fields.isEmpty else {
+            throw SimulationExportError.fieldsNotFound(studyId)
+        }
+
+        let vtuString: String
+        do {
+            vtuString = try VTUResultFormat.exportVTU(mesh: mesh, fields: fields)
+        } catch {
+            throw SimulationExportError.writeFailed(error.localizedDescription)
+        }
+
+        do {
+            try vtuString.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            throw SimulationExportError.writeFailed(error.localizedDescription)
+        }
+
+        log(.info, "CAE", "Exported simulation results VTU for study '\(study.name)' to \(url.lastPathComponent)")
+    }
+
+    @discardableResult
+    public func openResultsInParaView(
+        studyId: UUID,
+        opener: ((URL) -> Bool)? = nil
+    ) throws -> URL {
+        guard let study = document.study(id: studyId) else {
+            throw SimulationExportError.studyNotFound(studyId)
+        }
+        guard study.results.status == .completed else {
+            throw SimulationExportError.studyNotSolved(studyId)
+        }
+
+        let sanitizedName = study.name
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "/", with: "-")
+            .lowercased()
+        let prefixId = study.id.uuidString.prefix(8)
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempURL = tempDir.appendingPathComponent("\(sanitizedName)-\(prefixId).vtu")
+
+        try exportSimulationVTU(studyId: studyId, to: tempURL)
+
+        let openSuccess: Bool
+        if let opener {
+            openSuccess = opener(tempURL)
+        } else {
+            let paraviewURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "org.paraview.ParaView")
+                ?? (FileManager.default.fileExists(atPath: "/Applications/ParaView.app") ? URL(fileURLWithPath: "/Applications/ParaView.app") : nil)
+            if let paraviewURL {
+                NSWorkspace.shared.open(
+                    [tempURL],
+                    withApplicationAt: paraviewURL,
+                    configuration: NSWorkspace.OpenConfiguration(),
+                    completionHandler: nil
+                )
+                openSuccess = true
+            } else {
+                openSuccess = NSWorkspace.shared.open(tempURL)
+            }
+        }
+
+        guard openSuccess else {
+            throw SimulationExportError.openFailed("Could not open '\(tempURL.lastPathComponent)' in ParaView.")
+        }
+
+        log(.info, "CAE", "Opened simulation results in ParaView: \(tempURL.lastPathComponent)")
+        return tempURL
+    }
+
+    public func promptExportSimulationVTU(studyId: UUID) {
+        guard let study = document.study(id: studyId) else {
+            log(.error, "CAE", "Cannot export VTU: simulation study \(studyId) not found")
+            return
+        }
+        guard study.results.status == .completed else {
+            log(.error, "CAE", "Cannot export VTU: simulation study '\(study.name)' has not completed solving")
+            return
+        }
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [UTType.vtu]
+        panel.title = "Export Simulation Results to VTU"
+        let sanitizedName = study.name
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "/", with: "-")
+            .lowercased()
+        panel.nameFieldStringValue = "\(sanitizedName)-results.vtu"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try exportSimulationVTU(studyId: studyId, to: url)
+        } catch {
+            log(.error, "CAE", "Failed to export VTU results: \(error.localizedDescription)")
+        }
     }
 
     public func probeAtScreenPoint(loc: CGPoint, in view: MTKView, studyId: UUID) {
