@@ -1404,6 +1404,116 @@ import simd
         #expect(ws.selectedSimulationConnectionId == nil)
         #expect(ws.document.study(id: study.id)?.connections.isEmpty == true)
     }
+
+    @Test func testWorkspaceResultFieldPersistenceAndLazyLoadingLifecycle() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("TestWSResults-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let ws = WorkspaceModel()
+        ws.currentDocumentURL = tempDir
+
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Storage Lifecycle Study") else {
+            Issue.record("Failed to create linear static study")
+            return
+        }
+
+        var updated = study
+        updated.solver.engine = .pureSwift
+        updated.fixtures = [
+            SimulationFixture(name: "RootFixed", kind: .fixed)
+        ]
+        updated.loads = [
+            SimulationLoad(name: "TipForce", kind: .force, magnitude: 100.0, direction: SIMD3<Double>(0, 1, 0))
+        ]
+        ws.updateSimulationStudy(updated)
+
+        ws.runSimulationStudy(id: study.id)
+        #expect(ws.isStudyRunning(study.id))
+
+        for _ in 0..<50 {
+            if !ws.isStudyRunning(study.id) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        let completedStudy = try #require(ws.document.study(id: study.id))
+        #expect(completedStudy.results.status == .completed)
+        #expect(completedStudy.results.isFieldsLoaded)
+        #expect(completedStudy.results.fieldStorage != nil)
+        #expect(completedStudy.results.elementVonMisesStresses != nil)
+
+        let storage = try #require(completedStudy.results.fieldStorage)
+        #expect(storage.format == .vtu)
+        #expect(storage.isResident)
+
+        let vtuPath = tempDir.appendingPathComponent(storage.storagePath)
+        let binPath = tempDir.appendingPathComponent("cache/results/\(study.id.uuidString)/fields.bin")
+        #expect(FileManager.default.fileExists(atPath: vtuPath.path))
+        #expect(FileManager.default.fileExists(atPath: binPath.path))
+
+        // Check in-memory result fields query
+        let inMemFields = try #require(ws.resultFields(for: study.id))
+        #expect(inMemFields.nodalDisplacements != nil)
+        #expect(inMemFields.elementVonMisesStresses != nil)
+
+        // Unload fields
+        ws.unloadResultFields(studyId: study.id)
+        let unloadedStudy = try #require(ws.document.study(id: study.id))
+        #expect(!unloadedStudy.results.isFieldsLoaded)
+        #expect(unloadedStudy.results.nodalDisplacements == nil)
+        #expect(unloadedStudy.results.elementVonMisesStresses == nil)
+        #expect(ws.cachedStudyResultFields[study.id] == nil)
+        #expect(ws.logs.contains { $0.message.contains("Unloaded result fields from memory for study") })
+
+        // Load fields back
+        ws.loadResultFields(studyId: study.id)
+        let reloadedStudy = try #require(ws.document.study(id: study.id))
+        #expect(reloadedStudy.results.isFieldsLoaded)
+        #expect(reloadedStudy.results.nodalDisplacements != nil)
+        #expect(reloadedStudy.results.elementVonMisesStresses != nil)
+        #expect(ws.cachedStudyResultFields[study.id] != nil)
+        #expect(ws.logs.contains { $0.message.contains("Loaded result fields for study") })
+    }
+
+    @Test func testInspectorSimulationResultsViewResultFieldsSection() {
+        let ws = WorkspaceModel()
+        let studyId = UUID()
+        let storage = ResultFieldStorageDescriptor(
+            storagePath: "cache/results/\(studyId.uuidString)/results.vtu",
+            format: .vtu,
+            availableFields: [
+                ResultFieldMetadata(name: "Displacement", kind: .displacement, componentCount: 3, entityCount: 4, unitSymbol: "mm"),
+                ResultFieldMetadata(name: "von Mises Stress", kind: .vonMisesStress, componentCount: 1, entityCount: 4, unitSymbol: "MPa")
+            ],
+            byteSize: 2048,
+            isResident: true
+        )
+
+        let loadedResults = SimulationStudyResults(
+            status: .completed,
+            runtimeDuration: 0.45,
+            meshStatistics: SimulationMeshStatistics(nodeCount: 4, elementCount: 1),
+            nodalTemperatures: [1: 20.0, 2: 90.0],
+            nodalDisplacements: [1: .zero, 2: SIMD3<Double>(0.05, 0, 0)],
+            nodalVonMisesStresses: [1: 10.0, 2: 45.0],
+            fieldStorage: storage,
+            elementVonMisesStresses: [1: 30.0],
+            elementHeatFluxes: [1: SIMD3<Double>(100.0, 0, 0)]
+        )
+
+        let loadedStudy = SimulationStudy(
+            id: studyId,
+            name: "Completed Study",
+            studyType: .linearStatic,
+            results: loadedResults
+        )
+
+        _ = InspectorSimulationResultsView(study: loadedStudy).environment(ws)
+
+        var unloadedStudy = loadedStudy
+        unloadedStudy.results.unloadFields()
+        _ = InspectorSimulationResultsView(study: unloadedStudy).environment(ws)
+    }
 }
 
 

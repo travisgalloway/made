@@ -4180,6 +4180,118 @@ struct InspectorSimulationResultsView: View {
                     sectionHeader("Factor of Safety")
                 }
             }
+
+            if study.results.status == .completed {
+                Section {
+                    if let storage = study.results.fieldStorage, !storage.storagePath.isEmpty {
+                        LabeledContent("Storage Path") {
+                            Text(storage.storagePath)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("inspector-simulation-storage-path")
+
+                        LabeledContent("Format") {
+                            Text(storage.format.displayName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("inspector-simulation-storage-format")
+
+                        if storage.byteSize > 0 {
+                            LabeledContent("File Size") {
+                                Text(ByteCountFormatter.string(fromByteCount: storage.byteSize, countStyle: .file))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text(study.results.isFieldsLoaded ? "Loaded in Memory" : "Stored on Disk (On Demand)")
+                            .font(.subheadline)
+                            .foregroundStyle(study.results.isFieldsLoaded ? Color.green : Color.secondary)
+                        Spacer()
+                        if study.results.isFieldsLoaded {
+                            Button("Unload Fields") {
+                                workspace.unloadResultFields(studyId: study.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("inspector-simulation-unload-fields-button")
+                        } else {
+                            Button("Load Fields") {
+                                workspace.loadResultFields(studyId: study.id)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("inspector-simulation-load-fields-button")
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-storage-residency-badge")
+
+                    if study.results.isFieldsLoaded {
+                        if let disp = study.results.nodalDisplacements, !disp.isEmpty {
+                            let maxPair = disp.max { ($0.value.x * $0.value.x + $0.value.y * $0.value.y + $0.value.z * $0.value.z) < ($1.value.x * $1.value.x + $1.value.y * $1.value.y + $1.value.z * $1.value.z) }
+                            if let maxPair {
+                                let mag = sqrt(maxPair.value.x * maxPair.value.x + maxPair.value.y * maxPair.value.y + maxPair.value.z * maxPair.value.z)
+                                LabeledContent("Displacement Magnitude") {
+                                    Text("Max \(String(format: "%.3f", mag)) mm (Node \(maxPair.key))")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        if let vm = study.results.nodalVonMisesStresses, !vm.isEmpty {
+                            let maxPair = vm.max { $0.value < $1.value }
+                            if let maxPair {
+                                LabeledContent("von Mises Stress") {
+                                    Text("Max \(String(format: "%.1f", maxPair.value)) MPa (Node \(maxPair.key))")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        if let temps = study.results.nodalTemperatures, !temps.isEmpty {
+                            let maxPair = temps.max { $0.value < $1.value }
+                            if let maxPair {
+                                LabeledContent("Temperature") {
+                                    Text("Max \(String(format: "%.1f", maxPair.value)) °C (Node \(maxPair.key))")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        if let evm = study.results.elementVonMisesStresses, !evm.isEmpty {
+                            let maxPair = evm.max { $0.value < $1.value }
+                            if let maxPair {
+                                LabeledContent("Element von Mises Stress") {
+                                    Text("Max \(String(format: "%.1f", maxPair.value)) MPa (Element \(maxPair.key))")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        if let flux = study.results.elementHeatFluxes, !flux.isEmpty {
+                            let maxPair = flux.max { ($0.value.x * $0.value.x + $0.value.y * $0.value.y + $0.value.z * $0.value.z) < ($1.value.x * $1.value.x + $1.value.y * $1.value.y + $1.value.z * $1.value.z) }
+                            if let maxPair {
+                                let mag = sqrt(maxPair.value.x * maxPair.value.x + maxPair.value.y * maxPair.value.y + maxPair.value.z * maxPair.value.z)
+                                LabeledContent("Element Heat Flux") {
+                                    Text("Max \(String(format: "%.1f", mag)) W/m² (Element \(maxPair.key))")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    } else {
+                        Text("Field data stored on disk to preserve memory. Click Load Fields to inspect.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("inspector-simulation-storage-placeholder")
+                    }
+                } header: {
+                    sectionHeader("Result Fields & Storage")
+                }
+                .accessibilityIdentifier("inspector-simulation-storage-section")
+            }
         }
         .formStyle(.columns)
         .controlSize(.small)
