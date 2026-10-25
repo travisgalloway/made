@@ -1976,6 +1976,58 @@ import simd
         let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
         _ = inspectorView
     }
+
+    // MARK: - Simulation Report Export UI Tests (BL-RES-07, #327)
+
+    @Test func testWorkspaceSimulationReportExportLifecycle() throws {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Report Export Lifecycle Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        study.results.status = .completed
+        study.results.meshStatistics = SimulationMeshStatistics(nodeCount: 50, elementCount: 150)
+        study.results.extrema = [
+            SimulationFieldExtrema(fieldName: "von Mises Stress", unitSymbol: "MPa", minValue: 10.0, maxValue: 120.0)
+        ]
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+
+        // 1. Export HTML string
+        let html = ws.exportSimulationReportHTML(studyId: study.id)
+        #expect(html != nil)
+        #expect(html?.contains("Report Export Lifecycle Test") == true)
+        #expect(html?.contains("<!DOCTYPE html>") == true)
+
+        // 2. Export PDF data
+        let pdfData = try ws.exportSimulationReportPDF(studyId: study.id)
+        #expect(pdfData != nil)
+        #expect(pdfData?.isEmpty == false)
+        let header = String(decoding: (pdfData ?? Data()).prefix(5), as: UTF8.self)
+        #expect(header == "%PDF-")
+
+        // 3. Export to temp file
+        let tempHTMLURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".html")
+        try ws.exportSimulationReport(studyId: study.id, format: .html, to: tempHTMLURL)
+        #expect(FileManager.default.fileExists(atPath: tempHTMLURL.path))
+        try? FileManager.default.removeItem(at: tempHTMLURL)
+
+        let tempPDFURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
+        try ws.exportSimulationReport(studyId: study.id, format: .pdf, to: tempPDFURL)
+        #expect(FileManager.default.fileExists(atPath: tempPDFURL.path))
+        try? FileManager.default.removeItem(at: tempPDFURL)
+    }
+
+    @Test func testInspectorSimulationResultsViewReportExportSection() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Export Section Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
+        _ = inspectorView
+    }
 }
 
 

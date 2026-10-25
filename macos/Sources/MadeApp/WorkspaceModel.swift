@@ -7881,6 +7881,45 @@ public struct SimulationAnimationState: Sendable, Equatable {
         log(.info, "CAE", "Copied probe result table CSV to clipboard (\(csv.components(separatedBy: "\r\n").count - 1) lines)")
     }
 
+    public func exportSimulationReportHTML(studyId: UUID, options: SimulationReportOptions = .init()) -> String? {
+        guard let study = document.study(id: studyId) else { return nil }
+        var opt = options
+        opt.lengthUnit = lengthUnit
+        return SimulationReportGenerator.generateHTML(study: study, options: opt)
+    }
+
+    public func exportSimulationReportPDF(studyId: UUID, options: SimulationReportOptions = .init()) throws -> Data? {
+        guard let study = document.study(id: studyId) else { return nil }
+        var opt = options
+        opt.lengthUnit = lengthUnit
+        return try SimulationReportGenerator.generatePDF(study: study, options: opt)
+    }
+
+    public func exportSimulationReport(studyId: UUID, format: SimulationReportFormat, to url: URL, options: SimulationReportOptions = .init()) throws {
+        guard let study = document.study(id: studyId) else {
+            throw SimulationReportError.studyNotFound(studyId)
+        }
+        var opt = options
+        opt.lengthUnit = lengthUnit
+        switch format {
+        case .html:
+            let html = SimulationReportGenerator.generateHTML(study: study, options: opt)
+            do {
+                try html.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                throw SimulationReportError.writeFailed(error.localizedDescription)
+            }
+        case .pdf:
+            let data = try SimulationReportGenerator.generatePDF(study: study, options: opt)
+            do {
+                try data.write(to: url, options: .atomic)
+            } catch {
+                throw SimulationReportError.writeFailed(error.localizedDescription)
+            }
+        }
+        log(.info, "CAE", "Exported simulation report (\(format.rawValue.uppercased())) for study '\(study.name)' to \(url.lastPathComponent)")
+    }
+
     public func probeAtScreenPoint(loc: CGPoint, in view: MTKView, studyId: UUID) {
         guard let renderer = viewportManager.renderer else { return }
         let viewportSize = view.bounds.size
