@@ -53,6 +53,33 @@ struct SimulationContourLegendOverlayView: View {
                     }
                 }
 
+                // Probe screen-projected callout badges (BL-RES-04, #325)
+                if let study = workspace.document.study(id: studyId),
+                   study.probeTable.showProbeBadges,
+                   !study.probeTable.probes.isEmpty,
+                   viewportSize.width > 0,
+                   viewportSize.height > 0,
+                   let renderer = workspace.viewportManager.renderer {
+                    let aspect = Float(max(1.0, viewportSize.width) / max(1.0, viewportSize.height))
+                    let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+                    let vp = simd_mul(matrices.projection, matrices.view)
+
+                    ForEach(study.probeTable.probes) { probe in
+                        let pt = SIMD3<Float>(Float(probe.position.x), Float(probe.position.y), Float(probe.position.z))
+                        if let screen = projectToScreen(point: pt, viewProjectionMatrix: vp, viewportSize: viewportSize) {
+                            let canvasPt = SnapOverlayView.canvasPosition(screenPoint: screen, viewportHeight: viewportSize.height)
+                            let val = probe.fieldValues[settings.field] ?? 0.0
+                            markerBadge(
+                                label: "\(probe.name): \(formatValue(val))",
+                                unit: settings.field.defaultUnitSymbol,
+                                point: canvasPt,
+                                color: .orange,
+                                identifier: "simulation-probe-marker-\(probe.id)"
+                            )
+                        }
+                    }
+                }
+
                 // Legend Card
                 legendCard
                     .padding(.leading, 16)

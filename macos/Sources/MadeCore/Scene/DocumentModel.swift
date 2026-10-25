@@ -9533,6 +9533,129 @@ public final class DocumentModel {
         return .success(())
     }
 
+    // MARK: - Simulation Probes & Result Tables (BL-RES-04, #325)
+
+    @discardableResult
+    public func updateSimulationProbeTable(
+        studyId: UUID,
+        probeTable: SimulationProbeTable,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldTable = studies[sIdx].probeTable
+        guard oldTable != probeTable else { return .success(()) }
+        studies[sIdx].probeTable = probeTable
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Simulation Probes"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationProbeTable(studyId: studyId, probeTable: oldTable, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func addSimulationProbePoint(
+        studyId: UUID,
+        probe: SimulationProbePoint,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<SimulationProbePoint, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        studies[sIdx].probeTable.probes.append(probe)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Simulation Probe"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.removeSimulationProbePoint(studyId: studyId, probeId: probe.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(probe)
+    }
+
+    @discardableResult
+    public func removeSimulationProbePoint(
+        studyId: UUID,
+        probeId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        guard let pIdx = studies[sIdx].probeTable.probes.firstIndex(where: { $0.id == probeId }) else {
+            return .failure(.invalidOperation("Simulation probe with id \(probeId) not found"))
+        }
+        let removedProbe = studies[sIdx].probeTable.probes.remove(at: pIdx)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Simulation Probe"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    if let sIdxCurrent = target.studies.firstIndex(where: { $0.id == studyId }) {
+                        let insertIdx = min(pIdx, target.studies[sIdxCurrent].probeTable.probes.count)
+                        target.studies[sIdxCurrent].probeTable.probes.insert(removedProbe, at: insertIdx)
+                        target.undoStateVersion += 1
+                        target.undoManager?.registerUndo(withTarget: target) { reTarget in
+                            MainActor.assumeIsolated {
+                                _ = reTarget.removeSimulationProbePoint(studyId: studyId, probeId: probeId, actionName: effectiveActionName, registerUndo: true)
+                                reTarget.undoManager?.setActionName(effectiveActionName)
+                            }
+                        }
+                        target.undoManager?.setActionName(effectiveActionName)
+                    }
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func clearSimulationProbes(
+        studyId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let sIdx = studies.firstIndex(where: { $0.id == studyId }) else {
+            return .failure(.invalidOperation("Simulation study with id \(studyId) not found"))
+        }
+        let oldTable = studies[sIdx].probeTable
+        guard !oldTable.probes.isEmpty || !oldTable.paths.isEmpty else { return .success(()) }
+        studies[sIdx].probeTable.probes.removeAll()
+        studies[sIdx].probeTable.paths.removeAll()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Clear Simulation Probes"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateSimulationProbeTable(studyId: studyId, probeTable: oldTable, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
     // MARK: - Simulation Geometry Groups & Target Associations (BL-MSH-06, #189)
 
     @discardableResult

@@ -1794,6 +1794,114 @@ import simd
         ws.removeSimulationStudy(id: study.id)
         #expect(ws.simulationAnimationStates[study.id]?.isPlaying == false)
     }
+
+    @Test func testWorkspaceProbeLifecycleAndMutations() {
+        let ws = WorkspaceModel()
+        guard let study = ws.createSimulationStudy(type: .linearStatic, name: "Probe Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        #expect(ws.isProbeModeActive == false)
+        ws.toggleProbeMode()
+        #expect(ws.isProbeModeActive == true)
+        #expect(ws.document.study(id: study.id)?.probeTable.isProbingActive == true)
+
+        // Add a probe point
+        ws.addProbePoint(studyId: study.id, position: SIMD3<Double>(10, 20, 30), name: "Test Probe")
+        let updatedStudy = ws.document.study(id: study.id)
+        #expect(updatedStudy?.probeTable.probes.count == 1)
+        #expect(updatedStudy?.probeTable.probes[0].name == "Test Probe")
+        #expect(updatedStudy?.probeTable.probes[0].position == SIMD3<Double>(10, 20, 30))
+
+        // Add a linear path probe
+        ws.addPathProbe(studyId: study.id, start: .zero, end: SIMD3<Double>(10, 0, 0), sampleCount: 5, name: "Path Probe")
+        let studyWithPath = ws.document.study(id: study.id)
+        #expect(studyWithPath?.probeTable.paths.count == 1)
+        #expect(studyWithPath?.probeTable.probes.count == 6) // 1 point + 5 path samples
+
+        // Export CSV
+        let csv = ws.exportProbesCSV(studyId: study.id)
+        #expect(csv.contains("Test Probe"))
+        #expect(csv.contains("Path Probe [1]"))
+
+        // Copy to clipboard
+        ws.copyProbesCSVToClipboard(studyId: study.id)
+
+        // Remove a single probe
+        if let firstProbeId = studyWithPath?.probeTable.probes[0].id {
+            ws.removeProbe(studyId: study.id, probeId: firstProbeId)
+            #expect(ws.document.study(id: study.id)?.probeTable.probes.count == 5)
+        }
+
+        // Clear all probes
+        ws.clearProbes(studyId: study.id)
+        #expect(ws.document.study(id: study.id)?.probeTable.probes.isEmpty == true)
+        #expect(ws.document.study(id: study.id)?.probeTable.paths.isEmpty == true)
+    }
+
+    @Test func testInspectorSimulationResultsProbesSection() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Results Probe Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        study.results.status = .completed
+        let p = SimulationProbePoint(
+            name: "Critical Point",
+            kind: .point,
+            position: SIMD3<Double>(5, 5, 5),
+            fieldValues: [.vonMisesStress: 350.0]
+        )
+        study.probeTable.probes.append(p)
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+        _ = ws.document.updateSimulationProbeTable(studyId: study.id, probeTable: study.probeTable)
+
+        let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
+        _ = inspectorView
+    }
+
+    @Test func testSimulationContourLegendOverlayProbeBadges() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Overlay Probe Test") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        study.results.status = .completed
+        study.contourSettings.isVisible = true
+        let p = SimulationProbePoint(
+            name: "Badge Probe",
+            kind: .point,
+            position: SIMD3<Double>(0, 0, 0),
+            fieldValues: [.vonMisesStress: 100.0]
+        )
+        study.probeTable.probes.append(p)
+        study.probeTable.showProbeBadges = true
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+        _ = ws.document.updateSimulationProbeTable(studyId: study.id, probeTable: study.probeTable)
+
+        let extrema = SimulationContourExtrema(
+            fieldName: "von Mises Stress",
+            unitSymbol: "MPa",
+            actualMin: 0.0,
+            actualMax: 200.0,
+            effectiveMin: 0.0,
+            effectiveMax: 200.0,
+            minNodeId: 1,
+            maxNodeId: 2,
+            minPosition: .zero,
+            maxPosition: SIMD3<Double>(10, 0, 0)
+        )
+
+        let overlayView = SimulationContourLegendOverlayView(
+            studyId: study.id,
+            settings: study.contourSettings,
+            extrema: extrema
+        ).environment(ws)
+        _ = overlayView
+    }
 }
 
 

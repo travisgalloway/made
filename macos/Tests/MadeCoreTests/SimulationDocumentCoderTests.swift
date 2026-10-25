@@ -919,5 +919,72 @@ import simd
         #expect(results.loadSteps == nil)
         #expect(results.isFieldsLoaded == false)
     }
+
+    @Test func testSimulationProbeTableRoundTripSerialization() throws {
+        var study = SimulationStudy(name: "Probe RoundTrip Study")
+        let p1 = SimulationProbePoint(
+            name: "Probe Alpha",
+            kind: .point,
+            position: SIMD3<Double>(10, 20, 30),
+            nodeId: 101,
+            elementId: 202,
+            fieldValues: [.vonMisesStress: 145.5, .displacementMagnitude: 0.12]
+        )
+        let path = SimulationPathProbeDefinition(
+            name: "Path Beta",
+            startPoint: SIMD3<Double>(0, 0, 0),
+            endPoint: SIMD3<Double>(10, 0, 0),
+            sampleCount: 5
+        )
+        study.probeTable = SimulationProbeTable(
+            probes: [p1],
+            paths: [path],
+            showProbeBadges: true,
+            isProbingActive: true
+        )
+
+        let doc = DocumentModel()
+        doc.addStudy(study)
+
+        let encoded = try DocumentModelCoder.encode(document: doc)
+        let restoredDoc = DocumentModel()
+        try DocumentModelCoder.decode(into: restoredDoc, from: encoded)
+
+        guard let restoredStudy = restoredDoc.study(id: study.id) else {
+            Issue.record("Failed to restore study")
+            return
+        }
+
+        #expect(restoredStudy.probeTable.showProbeBadges == true)
+        #expect(restoredStudy.probeTable.isProbingActive == true)
+        #expect(restoredStudy.probeTable.probes.count == 1)
+        #expect(restoredStudy.probeTable.probes[0].name == "Probe Alpha")
+        #expect(restoredStudy.probeTable.probes[0].position == SIMD3<Double>(10, 20, 30))
+        #expect(restoredStudy.probeTable.probes[0].nodeId == 101)
+        #expect(restoredStudy.probeTable.probes[0].elementId == 202)
+        #expect(restoredStudy.probeTable.probes[0].fieldValues[.vonMisesStress] == 145.5)
+        #expect(restoredStudy.probeTable.paths.count == 1)
+        #expect(restoredStudy.probeTable.paths[0].name == "Path Beta")
+        #expect(restoredStudy.probeTable.paths[0].sampleCount == 5)
+    }
+
+    @Test func testLegacyStudyWithoutProbeTableDecodesWithDefaults() throws {
+        let legacyJSON = """
+        {
+          "id": "A1B2C3D4-E5F6-7A8B-9C0D-1E2F3A4B5C6D",
+          "name": "Legacy Study",
+          "studyType": "linearStatic"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let study = try decoder.decode(SimulationStudy.self, from: legacyJSON)
+
+        #expect(study.name == "Legacy Study")
+        #expect(study.probeTable.probes.isEmpty)
+        #expect(study.probeTable.paths.isEmpty)
+        #expect(study.probeTable.showProbeBadges == true)
+        #expect(study.probeTable.isProbingActive == false)
+    }
 }
 

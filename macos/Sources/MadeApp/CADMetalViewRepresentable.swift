@@ -213,6 +213,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var pendingPlacement: PendingComponentPlacement?
     var onPlacePendingComponent: ((SIMD3<Float>) -> Void)?
     var onCancelPendingPlacement: (() -> Void)?
+    var isProbeModeActive: Bool = false
+    var onProbeClick: ((CGPoint, MTKView) -> Void)?
     
     public init(
         document: DocumentModel,
@@ -262,7 +264,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onDismissRadialMenu: (() -> Void)? = nil,
         pendingPlacement: PendingComponentPlacement? = nil,
         onPlacePendingComponent: ((SIMD3<Float>) -> Void)? = nil,
-        onCancelPendingPlacement: (() -> Void)? = nil
+        onCancelPendingPlacement: (() -> Void)? = nil,
+        isProbeModeActive: Bool = false,
+        onProbeClick: ((CGPoint, MTKView) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -312,6 +316,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.pendingPlacement = pendingPlacement
         self.onPlacePendingComponent = onPlacePendingComponent
         self.onCancelPendingPlacement = onCancelPendingPlacement
+        self.isProbeModeActive = isProbeModeActive
+        self.onProbeClick = onProbeClick
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -1493,6 +1499,15 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
 
             if button == .left && decision.mode == .manipulate {
+                if parent.isProbeModeActive, let onProbeClick = parent.onProbeClick {
+                    guard let view = mtkView else { return }
+                    let loc = view.convert(event.locationInWindow, from: nil)
+                    onProbeClick(loc, view)
+                    invalidate(reason: .interaction)
+                    pointerRouter.arbiter.reset()
+                    return
+                }
+
                 if parent.tool == .select || pType == .pen {
                     guard let view = mtkView else { return }
                     let loc = view.convert(event.locationInWindow, from: nil)

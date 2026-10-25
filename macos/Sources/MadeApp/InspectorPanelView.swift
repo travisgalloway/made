@@ -3904,6 +3904,13 @@ struct InspectorSimulationResultsView: View {
     let study: SimulationStudy
     @State private var selectedCoordinateSystemId: UUID? = nil
     @State private var selectedModeNumber: Int = 1
+    @State private var pathStartX: Double = 0.0
+    @State private var pathStartY: Double = 0.0
+    @State private var pathStartZ: Double = 0.0
+    @State private var pathEndX: Double = 10.0
+    @State private var pathEndY: Double = 0.0
+    @State private var pathEndZ: Double = 0.0
+    @State private var pathSampleCount: Int = 10
 
     var body: some View {
         Form {
@@ -4598,6 +4605,150 @@ struct InspectorSimulationResultsView: View {
                     sectionHeader("Result Fields & Storage")
                 }
                 .accessibilityIdentifier("inspector-simulation-storage-section")
+            }
+
+            if study.results.status == .completed {
+                Section {
+                    Toggle("Click to Probe Mesh", isOn: Binding(
+                        get: { workspace.isProbeModeActive },
+                        set: { _ in workspace.toggleProbeMode() }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-probe-mode-toggle")
+
+                    Toggle("Show Probe Badges", isOn: Binding(
+                        get: { study.probeTable.showProbeBadges },
+                        set: { show in
+                            var updated = study.probeTable
+                            updated.showProbeBadges = show
+                            workspace.updateSimulationProbeTable(studyId: study.id, probeTable: updated)
+                        }
+                    ))
+                    .accessibilityIdentifier("inspector-simulation-probe-badges-toggle")
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Linear Path Probe").font(.subheadline).fontWeight(.medium)
+
+                        HStack {
+                            Text("Start:").frame(width: 45, alignment: .leading)
+                            TextField("X", value: $pathStartX, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-probe-path-start-x")
+                            TextField("Y", value: $pathStartY, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-probe-path-start-y")
+                            TextField("Z", value: $pathStartZ, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-probe-path-start-z")
+                        }
+
+                        HStack {
+                            Text("End:").frame(width: 45, alignment: .leading)
+                            TextField("X", value: $pathEndX, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-probe-path-end-x")
+                            TextField("Y", value: $pathEndY, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-probe-path-end-y")
+                            TextField("Z", value: $pathEndZ, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("inspector-simulation-probe-path-end-z")
+                        }
+
+                        Stepper(value: $pathSampleCount, in: 2...100) {
+                            LabeledContent("Sample Count") {
+                                Text("\(pathSampleCount)")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityIdentifier("inspector-simulation-probe-path-count")
+
+                        Button("Generate Path Probes") {
+                            let start = SIMD3<Double>(pathStartX, pathStartY, pathStartZ)
+                            let end = SIMD3<Double>(pathEndX, pathEndY, pathEndZ)
+                            workspace.addPathProbe(studyId: study.id, start: start, end: end, sampleCount: pathSampleCount)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("inspector-simulation-probe-generate-path-button")
+                    }
+                    .padding(.vertical, 4)
+
+                    if !study.probeTable.probes.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(Array(study.probeTable.probes.enumerated()), id: \.element.id) { index, probe in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Text("#\(index + 1)")
+                                                .font(.caption.monospacedDigit())
+                                                .foregroundStyle(.secondary)
+                                            Text(probe.name)
+                                                .font(.caption)
+                                                .fontWeight(.medium)
+                                            if probe.kind == .pathSample, let d = probe.distanceAlongPath {
+                                                Text("(s = \(String(format: "%.2f mm", d)))")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+                                        Text(String(format: "(%.1f, %.1f, %.1f) mm", probe.position.x, probe.position.y, probe.position.z))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    let val = probe.fieldValues[study.contourSettings.field] ?? 0.0
+                                    Text("\(String(format: "%.2f", val)) \(study.contourSettings.field.defaultUnitSymbol)")
+                                        .font(.caption.monospacedDigit())
+                                        .fontWeight(.semibold)
+
+                                    Button(role: .destructive) {
+                                        workspace.removeProbe(studyId: study.id, probeId: probe.id)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityIdentifier("inspector-simulation-probe-delete-\(probe.id)")
+                                }
+                                .accessibilityIdentifier("inspector-simulation-probe-row-\(probe.id)")
+                                Divider()
+                            }
+                        }
+                        .accessibilityIdentifier("inspector-simulation-probe-table")
+
+                        HStack {
+                            Button("Export CSV") {
+                                let csv = workspace.exportProbesCSV(studyId: study.id)
+                                let panel = NSSavePanel()
+                                panel.allowedContentTypes = [.commaSeparatedText]
+                                panel.nameFieldStringValue = "\(study.name)-probes.csv"
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    try? csv.write(to: url, atomically: true, encoding: .utf8)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("inspector-simulation-probe-export-csv-button")
+
+                            Button("Copy to Clipboard") {
+                                workspace.copyProbesCSVToClipboard(studyId: study.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("inspector-simulation-probe-copy-clipboard-button")
+
+                            Spacer()
+
+                            Button("Clear All Probes", role: .destructive) {
+                                workspace.clearProbes(studyId: study.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("inspector-simulation-probe-clear-button")
+                        }
+                    }
+                } header: {
+                    sectionHeader("Probes & Result Tables")
+                }
+                .accessibilityIdentifier("inspector-simulation-probes-section")
             }
         }
         .formStyle(.columns)
