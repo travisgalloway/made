@@ -913,6 +913,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
     public var fieldStorage: ResultFieldStorageDescriptor?
     public var elementVonMisesStresses: [Int: Double]?
     public var elementHeatFluxes: [Int: SIMD3<Double>]?
+    public var loadSteps: [SimulationLoadStep]?
 
     public init(
         status: SimulationExecutionStatus = .notRun,
@@ -930,7 +931,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         nodalCauchyTensors: [Int: CauchyStressTensor]? = nil,
         fieldStorage: ResultFieldStorageDescriptor? = nil,
         elementVonMisesStresses: [Int: Double]? = nil,
-        elementHeatFluxes: [Int: SIMD3<Double>]? = nil
+        elementHeatFluxes: [Int: SIMD3<Double>]? = nil,
+        loadSteps: [SimulationLoadStep]? = nil
     ) {
         self.status = status
         self.runtimeDuration = runtimeDuration
@@ -948,10 +950,11 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.fieldStorage = fieldStorage
         self.elementVonMisesStresses = elementVonMisesStresses
         self.elementHeatFluxes = elementHeatFluxes
+        self.loadSteps = loadSteps
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes, factorOfSafety, nodalCauchyTensors, fieldStorage, elementVonMisesStresses, elementHeatFluxes
+        case status, runtimeDuration, meshStatistics, meshSets, extrema, errorMessage, nodalTemperatures, nodalDisplacements, nodalVonMisesStresses, bucklingModes, modeShapes, factorOfSafety, nodalCauchyTensors, fieldStorage, elementVonMisesStresses, elementHeatFluxes, loadSteps
     }
 
     public init(from decoder: Decoder) throws {
@@ -972,6 +975,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         self.fieldStorage = try container.decodeIfPresent(ResultFieldStorageDescriptor.self, forKey: .fieldStorage)
         self.elementVonMisesStresses = try container.decodeIfPresent([Int: Double].self, forKey: .elementVonMisesStresses)
         self.elementHeatFluxes = try container.decodeIfPresent([Int: SIMD3<Double>].self, forKey: .elementHeatFluxes)
+        self.loadSteps = try container.decodeIfPresent([SimulationLoadStep].self, forKey: .loadSteps)
     }
 
     /// True when any heavy numerical result field array is currently resident in memory.
@@ -983,7 +987,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         elementVonMisesStresses != nil ||
         elementHeatFluxes != nil ||
         bucklingModes != nil ||
-        modeShapes != nil
+        modeShapes != nil ||
+        loadSteps != nil
     }
 
     /// Unloads heavy result arrays from memory while retaining metadata, extrema, and mesh statistics.
@@ -996,6 +1001,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         elementHeatFluxes = nil
         bucklingModes = nil
         modeShapes = nil
+        loadSteps = nil
         fieldStorage?.isResident = false
     }
 
@@ -1036,6 +1042,7 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
         if let hf = fields.elementHeatFluxes { self.elementHeatFluxes = hf }
         if let bm = fields.bucklingModes { self.bucklingModes = bm }
         if let ms = fields.modeShapes { self.modeShapes = ms }
+        if let ls = fields.loadSteps { self.loadSteps = ls }
         self.fieldStorage?.isResident = true
     }
 
@@ -1050,7 +1057,8 @@ public struct SimulationStudyResults: Sendable, Codable, Equatable, Hashable {
             elementVonMisesStresses: elementVonMisesStresses,
             elementHeatFluxes: elementHeatFluxes,
             bucklingModes: bucklingModes,
-            modeShapes: modeShapes
+            modeShapes: modeShapes,
+            loadSteps: loadSteps
         )
     }
 }

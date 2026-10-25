@@ -67,6 +67,8 @@ final class WorkspaceModel {
     @ObservationIgnored public var cachedStudyMeshes: [UUID: VolumeMesh] = [:]
     @ObservationIgnored public var cachedStudyResultFields: [UUID: SimulationResultFields] = [:]
     public var activeContourExtrema: [UUID: SimulationContourExtrema] = [:]
+    public var simulationAnimationStates: [UUID: SimulationAnimationState] = [:]
+    @ObservationIgnored private var simulationAnimationTasks: [UUID: Task<Void, Never>] = [:]
 
     // Mesh quality metrics and element highlighting (BL-MSH-04, #277)
     public var selectedMeshQualityMetric: MeshQualityMetricKind = .aspectRatio
@@ -7438,14 +7440,43 @@ final class WorkspaceModel {
         updateSimulationMeshDisplaySettings(studyId: studyId, settings: study.meshDisplay)
     }
 
-    // MARK: - Simulation Contour Viewport Lifecycle (BL-RES-02, #193)
+/// Ephemeral animation playback state for deformed mesh and load step simulation visualization (BL-RES-03, #324).
+public struct SimulationAnimationState: Sendable, Equatable {
+    public var isPlaying: Bool
+    public var phase: Double
+    public var speed: Double
+    public var mode: SimulationAnimationMode
+    public var currentStepIndex: Int
 
-    public func updateSimulationContourInViewport(studyId: UUID) {
+    public init(
+        isPlaying: Bool = false,
+        phase: Double = 0.0,
+        speed: Double = 1.0,
+        mode: SimulationAnimationMode = .harmonic,
+        currentStepIndex: Int = 0
+    ) {
+        self.isPlaying = isPlaying
+        self.phase = phase
+        self.speed = speed
+        self.mode = mode
+        self.currentStepIndex = currentStepIndex
+    }
+}
+
+    // MARK: - Simulation Contour Viewport Lifecycle (BL-RES-02, #193; BL-RES-03, #324)
+
+    public func updateSimulationContourInViewport(
+        studyId: UUID,
+        deformationMultiplier: Double = 1.0,
+        displacementsOverride: [Int: SIMD3<Double>]? = nil
+    ) {
         let contourMeshId = SolidId("simulation-contour-\(studyId.uuidString)")
         let baseMeshId = SolidId("simulation-mesh-\(studyId.uuidString)")
+        let wireframeMeshId = SolidId("simulation-undeformed-wireframe-\(studyId.uuidString)")
 
         guard let study = document.study(id: studyId) else {
             _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
+            _ = viewportManager.renderer?.removeMesh(for: wireframeMeshId)
             activeContourExtrema.removeValue(forKey: studyId)
             invalidateViewport(.model)
             return
@@ -7468,6 +7499,7 @@ final class WorkspaceModel {
               study.results.status == .completed,
               let volumeMesh = cachedStudyMeshes[studyId] else {
             _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
+            _ = viewportManager.renderer?.removeMesh(for: wireframeMeshId)
             activeContourExtrema.removeValue(forKey: studyId)
             if !study.meshDisplay.hideSolidBody {
                 for solidId in targetSolidIds {
@@ -7496,7 +7528,9 @@ final class WorkspaceModel {
             results: study.results,
             fields: fields,
             settings: study.contourSettings,
-            displaySettings: study.meshDisplay
+            displaySettings: study.meshDisplay,
+            deformationMultiplier: deformationMultiplier,
+            displacementsOverride: displacementsOverride
         )
 
         activeContourExtrema[studyId] = extrema
@@ -7513,12 +7547,35 @@ final class WorkspaceModel {
             _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
         }
 
+        if study.contourSettings.showUndeformedWireframe, study.contourSettings.isDeformed {
+            let wireframePayload = SimulationContourGenerator.generateUndeformedWireframePayload(
+                mesh: volumeMesh,
+                displaySettings: study.meshDisplay
+            )
+            if !wireframePayload.edgePolylines.isEmpty {
+                _ = viewportManager.renderer?.installMesh(
+                    wireframePayload,
+                    for: wireframeMeshId,
+                    transform: .identity,
+                    color: SIMD4<Float>(0.5, 0.5, 0.5, 0.6),
+                    isHidden: false
+                )
+            } else {
+                _ = viewportManager.renderer?.removeMesh(for: wireframeMeshId)
+            }
+        } else {
+            _ = viewportManager.renderer?.removeMesh(for: wireframeMeshId)
+        }
+
         invalidateViewport(.model)
     }
 
     public func clearSimulationContourFromViewport(studyId: UUID) {
+        stopSimulationAnimation(studyId: studyId)
         let contourMeshId = SolidId("simulation-contour-\(studyId.uuidString)")
+        let wireframeMeshId = SolidId("simulation-undeformed-wireframe-\(studyId.uuidString)")
         _ = viewportManager.renderer?.removeMesh(for: contourMeshId)
+        _ = viewportManager.renderer?.removeMesh(for: wireframeMeshId)
         activeContourExtrema.removeValue(forKey: studyId)
 
         if let study = document.study(id: studyId) {
@@ -7541,6 +7598,167 @@ final class WorkspaceModel {
             updateSimulationContourInViewport(studyId: studyId)
             log(.info, "CAE", "Updated contour plot settings for study")
         }
+    }
+
+    // MARK: - Simulation Animation & Load Steps (BL-RES-03, #324)
+
+    public func startSimulationAnimation(studyId: UUID) {
+        simulationAnimationTasks[studyId]?.cancel()
+
+        guard let study = document.study(id: studyId) else { return }
+        var state = simulationAnimationStates[studyId] ?? SimulationAnimationState(
+            isPlaying: true,
+            phase: 0.0,
+            speed: study.contourSettings.animationSpeed,
+            mode: study.contourSettings.animationMode,
+            currentStepIndex: 0
+        )
+        state.isPlaying = true
+        state.speed = study.contourSettings.animationSpeed
+        state.mode = study.contourSettings.animationMode
+        simulationAnimationStates[studyId] = state
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var lastTime = CACurrentMediaTime()
+
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 16_666_667)
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+
+                let now = CACurrentMediaTime()
+                let dt = min(0.1, max(0.0, now - lastTime))
+                lastTime = now
+
+                guard var currentState = self.simulationAnimationStates[studyId], currentState.isPlaying else {
+                    break
+                }
+                guard let currentStudy = self.document.study(id: studyId),
+                      currentStudy.contourSettings.isVisible,
+                      currentStudy.contourSettings.isDeformed else {
+                    self.stopSimulationAnimation(studyId: studyId)
+                    break
+                }
+
+                let speed = max(0.01, currentState.speed)
+                let baseFrequency = 1.0
+                var newPhase = currentState.phase + dt * speed * baseFrequency
+                if newPhase >= 1.0 {
+                    newPhase = newPhase.truncatingRemainder(dividingBy: 1.0)
+                } else if newPhase < 0.0 {
+                    newPhase = (newPhase.truncatingRemainder(dividingBy: 1.0) + 1.0).truncatingRemainder(dividingBy: 1.0)
+                }
+                currentState.phase = newPhase
+
+                if let loadSteps = currentStudy.results.loadSteps, !loadSteps.isEmpty {
+                    let stepIdx = min(loadSteps.count - 1, max(0, Int(newPhase * Double(loadSteps.count))))
+                    currentState.currentStepIndex = stepIdx
+                    self.simulationAnimationStates[studyId] = currentState
+                    let step = loadSteps[stepIdx]
+                    self.updateSimulationContourInViewport(
+                        studyId: studyId,
+                        deformationMultiplier: 1.0,
+                        displacementsOverride: step.nodalDisplacements
+                    )
+                } else {
+                    self.simulationAnimationStates[studyId] = currentState
+                    let factor = SimulationAnimationMode.factor(for: currentState.mode, phase: newPhase)
+                    self.updateSimulationContourInViewport(
+                        studyId: studyId,
+                        deformationMultiplier: factor
+                    )
+                }
+            }
+        }
+        simulationAnimationTasks[studyId] = task
+    }
+
+    public func pauseSimulationAnimation(studyId: UUID) {
+        simulationAnimationTasks[studyId]?.cancel()
+        simulationAnimationTasks.removeValue(forKey: studyId)
+        if var state = simulationAnimationStates[studyId] {
+            state.isPlaying = false
+            simulationAnimationStates[studyId] = state
+        }
+    }
+
+    public func stopSimulationAnimation(studyId: UUID) {
+        simulationAnimationTasks[studyId]?.cancel()
+        simulationAnimationTasks.removeValue(forKey: studyId)
+        if var state = simulationAnimationStates[studyId] {
+            state.isPlaying = false
+            state.phase = 0.0
+            state.currentStepIndex = 0
+            simulationAnimationStates[studyId] = state
+        }
+        updateSimulationContourInViewport(studyId: studyId, deformationMultiplier: 1.0, displacementsOverride: nil)
+    }
+
+    public func toggleSimulationAnimation(studyId: UUID) {
+        if simulationAnimationStates[studyId]?.isPlaying == true {
+            pauseSimulationAnimation(studyId: studyId)
+        } else {
+            startSimulationAnimation(studyId: studyId)
+        }
+    }
+
+    public func scrubSimulationAnimation(studyId: UUID, phase: Double) {
+        let clamped = max(0.0, min(1.0, phase))
+        guard let study = document.study(id: studyId) else { return }
+
+        var state = simulationAnimationStates[studyId] ?? SimulationAnimationState(
+            isPlaying: false,
+            phase: clamped,
+            speed: study.contourSettings.animationSpeed,
+            mode: study.contourSettings.animationMode,
+            currentStepIndex: 0
+        )
+        state.phase = clamped
+
+        if let loadSteps = study.results.loadSteps, !loadSteps.isEmpty {
+            let stepIdx = min(loadSteps.count - 1, max(0, Int(clamped * Double(loadSteps.count))))
+            state.currentStepIndex = stepIdx
+            simulationAnimationStates[studyId] = state
+            let step = loadSteps[stepIdx]
+            updateSimulationContourInViewport(
+                studyId: studyId,
+                deformationMultiplier: 1.0,
+                displacementsOverride: step.nodalDisplacements
+            )
+        } else {
+            simulationAnimationStates[studyId] = state
+            let factor = SimulationAnimationMode.factor(for: state.mode, phase: clamped)
+            updateSimulationContourInViewport(
+                studyId: studyId,
+                deformationMultiplier: factor
+            )
+        }
+    }
+
+    public func selectLoadStep(studyId: UUID, stepNumber: Int) {
+        guard var study = document.study(id: studyId),
+              let loadSteps = study.results.loadSteps,
+              let step = loadSteps.first(where: { $0.stepNumber == stepNumber }) else {
+            return
+        }
+        study.contourSettings.activeLoadStepNumber = stepNumber
+        study.results.nodalDisplacements = step.nodalDisplacements
+        if let vm = step.nodalVonMisesStresses {
+            study.results.nodalVonMisesStresses = vm
+        }
+        if let evm = step.elementVonMisesStresses {
+            study.results.elementVonMisesStresses = evm
+        }
+        _ = document.updateSimulationStudyResults(studyId: studyId, results: study.results)
+        _ = document.updateSimulationContourSettings(studyId: studyId, settings: study.contourSettings)
+        markDocumentModified()
+        updateSimulationContourInViewport(studyId: studyId)
+        invalidateViewport(.model)
+        log(.info, "CAE", "Active load step set to Step \(stepNumber) (t = \(String(format: "%.4g", step.timeOrFactor)))")
     }
 
     public func assignSelectedSubElementToFixture(studyId: UUID, fixtureId: UUID) {

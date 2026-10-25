@@ -403,4 +403,216 @@ import SwiftUI
         )
         #expect(fosExtrema.actualMin > 0.0)
     }
+
+    // MARK: - Animation & Deformed Shape Tests (BL-RES-03, #324)
+
+    @Test func testAnimationModeWaveforms() {
+        // Harmonic: sin(2 * pi * phase)
+        #expect(abs(SimulationAnimationMode.factor(for: .harmonic, phase: 0.0)) < 1e-6)
+        #expect(abs(SimulationAnimationMode.factor(for: .harmonic, phase: 0.25) - 1.0) < 1e-6)
+        #expect(abs(SimulationAnimationMode.factor(for: .harmonic, phase: 0.5)) < 1e-6)
+        #expect(abs(SimulationAnimationMode.factor(for: .harmonic, phase: 0.75) - (-1.0)) < 1e-6)
+        #expect(abs(SimulationAnimationMode.factor(for: .harmonic, phase: 1.0)) < 1e-6)
+
+        // Half Cycle: sin(pi * phase)
+        #expect(abs(SimulationAnimationMode.factor(for: .halfCycle, phase: 0.0)) < 1e-6)
+        #expect(abs(SimulationAnimationMode.factor(for: .halfCycle, phase: 0.5) - 1.0) < 1e-6)
+        #expect(abs(SimulationAnimationMode.factor(for: .halfCycle, phase: 1.0)) < 1e-6)
+
+        // Linear Ramp: phase
+        #expect(SimulationAnimationMode.factor(for: .linearRamp, phase: 0.0) == 0.0)
+        #expect(SimulationAnimationMode.factor(for: .linearRamp, phase: 0.5) == 0.5)
+        #expect(SimulationAnimationMode.factor(for: .linearRamp, phase: 1.0) == 1.0)
+
+        // Ping-Pong: triangular 0 -> 1 -> 0
+        #expect(SimulationAnimationMode.factor(for: .pingPong, phase: 0.0) == 0.0)
+        #expect(abs(SimulationAnimationMode.factor(for: .pingPong, phase: 0.25) - 0.5) < 1e-6)
+        #expect(SimulationAnimationMode.factor(for: .pingPong, phase: 0.5) == 1.0)
+        #expect(abs(SimulationAnimationMode.factor(for: .pingPong, phase: 0.75) - 0.5) < 1e-6)
+        #expect(SimulationAnimationMode.factor(for: .pingPong, phase: 1.0) == 0.0)
+
+        // Phase clamping
+        #expect(SimulationAnimationMode.factor(for: .linearRamp, phase: -0.5) == 0.0)
+        #expect(SimulationAnimationMode.factor(for: .linearRamp, phase: 1.5) == 1.0)
+    }
+
+    @Test func testDeformationMultiplierScaling() {
+        let mesh = makeSingleTetMesh()
+        let study = SimulationStudy()
+        let fields = SimulationResultFields(
+            studyId: study.id,
+            nodalDisplacements: [
+                1: SIMD3<Double>(0, 0, 0),
+                2: SIMD3<Double>(1, 0, 0),
+                3: SIMD3<Double>(0, 2, 0),
+                4: SIMD3<Double>(0, 0, 10)
+            ]
+        )
+        var settings = SimulationContourSettings()
+        settings.field = .displacementMagnitude
+        settings.isDeformed = true
+        settings.deformationScale = 2.0
+
+        // Multiplier = 0.5: node 4 pos (0, 0, 10) + 2.0 * 0.5 * (0, 0, 10) = (0, 0, 20)
+        let (_, extHalf) = SimulationContourGenerator.generatePayload(
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: fields,
+            settings: settings,
+            displaySettings: study.meshDisplay,
+            deformationMultiplier: 0.5
+        )
+        #expect(extHalf.maxPosition == SIMD3<Double>(0, 0, 20))
+
+        // Multiplier = 0.0: node 4 pos (0, 0, 10) + 0 = (0, 0, 10)
+        let (_, extZero) = SimulationContourGenerator.generatePayload(
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: fields,
+            settings: settings,
+            displaySettings: study.meshDisplay,
+            deformationMultiplier: 0.0
+        )
+        #expect(extZero.maxPosition == SIMD3<Double>(0, 0, 10))
+
+        // Multiplier = -1.0: node 4 pos (0, 0, 10) + 2.0 * (-1.0) * (0, 0, 10) = (0, 0, -10)
+        let (_, extNeg) = SimulationContourGenerator.generatePayload(
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: fields,
+            settings: settings,
+            displaySettings: study.meshDisplay,
+            deformationMultiplier: -1.0
+        )
+        #expect(extNeg.maxPosition == SIMD3<Double>(0, 0, -10))
+    }
+
+    @Test func testDisplacementsOverride() {
+        let mesh = makeSingleTetMesh()
+        let study = SimulationStudy()
+        let originalFields = SimulationResultFields(
+            studyId: study.id,
+            nodalDisplacements: [
+                1: .zero,
+                2: SIMD3<Double>(1, 0, 0),
+                3: SIMD3<Double>(0, 1, 0),
+                4: SIMD3<Double>(0, 0, 1)
+            ]
+        )
+        let overrideDisplacements: [Int: SIMD3<Double>] = [
+            1: .zero,
+            2: SIMD3<Double>(1, 0, 0),
+            3: SIMD3<Double>(0, 2, 0),
+            4: SIMD3<Double>(0, 0, 5)
+        ]
+        var settings = SimulationContourSettings()
+        settings.field = .displacementMagnitude
+        settings.isDeformed = true
+        settings.deformationScale = 1.0
+
+        let (_, ext) = SimulationContourGenerator.generatePayload(
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: originalFields,
+            settings: settings,
+            displaySettings: study.meshDisplay,
+            deformationMultiplier: 1.0,
+            displacementsOverride: overrideDisplacements
+        )
+        // Node 4: pos (0, 0, 10) + 1.0 * (0, 0, 5) = (0, 0, 15)
+        #expect(ext.maxPosition == SIMD3<Double>(0, 0, 15))
+    }
+
+    @Test func testUndeformedWireframePayloadGeneration() {
+        let mesh = makeSingleTetMesh()
+        let study = SimulationStudy()
+
+        let wireframe = SimulationContourGenerator.generateUndeformedWireframePayload(
+            mesh: mesh,
+            displaySettings: study.meshDisplay
+        )
+        #expect(wireframe.positions.isEmpty)
+        #expect(wireframe.normals.isEmpty)
+        #expect(wireframe.indices.isEmpty)
+        #expect(wireframe.colors?.isEmpty ?? true)
+        #expect(wireframe.edgePolylines.count == 6) // Single tet has 6 edges
+
+        let emptyMesh = VolumeMesh()
+        let emptyWireframe = SimulationContourGenerator.generateUndeformedWireframePayload(
+            mesh: emptyMesh,
+            displaySettings: study.meshDisplay
+        )
+        #expect(emptyWireframe.edgePolylines.isEmpty)
+    }
+
+    @Test func testZeroDisplacementKeepsGeometryStationary() {
+        let mesh = makeSingleTetMesh()
+        let study = SimulationStudy()
+        let zeroDisplacements: [Int: SIMD3<Double>] = [
+            1: .zero,
+            2: .zero,
+            3: .zero,
+            4: .zero
+        ]
+        var settings = SimulationContourSettings()
+        settings.field = .displacementMagnitude
+        settings.isDeformed = true
+        settings.deformationScale = 50.0
+
+        let (payload, ext) = SimulationContourGenerator.generatePayload(
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: nil,
+            settings: settings,
+            displaySettings: study.meshDisplay,
+            displacementsOverride: zeroDisplacements
+        )
+
+        var undeformedSettings = settings
+        undeformedSettings.isDeformed = false
+        let (undeformedPayload, _) = SimulationContourGenerator.generatePayload(
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: nil,
+            settings: undeformedSettings,
+            displaySettings: study.meshDisplay
+        )
+
+        #expect(!payload.isEmpty)
+        #expect(payload.positions == undeformedPayload.positions)
+        #expect(payload.positions.allSatisfy { !$0.isNaN })
+        #expect(ext.actualMin == 0.0)
+        #expect(ext.actualMax == 0.0)
+    }
+
+    @Test func testNonPositiveDeformationScaleClamping() {
+        let settings = SimulationContourSettings(field: .displacementMagnitude, isDeformed: true, deformationScale: -5.0)
+        #expect(settings.deformationScale == 0.0)
+
+        let mesh = makeSingleTetMesh()
+        let study = SimulationStudy()
+        let disp: [Int: SIMD3<Double>] = [
+            1: .zero,
+            2: SIMD3<Double>(1, 0, 0),
+            3: SIMD3<Double>(0, 2, 0),
+            4: SIMD3<Double>(0, 0, 10)
+        ]
+        let (_, ext) = SimulationContourGenerator.generatePayload(
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: nil,
+            settings: settings,
+            displaySettings: study.meshDisplay,
+            displacementsOverride: disp
+        )
+        // With scale clamped to 0.0, node 4 remains at undeformed (0, 0, 10)
+        #expect(ext.maxPosition == SIMD3<Double>(0, 0, 10))
+    }
 }

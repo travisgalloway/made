@@ -1610,6 +1610,190 @@ import simd
         ).environment(ws)
         _ = legendView
     }
+
+    // MARK: - Animation & Load Steps Lifecycle Tests (BL-RES-03, #324)
+
+    @Test func testSimulationAnimationLifecycle() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Animation Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 10, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 10))
+        let elem = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 1)
+        let mesh = VolumeMesh(nodes: [n1, n2, n3, n4], elements: [elem])
+        ws.cachedStudyMeshes[study.id] = mesh
+
+        study.results.status = .completed
+        study.results.nodalDisplacements = [
+            1: .zero,
+            2: SIMD3<Double>(1, 0, 0),
+            3: SIMD3<Double>(0, 1, 0),
+            4: SIMD3<Double>(0, 0, 1)
+        ]
+        study.contourSettings.isVisible = true
+        study.contourSettings.isDeformed = true
+        study.contourSettings.animationMode = .harmonic
+        study.contourSettings.animationSpeed = 1.0
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+        _ = ws.document.updateSimulationContourSettings(studyId: study.id, settings: study.contourSettings)
+
+        // 1. Start animation
+        ws.startSimulationAnimation(studyId: study.id)
+        #expect(ws.simulationAnimationStates[study.id]?.isPlaying == true)
+
+        // 2. Pause animation
+        ws.pauseSimulationAnimation(studyId: study.id)
+        #expect(ws.simulationAnimationStates[study.id]?.isPlaying == false)
+
+        // 3. Toggle animation (resumes play)
+        ws.toggleSimulationAnimation(studyId: study.id)
+        #expect(ws.simulationAnimationStates[study.id]?.isPlaying == true)
+
+        // 4. Toggle animation (pauses)
+        ws.toggleSimulationAnimation(studyId: study.id)
+        #expect(ws.simulationAnimationStates[study.id]?.isPlaying == false)
+
+        // 5. Stop animation (resets phase to 0.0)
+        ws.startSimulationAnimation(studyId: study.id)
+        ws.stopSimulationAnimation(studyId: study.id)
+        #expect(ws.simulationAnimationStates[study.id]?.isPlaying == false)
+        #expect(ws.simulationAnimationStates[study.id]?.phase == 0.0)
+    }
+
+    @Test func testSimulationAnimationPhaseScrubbing() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Scrub Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 10, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 10))
+        let elem = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 1)
+        let mesh = VolumeMesh(nodes: [n1, n2, n3, n4], elements: [elem])
+        ws.cachedStudyMeshes[study.id] = mesh
+
+        study.results.status = .completed
+        study.results.nodalDisplacements = [
+            1: .zero,
+            2: SIMD3<Double>(2, 0, 0),
+            3: SIMD3<Double>(0, 2, 0),
+            4: SIMD3<Double>(0, 0, 2)
+        ]
+        study.contourSettings.isVisible = true
+        study.contourSettings.isDeformed = true
+        study.contourSettings.deformationScale = 1.0
+        study.contourSettings.animationMode = .linearRamp
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+        _ = ws.document.updateSimulationContourSettings(studyId: study.id, settings: study.contourSettings)
+
+        ws.isDocumentModified = false
+
+        // Scrub while paused to phase 0.5
+        ws.scrubSimulationAnimation(studyId: study.id, phase: 0.5)
+        #expect(ws.simulationAnimationStates[study.id]?.phase == 0.5)
+        #expect(ws.isDocumentModified == false)
+
+        // Viewport extrema updated immediately
+        let ext = ws.activeContourExtrema[study.id]
+        #expect(ext != nil)
+    }
+
+    @Test func testSelectLoadStepNavigation() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Load Step Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        let n1 = VolumeMeshNode(id: 1, position: SIMD3<Double>(0, 0, 0))
+        let n2 = VolumeMeshNode(id: 2, position: SIMD3<Double>(10, 0, 0))
+        let n3 = VolumeMeshNode(id: 3, position: SIMD3<Double>(0, 10, 0))
+        let n4 = VolumeMeshNode(id: 4, position: SIMD3<Double>(0, 0, 10))
+        let elem = VolumeMeshElement(id: 1, order: .linear, nodeIndices: [1, 2, 3, 4], tag: 1)
+        let mesh = VolumeMesh(nodes: [n1, n2, n3, n4], elements: [elem])
+        ws.cachedStudyMeshes[study.id] = mesh
+
+        let step1 = SimulationLoadStep(
+            stepNumber: 1,
+            timeOrFactor: 0.5,
+            nodalDisplacements: [1: .zero, 2: SIMD3<Double>(1, 0, 0), 3: .zero, 4: .zero],
+            nodalVonMisesStresses: [1: 25.0, 2: 50.0, 3: 10.0, 4: 5.0]
+        )
+        let step2 = SimulationLoadStep(
+            stepNumber: 2,
+            timeOrFactor: 1.0,
+            nodalDisplacements: [1: .zero, 2: SIMD3<Double>(2, 0, 0), 3: .zero, 4: .zero],
+            nodalVonMisesStresses: [1: 50.0, 2: 100.0, 3: 20.0, 4: 10.0]
+        )
+
+        study.results.status = .completed
+        study.results.loadSteps = [step1, step2]
+        study.contourSettings.isVisible = true
+        study.contourSettings.isDeformed = true
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+        _ = ws.document.updateSimulationContourSettings(studyId: study.id, settings: study.contourSettings)
+
+        ws.isDocumentModified = false
+
+        // Select Step 2
+        ws.selectLoadStep(studyId: study.id, stepNumber: 2)
+
+        let updatedStudy = ws.document.study(id: study.id)
+        #expect(updatedStudy?.contourSettings.activeLoadStepNumber == 2)
+        #expect(updatedStudy?.results.nodalDisplacements?[2] == SIMD3<Double>(2, 0, 0))
+        #expect(updatedStudy?.results.nodalVonMisesStresses?[2] == 100.0)
+        #expect(ws.isDocumentModified == true)
+    }
+
+    @Test func testInspectorSimulationResultsAnimationAndLoadStepHierarchy() {
+        let ws = WorkspaceModel()
+        let studyId = UUID()
+        let step = SimulationLoadStep(
+            stepNumber: 1,
+            timeOrFactor: 1.0,
+            nodalDisplacements: [1: .zero]
+        )
+        let mode = SimulationModeShape(modeNumber: 1, frequencyHz: 120.0, nodalDisplacements: [1: .zero])
+
+        var study = SimulationStudy(id: studyId, name: "Full Solved Study", studyType: .modalFrequency)
+        study.results.status = .completed
+        study.results.loadSteps = [step]
+        study.results.modeShapes = [mode]
+        study.contourSettings.isVisible = true
+        study.contourSettings.isDeformed = true
+        study.contourSettings.showUndeformedWireframe = true
+
+        let inspectorView = InspectorSimulationResultsView(study: study).environment(ws)
+        _ = inspectorView
+    }
+
+    @Test func testAnimationStopsWhenStudyRemoved() {
+        let ws = WorkspaceModel()
+        guard var study = ws.createSimulationStudy(type: .linearStatic, name: "Removable Study") else {
+            Issue.record("Failed to create study")
+            return
+        }
+
+        study.results.status = .completed
+        study.contourSettings.isVisible = true
+        study.contourSettings.isDeformed = true
+        _ = ws.document.updateSimulationStudyResults(studyId: study.id, results: study.results)
+        _ = ws.document.updateSimulationContourSettings(studyId: study.id, settings: study.contourSettings)
+
+        ws.startSimulationAnimation(studyId: study.id)
+        #expect(ws.simulationAnimationStates[study.id]?.isPlaying == true)
+
+        ws.removeSimulationStudy(id: study.id)
+        #expect(ws.simulationAnimationStates[study.id]?.isPlaying == false)
+    }
 }
 
 
