@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import QuartzCore
+import MetalKit
 import UniformTypeIdentifiers
 import MadeCore
 import os
@@ -54,6 +55,8 @@ final class WorkspaceModel {
     public var selectedSimulationMaterialAssignmentId: UUID? = nil
     public var isSimulationMeshSelected: Bool = false
     public var isSimulationResultsSelected: Bool = false
+    public var isProbeModeActive: Bool = false
+    public var selectedProbeId: UUID? = nil
 
     // Active simulation solve execution tracking (BL-SIM-02, #187)
     public private(set) var activeRunningStudyIds: Set<UUID> = []
@@ -107,6 +110,8 @@ final class WorkspaceModel {
         selectedSimulationMaterialAssignmentId = nil
         isSimulationMeshSelected = false
         isSimulationResultsSelected = false
+        isProbeModeActive = false
+        selectedProbeId = nil
     }
 
     public func clearNonSimulationSelections() {
@@ -7759,6 +7764,152 @@ public struct SimulationAnimationState: Sendable, Equatable {
         updateSimulationContourInViewport(studyId: studyId)
         invalidateViewport(.model)
         log(.info, "CAE", "Active load step set to Step \(stepNumber) (t = \(String(format: "%.4g", step.timeOrFactor)))")
+    }
+
+    // MARK: - Simulation Probes & Result Tables (BL-RES-04, #325)
+
+    public func toggleProbeMode() {
+        isProbeModeActive.toggle()
+        if let studyId = selectedSimulationStudyId ?? document.activeStudyId, var study = document.study(id: studyId) {
+            study.probeTable.isProbingActive = isProbeModeActive
+            _ = document.updateSimulationProbeTable(studyId: studyId, probeTable: study.probeTable)
+        }
+        invalidateViewport(.interaction)
+    }
+
+    public func updateSimulationProbeTable(studyId: UUID, probeTable: SimulationProbeTable) {
+        _ = document.updateSimulationProbeTable(studyId: studyId, probeTable: probeTable)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func addProbePoint(studyId: UUID, position: SIMD3<Double>, name: String? = nil) {
+        guard let study = document.study(id: studyId) else { return }
+        let mesh = cachedStudyMeshes[studyId] ?? VolumeMesh()
+        let fields = resultFields(for: studyId)
+        let probeCount = study.probeTable.probes.count
+        let probeName = name ?? "Probe \(probeCount + 1)"
+        let probe = SimulationProbeEvaluator.evaluateProbe(
+            at: position,
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: fields,
+            name: probeName,
+            kind: .point
+        )
+        _ = document.addSimulationProbePoint(studyId: studyId, probe: probe)
+        selectedProbeId = probe.id
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Added probe '\(probe.name)' at (\(String(format: "%.2f, %.2f, %.2f", position.x, position.y, position.z)))")
+    }
+
+    public func addPathProbe(studyId: UUID, start: SIMD3<Double>, end: SIMD3<Double>, sampleCount: Int = 10, name: String? = nil) {
+        guard var study = document.study(id: studyId) else { return }
+        let mesh = cachedStudyMeshes[studyId] ?? VolumeMesh()
+        let fields = resultFields(for: studyId)
+        let pathCount = study.probeTable.paths.count
+        let pathName = name ?? "Path \(pathCount + 1)"
+        let def = SimulationPathProbeDefinition(
+            name: pathName,
+            startPoint: start,
+            endPoint: end,
+            sampleCount: sampleCount
+        )
+        study.probeTable.paths.append(def)
+        let sampleProbes = SimulationProbeEvaluator.evaluatePath(
+            start: start,
+            end: end,
+            sampleCount: sampleCount,
+            pathName: pathName,
+            mesh: mesh,
+            study: study,
+            results: study.results,
+            fields: fields
+        )
+        study.probeTable.probes.append(contentsOf: sampleProbes)
+        _ = document.updateSimulationProbeTable(studyId: studyId, probeTable: study.probeTable)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Generated \(sampleProbes.count) path probe samples along '\(pathName)'")
+    }
+
+    public func removeProbe(studyId: UUID, probeId: UUID) {
+        if selectedProbeId == probeId {
+            selectedProbeId = nil
+        }
+        _ = document.removeSimulationProbePoint(studyId: studyId, probeId: probeId)
+        markDocumentModified()
+        invalidateViewport(.model)
+    }
+
+    public func clearProbes(studyId: UUID) {
+        selectedProbeId = nil
+        _ = document.clearSimulationProbes(studyId: studyId)
+        markDocumentModified()
+        invalidateViewport(.model)
+        log(.info, "CAE", "Cleared all simulation probes")
+    }
+
+    public func exportProbesCSV(studyId: UUID) -> String {
+        guard let study = document.study(id: studyId) else { return "" }
+        return study.probeTable.toCSV(field: study.contourSettings.field)
+    }
+
+    public func copyProbesCSVToClipboard(studyId: UUID) {
+        let csv = exportProbesCSV(studyId: studyId)
+        guard !csv.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(csv, forType: .string)
+        log(.info, "CAE", "Copied probe result table CSV to clipboard (\(csv.components(separatedBy: "\r\n").count - 1) lines)")
+    }
+
+    public func probeAtScreenPoint(loc: CGPoint, in view: MTKView, studyId: UUID) {
+        guard let renderer = viewportManager.renderer else { return }
+        let viewportSize = view.bounds.size
+        let aspect = Float(max(1.0, viewportSize.width) / max(1.0, viewportSize.height))
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
+        guard let ray = screenPointToRay(screenPoint: pointer, viewportSize: viewportSize, viewMatrix: matrices.view, projectionMatrix: matrices.projection) else { return }
+
+        let mesh = cachedStudyMeshes[studyId] ?? VolumeMesh()
+        guard let study = document.study(id: studyId) else { return }
+        let fields = resultFields(for: studyId)
+        let displacements = fields?.nodalDisplacements ?? study.results.nodalDisplacements
+
+        if let hit = SimulationProbeEvaluator.raycastVolumeMesh(
+            ray: ray,
+            mesh: mesh,
+            isDeformed: study.contourSettings.isDeformed,
+            deformationScale: study.contourSettings.deformationScale,
+            displacements: displacements
+        ) {
+            addProbePoint(studyId: studyId, position: hit)
+        } else if !mesh.nodes.isEmpty {
+            // Screen proximity snap to nearest node if surface raycast misses
+            var closestNodePos: SIMD3<Double>? = nil
+            var minScreenDistSq: Float = 400.0 // 20px tolerance
+            let vp = simd_mul(matrices.projection, matrices.view)
+            for node in mesh.nodes {
+                var pos = node.position
+                if study.contourSettings.isDeformed, let disp = displacements?[node.id] {
+                    pos += disp * study.contourSettings.deformationScale
+                }
+                let pt = SIMD3<Float>(Float(pos.x), Float(pos.y), Float(pos.z))
+                if let screenPt = projectToScreen(point: pt, viewProjectionMatrix: vp, viewportSize: viewportSize) {
+                    let distSq = simd_distance_squared(pointer, screenPt)
+                    if distSq < minScreenDistSq {
+                        minScreenDistSq = distSq
+                        closestNodePos = pos
+                    }
+                }
+            }
+            if let closestNodePos {
+                addProbePoint(studyId: studyId, position: closestNodePos)
+            }
+        }
     }
 
     public func assignSelectedSubElementToFixture(studyId: UUID, fixtureId: UUID) {

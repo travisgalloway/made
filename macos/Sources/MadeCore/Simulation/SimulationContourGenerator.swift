@@ -434,7 +434,7 @@ public enum SimulationContourGenerator: Sendable {
 
     // MARK: - Scalar Extraction
 
-    private static func extractScalars(
+    public static func extractScalars(
         field: SimulationResultFieldKind,
         study: SimulationStudy,
         results: SimulationStudyResults,

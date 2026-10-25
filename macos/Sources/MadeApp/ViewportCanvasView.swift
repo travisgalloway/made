@@ -198,6 +198,12 @@ struct ViewportCanvasView: View {
                             },
                             onCancelPendingPlacement: {
                                 workspace.cancelPendingPlacement()
+                            },
+                            isProbeModeActive: workspace.isProbeModeActive,
+                            onProbeClick: { loc, view in
+                                if let studyId = workspace.selectedSimulationStudyId ?? workspace.document.activeStudyId {
+                                    workspace.probeAtScreenPoint(loc: loc, in: view, studyId: studyId)
+                                }
                             }
                         )
 

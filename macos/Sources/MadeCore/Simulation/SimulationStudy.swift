@@ -1084,6 +1084,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
     public var thermalStudyId: UUID?
     public var thermalReferenceTemperature: Double?
     public var contourSettings: SimulationContourSettings
+    public var probeTable: SimulationProbeTable
 
     public init(
         id: UUID = UUID(),
@@ -1104,7 +1105,8 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         factorOfSafetySettings: FactorOfSafetySettings = FactorOfSafetySettings(),
         thermalStudyId: UUID? = nil,
         thermalReferenceTemperature: Double? = nil,
-        contourSettings: SimulationContourSettings = SimulationContourSettings()
+        contourSettings: SimulationContourSettings = SimulationContourSettings(),
+        probeTable: SimulationProbeTable = SimulationProbeTable()
     ) {
         self.id = id
         self.name = name
@@ -1125,10 +1127,11 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.thermalStudyId = thermalStudyId
         self.thermalReferenceTemperature = thermalReferenceTemperature
         self.contourSettings = contourSettings
+        self.probeTable = probeTable
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed, coordinateSystemId, factorOfSafetySettings, thermalStudyId, thermalReferenceTemperature, contourSettings
+        case id, name, studyType, targets, groups, materials, connections, fixtures, loads, mesh, meshDisplay, solver, results, isCollapsed, coordinateSystemId, factorOfSafetySettings, thermalStudyId, thermalReferenceTemperature, contourSettings, probeTable
     }
 
     public init(from decoder: Decoder) throws {
@@ -1152,6 +1155,7 @@ public struct SimulationStudy: Sendable, Codable, Equatable, Hashable, Identifia
         self.thermalStudyId = try container.decodeIfPresent(UUID.self, forKey: .thermalStudyId)
         self.thermalReferenceTemperature = try container.decodeIfPresent(Double.self, forKey: .thermalReferenceTemperature)
         self.contourSettings = try container.decodeIfPresent(SimulationContourSettings.self, forKey: .contourSettings) ?? SimulationContourSettings()
+        self.probeTable = try container.decodeIfPresent(SimulationProbeTable.self, forKey: .probeTable) ?? SimulationProbeTable()
     }
 }
 
