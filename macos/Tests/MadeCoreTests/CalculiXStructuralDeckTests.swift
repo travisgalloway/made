@@ -414,4 +414,29 @@ import simd
         #expect(text.contains("*NODE FILE\nU"))
         #expect(text.contains("*DENSITY"))
     }
+
+    @Test func testThermalCoupledDeckPerNodeTemperatures() {
+        let mesh = Self.makeSimpleMesh()
+        var study = SimulationStudy(name: "Thermal Coupled Deck Test", studyType: .linearStatic)
+        study.thermalStudyId = UUID()
+        study.thermalReferenceTemperature = 22.5
+        study.fixtures = [SimulationFixture(name: "FixFace", kind: .fixed)]
+
+        let nodalTemps: [Int: Double] = [
+            1: 22.5,
+            2: 45.0,
+            3: 70.0,
+            4: 100.0
+        ]
+
+        let deck = CalculiXDeckBuilder.buildDeck(study: study, mesh: mesh, nodalTemperatures: nodalTemps)
+        let text = deck.deckContent
+
+        #expect(text.contains("*INITIAL CONDITIONS, TYPE=TEMPERATURE\nNALL, 22.5000"))
+        #expect(text.contains("*TEMPERATURE"))
+        #expect(text.contains("1, 22.5000"))
+        #expect(text.contains("2, 45.0000"))
+        #expect(text.contains("3, 70.0000"))
+        #expect(text.contains("4, 100.0000"))
+    }
 }

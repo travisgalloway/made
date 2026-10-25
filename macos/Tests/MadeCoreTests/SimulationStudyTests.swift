@@ -584,5 +584,39 @@ import simd
         #expect(mode.frequencyHz == 42.5)
         #expect(mode.nodalDisplacements[1] == SIMD3<Double>(0.0, 1.0, 0.0))
     }
+
+    @Test func testThermalCouplingProperties() throws {
+        var study = SimulationStudy(name: "Coupled Study", studyType: .linearStatic)
+        #expect(study.thermalStudyId == nil)
+        #expect(study.thermalReferenceTemperature == nil)
+
+        let thermalId = UUID()
+        study.thermalStudyId = thermalId
+        study.thermalReferenceTemperature = 25.0
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(study)
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(SimulationStudy.self, from: data)
+
+        #expect(decoded.thermalStudyId == thermalId)
+        #expect(decoded.thermalReferenceTemperature == 25.0)
+    }
+
+    @Test func testBackwardCompatibleDecodingOfSimulationStudyWithoutThermalCoupling() throws {
+        let legacyStudyJSON = """
+        {
+            "id": "12345678-1234-1234-1234-123456789abc",
+            "name": "Legacy Study",
+            "studyType": "linearStatic"
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(SimulationStudy.self, from: legacyStudyJSON)
+        #expect(decoded.name == "Legacy Study")
+        #expect(decoded.studyType == .linearStatic)
+        #expect(decoded.thermalStudyId == nil)
+        #expect(decoded.thermalReferenceTemperature == nil)
+    }
 }
 

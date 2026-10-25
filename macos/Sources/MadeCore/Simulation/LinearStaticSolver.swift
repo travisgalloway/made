@@ -53,7 +53,8 @@ public enum LinearStaticSolver: Sendable {
         mesh: VolumeMesh,
         youngsModulus: Double? = nil,
         poissonsRatio: Double? = nil,
-        lengthScaleToMeters: Double = 1.0
+        lengthScaleToMeters: Double = 1.0,
+        nodalTemperatures: [Int: Double]? = nil
     ) throws -> LinearStaticResult {
         let startTime = ContinuousClock.now
 
@@ -290,7 +291,98 @@ public enum LinearStaticSolver: Sendable {
             )
         }
 
-        // 5. Assemble applied loads (force, pressure, gravity)
+        // 5. Assemble applied loads (force, pressure, gravity, coupled thermal loads)
+        let refTemp = study.thermalReferenceTemperature
+            ?? study.loads.first(where: { $0.kind == .thermalLoad || $0.kind == .temperature })?.referenceTemperature
+            ?? 20.0
+
+        if let nodalTemperatures, !nodalTemperatures.isEmpty {
+            let beta = (3.0 * lambda + 2.0 * mu) * alpha
+            let alphaQuad = (5.0 - sqrt(5.0)) / 20.0
+            let betaQuad = (5.0 + 3.0 * sqrt(5.0)) / 20.0
+            let quadPoints: [(SIMD4<Double>, Double)] = [
+                (SIMD4<Double>(betaQuad, alphaQuad, alphaQuad, alphaQuad), 1.0 / 24.0),
+                (SIMD4<Double>(alphaQuad, betaQuad, alphaQuad, alphaQuad), 1.0 / 24.0),
+                (SIMD4<Double>(alphaQuad, alphaQuad, betaQuad, alphaQuad), 1.0 / 24.0),
+                (SIMD4<Double>(alphaQuad, alphaQuad, alphaQuad, betaQuad), 1.0 / 24.0)
+            ]
+
+            for element in mesh.elements {
+                let elIndices = element.nodeIndices.compactMap { nodeIndexById[$0] }
+                guard elIndices.count >= 4 else { continue }
+
+                if element.order == .quadratic && elIndices.count >= 10 {
+                    let p = elIndices.prefix(10).map { positions[$0] }
+                    let elNodeIds = Array(element.nodeIndices.prefix(10))
+                    let tNode = elNodeIds.map { nodalTemperatures[$0] ?? refTemp }
+
+                    for (L, weight) in quadPoints {
+                        let N = evaluateC3D10ShapeFunctions(L: L)
+                        var T_L = 0.0
+                        for a in 0..<10 { T_L += N[a] * tNode[a] }
+                        let deltaT = T_L - refTemp
+                        guard abs(deltaT) > 1e-15 else { continue }
+
+                        let dNdL = evaluateC3D10LocalGradients(L: L)
+                        var J = (SIMD3<Double>.zero, SIMD3<Double>.zero, SIMD3<Double>.zero)
+                        for a in 0..<10 {
+                            let grad = dNdL[a]
+                            J.0 += grad.x * p[a]
+                            J.1 += grad.y * p[a]
+                            J.2 += grad.z * p[a]
+                        }
+
+                        let detJ = simd_dot(simd_cross(J.0, J.1), J.2)
+                        let absDetJ = abs(detJ)
+                        guard absDetJ > 1e-15, let Jinv = invert3x3(J) else { continue }
+
+                        let dOmega = weight * absDetJ
+                        for a in 0..<10 {
+                            let nodeIdx = elIndices[a]
+                            let gradNa = multiply3x3(Jinv, dNdL[a])
+                            let Fth = dOmega * (beta * deltaT) * gradNa
+                            F[3 * nodeIdx + 0] += Fth.x
+                            F[3 * nodeIdx + 1] += Fth.y
+                            F[3 * nodeIdx + 2] += Fth.z
+                        }
+                    }
+                } else {
+                    let p0 = positions[elIndices[0]]
+                    let p1 = positions[elIndices[1]]
+                    let p2 = positions[elIndices[2]]
+                    let p3 = positions[elIndices[3]]
+
+                    let C: [[Double]] = [
+                        [1.0, p0.x, p0.y, p0.z],
+                        [1.0, p1.x, p1.y, p1.z],
+                        [1.0, p2.x, p2.y, p2.z],
+                        [1.0, p3.x, p3.y, p3.z]
+                    ]
+                    guard let Cinv = invert4x4(C) else { continue }
+                    let vol = computeTetrahedronVolume(el: element, positions: positions, nodeIndexById: nodeIndexById)
+                    guard vol > 1e-15 else { continue }
+
+                    let elNodeIds = Array(element.nodeIndices.prefix(4))
+                    let t0 = nodalTemperatures[elNodeIds[0]] ?? refTemp
+                    let t1 = nodalTemperatures[elNodeIds[1]] ?? refTemp
+                    let t2 = nodalTemperatures[elNodeIds[2]] ?? refTemp
+                    let t3 = nodalTemperatures[elNodeIds[3]] ?? refTemp
+                    let meanT = 0.25 * (t0 + t1 + t2 + t3)
+                    let deltaT = meanT - refTemp
+                    guard abs(deltaT) > 1e-15 else { continue }
+
+                    for a in 0..<4 {
+                        let nodeIdx = elIndices[a]
+                        let gradNa = SIMD3<Double>(Cinv[1][a], Cinv[2][a], Cinv[3][a])
+                        let Fth = vol * (beta * deltaT) * gradNa
+                        F[3 * nodeIdx + 0] += Fth.x
+                        F[3 * nodeIdx + 1] += Fth.y
+                        F[3 * nodeIdx + 2] += Fth.z
+                    }
+                }
+            }
+        }
+
         for load in study.loads {
             let matchedSet = (mesh.sets.first(where: { $0.name == load.name }))
                 ?? setById[load.id]
@@ -660,6 +752,7 @@ public enum LinearStaticSolver: Sendable {
                 }
 
             case .thermalLoad, .temperature:
+                if nodalTemperatures != nil { continue }
                 let targetTemp = load.magnitude // °C
                 let refTemp = load.referenceTemperature ?? 20.0 // °C
                 let deltaT = targetTemp - refTemp
@@ -807,75 +900,135 @@ public enum LinearStaticSolver: Sendable {
         }
 
         // 9. Recover Cauchy stresses and calculate element and nodal von Mises stresses (in MPa)
-        var elementThermalStrain = [Int: Double]()
-        for load in study.loads where load.kind == .thermalLoad || load.kind == .temperature {
-            let targetTemp = load.magnitude
-            let refTemp = load.referenceTemperature ?? 20.0
-            let deltaT = targetTemp - refTemp
-            let eth = alpha * deltaT
-
-            let matchedSet = (mesh.sets.first(where: { $0.name == load.name }))
-                ?? setById[load.id]
-                ?? load.targetReferences.compactMap({ setByName[$0.targetName] ?? setById[$0.targetId] }).first
-                ?? load.groupNames.compactMap({ setByName[$0] }).first
-                ?? setByName[load.name]
-
-            let targetElIds = Set(matchedSet?.elementIds ?? [])
-            if targetElIds.isEmpty {
-                for element in mesh.elements {
-                    elementThermalStrain[element.id] = (elementThermalStrain[element.id] ?? 0.0) + eth
-                }
-            } else {
-                for elId in targetElIds {
-                    elementThermalStrain[elId] = (elementThermalStrain[elId] ?? 0.0) + eth
-                }
-            }
-        }
-
         var elementVonMisesStresses: [Int: Double] = [:]
         elementVonMisesStresses.reserveCapacity(mesh.elements.count)
 
         var nodalStressAccumulator = [Int: (sum: Double, count: Int)](minimumCapacity: nodeCount)
         var nodalTensorAccumulator = [Int: (sxx: Double, syy: Double, szz: Double, sxy: Double, syz: Double, szx: Double, count: Int)](minimumCapacity: nodeCount)
 
-        for element in mesh.elements {
-            let eth = elementThermalStrain[element.id] ?? 0.0
-            if element.order == .quadratic && element.nodeIndices.count >= 10 {
-                let (elemStress, _, nodeStresses, nodeTensors) = computeC3D10Stresses(
-                    element: element,
-                    positions: positions,
-                    nodeIndexById: nodeIndexById,
-                    nodalU: solutionU,
-                    lambda: lambda,
-                    mu: mu,
-                    thermalStrain: eth
-                )
-                elementVonMisesStresses[element.id] = elemStress
-                for (nId, s) in nodeStresses {
-                    let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
-                    nodalStressAccumulator[nId] = (cur.sum + s, cur.count + 1)
-                }
-                for (nId, t) in nodeTensors {
-                    let cur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
-                    nodalTensorAccumulator[nId] = (cur.sxx + t.sxx, cur.syy + t.syy, cur.szz + t.szz, cur.sxy + t.sxy, cur.syz + t.syz, cur.szx + t.szx, cur.count + 1)
-                }
-            } else if element.nodeIndices.count >= 4 {
-                let (elemTensor, elemStress) = computeC3D4Stresses(
-                    element: element,
-                    positions: positions,
-                    nodeIndexById: nodeIndexById,
-                    nodalU: solutionU,
-                    lambda: lambda,
-                    mu: mu,
-                    thermalStrain: eth
-                )
-                elementVonMisesStresses[element.id] = elemStress
-                for nId in element.nodeIndices.prefix(4) {
-                    let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
-                    nodalStressAccumulator[nId] = (cur.sum + elemStress, cur.count + 1)
+        if let nodalTemperatures, !nodalTemperatures.isEmpty {
+            for element in mesh.elements {
+                if element.order == .quadratic && element.nodeIndices.count >= 10 {
+                    let elNodeIds = Array(element.nodeIndices.prefix(10))
+                    let tNodes = elNodeIds.map { nodalTemperatures[$0] ?? refTemp }
+                    let NCentroid = evaluateC3D10ShapeFunctions(L: SIMD4<Double>(0.25, 0.25, 0.25, 0.25))
+                    var tCentroid = 0.0
+                    for a in 0..<10 { tCentroid += NCentroid[a] * tNodes[a] }
+                    let ethCentroid = alpha * (tCentroid - refTemp)
+                    let ethNodes = tNodes.map { alpha * ($0 - refTemp) }
 
-                    let tCur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
-                    nodalTensorAccumulator[nId] = (tCur.sxx + elemTensor.sxx, tCur.syy + elemTensor.syy, tCur.szz + elemTensor.szz, tCur.sxy + elemTensor.sxy, tCur.syz + elemTensor.syz, tCur.szx + elemTensor.szx, tCur.count + 1)
+                    let (elemStress, _, nodeStresses, nodeTensors) = computeC3D10Stresses(
+                        element: element,
+                        positions: positions,
+                        nodeIndexById: nodeIndexById,
+                        nodalU: solutionU,
+                        lambda: lambda,
+                        mu: mu,
+                        thermalStrain: ethCentroid,
+                        nodalThermalStrains: ethNodes
+                    )
+                    elementVonMisesStresses[element.id] = elemStress
+                    for (nId, s) in nodeStresses {
+                        let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
+                        nodalStressAccumulator[nId] = (cur.sum + s, cur.count + 1)
+                    }
+                    for (nId, t) in nodeTensors {
+                        let cur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+                        nodalTensorAccumulator[nId] = (cur.sxx + t.sxx, cur.syy + t.syy, cur.szz + t.szz, cur.sxy + t.sxy, cur.syz + t.syz, cur.szx + t.szx, cur.count + 1)
+                    }
+                } else if element.nodeIndices.count >= 4 {
+                    let elNodeIds = Array(element.nodeIndices.prefix(4))
+                    let t0 = nodalTemperatures[elNodeIds[0]] ?? refTemp
+                    let t1 = nodalTemperatures[elNodeIds[1]] ?? refTemp
+                    let t2 = nodalTemperatures[elNodeIds[2]] ?? refTemp
+                    let t3 = nodalTemperatures[elNodeIds[3]] ?? refTemp
+                    let meanT = 0.25 * (t0 + t1 + t2 + t3)
+                    let eth = alpha * (meanT - refTemp)
+
+                    let (elemTensor, elemStress) = computeC3D4Stresses(
+                        element: element,
+                        positions: positions,
+                        nodeIndexById: nodeIndexById,
+                        nodalU: solutionU,
+                        lambda: lambda,
+                        mu: mu,
+                        thermalStrain: eth
+                    )
+                    elementVonMisesStresses[element.id] = elemStress
+                    for nId in elNodeIds {
+                        let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
+                        nodalStressAccumulator[nId] = (cur.sum + elemStress, cur.count + 1)
+
+                        let tCur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+                        nodalTensorAccumulator[nId] = (tCur.sxx + elemTensor.sxx, tCur.syy + elemTensor.syy, tCur.szz + elemTensor.szz, tCur.sxy + elemTensor.sxy, tCur.syz + elemTensor.syz, tCur.szx + elemTensor.szx, tCur.count + 1)
+                    }
+                }
+            }
+        } else {
+            var elementThermalStrain = [Int: Double]()
+            for load in study.loads where load.kind == .thermalLoad || load.kind == .temperature {
+                let targetTemp = load.magnitude
+                let rTemp = load.referenceTemperature ?? 20.0
+                let deltaT = targetTemp - rTemp
+                let eth = alpha * deltaT
+
+                let matchedSet = (mesh.sets.first(where: { $0.name == load.name }))
+                    ?? setById[load.id]
+                    ?? load.targetReferences.compactMap({ setByName[$0.targetName] ?? setById[$0.targetId] }).first
+                    ?? load.groupNames.compactMap({ setByName[$0] }).first
+                    ?? setByName[load.name]
+
+                let targetElIds = Set(matchedSet?.elementIds ?? [])
+                if targetElIds.isEmpty {
+                    for element in mesh.elements {
+                        elementThermalStrain[element.id] = (elementThermalStrain[element.id] ?? 0.0) + eth
+                    }
+                } else {
+                    for elId in targetElIds {
+                        elementThermalStrain[elId] = (elementThermalStrain[elId] ?? 0.0) + eth
+                    }
+                }
+            }
+
+            for element in mesh.elements {
+                let eth = elementThermalStrain[element.id] ?? 0.0
+                if element.order == .quadratic && element.nodeIndices.count >= 10 {
+                    let (elemStress, _, nodeStresses, nodeTensors) = computeC3D10Stresses(
+                        element: element,
+                        positions: positions,
+                        nodeIndexById: nodeIndexById,
+                        nodalU: solutionU,
+                        lambda: lambda,
+                        mu: mu,
+                        thermalStrain: eth
+                    )
+                    elementVonMisesStresses[element.id] = elemStress
+                    for (nId, s) in nodeStresses {
+                        let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
+                        nodalStressAccumulator[nId] = (cur.sum + s, cur.count + 1)
+                    }
+                    for (nId, t) in nodeTensors {
+                        let cur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+                        nodalTensorAccumulator[nId] = (cur.sxx + t.sxx, cur.syy + t.syy, cur.szz + t.szz, cur.sxy + t.sxy, cur.syz + t.syz, cur.szx + t.szx, cur.count + 1)
+                    }
+                } else if element.nodeIndices.count >= 4 {
+                    let (elemTensor, elemStress) = computeC3D4Stresses(
+                        element: element,
+                        positions: positions,
+                        nodeIndexById: nodeIndexById,
+                        nodalU: solutionU,
+                        lambda: lambda,
+                        mu: mu,
+                        thermalStrain: eth
+                    )
+                    elementVonMisesStresses[element.id] = elemStress
+                    for nId in element.nodeIndices.prefix(4) {
+                        let cur = nodalStressAccumulator[nId] ?? (0.0, 0)
+                        nodalStressAccumulator[nId] = (cur.sum + elemStress, cur.count + 1)
+
+                        let tCur = nodalTensorAccumulator[nId] ?? (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+                        nodalTensorAccumulator[nId] = (tCur.sxx + elemTensor.sxx, tCur.syy + elemTensor.syy, tCur.szz + elemTensor.szz, tCur.sxy + elemTensor.sxy, tCur.syz + elemTensor.syz, tCur.szx + elemTensor.szx, tCur.count + 1)
+                    }
                 }
             }
         }
@@ -1140,7 +1293,8 @@ public enum LinearStaticSolver: Sendable {
         nodalU: [Double],
         lambda: Double,
         mu: Double,
-        thermalStrain: Double = 0.0
+        thermalStrain: Double = 0.0,
+        nodalThermalStrains: [Double]? = nil
     ) -> (elementStress: Double, elementTensor: CauchyStressTensor, nodeStresses: [Int: Double], nodeTensors: [Int: CauchyStressTensor]) {
         let indices = element.nodeIndices.prefix(10).compactMap { nodeIndexById[$0] }
         guard indices.count == 10 else { return (0.0, CauchyStressTensor(), [:], [:]) }
@@ -1231,9 +1385,10 @@ public enum LinearStaticSolver: Sendable {
                 eyz += 0.5 * (g.z * uy + g.y * uz)
                 ezx += 0.5 * (g.x * uz + g.z * ux)
             }
-            exx -= thermalStrain
-            eyy -= thermalStrain
-            ezz -= thermalStrain
+            let ethK = nodalThermalStrains?[k] ?? thermalStrain
+            exx -= ethK
+            eyy -= ethK
+            ezz -= ethK
             let nodeTensor = evaluateCauchyStressTensor(exx: exx, eyy: eyy, ezz: ezz, exy: exy, eyz: eyz, ezx: ezx, lambda: lambda, mu: mu)
             nodeStresses[elementNodeIds[k]] = nodeTensor.vonMisesStress
             nodeTensors[elementNodeIds[k]] = nodeTensor
@@ -1422,6 +1577,22 @@ public enum LinearStaticSolver: Sendable {
         K[r2][c0, default: 0.0] += weight * block.k20
         K[r2][c1, default: 0.0] += weight * block.k21
         K[r2][c2, default: 0.0] += weight * block.k22
+    }
+
+    package static func evaluateC3D10ShapeFunctions(L: SIMD4<Double>) -> [Double] {
+        let L1 = L.x, L2 = L.y, L3 = L.z, L4 = L.w
+        return [
+            L1 * (2.0 * L1 - 1.0), // Node 0
+            L2 * (2.0 * L2 - 1.0), // Node 1
+            L3 * (2.0 * L3 - 1.0), // Node 2
+            L4 * (2.0 * L4 - 1.0), // Node 3
+            4.0 * L1 * L2,         // Node 4
+            4.0 * L2 * L3,         // Node 5
+            4.0 * L3 * L1,         // Node 6
+            4.0 * L1 * L4,         // Node 7
+            4.0 * L2 * L4,         // Node 8
+            4.0 * L3 * L4          // Node 9
+        ]
     }
 
     package static func evaluateC3D10LocalGradients(L: SIMD4<Double>) -> [SIMD3<Double>] {

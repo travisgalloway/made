@@ -2435,6 +2435,61 @@ struct InspectorSimulationStudyView: View {
                 sectionHeader("Model Scope")
             }
 
+            if study.studyType == .linearStatic {
+                let lengthUnit = workspace.document.settings.units.lengthUnit
+                Section {
+                    Picker("Thermal Study", selection: Binding(
+                        get: { study.thermalStudyId },
+                        set: { newId in
+                            var copy = study
+                            copy.thermalStudyId = newId
+                            workspace.updateSimulationStudy(copy)
+                        }
+                    )) {
+                        Text("None").tag(UUID?.none)
+                        ForEach(workspace.document.studies.filter { $0.studyType == .thermalConduction && $0.id != study.id }) { s in
+                            Text(s.name).tag(UUID?.some(s.id))
+                        }
+                    }
+                    .accessibilityIdentifier("inspector-simulation-study-thermal-picker")
+
+                    LabeledContent("Reference Temperature (\(SimulationUnitConversion.temperatureUnitSymbol(unit: lengthUnit)))") {
+                        TextField("Reference Temperature", value: Binding(
+                            get: { SimulationUnitConversion.displayTemperature(study.thermalReferenceTemperature ?? 20.0, unit: lengthUnit) },
+                            set: { val in
+                                var copy = study
+                                copy.thermalReferenceTemperature = SimulationUnitConversion.commitTemperature(val, unit: lengthUnit)
+                                workspace.updateSimulationStudy(copy)
+                            }
+                        ), format: .number)
+                        .multilineTextAlignment(.trailing)
+                        .accessibilityIdentifier("inspector-simulation-study-thermal-ref-temp")
+                    }
+
+                    if let thermalId = study.thermalStudyId {
+                        if let sourceStudy = workspace.document.studies.first(where: { $0.id == thermalId }) {
+                            if sourceStudy.results.status == .completed,
+                               let temps = sourceStudy.results.nodalTemperatures,
+                               !temps.isEmpty {
+                                Label("Ready (\(temps.count) nodal temperatures)", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .accessibilityIdentifier("inspector-simulation-study-thermal-status-ready")
+                            } else {
+                                Label("Thermal study has not been solved yet", systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                    .accessibilityIdentifier("inspector-simulation-study-thermal-status-unsolved")
+                            }
+                        } else {
+                            Label("Selected thermal study not found", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                                .accessibilityIdentifier("inspector-simulation-study-thermal-status-missing")
+                        }
+                    }
+                } header: {
+                    sectionHeader("Thermal Coupling")
+                }
+            }
+
             Section {
                 Picker("Solver Engine", selection: Binding(
                     get: { study.solver.engine },
