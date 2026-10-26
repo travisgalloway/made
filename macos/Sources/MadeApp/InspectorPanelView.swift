@@ -1319,6 +1319,18 @@ struct InspectorPanelView: View {
                     }
                 }
                 .controlSize(.mini)
+
+                Button("Fillet") {
+                    _ = try? workspace.filletSketchCorner(in: sketch.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("Chamfer") {
+                    _ = try? workspace.chamferSketchCorner(in: sketch.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
             }
 
             if data.entities.isEmpty {

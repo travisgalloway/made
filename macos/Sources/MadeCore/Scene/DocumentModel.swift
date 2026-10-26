@@ -3675,6 +3675,193 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
+    // MARK: - Sketch Fillet & Chamfer Mutators (BL-SKT-10)
+
+    @discardableResult
+    public func filletSketchCorner(
+        in featureId: UUID,
+        line1Id: UUID,
+        line2Id: UUID,
+        radius: Double
+    ) -> Result<SketchFilletResult, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let line1 = sketchData.entities.first(where: { $0.id == line1Id }) else {
+            return .failure(.objectNotFound(ObjectId(line1Id.uuidString)))
+        }
+        guard let line2 = sketchData.entities.first(where: { $0.id == line2Id }) else {
+            return .failure(.objectNotFound(ObjectId(line2Id.uuidString)))
+        }
+
+        let filletResult: SketchFilletResult
+        do {
+            filletResult = try SketchFillet.makeFillet(line1: line1, line2: line2, radius: radius)
+        } catch let err as SketchError {
+            return .failure(.sketchError(err))
+        } catch {
+            return .failure(.sketchError(.invalidEntity(error.localizedDescription)))
+        }
+
+        let oldEntities = sketchData.entities
+        let oldConstraints = sketchData.constraints
+
+        guard let idx1 = sketchData.entities.firstIndex(where: { $0.id == line1Id }),
+              let idx2 = sketchData.entities.firstIndex(where: { $0.id == line2Id }) else {
+            return .failure(.objectNotFound(ObjectId(line1Id.uuidString)))
+        }
+
+        sketchData.entities[idx1] = filletResult.updatedLine1
+        sketchData.entities[idx2] = filletResult.updatedLine2
+        sketchData.entities.append(filletResult.filletArc)
+
+        sketchData.constraints.removeAll { c in
+            c.kind == .coincident && c.entityIds.contains(line1Id) && c.entityIds.contains(line2Id)
+        }
+        sketchData.constraints.append(contentsOf: filletResult.constraints)
+
+        let newEntities = sketchData.entities
+        let newConstraints = sketchData.constraints
+        features[index].operation = .sketch(sketchData)
+
+        let actionName = "Fillet Sketch Corner"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.restoreSketchEntitiesAndConstraints(
+                    in: featureId,
+                    restoringEntities: oldEntities,
+                    restoringConstraints: oldConstraints,
+                    subsequentEntities: newEntities,
+                    subsequentConstraints: newConstraints,
+                    actionName: actionName
+                )
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+
+        return .success(filletResult)
+    }
+
+    @discardableResult
+    public func chamferSketchCorner(
+        in featureId: UUID,
+        line1Id: UUID,
+        line2Id: UUID,
+        distance1: Double,
+        distance2: Double? = nil,
+        angle: Double? = nil
+    ) -> Result<SketchChamferResult, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let line1 = sketchData.entities.first(where: { $0.id == line1Id }) else {
+            return .failure(.objectNotFound(ObjectId(line1Id.uuidString)))
+        }
+        guard let line2 = sketchData.entities.first(where: { $0.id == line2Id }) else {
+            return .failure(.objectNotFound(ObjectId(line2Id.uuidString)))
+        }
+
+        let chamferResult: SketchChamferResult
+        do {
+            chamferResult = try SketchChamfer.makeChamfer(
+                line1: line1,
+                line2: line2,
+                distance1: distance1,
+                distance2: distance2,
+                angle: angle
+            )
+        } catch let err as SketchError {
+            return .failure(.sketchError(err))
+        } catch {
+            return .failure(.sketchError(.invalidEntity(error.localizedDescription)))
+        }
+
+        let oldEntities = sketchData.entities
+        let oldConstraints = sketchData.constraints
+
+        guard let idx1 = sketchData.entities.firstIndex(where: { $0.id == line1Id }),
+              let idx2 = sketchData.entities.firstIndex(where: { $0.id == line2Id }) else {
+            return .failure(.objectNotFound(ObjectId(line1Id.uuidString)))
+        }
+
+        sketchData.entities[idx1] = chamferResult.updatedLine1
+        sketchData.entities[idx2] = chamferResult.updatedLine2
+        sketchData.entities.append(chamferResult.chamferLine)
+
+        sketchData.constraints.removeAll { c in
+            c.kind == .coincident && c.entityIds.contains(line1Id) && c.entityIds.contains(line2Id)
+        }
+        sketchData.constraints.append(contentsOf: chamferResult.constraints)
+
+        let newEntities = sketchData.entities
+        let newConstraints = sketchData.constraints
+        features[index].operation = .sketch(sketchData)
+
+        let actionName = "Chamfer Sketch Corner"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.restoreSketchEntitiesAndConstraints(
+                    in: featureId,
+                    restoringEntities: oldEntities,
+                    restoringConstraints: oldConstraints,
+                    subsequentEntities: newEntities,
+                    subsequentConstraints: newConstraints,
+                    actionName: actionName
+                )
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+
+        return .success(chamferResult)
+    }
+
+    private func restoreSketchEntitiesAndConstraints(
+        in featureId: UUID,
+        restoringEntities: [SketchEntity],
+        restoringConstraints: [SketchConstraint],
+        subsequentEntities: [SketchEntity],
+        subsequentConstraints: [SketchConstraint],
+        actionName: String
+    ) {
+        guard let index = features.firstIndex(where: { $0.id == featureId }),
+              case .sketch(var sketchData) = features[index].operation else {
+            return
+        }
+
+        sketchData.entities = restoringEntities
+        sketchData.constraints = restoringConstraints
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.restoreSketchEntitiesAndConstraints(
+                    in: featureId,
+                    restoringEntities: subsequentEntities,
+                    restoringConstraints: subsequentConstraints,
+                    subsequentEntities: restoringEntities,
+                    subsequentConstraints: restoringConstraints,
+                    actionName: actionName
+                )
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+    }
+
     @discardableResult
     public func extrudeSketch(
         sketchFeatureId: UUID,

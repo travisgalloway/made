@@ -662,6 +662,16 @@ struct ToolsMenuCommands: Commands {
                 }
                 .disabled(workspace.selectedSketchFeature == nil)
 
+                Button("Fillet Corner...") {
+                    _ = try? workspace.filletSketchCorner()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Button("Chamfer Corner...") {
+                    _ = try? workspace.chamferSketchCorner()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
                 Divider()
 
                 Button("Trim Entity") {
