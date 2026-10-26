@@ -215,6 +215,14 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onCancelPendingPlacement: (() -> Void)?
     var isProbeModeActive: Bool = false
     var onProbeClick: ((CGPoint, MTKView) -> Void)?
+    var selectionShape: SelectionShape = .box
+    var activeMarqueeBinding: Binding<MarqueeState?>?
+    var onMarqueeSelect: ((Set<SolidId>, Bool) -> Void)?
+
+    var activeMarquee: MarqueeState? {
+        get { activeMarqueeBinding?.wrappedValue }
+        nonmutating set { activeMarqueeBinding?.wrappedValue = newValue }
+    }
     
     public init(
         document: DocumentModel,
@@ -266,7 +274,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onPlacePendingComponent: ((SIMD3<Float>) -> Void)? = nil,
         onCancelPendingPlacement: (() -> Void)? = nil,
         isProbeModeActive: Bool = false,
-        onProbeClick: ((CGPoint, MTKView) -> Void)? = nil
+        onProbeClick: ((CGPoint, MTKView) -> Void)? = nil,
+        selectionShape: SelectionShape = .box,
+        activeMarquee: Binding<MarqueeState?>? = nil,
+        onMarqueeSelect: ((Set<SolidId>, Bool) -> Void)? = nil
     ) {
         self.document = document
         self.renderer = renderer
@@ -318,6 +329,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onCancelPendingPlacement = onCancelPendingPlacement
         self.isProbeModeActive = isProbeModeActive
         self.onProbeClick = onProbeClick
+        self.selectionShape = selectionShape
+        self.activeMarqueeBinding = activeMarquee
+        self.onMarqueeSelect = onMarqueeSelect
     }
     
     public func makeCoordinator() -> Coordinator {
@@ -483,6 +497,14 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private var trimMouseDownLocation: CGPoint = .zero
         private var rectangleMouseDownLocation: CGPoint = .zero
         private var rectangleStartUV: SIMD2<Double>?
+        public var marqueeStartLocation: CGPoint? = nil
+        public var marqueePoints: [CGPoint] = []
+        public var isMarqueeActive: Bool = false
+        public var activeMarquee: MarqueeState? = nil {
+            didSet {
+                parent.activeMarquee = activeMarquee
+            }
+        }
 
         func makeViewportProbeString() -> String {
             guard let mtkView = self.mtkView else {
@@ -771,6 +793,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             if action == .orbit {
                 activeOrbitPivot = resolveOrbitPivot(at: loc, in: view)
             }
+            if button == .left && parent.tool == .select && !event.modifierFlags.contains(.option) {
+                marqueeStartLocation = loc
+                marqueePoints = [loc]
+                isMarqueeActive = false
+            }
             (view as? CADMTKView)?.beginDragCursor(for: action)
             _ = pointerRouter.handle(.down(pointerType: pType, pointer: pointer))
         }
@@ -833,6 +860,32 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 invalidate(reason: .interaction)
                 return
             }
+
+            if button == .left && parent.tool == .select && action == .manipulate, let start = marqueeStartLocation {
+                let movement = hypot(loc.x - start.x, loc.y - start.y)
+                if movement >= 4.0 {
+                    isMarqueeActive = true
+                    let mode: MarqueeMode = loc.x >= start.x ? .window : .crossing
+                    if let last = marqueePoints.last {
+                        if hypot(loc.x - last.x, loc.y - last.y) >= 2.0 {
+                            marqueePoints.append(loc)
+                        }
+                    } else {
+                        marqueePoints.append(loc)
+                    }
+                    let isExtend = event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.command)
+                    activeMarquee = MarqueeState(
+                        shape: parent.selectionShape,
+                        mode: mode,
+                        startPoint: start,
+                        currentPoint: loc,
+                        points: marqueePoints,
+                        isExtend: isExtend
+                    )
+                    invalidate(reason: .interaction)
+                    return
+                }
+            }
             
             if decision.mode == .navigate {
                 guard deltaX != 0 || deltaY != 0 else { return }
@@ -871,6 +924,15 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         func handleKeyDown(with event: NSEvent) -> Bool {
             if event.keyCode == 53 { // Esc
+                if isMarqueeActive || marqueeStartLocation != nil {
+                    activeMarquee = nil
+                    marqueeStartLocation = nil
+                    marqueePoints.removeAll()
+                    isMarqueeActive = false
+                    pointerRouter.arbiter.reset()
+                    invalidate(reason: .interaction)
+                    return true
+                }
                 if parent.pendingPlacement != nil {
                     parent.onCancelPendingPlacement?()
                     return true
@@ -1332,6 +1394,48 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             activeOrbitPivot = nil
             (mtkView as? CADMTKView)?.endDragCursor()
             
+            if button == .left && isMarqueeActive {
+                defer {
+                    activeMarquee = nil
+                    marqueeStartLocation = nil
+                    marqueePoints.removeAll()
+                    isMarqueeActive = false
+                }
+                if let currentMarquee = activeMarquee, let view = mtkView {
+                    let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                    let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                    let candidateMeshes = parent.renderer.candidateMeshes()
+
+                    let selectedIds = evaluateMarqueeSelection(
+                        marquee: currentMarquee,
+                        candidateMeshes: candidateMeshes,
+                        viewportSize: view.bounds.size,
+                        viewProjectionMatrix: matrices.projection * matrices.view,
+                        filter: parent.selectionFilter
+                    )
+
+                    if let onMarqueeSelect = parent.onMarqueeSelect {
+                        onMarqueeSelect(selectedIds, currentMarquee.isExtend)
+                    } else {
+                        if !currentMarquee.isExtend {
+                            parent.document.clearSelection()
+                        }
+                        for id in selectedIds {
+                            parent.document.select(solidId: id)
+                        }
+                        parent.renderer.selectedId = parent.document.selectedId
+                        parent.renderer.selectedIds = parent.document.selectedIds
+                        parent.renderer.selectedSubElement = nil
+                    }
+                }
+                pointerRouter.arbiter.reset()
+                invalidate(reason: .interaction)
+                return
+            }
+            marqueeStartLocation = nil
+            marqueePoints.removeAll()
+            isMarqueeActive = false
+
             var wasStationaryGizmoClick = false
 
             if let drag = widgetlessDragState {

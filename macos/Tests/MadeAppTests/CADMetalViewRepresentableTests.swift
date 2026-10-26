@@ -1140,4 +1140,131 @@ private enum MetalTestSupport {
         #expect(document.selectedIds == [boxId])
         #expect(renderer.selectedIds == [boxId])
     }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMarqueeDragLeftToRightWindowMode() throws {
+        let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
+
+        let start = CGPoint(x: 100, y: 100)
+        let end = CGPoint(x: 200, y: 200)
+
+        coordinator.handleMouseDown(
+            with: makeMouseEvent(type: .leftMouseDown, location: start, windowNumber: window.windowNumber),
+            button: .left
+        )
+        #expect(!coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee == nil)
+
+        // Drag > 4px to the right
+        coordinator.handleMouseDragged(
+            with: makeMouseEvent(type: .leftMouseDragged, location: end, windowNumber: window.windowNumber),
+            button: .left
+        )
+        #expect(coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee != nil)
+        #expect(coordinator.activeMarquee?.mode == .window)
+        #expect(coordinator.activeMarquee?.shape == .box)
+        #expect(coordinator.activeMarquee?.isExtend == false)
+
+        coordinator.handleMouseUp(
+            with: makeMouseEvent(type: .leftMouseUp, location: end, windowNumber: window.windowNumber),
+            button: .left
+        )
+        #expect(!coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee == nil)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMarqueeDragRightToLeftCrossingModeWithModifiers() throws {
+        let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
+
+        let start = CGPoint(x: 300, y: 100)
+        let end = CGPoint(x: 150, y: 100)
+
+        coordinator.handleMouseDown(
+            with: makeMouseEvent(type: .leftMouseDown, location: start, windowNumber: window.windowNumber, modifierFlags: .shift),
+            button: .left
+        )
+
+        // Drag > 4px to the left with Shift
+        coordinator.handleMouseDragged(
+            with: makeMouseEvent(type: .leftMouseDragged, location: end, windowNumber: window.windowNumber, modifierFlags: .shift),
+            button: .left
+        )
+        #expect(coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee?.mode == .crossing)
+        #expect(coordinator.activeMarquee?.isExtend == true)
+
+        coordinator.handleMouseUp(
+            with: makeMouseEvent(type: .leftMouseUp, location: end, windowNumber: window.windowNumber, modifierFlags: .shift),
+            button: .left
+        )
+        #expect(!coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee == nil)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testStationaryClickPreservesNormalSelectionWithoutMarquee() throws {
+        let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
+
+        let start = CGPoint(x: 100, y: 100)
+        // Move less than 4 px (e.g. 2 px)
+        let slightMove = CGPoint(x: 102, y: 101)
+
+        coordinator.handleMouseDown(
+            with: makeMouseEvent(type: .leftMouseDown, location: start, windowNumber: window.windowNumber),
+            button: .left
+        )
+        coordinator.handleMouseDragged(
+            with: makeMouseEvent(type: .leftMouseDragged, location: slightMove, windowNumber: window.windowNumber),
+            button: .left
+        )
+        #expect(!coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee == nil)
+
+        coordinator.handleMouseUp(
+            with: makeMouseEvent(type: .leftMouseUp, location: slightMove, windowNumber: window.windowNumber),
+            button: .left
+        )
+        #expect(!coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee == nil)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testEscapeCancelsActiveMarquee() throws {
+        let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
+
+        let start = CGPoint(x: 100, y: 100)
+        let end = CGPoint(x: 250, y: 250)
+
+        coordinator.handleMouseDown(
+            with: makeMouseEvent(type: .leftMouseDown, location: start, windowNumber: window.windowNumber),
+            button: .left
+        )
+        coordinator.handleMouseDragged(
+            with: makeMouseEvent(type: .leftMouseDragged, location: end, windowNumber: window.windowNumber),
+            button: .left
+        )
+        #expect(coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee != nil)
+
+        // Press Escape (key code 53)
+        let escEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        )!
+
+        let handled = coordinator.handleKeyDown(with: escEvent)
+        #expect(handled)
+        #expect(!coordinator.isMarqueeActive)
+        #expect(coordinator.activeMarquee == nil)
+    }
 }

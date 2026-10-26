@@ -448,6 +448,25 @@ final class WorkspaceModel {
         syncViewportSelection()
     }
 
+    func select(solidIds: Set<ObjectId>, extend: Bool) {
+        if radialMenuState != nil {
+            radialMenuState = nil
+        }
+        selectedAssemblyConstraintId = nil
+        selectedExplodedViewId = nil
+        selectedExplodeStepId = nil
+        clearSimulationSelections()
+
+        if !extend {
+            document.clearSelection()
+        }
+        for id in solidIds {
+            document.select(solidId: id)
+        }
+        syncViewportSelection()
+        invalidateViewport(.interaction)
+    }
+
     var pendingDeleteId: ObjectId?
     var pendingDeleteFeatureId: UUID?
     // Document Persistence & State
@@ -703,6 +722,19 @@ final class WorkspaceModel {
 
     func resetSelectionFilters() {
         selectionFilter = .all
+    }
+
+    var selectionShape: SelectionShape = .box {
+        didSet {
+            if selectionShape != oldValue {
+                log(.info, "Viewport", "Selection shape updated: \(selectionShape.rawValue)")
+            }
+        }
+    }
+    var activeMarquee: MarqueeState? = nil
+
+    func setSelectionShape(_ shape: SelectionShape) {
+        selectionShape = shape
     }
 
     // Console

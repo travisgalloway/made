@@ -204,8 +204,17 @@ struct ViewportCanvasView: View {
                                 if let studyId = workspace.selectedSimulationStudyId ?? workspace.document.activeStudyId {
                                     workspace.probeAtScreenPoint(loc: loc, in: view, studyId: studyId)
                                 }
+                            },
+                            selectionShape: workspace.selectionShape,
+                            activeMarquee: $workspace.activeMarquee,
+                            onMarqueeSelect: { ids, extend in
+                                workspace.select(solidIds: ids, extend: extend)
                             }
                         )
+
+                        if let marquee = workspace.activeMarquee {
+                            MarqueeOverlayView(marquee: marquee)
+                        }
 
                         if let pending = workspace.pendingComponentPlacement {
                             ComponentPlacementHUDOverlayView(pending: pending) {
