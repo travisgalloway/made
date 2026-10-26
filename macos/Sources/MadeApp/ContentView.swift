@@ -97,6 +97,17 @@ struct ContentView: View {
         } message: { errorInfo in
             Text("Could not import \"\(errorInfo.fileName)\" (\(errorInfo.errorCode)): \(errorInfo.reason)")
         }
+        .alert(
+            "Cannot Reorder Feature",
+            isPresented: $workspace.isShowingReorderErrorAlert,
+            presenting: workspace.pendingReorderError
+        ) { _ in
+            Button("OK") {
+                workspace.dismissReorderErrorAlert()
+            }
+        } message: { errorInfo in
+            Text(errorInfo.message)
+        }
         .onAppear {
             workspace.setUp()
             workspace.syncWindowState()

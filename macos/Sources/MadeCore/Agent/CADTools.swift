@@ -305,6 +305,16 @@ public final class CADToolRegistry {
                         "elementType": MCPProperty(type: "string", description: "Optional filter to restrict returned topology elements", enum: ["face", "edge", "vertex"])
                     ]
                 )
+            ),
+            MCPToolDefinition(
+                name: "reorder_features",
+                description: "Reorders features in the CAD document timeline according to the provided list of feature UUIDs, validating that no feature precedes its dependencies.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "feature_ids": MCPProperty(type: "array", description: "The complete ordered list of feature UUID strings")
+                    ],
+                    required: ["feature_ids"]
+                )
             )
         ]
     }
@@ -367,6 +377,9 @@ public final class CADToolRegistry {
 
         case "cad_query_topology":
             return await handleQueryTopology(arguments: arguments)
+
+        case "reorder_features", "cad_reorder_features":
+            return await handleReorderFeatures(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -678,6 +691,32 @@ public final class CADToolRegistry {
 
         let stateStr = document.isRolledBack ? "rolled back at index \(document.effectiveRollbackIndex)" : "fully rolled forward"
         return .text("Timeline \(stateStr). Active features: \(document.activeFeatures.count) / \(document.features.count). Objects in scene: \(document.objects.count).")
+    }
+
+    private func handleReorderFeatures(arguments: [String: AnyCodableValue]) async -> MCPToolCallResult {
+        guard let rawIds = (arguments["feature_ids"] ?? arguments["featureIds"])?.arrayValue else {
+            return .error("Missing required argument 'feature_ids'")
+        }
+        var uuids: [UUID] = []
+        for raw in rawIds {
+            guard let str = raw.stringValue, let uuid = UUID(uuidString: str) else {
+                return .error("Invalid feature UUID: '\(raw.stringValue ?? "")'")
+            }
+            uuids.append(uuid)
+        }
+
+        let result = document.reorderFeatures(uuids)
+        switch result {
+        case .failure(let err):
+            return .error("Reorder failed: \(err.description)")
+        case .success:
+            await KernelRegeneration.regenerate(document: document, client: kernelClient)
+            for obj in document.objects {
+                scheduleRecompute(id: obj.id)
+            }
+            onViewportInvalidated?()
+            return .text("Successfully reordered features. Total features: \(document.features.count).")
+        }
     }
     
     private func handleSetParam(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {

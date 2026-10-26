@@ -2172,5 +2172,153 @@ import simd
         #expect(doc.objects.count == initialObjectsCount - 1)
         #expect(!doc.objects.contains(where: { $0.id == boxSolidId }))
     }
+
+    // MARK: - Feature Reordering & Dependency Validation (BL-FND-07, #236)
+
+    @Test func testReorderIndependentFeaturesSucceeds() {
+        let doc = DocumentModel()
+        #expect(doc.features.count == 2)
+        let f0 = doc.features[0]
+        let f1 = doc.features[1]
+        let originalOrder = [f0.id, f1.id]
+        let swappedOrder = [f1.id, f0.id]
+
+        // Move f1 (Cylinder 1) before f0 (Box 1)
+        let res = doc.moveFeature(id: f1.id, to: 0)
+        #expect(res == .success(()))
+        #expect(doc.features.map(\.id) == swappedOrder)
+        #expect(doc.objects.map(\.id) == [f1.outputSolidId!, f0.outputSolidId!])
+        #expect(doc.canUndo)
+
+        // Undo restores initial order
+        doc.undo()
+        #expect(doc.features.map(\.id) == originalOrder)
+        #expect(doc.objects.map(\.id) == [f0.outputSolidId!, f1.outputSolidId!])
+        #expect(doc.canRedo)
+
+        // Redo restores swapped order
+        doc.redo()
+        #expect(doc.features.map(\.id) == swappedOrder)
+        #expect(doc.objects.map(\.id) == [f1.outputSolidId!, f0.outputSolidId!])
+    }
+
+    @Test func testReorderFeatureAboveParentRejected() {
+        let doc = DocumentModel()
+        let sketch = doc.addSketchFeature(planeName: "XY")
+        let extrudeFeat = Feature(
+            name: "Extrude 1",
+            operation: .extrude(ExtrudeFeatureData(sketchFeatureId: sketch.id, distance: 20.0)),
+            outputSolidId: SolidId("extrude-1")
+        )
+        doc.insertFeature(extrudeFeat, at: doc.features.count)
+
+        let initialOrder = doc.features.map(\.id)
+        guard let sketchIdx = doc.features.firstIndex(where: { $0.id == sketch.id }),
+              let extrudeIdx = doc.features.firstIndex(where: { $0.id == extrudeFeat.id }) else {
+            Issue.record("Features not found")
+            return
+        }
+        #expect(sketchIdx < extrudeIdx)
+
+        // Attempt to move Extrude 1 before Sketch
+        let res = doc.moveFeature(id: extrudeFeat.id, to: sketchIdx)
+        switch res {
+        case .failure(let error):
+            if case .invalidOperation(let msg) = error {
+                #expect(msg.contains("Cannot move feature 'Extrude 1' before its dependency '\(sketch.name)'"))
+            } else {
+                Issue.record("Expected invalidOperation error")
+            }
+        case .success:
+            Issue.record("Expected move to be rejected")
+        }
+
+        #expect(doc.features.map(\.id) == initialOrder)
+    }
+
+    @Test func testReorderParentBelowChildRejected() {
+        let doc = DocumentModel()
+        let sketch = doc.addSketchFeature(planeName: "XY")
+        let extrudeFeat = Feature(
+            name: "Extrude 1",
+            operation: .extrude(ExtrudeFeatureData(sketchFeatureId: sketch.id, distance: 20.0)),
+            outputSolidId: SolidId("extrude-1")
+        )
+        doc.insertFeature(extrudeFeat, at: doc.features.count)
+
+        let initialOrder = doc.features.map(\.id)
+        guard let sketchIdx = doc.features.firstIndex(where: { $0.id == sketch.id }),
+              let extrudeIdx = doc.features.firstIndex(where: { $0.id == extrudeFeat.id }) else {
+            Issue.record("Features not found")
+            return
+        }
+        #expect(sketchIdx < extrudeIdx)
+
+        // Attempt to move Sketch after Extrude
+        let res = doc.moveFeature(id: sketch.id, to: extrudeIdx)
+        switch res {
+        case .failure(let error):
+            if case .invalidOperation(let msg) = error {
+                #expect(msg.contains("Cannot move feature '\(sketch.name)' after its dependent '\(extrudeFeat.name)'"))
+            } else {
+                Issue.record("Expected invalidOperation error")
+            }
+        case .success:
+            Issue.record("Expected move to be rejected")
+        }
+
+        #expect(doc.features.map(\.id) == initialOrder)
+    }
+
+    @Test func testReorderLockedFeatureRejected() {
+        let doc = DocumentModel()
+        let boxFeat = doc.features[0]
+        doc.setFeatureLocked(id: boxFeat.id, isLocked: true)
+
+        let initialOrder = doc.features.map(\.id)
+
+        // Attempt to move locked box
+        let res = doc.moveFeature(id: boxFeat.id, to: 1)
+        switch res {
+        case .failure(let error):
+            if case .objectLocked(let id) = error {
+                #expect(id == boxFeat.outputSolidId)
+            } else {
+                Issue.record("Expected objectLocked error")
+            }
+        case .success:
+            Issue.record("Expected locked feature move to fail")
+        }
+
+        #expect(doc.features.map(\.id) == initialOrder)
+    }
+
+    @Test func testReorderClampsRollbackMarker() {
+        let doc = DocumentModel()
+        let box2 = Feature(
+            name: "Box 2",
+            operation: .primitive(.box(BoxParams(width: 10, depth: 10, height: 10))),
+            outputSolidId: SolidId("box-2")
+        )
+        let box3 = Feature(
+            name: "Box 3",
+            operation: .primitive(.box(BoxParams(width: 15, depth: 15, height: 15))),
+            outputSolidId: SolidId("box-3")
+        )
+        doc.insertFeature(box2, at: 2)
+        doc.insertFeature(box3, at: 3)
+        #expect(doc.features.count == 4)
+
+        // Roll back to index 1
+        _ = doc.setRollbackIndex(1)
+        #expect(doc.rollbackIndex == 1)
+
+        // Reorder features at index 2 and 3 (past rollback marker)
+        let f2Id = doc.features[2].id
+        let res = doc.moveFeature(id: f2Id, to: 3)
+        #expect(res == .success(()))
+        #expect(doc.rollbackIndex == 1)
+        #expect(doc.objects.count == 1)
+    }
 }
 

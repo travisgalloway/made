@@ -160,6 +160,7 @@ Only the keys `volume`, `area`, `surfaceArea`, `bounds`, and `tolerance` are val
 | `cad_fillet` | Apply a topological fillet blend to a solid edge by topological reference or UUID. | `solidId: string` (required), `edge: string` (required label or UUID), `radius: number` (required). |
 | `cad_query_tree` | Query the document feature history tree, parameters, output solids, and topological references. | `featureId?: string` (optional feature UUID). |
 | `cad_query_topology` | Query 3D topological sub-elements (faces, edges, vertices) with persistent IDs, surface and curve types, normal vectors, centroids, areas, and lengths. | `solidId?: string` (optional solid ID), `featureId?: string` (optional feature UUID), `elementType?: "face" \| "edge" \| "vertex"` (optional filter). |
+| `reorder_features` (`cad_reorder_features`) | Reorder features in the document timeline according to the provided list of feature UUIDs, validating that no feature precedes its dependencies. | `feature_ids: string[]` (required ordered list of feature UUIDs). |
 
 ## 5. The Agent Workflow Loop: Edit -> Reload -> Diagnostics -> Verify -> Snapshot -> Repair
 

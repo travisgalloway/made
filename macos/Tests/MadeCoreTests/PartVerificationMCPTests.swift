@@ -71,7 +71,8 @@ struct PartVerificationMCPTests {
         #expect(toolNames.contains("cad_capture_snapshot"))
         #expect(toolNames.contains("cad_rollback"))
         #expect(toolNames.contains("cad_query_topology"))
-        #expect(registry.tools.count == 19)
+        #expect(toolNames.contains("reorder_features"))
+        #expect(registry.tools.count == 20)
 
         let snapshotTool = registry.tools.first { $0.name == "cad_capture_snapshot" }
         let viewProp = snapshotTool?.inputSchema.properties["view"]

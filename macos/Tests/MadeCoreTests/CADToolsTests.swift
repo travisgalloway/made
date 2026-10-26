@@ -2979,6 +2979,29 @@ import simd
         }
         _ = bounds
     }
+
+    @Test func testCADReorderFeaturesTool() async throws {
+        let (doc, kernel, _, registry) = makeWindowBoundFixture()
+        await seedKernel(kernel)
+
+        #expect(doc.features.count == 2)
+        let f0 = doc.features[0].id.uuidString
+        let f1 = doc.features[1].id.uuidString
+
+        // Valid reorder
+        let validRes = await registry.callTool(name: "reorder_features", arguments: [
+            "feature_ids": .array([.string(f1), .string(f0)])
+        ])
+        #expect(validRes.isError == false)
+        #expect(doc.features.map(\.id.uuidString) == [f1, f0])
+
+        // Invalid reorder (missing/corrupt IDs)
+        let invalidRes = await registry.callTool(name: "reorder_features", arguments: [
+            "feature_ids": .array([.string(f1)])
+        ])
+        #expect(invalidRes.isError == true)
+        #expect(invalidRes.content.first?.text?.contains("Reorder failed") == true)
+    }
 }
 
 @MainActor

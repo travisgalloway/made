@@ -466,6 +466,8 @@ final class WorkspaceModel {
     var isShowingExportErrorAlert: Bool = false
     var pendingImportError: ImportErrorInfo? = nil
     var isShowingImportErrorAlert: Bool = false
+    var pendingReorderError: ReorderErrorInfo? = nil
+    var isShowingReorderErrorAlert: Bool = false
     @ObservationIgnored nonisolated(unsafe) private var terminateObserver: (any NSObjectProtocol)?
 
     var documentTitle: String {
@@ -2732,6 +2734,8 @@ final class WorkspaceModel {
         isShowingExportErrorAlert = false
         pendingImportError = nil
         isShowingImportErrorAlert = false
+        pendingReorderError = nil
+        isShowingReorderErrorAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -2779,6 +2783,8 @@ final class WorkspaceModel {
         isShowingExportErrorAlert = false
         pendingImportError = nil
         isShowingImportErrorAlert = false
+        pendingReorderError = nil
+        isShowingReorderErrorAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -2809,6 +2815,8 @@ final class WorkspaceModel {
         isShowingExportErrorAlert = false
         pendingImportError = nil
         isShowingImportErrorAlert = false
+        pendingReorderError = nil
+        isShowingReorderErrorAlert = false
 
         let initialSettings = DocumentSettings(
             units: UnitSettings(lengthUnit: lengthUnit, angleUnit: angleUnit, decimalPrecision: decimalPrecision),
@@ -3719,6 +3727,8 @@ final class WorkspaceModel {
             isShowingExportErrorAlert = false
             pendingImportError = nil
             isShowingImportErrorAlert = false
+            pendingReorderError = nil
+            isShowingReorderErrorAlert = false
 
             let docSettings = package.manifest.documentSettings
             let docMetadata = package.manifest.metadata
@@ -3958,6 +3968,11 @@ final class WorkspaceModel {
         isShowingImportErrorAlert = false
     }
 
+    func dismissReorderErrorAlert() {
+        pendingReorderError = nil
+        isShowingReorderErrorAlert = false
+    }
+
     // MARK: - Crash Recovery Actions
 
     func saveRecoverySnapshot() {
@@ -4188,6 +4203,77 @@ final class WorkspaceModel {
             recomputeSolid(id: obj.id)
         }
         log(.info, "Timeline", index != nil ? "Rollback marker set to \(index!)" : "Rolled forward to end")
+    }
+
+    // MARK: - Feature Reordering (BL-FND-07, #236)
+
+    @discardableResult
+    func moveFeature(id: UUID, to targetIndex: Int) -> Task<Void, Never> {
+        let result = document.moveFeature(id: id, to: targetIndex)
+        switch result {
+        case .failure(let error):
+            pendingReorderError = ReorderErrorInfo(featureId: id, message: error.description)
+            isShowingReorderErrorAlert = true
+            log(.error, "Timeline", error.description)
+            return Task {}
+        case .success:
+            pendingReorderError = nil
+            isShowingReorderErrorAlert = false
+            markDocumentModified()
+            syncViewportSelection()
+            invalidateViewport(.model)
+            log(.info, "Timeline", "Reordered feature \(id.uuidString)")
+            return Task {
+                await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
+                self.invalidateViewport(.model)
+            }
+        }
+    }
+
+    @discardableResult
+    func reorderFeatures(_ featureIds: [UUID]) -> Task<Void, Never> {
+        let result = document.reorderFeatures(featureIds)
+        switch result {
+        case .failure(let error):
+            pendingReorderError = ReorderErrorInfo(featureId: featureIds.first ?? UUID(), message: error.description)
+            isShowingReorderErrorAlert = true
+            log(.error, "Timeline", error.description)
+            return Task {}
+        case .success:
+            pendingReorderError = nil
+            isShowingReorderErrorAlert = false
+            markDocumentModified()
+            syncViewportSelection()
+            invalidateViewport(.model)
+            log(.info, "Timeline", "Reordered features")
+            return Task {
+                await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
+                self.invalidateViewport(.model)
+            }
+        }
+    }
+
+    func reorderBodies(from sourceIndices: IndexSet, to destination: Int) {
+        guard let sourceIndex = sourceIndices.first else { return }
+        let bodies = document.bodies
+        guard sourceIndex >= 0 && sourceIndex < bodies.count else { return }
+        let body = bodies[sourceIndex]
+        guard let feature = document.feature(for: body.id) else { return }
+        guard let currentFeatureIndex = document.features.firstIndex(where: { $0.id == feature.id }) else { return }
+
+        let targetFeatureIndex: Int
+        if destination >= bodies.count {
+            targetFeatureIndex = document.features.count - 1
+        } else {
+            let destBody = bodies[destination > sourceIndex ? destination - 1 : destination]
+            if let destFeature = document.feature(for: destBody.id),
+               let destFeatureIndex = document.features.firstIndex(where: { $0.id == destFeature.id }) {
+                targetFeatureIndex = destFeatureIndex
+            } else {
+                targetFeatureIndex = currentFeatureIndex
+            }
+        }
+        moveFeature(id: feature.id, to: targetFeatureIndex)
     }
 
     /// Opens and watches a standalone `.part.ts` / `.part.js` file or all part files inside a `.made` directory package (#427).
@@ -8594,7 +8680,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
     @discardableResult
     func undo() -> Task<Void, Never> {
         let oldObjects = document.objects
-        let oldFeatureIds = Set(document.features.map(\.id))
+        let oldFeatureOrder = document.features.map(\.id)
         let oldSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
         document.undo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
@@ -8619,7 +8705,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
             refreshSketchStatus(for: sketch.id)
         }
         let currentSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
-        if oldFeatureIds != Set(document.features.map(\.id)) || oldSuppressedIds != currentSuppressedIds {
+        if oldFeatureOrder != document.features.map(\.id) || oldSuppressedIds != currentSuppressedIds {
             return Task {
                 await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
                 self.invalidateViewport(.model)
@@ -8631,7 +8717,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
     @discardableResult
     func redo() -> Task<Void, Never> {
         let oldObjects = document.objects
-        let oldFeatureIds = Set(document.features.map(\.id))
+        let oldFeatureOrder = document.features.map(\.id)
         let oldSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
         document.redo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
@@ -8656,7 +8742,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
             refreshSketchStatus(for: sketch.id)
         }
         let currentSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
-        if oldFeatureIds != Set(document.features.map(\.id)) || oldSuppressedIds != currentSuppressedIds {
+        if oldFeatureOrder != document.features.map(\.id) || oldSuppressedIds != currentSuppressedIds {
             return Task {
                 await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
                 self.invalidateViewport(.model)
