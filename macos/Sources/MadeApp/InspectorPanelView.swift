@@ -6360,6 +6360,28 @@ struct InspectorSketchConstraintRow: View {
     nonisolated static let deleteConstraintAccessibilityLabel = "Delete Constraint"
     nonisolated static let deleteConstraintHelpText = "Delete Constraint"
 
+    nonisolated static func accessibilityLabel(
+        kind: SketchConstraint.Kind,
+        isDriven: Bool = false,
+        measuredValue: String? = nil,
+        isConflicting: Bool = false,
+        isRedundant: Bool = false
+    ) -> String {
+        var label = kind.rawValue.capitalized
+        if isDriven {
+            if let measuredValue, !measuredValue.isEmpty {
+                label += ", Driven \(measuredValue)"
+            } else {
+                label += ", Driven"
+            }
+        } else if isConflicting {
+            label += ", Conflicting"
+        } else if isRedundant {
+            label += ", Redundant"
+        }
+        return label
+    }
+
     nonisolated static func constraintIcon(for kind: SketchConstraint.Kind) -> String {
         switch kind {
         case .parallel: return "equal"
@@ -6376,6 +6398,13 @@ struct InspectorSketchConstraintRow: View {
     var body: some View {
         let isConflicting = workspace.conflictingConstraintIds.contains(constraint.id)
         let isRedundant = workspace.redundantConstraintIds.contains(constraint.id)
+
+        let measuredValueString: String? = {
+            guard constraint.isDriven,
+                  let feat = workspace.document.feature(for: sketchId),
+                  case .sketch(let sketchData) = feat.operation else { return nil }
+            return constraint.formattedMeasuredValue(in: sketchData.entities, unitSettings: workspace.document.settings.unitSettings)
+        }()
 
         let labelColor: Color = {
             if constraint.isDriven {
@@ -6407,6 +6436,12 @@ struct InspectorSketchConstraintRow: View {
             Text(constraint.kind.rawValue.capitalized)
                 .font(.caption.bold())
                 .foregroundStyle(labelColor)
+
+            if let measuredValueString {
+                Text(measuredValueString)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
 
             if constraint.isDriven {
                 Text("Driven")
@@ -6480,6 +6515,13 @@ struct InspectorSketchConstraintRow: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(rowBackground)
         )
+        .accessibilityLabel(Self.accessibilityLabel(
+            kind: constraint.kind,
+            isDriven: constraint.isDriven,
+            measuredValue: measuredValueString,
+            isConflicting: isConflicting,
+            isRedundant: isRedundant
+        ))
         .contextMenu {
             Button(constraint.isDriven ? "Convert to Driving" : "Convert to Driven") {
                 workspace.toggleSketchConstraintDriven(in: sketchId, constraintId: constraint.id)

@@ -254,7 +254,8 @@ public final class CADToolRegistry {
                             enum: ["parallel", "perpendicular", "tangent", "concentric", "symmetric", "coincident", "horizontal", "vertical"]
                         ),
                         "entityIds": MCPProperty(type: "array", description: "Array of entity UUID strings that this constraint applies to"),
-                        "referenceEntityId": MCPProperty(type: "string", description: "Optional reference entity UUID for symmetry or alignment constraints")
+                        "referenceEntityId": MCPProperty(type: "string", description: "Optional reference entity UUID for symmetry or alignment constraints"),
+                        "isDriven": MCPProperty(type: "boolean", description: "Whether the constraint is driven (reference dimension) and does not constrain degrees of freedom")
                     ],
                     required: ["sketchId", "type", "entityIds"]
                 )
@@ -1846,11 +1847,13 @@ public final class CADToolRegistry {
             refUUID = rUUID
         }
 
-        let constraint = SketchConstraint(kind: kind, entityIds: entityUUIDs, referenceEntityId: refUUID)
+        let isDriven = arguments["isDriven"]?.boolValue ?? false
+        let constraint = SketchConstraint(kind: kind, entityIds: entityUUIDs, referenceEntityId: refUUID, isDriven: isDriven)
         let res = document.addSketchConstraint(to: sketchUUID, constraint: constraint)
         switch res {
         case .success:
-            return .text("Added \(kind.rawValue) constraint '\(constraint.id.uuidString)' to sketch '\(sketchIdStr)'")
+            let statusSuffix = isDriven ? " (driven reference)" : ""
+            return .text("Added \(kind.rawValue)\(statusSuffix) constraint '\(constraint.id.uuidString)' to sketch '\(sketchIdStr)'")
         case .failure(let err):
             return .error("Failed to add constraint to sketch: \(err)")
         }
@@ -2034,7 +2037,8 @@ public final class CADToolRegistry {
                 var cd: [String: Any] = [
                     "id": c.id.uuidString,
                     "kind": c.kind.rawValue,
-                    "entityIds": c.entityIds.map(\.uuidString)
+                    "entityIds": c.entityIds.map(\.uuidString),
+                    "isDriven": c.isDriven
                 ]
                 if let ref = c.referenceEntityId {
                     cd["referenceEntityId"] = ref.uuidString

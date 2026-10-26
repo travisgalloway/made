@@ -220,6 +220,10 @@ final class CommandSession: Identifiable {
         return nil
     }
 
+    func booleanValue(for id: String) -> Bool? {
+        toggleValue(for: id)
+    }
+
     func setToggleValue(_ val: Bool, for id: String) {
         guard let idx = inputs.firstIndex(where: { $0.id == id }) else { return }
         if case .toggle = inputs[idx].value {
@@ -2905,6 +2909,11 @@ extension CommandSession {
                     id: "length",
                     label: "Length",
                     value: .number(Float(initialLength), range: 0.01...10000.0, step: 1.0, unit: "mm")
+                ),
+                CommandInput(
+                    id: "isDriven",
+                    label: "Driven (Reference)",
+                    value: .toggle(false)
                 )
             ],
             isPreviewEnabled: false
@@ -2929,9 +2938,12 @@ extension CommandSession {
                 return false
             }
 
-            let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
-            if case .overConstrained = ConstraintSolver.computeDOFStatus(system: system) {
-                return false
+            let isDriven = session.booleanValue(for: "isDriven") ?? false
+            if !isDriven {
+                let system = ConstraintSystem(entities: sketchData.entities, constraints: sketchData.constraints)
+                if case .overConstrained = ConstraintSolver.computeDOFStatus(system: system) {
+                    return false
+                }
             }
 
             return true
@@ -2952,14 +2964,27 @@ extension CommandSession {
             let resolvedEntityId = entityId ?? workspace.selectedSketchLineEntity?.entity.id ?? sketchData.entities.first(where: { $0.kind == "line" })?.id
             guard let resolvedEntityId else { return }
 
-            do {
-                _ = try workspace.dimensionSketchLine(
-                    featureId: resolvedFeatureId,
-                    entityId: resolvedEntityId,
-                    length: Double(len)
-                )
-            } catch {
-                // If over-constrained or error, captured by workspace
+            let isDriven = session.booleanValue(for: "isDriven") ?? false
+            if isDriven {
+                let kind: SketchConstraint.Kind
+                if let entity = sketchData.entities.first(where: { $0.id == resolvedEntityId }),
+                   let s = entity.startPoint, let end = entity.endPoint {
+                    kind = abs(end.x - s.x) >= abs(end.y - s.y) ? .horizontal : .vertical
+                } else {
+                    kind = .horizontal
+                }
+                let constraint = SketchConstraint(kind: kind, entityIds: [resolvedEntityId], isDriven: true)
+                workspace.addSketchConstraint(to: resolvedFeatureId, constraint: constraint)
+            } else {
+                do {
+                    _ = try workspace.dimensionSketchLine(
+                        featureId: resolvedFeatureId,
+                        entityId: resolvedEntityId,
+                        length: Double(len)
+                    )
+                } catch {
+                    // If over-constrained or error, captured by workspace
+                }
             }
         }
 

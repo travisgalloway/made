@@ -271,4 +271,40 @@ import MadeCore
         #expect(InspectorPanelView.deleteConstraintAccessibilityLabel == "Delete Constraint")
         #expect(InspectorPanelView.deleteConstraintHelpText == "Delete Constraint")
     }
+
+    @Test @MainActor func testDrivenConstraintInspectorRowFormattingAndAccessibility() {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(25, 0))
+        let cDriven = SketchConstraint(kind: .horizontal, entityIds: [lineA.id], isDriven: true)
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA], constraints: [cDriven])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+
+        let row = InspectorSketchConstraintRow(sketchId: feature.id, constraint: cDriven)
+        let hosting = NSHostingView(rootView: AnyView(row.environment(workspace)))
+        hosting.frame = NSRect(x: 0, y: 0, width: 260, height: 30)
+        hosting.layoutSubtreeIfNeeded()
+        #expect(hosting.frame.width == 260)
+        #expect(hosting.frame.height == 30)
+
+        let labelWithVal = InspectorSketchConstraintRow.accessibilityLabel(
+            kind: .horizontal,
+            isDriven: true,
+            measuredValue: "(25.00 mm)"
+        )
+        #expect(labelWithVal == "Horizontal, Driven (25.00 mm)")
+
+        let labelWithoutVal = InspectorSketchConstraintRow.accessibilityLabel(
+            kind: .perpendicular,
+            isDriven: true
+        )
+        #expect(labelWithoutVal == "Perpendicular, Driven")
+
+        let labelConflict = InspectorSketchConstraintRow.accessibilityLabel(
+            kind: .parallel,
+            isDriven: false,
+            isConflicting: true
+        )
+        #expect(labelConflict == "Parallel, Conflicting")
+    }
 }
