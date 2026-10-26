@@ -59,6 +59,20 @@ struct NavigatorSidebarView: View {
                         Button("Roll Back to Here") { workspace.rollBack(to: id) }
                         Button("Roll Back Before") { workspace.rollBack(before: id) }
                         Divider()
+                        if let feat = workspace.document.feature(for: id) {
+                            let featIndex = workspace.document.features.firstIndex(where: { $0.id == feat.id }) ?? -1
+                            let canMoveUp = featIndex > 0 && !body.isLocked
+                            let canMoveDown = featIndex >= 0 && featIndex < workspace.document.features.count - 1 && !body.isLocked
+                            Button("Move Up") {
+                                workspace.moveFeature(id: feat.id, to: featIndex - 1)
+                            }
+                            .disabled(!canMoveUp)
+                            Button("Move Down") {
+                                workspace.moveFeature(id: feat.id, to: featIndex + 1)
+                            }
+                            .disabled(!canMoveDown)
+                            Divider()
+                        }
                         Button("Rename…") {
                             renamingText = body.name
                             renamingTarget = (id: id, name: body.name)
@@ -285,6 +299,9 @@ struct NavigatorSidebarView: View {
                     NavigatorRow(body: body)
                         .tag(body.id)
                         .id(body.id)
+                }
+                .onMove { sourceIndices, destination in
+                    workspace.reorderBodies(from: sourceIndices, to: destination)
                 }
             }
         }
@@ -921,6 +938,43 @@ private struct NavigatorRow: View {
         }
         .accessibilityAction(named: bodyItem.isLocked ? "Unlock Body" : "Lock Body") {
             workspace.toggleBodyLocked(bodyItem.id)
+        }
+        .accessibilityAction(named: "Move Up") {
+            if let feat = workspace.document.feature(for: bodyItem.id),
+               let index = workspace.document.features.firstIndex(where: { $0.id == feat.id }), index > 0 {
+                workspace.moveFeature(id: feat.id, to: index - 1)
+            }
+        }
+        .accessibilityAction(named: "Move Down") {
+            if let feat = workspace.document.feature(for: bodyItem.id),
+               let index = workspace.document.features.firstIndex(where: { $0.id == feat.id }), index < workspace.document.features.count - 1 {
+                workspace.moveFeature(id: feat.id, to: index + 1)
+            }
+        }
+        .contextMenu {
+            if let feat = workspace.document.feature(for: bodyItem.id) {
+                let featIndex = workspace.document.features.firstIndex(where: { $0.id == feat.id }) ?? -1
+                let canMoveUp = featIndex > 0 && !bodyItem.isLocked
+                let canMoveDown = featIndex >= 0 && featIndex < workspace.document.features.count - 1 && !bodyItem.isLocked
+                Button("Move Up") {
+                    workspace.moveFeature(id: feat.id, to: featIndex - 1)
+                }
+                .disabled(!canMoveUp)
+                Button("Move Down") {
+                    workspace.moveFeature(id: feat.id, to: featIndex + 1)
+                }
+                .disabled(!canMoveDown)
+                Divider()
+            }
+            Button("Roll Back to Here") { workspace.rollBack(to: bodyItem.id) }
+            Button("Roll Back Before") { workspace.rollBack(before: bodyItem.id) }
+            Divider()
+            Button(bodyItem.isVisible ? "Hide Body" : "Show Body") {
+                workspace.toggleBodyVisibility(bodyItem.id)
+            }
+            Button(bodyItem.isLocked ? "Unlock Body" : "Lock Body") {
+                workspace.toggleBodyLocked(bodyItem.id)
+            }
         }
     }
 

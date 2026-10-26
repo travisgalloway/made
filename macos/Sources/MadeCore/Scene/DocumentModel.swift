@@ -2424,6 +2424,148 @@ public final class DocumentModel {
         features.first(where: { $0.outputSolidId == solidId })
     }
 
+    // MARK: - Feature Reordering & Dependency Validation (BL-FND-07, #236)
+
+    /// Validates whether the proposed complete feature ordering preserves causality without moving
+    /// any feature before its direct or transitive upstream dependencies or moving locked features.
+    public func canReorderFeatures(_ newOrder: [UUID]) -> Result<Void, DocumentMutationError> {
+        guard newOrder.count == features.count && Set(newOrder) == Set(features.map(\.id)) else {
+            return .failure(.invalidOperation("Invalid feature order: IDs must match existing features"))
+        }
+
+        let positionMap = Dictionary(uniqueKeysWithValues: newOrder.enumerated().map { ($0.element, $0.offset) })
+
+        for (newIdx, id) in newOrder.enumerated() {
+            guard let oldIdx = features.firstIndex(where: { $0.id == id }) else {
+                return .failure(.objectNotFound(ObjectId(id.uuidString)))
+            }
+            let feature = features[oldIdx]
+            if feature.isLocked && oldIdx != newIdx {
+                return .failure(.objectLocked(feature.outputSolidId ?? ObjectId(feature.id.uuidString)))
+            }
+
+            let deps = directDependencies(of: feature)
+            for depId in deps {
+                if let depPos = positionMap[depId], depPos >= newIdx {
+                    let parentName = self.feature(for: depId)?.name ?? "parent"
+                    return .failure(.invalidOperation("Cannot move feature '\(feature.name)' before its dependency '\(parentName)'"))
+                }
+            }
+        }
+
+        return .success(())
+    }
+
+    /// Validates whether a single feature can be moved to the specified target index in the timeline.
+    public func canMoveFeature(id: UUID, to targetIndex: Int) -> Result<Void, DocumentMutationError> {
+        guard let currentIndex = features.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(ObjectId(id.uuidString)))
+        }
+        let feature = features[currentIndex]
+        let clamped = min(max(0, targetIndex), features.count - 1)
+        if clamped == currentIndex {
+            return .success(())
+        }
+        guard !feature.isLocked else {
+            return .failure(.objectLocked(feature.outputSolidId ?? ObjectId(feature.id.uuidString)))
+        }
+
+        if clamped < currentIndex {
+            // Moving upstream (above)
+            let deps = directDependencies(of: feature)
+            for depId in deps {
+                if let parentIdx = features.firstIndex(where: { $0.id == depId }), parentIdx >= clamped {
+                    let parentName = self.feature(for: depId)?.name ?? "parent"
+                    return .failure(.invalidOperation("Cannot move feature '\(feature.name)' before its dependency '\(parentName)'"))
+                }
+            }
+        } else if clamped > currentIndex {
+            // Moving downstream (below)
+            let dependents = dependentFeatures(referencing: feature.id)
+            for dep in dependents {
+                if let depIdx = features.firstIndex(where: { $0.id == dep.id }), depIdx <= clamped {
+                    return .failure(.invalidOperation("Cannot move feature '\(feature.name)' after its dependent '\(dep.name)'"))
+                }
+            }
+        }
+
+        var proposed = features.map(\.id)
+        let moved = proposed.remove(at: currentIndex)
+        proposed.insert(moved, at: clamped)
+        return canReorderFeatures(proposed)
+    }
+
+    /// Reorders all timeline features to match `newOrder`, synchronizing scene objects and error states.
+    @discardableResult
+    public func reorderFeatures(
+        _ newOrder: [UUID],
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        switch canReorderFeatures(newOrder) {
+        case .failure(let err):
+            return .failure(err)
+        case .success:
+            break
+        }
+
+        if newOrder == features.map(\.id) {
+            return .success(())
+        }
+
+        let oldOrder = features.map(\.id)
+        let map = Dictionary(uniqueKeysWithValues: features.map { ($0.id, $0) })
+        features = newOrder.compactMap { map[$0] }
+
+        if let cur = rollbackIndex {
+            rollbackIndex = min(cur, features.count)
+        }
+        syncObjectsFromFeatures()
+        validateTimelineFeatureErrors()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Reorder Features"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.reorderFeatures(oldOrder, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    /// Moves a feature to a specific target index in the timeline.
+    @discardableResult
+    public func moveFeature(
+        id: UUID,
+        to targetIndex: Int,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        switch canMoveFeature(id: id, to: targetIndex) {
+        case .failure(let err):
+            return .failure(err)
+        case .success:
+            break
+        }
+
+        guard let currentIndex = features.firstIndex(where: { $0.id == id }) else {
+            return .failure(.objectNotFound(ObjectId(id.uuidString)))
+        }
+        let clamped = min(max(0, targetIndex), features.count - 1)
+        if clamped == currentIndex {
+            return .success(())
+        }
+
+        var proposed = features.map(\.id)
+        let moved = proposed.remove(at: currentIndex)
+        proposed.insert(moved, at: clamped)
+        return reorderFeatures(proposed, actionName: actionName, registerUndo: registerUndo)
+    }
+
     // MARK: - Sketch Feature Mutators
 
     @discardableResult

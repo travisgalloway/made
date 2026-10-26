@@ -113,3 +113,15 @@ public struct ImportErrorInfo: Identifiable, Sendable, Equatable {
     }
 }
 
+public struct ReorderErrorInfo: Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public let featureId: UUID
+    public let message: String
+
+    public init(id: UUID = UUID(), featureId: UUID, message: String) {
+        self.id = id
+        self.featureId = featureId
+        self.message = message
+    }
+}
+

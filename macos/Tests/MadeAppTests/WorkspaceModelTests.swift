@@ -2796,6 +2796,88 @@ import MadeCore
         try model.deleteParameter(id: param.id)
         #expect(model.document.parameters.isEmpty)
     }
+
+    // MARK: - Feature Reordering & Alert Invariants (BL-FND-07, #236)
+
+    @Test @MainActor func testWorkspaceMoveFeatureValidRegenerates() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let f0 = model.document.features.first,
+              let f1 = model.document.features.dropFirst().first else {
+            Issue.record("Expected initial features")
+            return
+        }
+
+        let initialOrder = [f0.id, f1.id]
+        let swappedOrder = [f1.id, f0.id]
+        #expect(model.document.features.map(\.id) == initialOrder)
+
+        // Move feature f1 to index 0
+        await model.moveFeature(id: f1.id, to: 0).value
+
+        #expect(model.document.features.map(\.id) == swappedOrder)
+        #expect(model.isDocumentModified == true)
+        #expect(model.isShowingReorderErrorAlert == false)
+        #expect(model.pendingReorderError == nil)
+    }
+
+    @Test @MainActor func testWorkspaceMoveFeatureInvalidShowsAlert() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+
+        let sketch = model.document.addSketchFeature(planeName: "XY")
+        let extrudeFeat = Feature(
+            name: "Extrude 1",
+            operation: .extrude(ExtrudeFeatureData(sketchFeatureId: sketch.id, distance: 15.0)),
+            outputSolidId: SolidId("extrude-1")
+        )
+        model.document.insertFeature(extrudeFeat, at: model.document.features.count)
+
+        guard let sketchIdx = model.document.features.firstIndex(where: { $0.id == sketch.id }),
+              let extrudeIdx = model.document.features.firstIndex(where: { $0.id == extrudeFeat.id }) else {
+            Issue.record("Features not found")
+            return
+        }
+        #expect(sketchIdx < extrudeIdx)
+
+        // Attempt invalid move: extrude before sketch
+        await model.moveFeature(id: extrudeFeat.id, to: sketchIdx).value
+
+        #expect(model.isShowingReorderErrorAlert == true)
+        #expect(model.pendingReorderError != nil)
+        #expect(model.pendingReorderError?.featureId == extrudeFeat.id)
+        #expect(model.pendingReorderError?.message.contains("Cannot move feature 'Extrude 1' before its dependency '\(sketch.name)'") == true)
+
+        // Dismiss alert
+        model.dismissReorderErrorAlert()
+        #expect(model.isShowingReorderErrorAlert == false)
+        #expect(model.pendingReorderError == nil)
+    }
+
+    @Test @MainActor func testWorkspaceUndoRedoReorderRegenerates() async throws {
+        let model = WorkspaceModel()
+        model.setUp()
+        guard let f0 = model.document.features.first,
+              let f1 = model.document.features.dropFirst().first else {
+            Issue.record("Expected initial features")
+            return
+        }
+
+        let initialOrder = [f0.id, f1.id]
+        let swappedOrder = [f1.id, f0.id]
+
+        // Move f1 to index 0
+        await model.moveFeature(id: f1.id, to: 0).value
+        #expect(model.document.features.map(\.id) == swappedOrder)
+
+        // Undo restores initial order
+        await model.undo().value
+        #expect(model.document.features.map(\.id) == initialOrder)
+
+        // Redo restores swapped order
+        await model.redo().value
+        #expect(model.document.features.map(\.id) == swappedOrder)
+    }
 }
 
 
