@@ -314,4 +314,211 @@ import MadeCore
         workspace.confirmDeleteFeature()
         #expect(workspace.document.feature(for: ucs.id) == nil)
     }
+
+    @Test @MainActor func testFeatureSuppressAndUnsuppressUndoRedo() async {
+        let workspace = WorkspaceModel()
+        workspace.setUp()
+
+        // 1. Sketch
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1])
+        #expect(sketch.isSuppressed == false)
+
+        // 2. Datum Plane
+        let datumPlane = workspace.document.addDatumPlaneFeature(
+            name: "Test Plane",
+            data: DatumPlaneFeatureData(mode: .origin, originPreset: "XY", offsetDistance: 10.0)
+        )
+        #expect(datumPlane.isSuppressed == false)
+
+        // 3. Solid Box
+        workspace.addDefaultBox()
+        guard let boxSolid = workspace.selectedId, let boxFeat = workspace.document.feature(for: boxSolid) else {
+            Issue.record("Missing feature for default box")
+            return
+        }
+        #expect(boxFeat.isSuppressed == false)
+
+        workspace.document.undoManager?.removeAllActions()
+        workspace.document.undoManager?.groupsByEvent = false
+
+        // Select sketch and check suppress title
+        workspace.selectFeature(sketch.id)
+        #expect(workspace.suppressToggleTitle == "Suppress Feature")
+
+        // Suppress sketch
+        workspace.document.undoManager?.beginUndoGrouping()
+        await workspace.setFeatureSuppressed(id: sketch.id, isSuppressed: true).value
+        workspace.document.undoManager?.endUndoGrouping()
+
+        #expect(workspace.document.feature(for: sketch.id)?.isSuppressed == true)
+        #expect(workspace.suppressToggleTitle == "Unsuppress Feature")
+
+        // Undo sketch suppression
+        await workspace.undo().value
+        #expect(workspace.document.feature(for: sketch.id)?.isSuppressed == false)
+        #expect(workspace.suppressToggleTitle == "Suppress Feature")
+
+        // Redo sketch suppression
+        await workspace.redo().value
+        #expect(workspace.document.feature(for: sketch.id)?.isSuppressed == true)
+
+        workspace.document.undoManager?.groupsByEvent = true
+
+        // Unsuppress via toggle
+        workspace.toggleFeatureSuppressed(sketch.id)
+        #expect(workspace.document.feature(for: sketch.id)?.isSuppressed == false)
+
+        // Test locked feature rejects suppression
+        workspace.setFeatureLocked(id: datumPlane.id, isLocked: true)
+        workspace.selectFeature(datumPlane.id)
+        #expect(workspace.document.feature(for: datumPlane.id)?.isLocked == true)
+        await workspace.setFeatureSuppressed(id: datumPlane.id, isSuppressed: true).value
+        #expect(workspace.document.feature(for: datumPlane.id)?.isSuppressed == false)
+        workspace.toggleSelectedFeatureSuppression()
+        #expect(workspace.document.feature(for: datumPlane.id)?.isSuppressed == false)
+
+        // Unlock and suppress datum plane
+        workspace.setFeatureLocked(id: datumPlane.id, isLocked: false)
+        workspace.toggleSelectedFeatureSuppression()
+        #expect(workspace.document.feature(for: datumPlane.id)?.isSuppressed == true)
+    }
+
+    @Test @MainActor func testSuppressSolidFeatureRemovesMeshAndDisposesKernel() async {
+        let workspace = WorkspaceModel()
+        workspace.setUp()
+
+        workspace.addDefaultBox()
+        guard let boxSolid = workspace.selectedId, let boxFeat = workspace.document.feature(for: boxSolid) else {
+            Issue.record("Missing feature for box")
+            return
+        }
+
+        #expect(workspace.document.objects.contains(where: { $0.id == boxSolid }))
+        #expect(workspace.document.bodies.contains(where: { $0.id == boxSolid }))
+
+        // Selection pruning test: select the solid body
+        workspace.select(solidId: boxSolid)
+        #expect(workspace.selectedId == boxSolid)
+
+        // Suppress the solid feature
+        await workspace.setFeatureSuppressed(id: boxFeat.id, isSuppressed: true).value
+
+        #expect(workspace.document.feature(for: boxFeat.id)?.isSuppressed == true)
+        #expect(!workspace.document.objects.contains(where: { $0.id == boxSolid }))
+        #expect(!workspace.document.bodies.contains(where: { $0.id == boxSolid }))
+        // Selection is pruned when suppressed
+        #expect(workspace.selectedId == nil)
+
+        // Unsuppress reinstates it
+        await workspace.setFeatureSuppressed(id: boxFeat.id, isSuppressed: false).value
+        #expect(workspace.document.feature(for: boxFeat.id)?.isSuppressed == false)
+        #expect(workspace.document.objects.contains(where: { $0.id == boxSolid }))
+        #expect(workspace.document.bodies.contains(where: { $0.id == boxSolid }))
+    }
+
+    @Test @MainActor func testSuppressUpstreamCascadesBrokenReferenceToDownstream() async throws {
+        let workspace = WorkspaceModel()
+        workspace.setUp()
+
+        // 1. Datum Plane
+        let datumPlane = workspace.document.addDatumPlaneFeature(
+            name: "Base Datum Plane",
+            data: DatumPlaneFeatureData(mode: .origin, originPreset: "XY", offsetDistance: 10.0)
+        )
+
+        // 2. Sketch referencing Datum Plane
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(20, 0))
+        let l2 = SketchEntity.line(start: SIMD2(20, 0), end: SIMD2(20, 20))
+        let l3 = SketchEntity.line(start: SIMD2(20, 20), end: SIMD2(0, 20))
+        let l4 = SketchEntity.line(start: SIMD2(0, 20), end: SIMD2(0, 0))
+        let sketch = workspace.document.addSketchFeature(planeName: datumPlane.name, entities: [l1, l2, l3, l4])
+        var updatedSketch = sketch
+        updatedSketch.references = [Reference.feature(datumPlane.id)]
+        if case .sketch(var sData) = updatedSketch.operation {
+            sData.datumPlaneFeatureId = datumPlane.id
+            updatedSketch.operation = .sketch(sData)
+        }
+        _ = workspace.document.updateFeature(updatedSketch)
+
+        // 3. Extrude referencing Sketch
+        let extrude = try workspace.document.extrudeSketch(sketchFeatureId: sketch.id, distance: 15.0)
+
+        await KernelRegeneration.regenerate(document: workspace.document, client: workspace.kernelClient)
+        #expect(workspace.document.feature(for: datumPlane.id)?.errorState == nil)
+        #expect(workspace.document.feature(for: sketch.id)?.errorState == nil)
+        #expect(workspace.document.feature(for: extrude.id)?.errorState == nil)
+
+        // 4. Suppress upstream Datum Plane
+        await workspace.setFeatureSuppressed(id: datumPlane.id, isSuppressed: true).value
+
+        #expect(workspace.document.feature(for: datumPlane.id)?.isSuppressed == true)
+
+        // Downstream Sketch gets reference-broken error
+        let brokenSketch = workspace.document.feature(for: sketch.id)
+        #expect(brokenSketch?.errorState?.code == "reference-broken")
+        #expect(brokenSketch?.errorState?.severity == .error)
+
+        // Downstream Extrude gets parent-failed warning cascade
+        let brokenExtrude = workspace.document.feature(for: extrude.id)
+        #expect(brokenExtrude?.errorState?.code == "parent-failed")
+        #expect(brokenExtrude?.errorState?.severity == .warning)
+
+        // 5. Unsuppress upstream Datum Plane
+        await workspace.setFeatureSuppressed(id: datumPlane.id, isSuppressed: false).value
+
+        #expect(workspace.document.feature(for: datumPlane.id)?.isSuppressed == false)
+        #expect(workspace.document.feature(for: sketch.id)?.errorState == nil)
+        #expect(workspace.document.feature(for: extrude.id)?.errorState == nil)
+    }
+
+    @Test @MainActor func testSuppressedFeatureNavigatorBadgesAndContextMenus() async {
+        let workspace = WorkspaceModel()
+        workspace.setUp()
+
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
+        var sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1])
+
+        let unsuppressedLabel = NavigatorSketchRow.accessibilityLabel(
+            featureName: sketch.name,
+            entityCount: 1,
+            status: .inactive,
+            isLocked: false,
+            isSuppressed: false
+        )
+        #expect(!unsuppressedLabel.contains("Suppressed"))
+
+        sketch.isSuppressed = true
+        let suppressedLabel = NavigatorSketchRow.accessibilityLabel(
+            featureName: sketch.name,
+            entityCount: 1,
+            status: .inactive,
+            isLocked: false,
+            isSuppressed: true
+        )
+        #expect(suppressedLabel.contains("Suppressed"))
+
+        let datumPlaneLabel = NavigatorDatumPlaneRow.accessibilityLabel(
+            featureName: "Plane 1",
+            isLocked: false,
+            isSuppressed: true
+        )
+        #expect(datumPlaneLabel.contains("Suppressed"))
+
+        let suppressedSolidLabel = NavigatorSuppressedFeatureRow.accessibilityLabel(
+            featureName: "Box 1",
+            kind: "Box",
+            isLocked: false
+        )
+        #expect(suppressedSolidLabel.contains("Suppressed"))
+
+        #expect(NavigatorSidebarView.isConstructionFeature(sketch) == true)
+
+        workspace.addDefaultBox()
+        if let boxSolid = workspace.selectedId, let boxFeat = workspace.document.feature(for: boxSolid) {
+            #expect(NavigatorSidebarView.isConstructionFeature(boxFeat) == false)
+            #expect(NavigatorSuppressedFeatureRow.featureKind(for: boxFeat) == "Box")
+            #expect(NavigatorSuppressedFeatureRow.featureIcon(for: boxFeat) == "shippingbox.fill")
+        }
+    }
 }

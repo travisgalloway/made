@@ -1271,7 +1271,7 @@ public final class DocumentModel {
             case .success(let resolved):
                 switch resolved.target {
                 case .feature(let feat):
-                    return isFeatureActive(id: feat.id) && !feat.isSuppressed
+                    return isFeatureActive(id: feat.id)
                 case .sketchEntity(let feat, _):
                     return isFeatureActive(id: feat.id) && !feat.isSuppressed
                 case .body(let solidId, let feat):
