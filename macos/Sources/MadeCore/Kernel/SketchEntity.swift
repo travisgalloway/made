@@ -175,6 +175,76 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         )
     }
 
+    public static func ellipse(
+        id: UUID = UUID(),
+        center: SIMD2<Double>,
+        radiusX: Double,
+        radiusY: Double,
+        rotation: Double = 0.0,
+        isConstruction: Bool = false,
+        reference: Reference? = nil
+    ) -> SketchEntity {
+        SketchEntity(
+            id: id,
+            kind: "ellipse",
+            data: [
+                "centerX": center.x,
+                "centerY": center.y,
+                "radiusX": radiusX,
+                "radiusY": radiusY,
+                "rotation": rotation
+            ],
+            isConstruction: isConstruction,
+            reference: reference
+        )
+    }
+
+    public static func ellipticalArc(
+        id: UUID = UUID(),
+        center: SIMD2<Double>,
+        radiusX: Double,
+        radiusY: Double,
+        rotation: Double = 0.0,
+        startAngle: Double,
+        endAngle: Double,
+        clockwise: Bool = false,
+        isConstruction: Bool = false,
+        reference: Reference? = nil
+    ) -> SketchEntity {
+        let cosRot = cos(rotation)
+        let sinRot = sin(rotation)
+        let p0x = radiusX * cos(startAngle)
+        let p0y = radiusY * sin(startAngle)
+        let sx = center.x + p0x * cosRot - p0y * sinRot
+        let sy = center.y + p0x * sinRot + p0y * cosRot
+
+        let p1x = radiusX * cos(endAngle)
+        let p1y = radiusY * sin(endAngle)
+        let ex = center.x + p1x * cosRot - p1y * sinRot
+        let ey = center.y + p1x * sinRot + p1y * cosRot
+
+        return SketchEntity(
+            id: id,
+            kind: "ellipticalArc",
+            data: [
+                "centerX": center.x,
+                "centerY": center.y,
+                "radiusX": radiusX,
+                "radiusY": radiusY,
+                "rotation": rotation,
+                "startAngle": startAngle,
+                "endAngle": endAngle,
+                "clockwise": clockwise ? 1.0 : 0.0,
+                "startX": sx,
+                "startY": sy,
+                "endX": ex,
+                "endY": ey
+            ],
+            isConstruction: isConstruction,
+            reference: reference
+        )
+    }
+
     public var pointPosition: SIMD2<Double>? {
         get {
             guard let x = data["x"], let y = data["y"] else { return nil }
@@ -252,6 +322,62 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
                 data["radius"] = newValue
             } else {
                 data.removeValue(forKey: "radius")
+            }
+        }
+    }
+
+    public var radiusX: Double? {
+        get { data["radiusX"] }
+        set {
+            if let newValue {
+                data["radiusX"] = newValue
+            } else {
+                data.removeValue(forKey: "radiusX")
+            }
+        }
+    }
+
+    public var radiusY: Double? {
+        get { data["radiusY"] }
+        set {
+            if let newValue {
+                data["radiusY"] = newValue
+            } else {
+                data.removeValue(forKey: "radiusY")
+            }
+        }
+    }
+
+    public var rotationAngle: Double? {
+        get { data["rotation"] ?? data["rotationAngle"] }
+        set {
+            if let newValue {
+                data["rotation"] = newValue
+            } else {
+                data.removeValue(forKey: "rotation")
+                data.removeValue(forKey: "rotationAngle")
+            }
+        }
+    }
+
+    public var startAngle: Double? {
+        get { data["startAngle"] }
+        set {
+            if let newValue {
+                data["startAngle"] = newValue
+            } else {
+                data.removeValue(forKey: "startAngle")
+            }
+        }
+    }
+
+    public var endAngle: Double? {
+        get { data["endAngle"] }
+        set {
+            if let newValue {
+                data["endAngle"] = newValue
+            } else {
+                data.removeValue(forKey: "endAngle")
             }
         }
     }

@@ -83,6 +83,7 @@ final class CADMTKView: MTKView {
         case .zoom: return .resizeUpDown
         case .trim: return .crosshair
         case .rectangle: return .crosshair
+        case .slot, .polygon, .ellipse: return .crosshair
         }
     }
     

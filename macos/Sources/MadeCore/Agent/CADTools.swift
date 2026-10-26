@@ -224,18 +224,23 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_add_sketch_entity",
-                description: "Adds a 2D geometric entity (line, arc, circle, or text) to an existing sketch in the document.",
+                description: "Adds a 2D geometric entity (line, arc, circle, ellipse, elliptical arc, or text) to an existing sketch in the document.",
                 inputSchema: MCPInputSchema(
                     properties: [
                         "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature to add the entity to"),
-                        "type": MCPProperty(type: "string", description: "The entity type: 'line', 'arc', 'circle', or 'text'", enum: ["line", "arc", "circle", "text"]),
+                        "type": MCPProperty(type: "string", description: "The entity type: 'line', 'arc', 'circle', 'ellipse', 'ellipticalArc', or 'text'", enum: ["line", "arc", "circle", "ellipse", "ellipticalArc", "text"]),
                         "startX": MCPProperty(type: "number", description: "Start X coordinate for line or arc"),
                         "startY": MCPProperty(type: "number", description: "Start Y coordinate for line or arc"),
                         "endX": MCPProperty(type: "number", description: "End X coordinate for line or arc"),
                         "endY": MCPProperty(type: "number", description: "End Y coordinate for line or arc"),
-                        "centerX": MCPProperty(type: "number", description: "Center X coordinate for arc or circle"),
-                        "centerY": MCPProperty(type: "number", description: "Center Y coordinate for arc or circle"),
+                        "centerX": MCPProperty(type: "number", description: "Center X coordinate for arc, circle, ellipse, or elliptical arc"),
+                        "centerY": MCPProperty(type: "number", description: "Center Y coordinate for arc, circle, ellipse, or elliptical arc"),
                         "radius": MCPProperty(type: "number", description: "Radius for circle (must be > 0)"),
+                        "radiusX": MCPProperty(type: "number", description: "Radius along major/local X axis for ellipse or elliptical arc (must be > 0)"),
+                        "radiusY": MCPProperty(type: "number", description: "Radius along minor/local Y axis for ellipse or elliptical arc (must be > 0)"),
+                        "rotationAngle": MCPProperty(type: "number", description: "Optional: Rotation angle in radians for ellipse or elliptical arc (default 0.0)"),
+                        "startAngle": MCPProperty(type: "number", description: "Start angle in radians for elliptical arc"),
+                        "endAngle": MCPProperty(type: "number", description: "End angle in radians for elliptical arc"),
                         "clockwise": MCPProperty(type: "boolean", description: "Optional: True if arc is oriented clockwise (default false)"),
                         "text": MCPProperty(type: "string", description: "Text content for text entity"),
                         "fontName": MCPProperty(type: "string", description: "Optional: Font name for text entity (default 'Helvetica')"),
@@ -1863,8 +1868,62 @@ public final class CADToolRegistry {
                 isConstruction: isConstruction
             )
 
+        case "ellipse":
+            guard let cx = dict["centerX"]?.doubleValue, cx.isFinite else {
+                throw ArgumentError(message: "Ellipse entity missing or invalid 'centerX'")
+            }
+            guard let cy = dict["centerY"]?.doubleValue, cy.isFinite else {
+                throw ArgumentError(message: "Ellipse entity missing or invalid 'centerY'")
+            }
+            guard let rx = dict["radiusX"]?.doubleValue, rx.isFinite, rx > 0 else {
+                throw ArgumentError(message: "Ellipse entity missing or invalid 'radiusX' (must be > 0)")
+            }
+            guard let ry = dict["radiusY"]?.doubleValue, ry.isFinite, ry > 0 else {
+                throw ArgumentError(message: "Ellipse entity missing or invalid 'radiusY' (must be > 0)")
+            }
+            let rot = dict["rotationAngle"]?.doubleValue ?? dict["rotation"]?.doubleValue ?? 0.0
+            return SketchEntity.ellipse(
+                center: SIMD2(cx, cy),
+                radiusX: rx,
+                radiusY: ry,
+                rotation: rot,
+                isConstruction: isConstruction
+            )
+
+        case "ellipticalarc":
+            guard let cx = dict["centerX"]?.doubleValue, cx.isFinite else {
+                throw ArgumentError(message: "Elliptical arc entity missing or invalid 'centerX'")
+            }
+            guard let cy = dict["centerY"]?.doubleValue, cy.isFinite else {
+                throw ArgumentError(message: "Elliptical arc entity missing or invalid 'centerY'")
+            }
+            guard let rx = dict["radiusX"]?.doubleValue, rx.isFinite, rx > 0 else {
+                throw ArgumentError(message: "Elliptical arc entity missing or invalid 'radiusX' (must be > 0)")
+            }
+            guard let ry = dict["radiusY"]?.doubleValue, ry.isFinite, ry > 0 else {
+                throw ArgumentError(message: "Elliptical arc entity missing or invalid 'radiusY' (must be > 0)")
+            }
+            guard let sa = dict["startAngle"]?.doubleValue, sa.isFinite else {
+                throw ArgumentError(message: "Elliptical arc entity missing or invalid 'startAngle'")
+            }
+            guard let ea = dict["endAngle"]?.doubleValue, ea.isFinite else {
+                throw ArgumentError(message: "Elliptical arc entity missing or invalid 'endAngle'")
+            }
+            let rot = dict["rotationAngle"]?.doubleValue ?? dict["rotation"]?.doubleValue ?? 0.0
+            let clockwise = dict["clockwise"]?.boolValue ?? false
+            return SketchEntity.ellipticalArc(
+                center: SIMD2(cx, cy),
+                radiusX: rx,
+                radiusY: ry,
+                rotation: rot,
+                startAngle: sa,
+                endAngle: ea,
+                clockwise: clockwise,
+                isConstruction: isConstruction
+            )
+
         default:
-            throw ArgumentError(message: "Unknown entity type '\(type)' (supported: 'line', 'arc', 'circle', 'text')")
+            throw ArgumentError(message: "Unknown entity type '\(type)' (supported: 'line', 'arc', 'circle', 'ellipse', 'ellipticalArc', 'text')")
         }
     }
 

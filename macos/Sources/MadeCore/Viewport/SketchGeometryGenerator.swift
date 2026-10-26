@@ -191,6 +191,120 @@ public enum SketchGeometryGenerator {
                     }
                 }
 
+            case "ellipse":
+                guard let center = entity.centerPoint,
+                      let rx = entity.radiusX,
+                      let ry = entity.radiusY,
+                      rx > 1e-9, ry > 1e-9 else { continue }
+                let rot = entity.rotationAngle ?? 0.0
+                let cosRot = cos(rot)
+                let sinRot = sin(rot)
+                let segCount = 32
+
+                let h = pow(rx - ry, 2) / max(1e-9, pow(rx + ry, 2))
+                let perimeter = Double.pi * (rx + ry) * (1.0 + (3.0 * h) / (10.0 + sqrt(max(0.0, 4.0 - 3.0 * h))))
+
+                func pointOnEllipse(theta: Double) -> SIMD2<Double> {
+                    let px = rx * cos(theta)
+                    let py = ry * sin(theta)
+                    return center + SIMD2<Double>(px * cosRot - py * sinRot, px * sinRot + py * cosRot)
+                }
+
+                if !entity.isConstruction {
+                    for k in 0..<segCount {
+                        let a0 = (Double(k) / Double(segCount)) * 2.0 * .pi
+                        let a1 = (Double(k + 1) / Double(segCount)) * 2.0 * .pi
+                        let p0_2d = pointOnEllipse(theta: a0)
+                        let p1_2d = pointOnEllipse(theta: a1)
+                        appendSegment(plane.unprojectPoint(p0_2d), plane.unprojectPoint(p1_2d))
+                    }
+                } else {
+                    var d = 0.0
+                    while d < perimeter {
+                        let segStart = d
+                        let segEnd = min(d + effectiveDash, perimeter)
+                        let dashSubLen = segEnd - segStart
+                        if dashSubLen > 1e-9 {
+                            let dashA0 = (segStart / perimeter) * 2.0 * .pi
+                            let dashSweep = (dashSubLen / perimeter) * 2.0 * .pi
+                            let dashSteps = max(1, min(8, Int(ceil(Double(32) * dashSweep / (2.0 * .pi)))))
+                            for k in 0..<dashSteps {
+                                let t0 = Double(k) / Double(dashSteps)
+                                let t1 = Double(k + 1) / Double(dashSteps)
+                                let a0 = dashA0 + t0 * dashSweep
+                                let a1 = dashA0 + t1 * dashSweep
+                                let p0_2d = pointOnEllipse(theta: a0)
+                                let p1_2d = pointOnEllipse(theta: a1)
+                                appendSegment(plane.unprojectPoint(p0_2d), plane.unprojectPoint(p1_2d))
+                            }
+                        }
+                        d += period
+                    }
+                }
+
+            case "ellipticalArc":
+                guard let center = entity.centerPoint,
+                      let rx = entity.radiusX,
+                      let ry = entity.radiusY,
+                      let startA = entity.startAngle,
+                      let endA = entity.endAngle,
+                      rx > 1e-9, ry > 1e-9 else { continue }
+                let rot = entity.rotationAngle ?? 0.0
+                let cosRot = cos(rot)
+                let sinRot = sin(rot)
+
+                var delta = endA - startA
+                if entity.isClockwise && delta > 0 { delta -= 2.0 * .pi }
+                if !entity.isClockwise && delta < 0 { delta += 2.0 * .pi }
+                if abs(delta) < 1e-9 {
+                    delta = entity.isClockwise ? -2.0 * .pi : 2.0 * .pi
+                }
+
+                func pointOnArc(angle: Double) -> SIMD2<Double> {
+                    let px = rx * cos(angle)
+                    let py = ry * sin(angle)
+                    return center + SIMD2<Double>(px * cosRot - py * sinRot, px * sinRot + py * cosRot)
+                }
+
+                let meanRadius = (rx + ry) / 2.0
+                let approxLength = abs(delta) * meanRadius
+                guard approxLength > 1e-9 else { continue }
+
+                if !entity.isConstruction {
+                    let segCount = max(4, min(32, Int(ceil(Double(32) * abs(delta) / (2.0 * .pi)))))
+                    for k in 0..<segCount {
+                        let t0 = Double(k) / Double(segCount)
+                        let t1 = Double(k + 1) / Double(segCount)
+                        let a0 = startA + t0 * delta
+                        let a1 = startA + t1 * delta
+                        let p0_2d = pointOnArc(angle: a0)
+                        let p1_2d = pointOnArc(angle: a1)
+                        appendSegment(plane.unprojectPoint(p0_2d), plane.unprojectPoint(p1_2d))
+                    }
+                } else {
+                    var d = 0.0
+                    while d < approxLength {
+                        let segStart = d
+                        let segEnd = min(d + effectiveDash, approxLength)
+                        let dashSubLen = segEnd - segStart
+                        if dashSubLen > 1e-9 {
+                            let dashDelta = (dashSubLen / approxLength) * delta
+                            let dashA0 = startA + (segStart / approxLength) * delta
+                            let dashSteps = max(1, min(8, Int(ceil(Double(32) * abs(dashDelta) / (2.0 * .pi)))))
+                            for k in 0..<dashSteps {
+                                let t0 = Double(k) / Double(dashSteps)
+                                let t1 = Double(k + 1) / Double(dashSteps)
+                                let a0 = dashA0 + t0 * dashDelta
+                                let a1 = dashA0 + t1 * dashDelta
+                                let p0_2d = pointOnArc(angle: a0)
+                                let p1_2d = pointOnArc(angle: a1)
+                                appendSegment(plane.unprojectPoint(p0_2d), plane.unprojectPoint(p1_2d))
+                            }
+                        }
+                        d += period
+                    }
+                }
+
             case "text":
                 let contours = SketchTextOutliner.extractContours(for: entity)
                 for contour in contours {
