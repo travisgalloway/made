@@ -1297,6 +1297,28 @@ struct InspectorPanelView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
+
+                Button("Offset") {
+                    _ = try? workspace.offsetSketchEntities(in: sketch.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("Mirror") {
+                    _ = try? workspace.mirrorSketchEntities(in: sketch.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Menu("Pattern") {
+                    Button("Linear Pattern") {
+                        _ = try? workspace.linearPatternSketchEntities(in: sketch.id)
+                    }
+                    Button("Circular Pattern") {
+                        _ = try? workspace.circularPatternSketchEntities(in: sketch.id)
+                    }
+                }
+                .controlSize(.mini)
             }
 
             if data.entities.isEmpty {
@@ -6535,6 +6557,7 @@ struct InspectorSketchConstraintRow: View {
         case .coincident: return "point.topleft.down.to.point.bottomright.filled"
         case .horizontal: return "arrow.left.and.right.line"
         case .vertical: return "arrow.up.and.down.line"
+        case .equal: return "equal"
         }
     }
 

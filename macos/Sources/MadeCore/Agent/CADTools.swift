@@ -254,14 +254,14 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_add_constraint",
-                description: "Applies a geometric constraint (coincident, parallel, perpendicular, horizontal, vertical, tangent, concentric, or symmetric) between entities in a sketch.",
+                description: "Applies a geometric constraint (coincident, parallel, perpendicular, horizontal, vertical, tangent, concentric, symmetric, or equal) between entities in a sketch.",
                 inputSchema: MCPInputSchema(
                     properties: [
                         "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
                         "type": MCPProperty(
                             type: "string",
-                            description: "Constraint kind: 'parallel', 'perpendicular', 'tangent', 'concentric', 'symmetric', 'coincident', 'horizontal', 'vertical'",
-                            enum: ["parallel", "perpendicular", "tangent", "concentric", "symmetric", "coincident", "horizontal", "vertical"]
+                            description: "Constraint kind: 'parallel', 'perpendicular', 'tangent', 'concentric', 'symmetric', 'coincident', 'horizontal', 'vertical', 'equal'",
+                            enum: ["parallel", "perpendicular", "tangent", "concentric", "symmetric", "coincident", "horizontal", "vertical", "equal"]
                         ),
                         "entityIds": MCPProperty(type: "array", description: "Array of entity UUID strings that this constraint applies to"),
                         "referenceEntityId": MCPProperty(type: "string", description: "Optional reference entity UUID for symmetry or alignment constraints"),
@@ -324,6 +324,65 @@ public final class CADToolRegistry {
                         "feature_ids": MCPProperty(type: "array", description: "The complete ordered list of feature UUID strings")
                     ],
                     required: ["feature_ids"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "offset_sketch_entities",
+                description: "Offsets connected chains, lines, circles, or arcs in a 2D sketch by a perpendicular distance, creating parallel, concentric, and corner coincident constraints.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
+                        "distance": MCPProperty(type: "number", description: "Perpendicular or radial offset distance in mm (positive offsets left of lines / expands circles)"),
+                        "entityIds": MCPProperty(type: "array", description: "Optional array of entity UUID strings to offset. If omitted, offsets all non-construction entities in the sketch.")
+                    ],
+                    required: ["sketchId", "distance"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "mirror_sketch_entities",
+                description: "Reflects sketch entities across an axis line in a 2D sketch, inverting arc sweep chirality and creating symmetric and axis coincident constraints.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
+                        "mirrorLineId": MCPProperty(type: "string", description: "The UUID of the line entity to use as the mirror reflection axis"),
+                        "entityIds": MCPProperty(type: "array", description: "Optional array of entity UUID strings to mirror. If omitted, mirrors all entities in the sketch except the mirror axis line.")
+                    ],
+                    required: ["sketchId", "mirrorLineId"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "linear_pattern_sketch_entities",
+                description: "Replicates sketch entities in a 1D or 2D linear pattern with specified direction, spacing, and count, creating parallel and equal constraints.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
+                        "spacing1": MCPProperty(type: "number", description: "Spacing distance along direction 1 in mm"),
+                        "count1": MCPProperty(type: "integer", description: "Number of pattern instances along direction 1 (must be >= 1)"),
+                        "dir1X": MCPProperty(type: "number", description: "Optional X component of direction vector 1 (default 1.0)"),
+                        "dir1Y": MCPProperty(type: "number", description: "Optional Y component of direction vector 1 (default 0.0)"),
+                        "spacing2": MCPProperty(type: "number", description: "Optional spacing distance along direction 2 in mm (default 0.0)"),
+                        "count2": MCPProperty(type: "integer", description: "Optional number of pattern instances along direction 2 (default 1)"),
+                        "dir2X": MCPProperty(type: "number", description: "Optional X component of direction vector 2 (default 0.0)"),
+                        "dir2Y": MCPProperty(type: "number", description: "Optional Y component of direction vector 2 (default 1.0)"),
+                        "entityIds": MCPProperty(type: "array", description: "Optional array of entity UUID strings to pattern. If omitted, patterns all non-construction entities in the sketch.")
+                    ],
+                    required: ["sketchId", "spacing1", "count1"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "circular_pattern_sketch_entities",
+                description: "Replicates sketch entities in a circular pattern around a center point with count and angular span, creating equal constraints.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
+                        "centerX": MCPProperty(type: "number", description: "X coordinate of the rotation center point"),
+                        "centerY": MCPProperty(type: "number", description: "Y coordinate of the rotation center point"),
+                        "count": MCPProperty(type: "integer", description: "Total number of instances including the original (must be >= 2)"),
+                        "totalAngle": MCPProperty(type: "number", description: "Optional total angular span in radians (default 2*pi for 360 degrees)"),
+                        "equalSpacing": MCPProperty(type: "boolean", description: "Optional boolean whether instances are equally spaced over the angle (default true)"),
+                        "entityIds": MCPProperty(type: "array", description: "Optional array of entity UUID strings to pattern. If omitted, patterns all non-construction entities in the sketch.")
+                    ],
+                    required: ["sketchId", "centerX", "centerY", "count"]
                 )
             )
         ]
@@ -390,6 +449,18 @@ public final class CADToolRegistry {
 
         case "reorder_features", "cad_reorder_features":
             return await handleReorderFeatures(arguments: arguments)
+
+        case "offset_sketch_entities", "cad_offset_sketch_entities":
+            return handleOffsetSketchEntities(arguments: arguments)
+
+        case "mirror_sketch_entities", "cad_mirror_sketch_entities":
+            return handleMirrorSketchEntities(arguments: arguments)
+
+        case "linear_pattern_sketch_entities", "cad_linear_pattern_sketch_entities":
+            return handleLinearPatternSketchEntities(arguments: arguments)
+
+        case "circular_pattern_sketch_entities", "cad_circular_pattern_sketch_entities":
+            return handleCircularPatternSketchEntities(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -1944,7 +2015,7 @@ public final class CADToolRegistry {
             return .error("Missing required argument 'type'")
         }
         guard let kind = SketchConstraint.Kind(rawValue: typeStr.lowercased()) else {
-            return .error("Unknown constraint kind '\(typeStr)'. Supported: parallel, perpendicular, tangent, concentric, symmetric, coincident, horizontal, vertical")
+            return .error("Unknown constraint kind '\(typeStr)'. Supported: parallel, perpendicular, tangent, concentric, symmetric, coincident, horizontal, vertical, equal")
         }
         guard let entityIdsVal = arguments["entityIds"]?.arrayValue, !entityIdsVal.isEmpty else {
             return .error("Missing or empty required argument 'entityIds'")
@@ -2533,5 +2604,266 @@ public final class CADToolRegistry {
         guard let sink = meshSink,
               SolidMeshApplier.apply(result, to: id, document: document, sink: sink) else { return }
         onViewportInvalidated?()
+    }
+
+    private func handleOffsetSketchEntities(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let feature = document.feature(for: sketchUUID) else {
+            return .error("Sketch '\(sketchIdStr)' not found in document")
+        }
+        guard case .sketch(let sketchData) = feature.operation else {
+            return .error("Feature '\(sketchIdStr)' is not a sketch")
+        }
+        guard let rawDistance = arguments["distance"]?.doubleValue, rawDistance.isFinite else {
+            return .error("Missing or invalid numeric argument 'distance'")
+        }
+
+        let candidates: [SketchEntity]
+        if let rawIds = arguments["entityIds"]?.arrayValue, !rawIds.isEmpty {
+            var selected: [SketchEntity] = []
+            for val in rawIds {
+                guard let idStr = val.stringValue, let uuid = UUID(uuidString: idStr) else {
+                    return .error("Invalid entity ID in 'entityIds'")
+                }
+                guard let entity = sketchData.entities.first(where: { $0.id == uuid }) else {
+                    return .error("Entity '\(idStr)' not found in sketch '\(sketchIdStr)'")
+                }
+                selected.append(entity)
+            }
+            candidates = selected
+        } else {
+            candidates = sketchData.entities.filter { !$0.isConstruction }
+        }
+
+        do {
+            let result = try SketchOffset.makeOffset(entities: candidates, distance: rawDistance)
+            let res = document.addSketchEntitiesAndConstraints(
+                to: sketchUUID,
+                entities: result.entities,
+                constraints: result.constraints,
+                actionName: "Offset Entities"
+            )
+            switch res {
+            case .success:
+                onViewportInvalidated?()
+                return .text("Offset \(result.entities.count) entities with distance \(rawDistance) in sketch '\(sketchIdStr)', added \(result.constraints.count) constraints")
+            case .failure(let err):
+                return .error("Failed to add offset entities to sketch: \(err)")
+            }
+        } catch {
+            return .error("Offset operation failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func handleMirrorSketchEntities(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let feature = document.feature(for: sketchUUID) else {
+            return .error("Sketch '\(sketchIdStr)' not found in document")
+        }
+        guard case .sketch(let sketchData) = feature.operation else {
+            return .error("Feature '\(sketchIdStr)' is not a sketch")
+        }
+        guard let lineIdStr = arguments["mirrorLineId"]?.stringValue else {
+            return .error("Missing required argument 'mirrorLineId'")
+        }
+        guard let lineUUID = UUID(uuidString: lineIdStr) else {
+            return .error("Invalid UUID for 'mirrorLineId': '\(lineIdStr)'")
+        }
+        guard let mirrorLine = sketchData.entities.first(where: { $0.id == lineUUID && $0.kind == "line" }) else {
+            return .error("Mirror line '\(lineIdStr)' not found in sketch '\(sketchIdStr)'")
+        }
+
+        let candidates: [SketchEntity]
+        if let rawIds = arguments["entityIds"]?.arrayValue, !rawIds.isEmpty {
+            var selected: [SketchEntity] = []
+            for val in rawIds {
+                guard let idStr = val.stringValue, let uuid = UUID(uuidString: idStr) else {
+                    return .error("Invalid entity ID in 'entityIds'")
+                }
+                guard let entity = sketchData.entities.first(where: { $0.id == uuid && $0.id != lineUUID }) else {
+                    return .error("Entity '\(idStr)' not found in sketch '\(sketchIdStr)' or is mirror axis")
+                }
+                selected.append(entity)
+            }
+            candidates = selected
+        } else {
+            candidates = sketchData.entities.filter { $0.id != lineUUID }
+        }
+
+        do {
+            let result = try SketchMirror.makeMirror(entities: candidates, mirrorLine: mirrorLine)
+            let res = document.addSketchEntitiesAndConstraints(
+                to: sketchUUID,
+                entities: result.entities,
+                constraints: result.constraints,
+                actionName: "Mirror Entities"
+            )
+            switch res {
+            case .success:
+                onViewportInvalidated?()
+                return .text("Mirrored \(result.entities.count) entities across line '\(lineIdStr)' in sketch '\(sketchIdStr)', added \(result.constraints.count) constraints")
+            case .failure(let err):
+                return .error("Failed to add mirrored entities to sketch: \(err)")
+            }
+        } catch {
+            return .error("Mirror operation failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func handleLinearPatternSketchEntities(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let feature = document.feature(for: sketchUUID) else {
+            return .error("Sketch '\(sketchIdStr)' not found in document")
+        }
+        guard case .sketch(let sketchData) = feature.operation else {
+            return .error("Feature '\(sketchIdStr)' is not a sketch")
+        }
+        guard let spacing1 = arguments["spacing1"]?.doubleValue, spacing1.isFinite else {
+            return .error("Missing or invalid numeric argument 'spacing1'")
+        }
+        guard let count1 = arguments["count1"]?.intValue, count1 >= 1 else {
+            return .error("Missing or invalid integer argument 'count1' (must be >= 1)")
+        }
+
+        let dir1X = arguments["dir1X"]?.doubleValue ?? 1.0
+        let dir1Y = arguments["dir1Y"]?.doubleValue ?? 0.0
+        let dir1 = SIMD2<Double>(dir1X, dir1Y)
+
+        let count2 = arguments["count2"]?.intValue ?? 1
+        let spacing2 = arguments["spacing2"]?.doubleValue ?? 0.0
+        let dir2: SIMD2<Double>? = {
+            if count2 > 1 {
+                let d2X = arguments["dir2X"]?.doubleValue ?? 0.0
+                let d2Y = arguments["dir2Y"]?.doubleValue ?? 1.0
+                return SIMD2<Double>(d2X, d2Y)
+            }
+            return nil
+        }()
+
+        let candidates: [SketchEntity]
+        if let rawIds = arguments["entityIds"]?.arrayValue, !rawIds.isEmpty {
+            var selected: [SketchEntity] = []
+            for val in rawIds {
+                guard let idStr = val.stringValue, let uuid = UUID(uuidString: idStr) else {
+                    return .error("Invalid entity ID in 'entityIds'")
+                }
+                guard let entity = sketchData.entities.first(where: { $0.id == uuid }) else {
+                    return .error("Entity '\(idStr)' not found in sketch '\(sketchIdStr)'")
+                }
+                selected.append(entity)
+            }
+            candidates = selected
+        } else {
+            candidates = sketchData.entities.filter { !$0.isConstruction }
+        }
+
+        do {
+            let result = try SketchPattern.makeLinearPattern(
+                entities: candidates,
+                direction1: dir1,
+                spacing1: spacing1,
+                count1: count1,
+                direction2: dir2,
+                spacing2: spacing2,
+                count2: count2
+            )
+            let res = document.addSketchEntitiesAndConstraints(
+                to: sketchUUID,
+                entities: result.entities,
+                constraints: result.constraints,
+                actionName: "Linear Pattern Entities"
+            )
+            switch res {
+            case .success:
+                onViewportInvalidated?()
+                return .text("Linear patterned \(result.entities.count) entities in sketch '\(sketchIdStr)', added \(result.constraints.count) constraints")
+            case .failure(let err):
+                return .error("Failed to add linear patterned entities to sketch: \(err)")
+            }
+        } catch {
+            return .error("Linear pattern operation failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func handleCircularPatternSketchEntities(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let feature = document.feature(for: sketchUUID) else {
+            return .error("Sketch '\(sketchIdStr)' not found in document")
+        }
+        guard case .sketch(let sketchData) = feature.operation else {
+            return .error("Feature '\(sketchIdStr)' is not a sketch")
+        }
+        guard let centerX = arguments["centerX"]?.doubleValue, centerX.isFinite,
+              let centerY = arguments["centerY"]?.doubleValue, centerY.isFinite else {
+            return .error("Missing or invalid numeric arguments 'centerX' / 'centerY'")
+        }
+        guard let count = arguments["count"]?.intValue, count >= 2 else {
+            return .error("Missing or invalid integer argument 'count' (must be >= 2)")
+        }
+
+        let totalAngle = arguments["totalAngle"]?.doubleValue ?? (2.0 * .pi)
+        let equalSpacing = arguments["equalSpacing"]?.boolValue ?? true
+
+        let candidates: [SketchEntity]
+        if let rawIds = arguments["entityIds"]?.arrayValue, !rawIds.isEmpty {
+            var selected: [SketchEntity] = []
+            for val in rawIds {
+                guard let idStr = val.stringValue, let uuid = UUID(uuidString: idStr) else {
+                    return .error("Invalid entity ID in 'entityIds'")
+                }
+                guard let entity = sketchData.entities.first(where: { $0.id == uuid }) else {
+                    return .error("Entity '\(idStr)' not found in sketch '\(sketchIdStr)'")
+                }
+                selected.append(entity)
+            }
+            candidates = selected
+        } else {
+            candidates = sketchData.entities.filter { !$0.isConstruction }
+        }
+
+        do {
+            let result = try SketchPattern.makeCircularPattern(
+                entities: candidates,
+                center: SIMD2<Double>(centerX, centerY),
+                count: count,
+                totalAngle: totalAngle,
+                equalSpacing: equalSpacing
+            )
+            let res = document.addSketchEntitiesAndConstraints(
+                to: sketchUUID,
+                entities: result.entities,
+                constraints: result.constraints,
+                actionName: "Circular Pattern Entities"
+            )
+            switch res {
+            case .success:
+                onViewportInvalidated?()
+                return .text("Circular patterned \(result.entities.count) entities in sketch '\(sketchIdStr)', added \(result.constraints.count) constraints")
+            case .failure(let err):
+                return .error("Failed to add circular patterned entities to sketch: \(err)")
+            }
+        } catch {
+            return .error("Circular pattern operation failed: \(error.localizedDescription)")
+        }
     }
 }

@@ -18,6 +18,9 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
     case degenerateSlot(String)
     case degeneratePolygon(String)
     case degenerateEllipse(String)
+    case degenerateOffset(String)
+    case degenerateMirror(String)
+    case degeneratePattern(String)
 
     public var errorDescription: String? {
         switch self {
@@ -53,6 +56,12 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
             return "Degenerate polygon: \(msg)"
         case .degenerateEllipse(let msg):
             return "Degenerate ellipse: \(msg)"
+        case .degenerateOffset(let msg):
+            return "Degenerate offset: \(msg)"
+        case .degenerateMirror(let msg):
+            return "Degenerate mirror: \(msg)"
+        case .degeneratePattern(let msg):
+            return "Degenerate pattern: \(msg)"
         }
     }
 }

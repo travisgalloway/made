@@ -2590,6 +2590,198 @@ final class WorkspaceModel {
         return result
     }
 
+    @discardableResult
+    func offsetSketchEntities(
+        in featureId: UUID? = nil,
+        entityIds: [UUID]? = nil,
+        distance: Double = 5.0
+    ) throws -> SketchOffsetResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        guard let feat = document.feature(for: targetId), case .sketch(let sketchData) = feat.operation else {
+            throw SketchError.invalidEntity("Target feature \(targetId) is not a sketch")
+        }
+
+        let candidates: [SketchEntity] = {
+            if let ids = entityIds, !ids.isEmpty {
+                return sketchData.entities.filter { ids.contains($0.id) }
+            } else if let sel = selectedSketchEntity, sel.featureId == targetId {
+                return [sel.entity]
+            } else {
+                return sketchData.entities.filter { !$0.isConstruction }
+            }
+        }()
+
+        let result = try SketchOffset.makeOffset(entities: candidates, distance: distance)
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Offset Entities"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func mirrorSketchEntities(
+        in featureId: UUID? = nil,
+        entityIds: [UUID]? = nil,
+        mirrorLineId: UUID? = nil
+    ) throws -> SketchMirrorResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        guard let feat = document.feature(for: targetId), case .sketch(let sketchData) = feat.operation else {
+            throw SketchError.invalidEntity("Target feature \(targetId) is not a sketch")
+        }
+
+        let mirrorLine: SketchEntity = try {
+            if let id = mirrorLineId, let found = sketchData.entities.first(where: { $0.id == id && $0.kind == "line" }) {
+                return found
+            }
+            if let foundConstruction = sketchData.entities.first(where: { $0.isConstruction && $0.kind == "line" }) {
+                return foundConstruction
+            }
+            if let foundLine = sketchData.entities.first(where: { $0.kind == "line" }) {
+                return foundLine
+            }
+            throw SketchError.degenerateMirror("No line entity available as mirror axis")
+        }()
+
+        let candidates: [SketchEntity] = {
+            if let ids = entityIds, !ids.isEmpty {
+                return sketchData.entities.filter { ids.contains($0.id) && $0.id != mirrorLine.id }
+            } else if let sel = selectedSketchEntity, sel.featureId == targetId, sel.entity.id != mirrorLine.id {
+                return [sel.entity]
+            } else {
+                return sketchData.entities.filter { $0.id != mirrorLine.id }
+            }
+        }()
+
+        let result = try SketchMirror.makeMirror(entities: candidates, mirrorLine: mirrorLine)
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Mirror Entities"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func linearPatternSketchEntities(
+        in featureId: UUID? = nil,
+        entityIds: [UUID]? = nil,
+        direction1: SIMD2<Double> = SIMD2(1, 0),
+        spacing1: Double = 20.0,
+        count1: Int = 3,
+        direction2: SIMD2<Double>? = nil,
+        spacing2: Double = 0.0,
+        count2: Int = 1
+    ) throws -> SketchPatternResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        guard let feat = document.feature(for: targetId), case .sketch(let sketchData) = feat.operation else {
+            throw SketchError.invalidEntity("Target feature \(targetId) is not a sketch")
+        }
+
+        let candidates: [SketchEntity] = {
+            if let ids = entityIds, !ids.isEmpty {
+                return sketchData.entities.filter { ids.contains($0.id) }
+            } else if let sel = selectedSketchEntity, sel.featureId == targetId {
+                return [sel.entity]
+            } else {
+                return sketchData.entities.filter { !$0.isConstruction }
+            }
+        }()
+
+        let result = try SketchPattern.makeLinearPattern(
+            entities: candidates,
+            direction1: direction1,
+            spacing1: spacing1,
+            count1: count1,
+            direction2: direction2,
+            spacing2: spacing2,
+            count2: count2
+        )
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Linear Pattern Entities"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func circularPatternSketchEntities(
+        in featureId: UUID? = nil,
+        entityIds: [UUID]? = nil,
+        center: SIMD2<Double>? = nil,
+        count: Int = 4,
+        totalAngle: Double = 2.0 * .pi,
+        equalSpacing: Bool = true
+    ) throws -> SketchPatternResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        guard let feat = document.feature(for: targetId), case .sketch(let sketchData) = feat.operation else {
+            throw SketchError.invalidEntity("Target feature \(targetId) is not a sketch")
+        }
+
+        let candidates: [SketchEntity] = {
+            if let ids = entityIds, !ids.isEmpty {
+                return sketchData.entities.filter { ids.contains($0.id) }
+            } else if let sel = selectedSketchEntity, sel.featureId == targetId {
+                return [sel.entity]
+            } else {
+                return sketchData.entities.filter { !$0.isConstruction }
+            }
+        }()
+
+        let centerPoint = center ?? SIMD2<Double>(0, 0)
+        let result = try SketchPattern.makeCircularPattern(
+            entities: candidates,
+            center: centerPoint,
+            count: count,
+            totalAngle: totalAngle,
+            equalSpacing: equalSpacing
+        )
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Circular Pattern Entities"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
     func updateSketchEntity(in featureId: UUID, entity: SketchEntity) {
         _ = document.updateSketchEntity(in: featureId, entity: entity)
         solveSketchConstraints(featureId: featureId, draggedEntityId: entity.id)
@@ -2893,6 +3085,14 @@ final class WorkspaceModel {
         case .coincident:
             if data.entities.count >= 2 {
                 let constraint = SketchConstraint(kind: kind, entityIds: [data.entities[0].id, data.entities[1].id], isDriven: isDriven)
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            }
+        case .equal:
+            if lines.count >= 2 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [lines[0].id, lines[1].id], isDriven: isDriven)
+                addSketchConstraint(to: sketch.id, constraint: constraint)
+            } else if circles.count >= 2 {
+                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id], isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             }
         }
