@@ -17,256 +17,18 @@ struct NavigatorSidebarView: View {
 
             ScrollViewReader { proxy in
                 List(selection: $workspace.selectedIds) {
-                    if workspace.document.documentType == .drawing || !workspace.document.sheets.isEmpty {
-                        Section {
-                            ForEach(workspace.document.sheets) { sheet in
-                                NavigatorSheetRow(sheet: sheet)
-                            }
-                        } header: {
-                            HStack {
-                                Text("Sheets")
-                                Spacer()
-                                Button {
-                                    _ = workspace.addSheet()
-                                } label: {
-                                    Image(systemName: "plus")
-                                }
-                                .buttonStyle(.borderless)
-                                .frame(width: 16, height: 16)
-                                .help("Add Sheet")
-                                .accessibilityIdentifier("navigator-add-sheet-button")
-                            }
-                        }
-                    }
-
-                    if workspace.document.documentType == .assembly || !workspace.document.componentInstances.isEmpty {
-                        Section {
-                            ForEach(filteredComponents) { component in
-                                NavigatorComponentRow(component: component)
-                                    .tag(component.solidId)
-                                    .id(component.solidId)
-                            }
-                        } header: {
-                            HStack {
-                                Text("Components")
-                                Spacer()
-                                Menu {
-                                    Button("Insert from File…") {
-                                        workspace.promptInsertComponentFromFile()
-                                    }
-                                    Button("Insert from Document…") {
-                                        workspace.promptInsertComponentFromDocument()
-                                    }
-                                } label: {
-                                    Image(systemName: "plus")
-                                }
-                                .menuStyle(.borderlessButton)
-                                .frame(width: 16, height: 16)
-                            }
-                        }
-                    }
-
-                    if workspace.document.documentType == .assembly || !workspace.document.assemblyConstraints.isEmpty {
-                        Section {
-                            if let result = workspace.lastAssemblySolverResult {
-                                switch result.status {
-                                case .overConstrained(let conflicting):
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                                        Text("Over-constrained (\(conflicting.count) conflicting)").font(.caption2).foregroundStyle(.red)
-                                        Spacer()
-                                    }
-                                    .padding(.vertical, 2)
-                                    .accessibilityIdentifier("navigator-assembly-overconstrained-banner")
-                                case .redundant(let redundant):
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
-                                        Text("Redundant mates (\(redundant.count))").font(.caption2).foregroundStyle(.orange)
-                                        Spacer()
-                                    }
-                                    .padding(.vertical, 2)
-                                    .accessibilityIdentifier("navigator-assembly-redundant-banner")
-                                case .failedToConverge:
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
-                                        Text("Solve failed").font(.caption2).foregroundStyle(.red)
-                                        Spacer()
-                                    }
-                                    .padding(.vertical, 2)
-                                    .accessibilityIdentifier("navigator-assembly-failed-banner")
-                                case .converged:
-                                    EmptyView()
-                                }
-                            }
-                            ForEach(filteredConstraints) { constraint in
-                                NavigatorConstraintRow(constraint: constraint)
-                            }
-                        } header: {
-                            HStack {
-                                Text("Mates & Joints")
-                                Spacer()
-                                Button {
-                                    _ = workspace.solveAssemblyConstraints()
-                                } label: {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                }
-                                .buttonStyle(.borderless)
-                                .frame(width: 16, height: 16)
-                                .help("Solve Assembly")
-                                .disabled(workspace.document.assemblyConstraints.isEmpty)
-                            }
-                        }
-                    }
-
-                    if workspace.document.documentType == .assembly || !workspace.document.explodedViews.isEmpty {
-                        Section {
-                            ForEach(workspace.document.explodedViews) { view in
-                                NavigatorExplodedViewRow(view: view)
-                            }
-                        } header: {
-                            HStack {
-                                Text("Exploded Views")
-                                Spacer()
-                                Button {
-                                    _ = workspace.createExplodedView()
-                                } label: {
-                                    Image(systemName: "plus")
-                                }
-                                .buttonStyle(.borderless)
-                                .frame(width: 16, height: 16)
-                                .help("New Exploded View")
-                                .accessibilityIdentifier("navigator-add-exploded-view-button")
-                            }
-                        }
-                    }
-
-                    if workspace.document.documentType != .drawing {
-                        Section {
-                            ForEach(workspace.document.studies) { study in
-                                NavigatorSimulationStudyRow(study: study)
-                            }
-                        } header: {
-                            HStack {
-                                Text("Simulation Studies")
-                                Spacer()
-                                Menu {
-                                    Button("New Linear Static Study") {
-                                        _ = workspace.createSimulationStudy(type: .linearStatic)
-                                    }
-                                    Button("New Thermal Conduction Study") {
-                                        _ = workspace.createSimulationStudy(type: .thermalConduction)
-                                    }
-                                    Button("New Modal Frequency Study") {
-                                        _ = workspace.createSimulationStudy(type: .modalFrequency)
-                                    }
-                                    Button("New Linear Buckling Study") {
-                                        _ = workspace.createSimulationStudy(type: .linearBuckling)
-                                    }
-                                } label: {
-                                    Image(systemName: "plus")
-                                }
-                                .menuStyle(.borderlessButton)
-                                .menuIndicator(.hidden)
-                                .frame(width: 16, height: 16)
-                                .help("New Simulation Study")
-                                .accessibilityIdentifier("navigator-add-study-button")
-                            }
-                        }
-                    }
-
-                    if (workspace.document.documentType != .assembly && workspace.document.documentType != .drawing) || !filteredBodies.isEmpty {
-                        Section("Bodies") {
-                            ForEach(filteredBodies) { body in
-                                NavigatorRow(body: body)
-                                    .tag(body.id)
-                                    .id(body.id)
-                            }
-                        }
-                    }
-
-                    if !sketchFeatures.isEmpty {
-                        Section("Sketches") {
-                            ForEach(sketchFeatures) { sketch in
-                                NavigatorSketchRow(feature: sketch)
-                            }
-                        }
-                    }
-
-                    if !datumPlaneFeatures.isEmpty {
-                        Section("Datum Planes") {
-                            ForEach(datumPlaneFeatures) { datum in
-                                NavigatorDatumPlaneRow(feature: datum)
-                            }
-                        }
-                    }
-
-                    if !datumAxisFeatures.isEmpty {
-                        Section("Datum Axes") {
-                            ForEach(datumAxisFeatures) { datum in
-                                NavigatorDatumAxisRow(feature: datum)
-                            }
-                        }
-                    }
-
-                    if !datumPointFeatures.isEmpty {
-                        Section("Datum Points") {
-                            ForEach(datumPointFeatures) { datum in
-                                NavigatorDatumPointRow(feature: datum)
-                            }
-                        }
-                    }
-
-                    if !datumCoordinateSystemFeatures.isEmpty {
-                        Section("Coordinate Systems") {
-                            ForEach(datumCoordinateSystemFeatures) { datum in
-                                NavigatorDatumCoordinateSystemRow(feature: datum)
-                            }
-                        }
-                    }
-
-                    if !workspace.document.parameters.isEmpty {
-                        Section("Parameters") {
-                            ForEach(workspace.document.parameters) { param in
-                                NavigatorParameterRow(param: param)
-                            }
-                        }
+                    switch workspace.navigatorTab {
+                    case .scene:
+                        sceneSections
+                    case .construction:
+                        constructionSections
+                    case .simulation:
+                        simulationSections
                     }
                 }
                 .listStyle(.sidebar)
                 .overlay {
-                    if workspace.document.bodies.isEmpty && sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty && workspace.document.explodedViews.isEmpty && workspace.document.studies.isEmpty && workspace.document.sheets.isEmpty {
-                        ContentUnavailableView {
-                            Label(workspace.document.documentType == .assembly ? "No Components" : "No Objects", systemImage: workspace.document.documentType == .assembly ? "square.3.layers.3d" : "cube.transparent")
-                        } description: {
-                            Text(workspace.document.documentType == .assembly ? "Add components to begin assembling." : "Add a 3D solid primitive or open a part script to begin modeling.")
-                        } actions: {
-                            if workspace.document.documentType == .assembly {
-                                VStack(spacing: 8) {
-                                    Button("Insert from File…", systemImage: "doc.badge.plus") {
-                                        workspace.promptInsertComponentFromFile()
-                                    }
-                                    Button("Insert from Document…", systemImage: "doc.on.doc") {
-                                        workspace.promptInsertComponentFromDocument()
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            } else {
-                                VStack(spacing: 8) {
-                                    Button("Add Box", systemImage: "shippingbox") {
-                                        workspace.addDefaultBox()
-                                    }
-                                    Button("Add Cylinder", systemImage: "cylinder") {
-                                        workspace.addDefaultCylinder()
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                        }
-                    } else if !filterText.isEmpty && filteredBodies.isEmpty && filteredComponents.isEmpty && filteredConstraints.isEmpty {
-                        ContentUnavailableView.search(text: filterText)
-                    }
+                    emptyStateOverlay
                 }
                 .contextMenu(forSelectionType: ObjectId.self) { ids in
                     if let id = ids.first, let body = workspace.document.body(for: id) {
@@ -307,6 +69,10 @@ struct NavigatorSidebarView: View {
                         Divider()
                         Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
                             .disabled(body.isLocked)
+                    }
+                } primaryAction: { ids in
+                    if let id = ids.first {
+                        workspace.startEditFeature(for: id)
                     }
                 }
                 .alert(
@@ -371,10 +137,378 @@ struct NavigatorSidebarView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            PaneTabBar(label: "Navigator", selection: $workspace.navigatorTab)
+            VStack(spacing: 0) {
+                PaneTabBar(label: "Navigator", selection: $workspace.navigatorTab, fillsWidth: true)
+                Divider()
+            }
+            .background(.bar)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             footer
+        }
+    }
+
+    @ViewBuilder
+    private var sceneSections: some View {
+        if workspace.document.documentType == .drawing || !workspace.document.sheets.isEmpty {
+            Section {
+                ForEach(workspace.document.sheets) { sheet in
+                    NavigatorSheetRow(sheet: sheet)
+                }
+            } header: {
+                HStack {
+                    Text("Sheets")
+                    Spacer()
+                    Button {
+                        _ = workspace.addSheet()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(width: 16, height: 16)
+                    .help("Add Sheet")
+                    .accessibilityIdentifier("navigator-add-sheet-button")
+                }
+            }
+        }
+
+        if workspace.document.documentType == .assembly || !workspace.document.componentInstances.isEmpty {
+            Section {
+                ForEach(filteredComponents) { component in
+                    NavigatorComponentRow(component: component)
+                        .tag(component.solidId)
+                        .id(component.solidId)
+                }
+            } header: {
+                HStack {
+                    Text("Components")
+                    Spacer()
+                    Menu {
+                        Button("Insert from File…") {
+                            workspace.promptInsertComponentFromFile()
+                        }
+                        Button("Insert from Document…") {
+                            workspace.promptInsertComponentFromDocument()
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 16, height: 16)
+                }
+            }
+        }
+
+        if workspace.document.documentType == .assembly || !workspace.document.assemblyConstraints.isEmpty {
+            Section {
+                if let result = workspace.lastAssemblySolverResult {
+                    switch result.status {
+                    case .overConstrained(let conflicting):
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                            Text("Over-constrained (\(conflicting.count) conflicting)").font(.caption2).foregroundStyle(.red)
+                            Spacer()
+                        }
+                        .padding(.vertical, 2)
+                        .accessibilityIdentifier("navigator-assembly-overconstrained-banner")
+                    case .redundant(let redundant):
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                            Text("Redundant mates (\(redundant.count))").font(.caption2).foregroundStyle(.orange)
+                            Spacer()
+                        }
+                        .padding(.vertical, 2)
+                        .accessibilityIdentifier("navigator-assembly-redundant-banner")
+                    case .failedToConverge:
+                        HStack(spacing: 6) {
+                            Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+                            Text("Solve failed").font(.caption2).foregroundStyle(.red)
+                            Spacer()
+                        }
+                        .padding(.vertical, 2)
+                        .accessibilityIdentifier("navigator-assembly-failed-banner")
+                    case .converged:
+                        EmptyView()
+                    }
+                }
+                ForEach(filteredConstraints) { constraint in
+                    NavigatorConstraintRow(constraint: constraint)
+                }
+            } header: {
+                HStack {
+                    Text("Mates & Joints")
+                    Spacer()
+                    Button {
+                        _ = workspace.solveAssemblyConstraints()
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(width: 16, height: 16)
+                    .help("Solve Assembly")
+                    .disabled(workspace.document.assemblyConstraints.isEmpty)
+                }
+            }
+        }
+
+        if workspace.document.documentType == .assembly || !workspace.document.explodedViews.isEmpty {
+            Section {
+                ForEach(workspace.document.explodedViews) { view in
+                    NavigatorExplodedViewRow(view: view)
+                }
+            } header: {
+                HStack {
+                    Text("Exploded Views")
+                    Spacer()
+                    Button {
+                        _ = workspace.createExplodedView()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(width: 16, height: 16)
+                    .help("New Exploded View")
+                    .accessibilityIdentifier("navigator-add-exploded-view-button")
+                }
+            }
+        }
+
+        if (workspace.document.documentType != .assembly && workspace.document.documentType != .drawing) || !filteredBodies.isEmpty {
+            Section("Bodies") {
+                ForEach(filteredBodies) { body in
+                    NavigatorRow(body: body)
+                        .tag(body.id)
+                        .id(body.id)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var constructionSections: some View {
+        Section {
+            ForEach(filteredSketchFeatures) { sketch in
+                NavigatorSketchRow(feature: sketch)
+            }
+        } header: {
+            HStack {
+                Text("Sketches")
+                Spacer()
+                Button {
+                    workspace.startNewSketchCommand()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 16, height: 16)
+                .help("New Ground Sketch")
+                .accessibilityIdentifier("navigator-add-sketch-button")
+            }
+        }
+
+        Section {
+            ForEach(filteredDatumPlaneFeatures) { datum in
+                NavigatorDatumPlaneRow(feature: datum)
+            }
+        } header: {
+            HStack {
+                Text("Datum Planes")
+                Spacer()
+                Button {
+                    workspace.startDatumPlaneCommand()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 16, height: 16)
+                .help("New Datum Plane")
+                .accessibilityIdentifier("navigator-add-datum-plane-button")
+            }
+        }
+
+        Section {
+            ForEach(filteredDatumAxisFeatures) { datum in
+                NavigatorDatumAxisRow(feature: datum)
+            }
+        } header: {
+            HStack {
+                Text("Datum Axes")
+                Spacer()
+                Button {
+                    workspace.startDatumAxisCommand()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 16, height: 16)
+                .help("New Datum Axis")
+                .accessibilityIdentifier("navigator-add-datum-axis-button")
+            }
+        }
+
+        Section {
+            ForEach(filteredDatumPointFeatures) { datum in
+                NavigatorDatumPointRow(feature: datum)
+            }
+        } header: {
+            HStack {
+                Text("Datum Points")
+                Spacer()
+                Button {
+                    workspace.startDatumPointCommand()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 16, height: 16)
+                .help("New Datum Point")
+                .accessibilityIdentifier("navigator-add-datum-point-button")
+            }
+        }
+
+        Section {
+            ForEach(filteredDatumCoordinateSystemFeatures) { datum in
+                NavigatorDatumCoordinateSystemRow(feature: datum)
+            }
+        } header: {
+            HStack {
+                Text("Coordinate Systems")
+                Spacer()
+                Button {
+                    workspace.startDatumCoordinateSystemCommand()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 16, height: 16)
+                .help("New Coordinate System")
+                .accessibilityIdentifier("navigator-add-ucs-button")
+            }
+        }
+
+        if !workspace.document.parameters.isEmpty {
+            Section("Parameters") {
+                ForEach(workspace.document.parameters) { param in
+                    NavigatorParameterRow(param: param)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var simulationSections: some View {
+        Section {
+            ForEach(workspace.document.studies) { study in
+                NavigatorSimulationStudyRow(study: study)
+            }
+        } header: {
+            HStack {
+                Text("Simulation Studies")
+                Spacer()
+                Menu {
+                    Button("New Linear Static Study") {
+                        _ = workspace.createSimulationStudy(type: .linearStatic)
+                    }
+                    Button("New Thermal Conduction Study") {
+                        _ = workspace.createSimulationStudy(type: .thermalConduction)
+                    }
+                    Button("New Modal Frequency Study") {
+                        _ = workspace.createSimulationStudy(type: .modalFrequency)
+                    }
+                    Button("New Linear Buckling Study") {
+                        _ = workspace.createSimulationStudy(type: .linearBuckling)
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 16, height: 16)
+                .help("New Simulation Study")
+                .accessibilityIdentifier("navigator-add-study-button")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var emptyStateOverlay: some View {
+        switch workspace.navigatorTab {
+        case .scene:
+            if workspace.document.bodies.isEmpty && workspace.document.componentInstances.isEmpty && workspace.document.assemblyConstraints.isEmpty && workspace.document.explodedViews.isEmpty && workspace.document.sheets.isEmpty {
+                ContentUnavailableView {
+                    Label(workspace.document.documentType == .assembly ? "No Components" : "No Objects", systemImage: workspace.document.documentType == .assembly ? "square.3.layers.3d" : "cube.transparent")
+                } description: {
+                    Text(workspace.document.documentType == .assembly ? "Add components to begin assembling." : "Add a 3D solid primitive or open a part script to begin modeling.")
+                } actions: {
+                    if workspace.document.documentType == .assembly {
+                        VStack(spacing: 8) {
+                            Button("Insert from File…", systemImage: "doc.badge.plus") {
+                                workspace.promptInsertComponentFromFile()
+                            }
+                            Button("Insert from Document…", systemImage: "doc.on.doc") {
+                                workspace.promptInsertComponentFromDocument()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    } else {
+                        VStack(spacing: 8) {
+                            Button("Add Box", systemImage: "shippingbox") {
+                                workspace.addDefaultBox()
+                            }
+                            Button("Add Cylinder", systemImage: "cylinder") {
+                                workspace.addDefaultCylinder()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            } else if !filterText.isEmpty && filteredBodies.isEmpty && filteredComponents.isEmpty && filteredConstraints.isEmpty {
+                ContentUnavailableView.search(text: filterText)
+            }
+
+        case .construction:
+            if sketchFeatures.isEmpty && datumPlaneFeatures.isEmpty && datumAxisFeatures.isEmpty && datumPointFeatures.isEmpty && datumCoordinateSystemFeatures.isEmpty && workspace.document.parameters.isEmpty {
+                ContentUnavailableView {
+                    Label("No Construction Geometry", systemImage: "ruler")
+                } description: {
+                    Text("Create sketches, datum planes, axes, points, or coordinate systems.")
+                } actions: {
+                    VStack(spacing: 8) {
+                        Button("New Sketch…", systemImage: "pencil.and.ruler.fill") {
+                            workspace.startNewSketchCommand()
+                        }
+                        Button("New Datum Plane…", systemImage: "square.dashed") {
+                            workspace.startDatumPlaneCommand()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            } else if !filterText.isEmpty && filteredSketchFeatures.isEmpty && filteredDatumPlaneFeatures.isEmpty && filteredDatumAxisFeatures.isEmpty && filteredDatumPointFeatures.isEmpty && filteredDatumCoordinateSystemFeatures.isEmpty {
+                ContentUnavailableView.search(text: filterText)
+            }
+
+        case .simulation:
+            if workspace.document.studies.isEmpty {
+                ContentUnavailableView {
+                    Label("No Simulation Studies", systemImage: "waveform.path.ecg")
+                } description: {
+                    Text("Create a finite element study to analyze stress, thermal conduction, or modal frequencies.")
+                } actions: {
+                    VStack(spacing: 8) {
+                        Button("New Linear Static Study", systemImage: "arrow.down.to.line.compact") {
+                            _ = workspace.createSimulationStudy(type: .linearStatic)
+                        }
+                        Button("New Thermal Study", systemImage: "flame") {
+                            _ = workspace.createSimulationStudy(type: .thermalConduction)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
         }
     }
 
@@ -400,34 +534,72 @@ struct NavigatorSidebarView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Menu("Add Solid", systemImage: "plus") {
-                Button("Box Solid", systemImage: "shippingbox") {
-                    workspace.addDefaultBox()
+            Menu("Add", systemImage: "plus") {
+                Menu("3D Primitives", systemImage: "cube") {
+                    Button("Box Solid", systemImage: "shippingbox") {
+                        workspace.addDefaultBox()
+                    }
+                    Button("Cylinder Solid", systemImage: "cylinder") {
+                        workspace.addDefaultCylinder()
+                    }
+                    Button("Sphere Solid", systemImage: "globe") {
+                        workspace.addDefaultSphere()
+                    }
+                    Button("Cone Solid", systemImage: "cone.fill") {
+                        workspace.addDefaultCone()
+                    }
+                    Button("Torus Solid", systemImage: "circle.circle") {
+                        workspace.addDefaultTorus()
+                    }
+                    Button("Wedge Solid", systemImage: "triangle.fill") {
+                        workspace.addDefaultWedge()
+                    }
                 }
-                Button("Cylinder Solid", systemImage: "cylinder") {
-                    workspace.addDefaultCylinder()
+                Menu("Sketch & Features", systemImage: "pencil.and.ruler.fill") {
+                    Button("New Ground Sketch…", systemImage: "pencil.and.ruler.fill") {
+                        workspace.startNewSketchCommand()
+                    }
+                    Divider()
+                    Button("Extrude Sketch…", systemImage: "arrow.up.forward.app.fill") {
+                        workspace.startExtrudeCommand()
+                    }
+                    Button("Revolve Sketch…", systemImage: "arrow.triangle.2.circlepath") {
+                        workspace.startRevolveCommand()
+                    }
+                    Divider()
+                    Button("Chamfer Edges…", systemImage: "skew") {
+                        workspace.startChamferCommand()
+                    }
+                    Button("Shell Solid…", systemImage: "square.dashed") {
+                        workspace.startShellCommand()
+                    }
+                    Button("Hole Wizard…", systemImage: "circle.dotted.circle") {
+                        workspace.startHoleCommand()
+                    }
+                    Divider()
+                    Button("Linear Pattern…", systemImage: "square.grid.3x2") {
+                        workspace.startLinearPatternCommand()
+                    }
+                    Button("Circular Pattern…", systemImage: "circle.grid.cross") {
+                        workspace.startCircularPatternCommand()
+                    }
+                    Button("Mirror Body…", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right") {
+                        workspace.startMirrorCommand()
+                    }
                 }
-                Button("Sphere Solid", systemImage: "globe") {
-                    workspace.addDefaultSphere()
-                }
-                Button("Cone Solid", systemImage: "cone.fill") {
-                    workspace.addDefaultCone()
-                }
-                Button("Torus Solid", systemImage: "circle.circle") {
-                    workspace.addDefaultTorus()
-                }
-                Button("Wedge Solid", systemImage: "triangle.fill") {
-                    workspace.addDefaultWedge()
-                }
-                Divider()
-                Button("New Ground Sketch", systemImage: "pencil.and.ruler.fill") {
-                    workspace.startNewSketchCommand()
-                }
-                Button("Extrude Sketch…", systemImage: "arrow.up.forward.app.fill") {
-                    workspace.startExtrudeCommand()
-                }
-                Button("New Datum Plane…", systemImage: "square.dashed") {
-                    workspace.startDatumPlaneCommand()
+                Menu("Reference Geometry", systemImage: "ruler") {
+                    Button("New Datum Plane…", systemImage: "square.dashed") {
+                        workspace.startDatumPlaneCommand()
+                    }
+                    Button("New Datum Axis…", systemImage: "line.diagonal") {
+                        workspace.startDatumAxisCommand()
+                    }
+                    Button("New Datum Point…", systemImage: "smallcircle.filled.circle") {
+                        workspace.startDatumPointCommand()
+                    }
+                    Button("New Coordinate System…", systemImage: "move.3d") {
+                        workspace.startDatumCoordinateSystemCommand()
+                    }
                 }
                 Divider()
                 Button("Part Script File…", systemImage: "curlybraces") {
@@ -439,7 +611,7 @@ struct NavigatorSidebarView: View {
             }
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Add Solid")
+            .help("Add")
             BarFilterField(text: $filterText)
         }
         .barControl()
@@ -511,11 +683,23 @@ struct NavigatorSidebarView: View {
         }
     }
 
+    private var filteredSketchFeatures: [Feature] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return sketchFeatures }
+        return sketchFeatures.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+    }
+
     private var datumPlaneFeatures: [Feature] {
         workspace.document.activeFeatures.filter {
             if case .datumPlane = $0.operation { return true }
             return false
         }
+    }
+
+    private var filteredDatumPlaneFeatures: [Feature] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return datumPlaneFeatures }
+        return datumPlaneFeatures.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
     }
 
     private var datumAxisFeatures: [Feature] {
@@ -525,6 +709,12 @@ struct NavigatorSidebarView: View {
         }
     }
 
+    private var filteredDatumAxisFeatures: [Feature] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return datumAxisFeatures }
+        return datumAxisFeatures.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+    }
+
     private var datumPointFeatures: [Feature] {
         workspace.document.activeFeatures.filter {
             if case .datumPoint = $0.operation { return true }
@@ -532,11 +722,23 @@ struct NavigatorSidebarView: View {
         }
     }
 
+    private var filteredDatumPointFeatures: [Feature] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return datumPointFeatures }
+        return datumPointFeatures.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+    }
+
     private var datumCoordinateSystemFeatures: [Feature] {
         workspace.document.activeFeatures.filter {
             if case .datumCoordinateSystem = $0.operation { return true }
             return false
         }
+    }
+
+    private var filteredDatumCoordinateSystemFeatures: [Feature] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return datumCoordinateSystemFeatures }
+        return datumCoordinateSystemFeatures.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
     }
 }
 
@@ -666,14 +868,14 @@ private struct NavigatorRow: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            workspace.startEditFeature(for: bodyItem.id)
-        }
         .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(bodyItem.name), \(object?.def.kind ?? "Solid"), ID \(bodyItem.id.rawValue)\(object.map { ", \($0.parameterSummary)" } ?? "")\(errorState.map { ", \($0.severity == .warning ? "Warning" : "Error"): \($0.message)" } ?? "")")
         .accessibilityIdentifier("navigator-object-\(bodyItem.id.rawValue)")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityAction {
+            workspace.select(solidId: bodyItem.id)
+        }
         .accessibilityAction(named: bodyItem.isVisible ? "Hide Body" : "Show Body") {
             workspace.toggleBodyVisibility(bodyItem.id)
         }

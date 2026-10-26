@@ -11,5 +11,6 @@ Source [`macos/Sources/MadeApp/PaneTabs.swift`](../../../macos/Sources/MadeApp/P
 - `space-10` horizontal and `space-6` vertical padding.
 
 ## Tabs today
-- Navigator has Scene (`cube`). Inspector has Properties (`slider.horizontal.3`) and Document (`doc.text`).
+- Navigator has Scene (`cube`), Construction (`ruler`), and Simulation (`waveform.path.ecg`).
+- Inspector has Attributes (`slider.horizontal.3`), Metadata (`tag`), Physical (`scalemass`), and Document (`doc.text`).
 - A new pane view is a new enum case, never a new control.

@@ -12,18 +12,37 @@ extension PaneTab where Self: RawRepresentable, RawValue == String {
 
 enum NavigatorTab: String, PaneTab {
     case scene
+    case construction
+    case simulation
 
-    var title: String { "Scene" }
-    var systemImage: String { "cube" }
+    var title: String {
+        switch self {
+        case .scene: return "Scene"
+        case .construction: return "Construction"
+        case .simulation: return "Simulation"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .scene: return "cube"
+        case .construction: return "ruler"
+        case .simulation: return "waveform.path.ecg"
+        }
+    }
 }
 
 enum InspectorTab: String, PaneTab {
     case properties
+    case metadata
+    case physical
     case document
 
     var title: String {
         switch self {
-        case .properties: return "Properties"
+        case .properties: return "Attributes"
+        case .metadata: return "Metadata"
+        case .physical: return "Physical"
         case .document: return "Document"
         }
     }
@@ -31,64 +50,54 @@ enum InspectorTab: String, PaneTab {
     var systemImage: String {
         switch self {
         case .properties: return "slider.horizontal.3"
+        case .metadata: return "tag"
+        case .physical: return "scalemass"
         case .document: return "doc.text"
         }
     }
 }
 
-/// Icon tab selector at the top of a side pane. Xcode left-aligns navigator tabs and stretches inspector tabs to the pane width.
+/// Icon tab selector at the top of a side pane. Xcode-style segmented icon bar that stretches evenly when `fillsWidth` is true.
 struct PaneTabBar<Tab: PaneTab>: View {
     let label: String
     @Binding var selection: Tab
     var fillsWidth = false
 
-    var body: some View {
-        PaneSegmentedControl(label: label, selection: $selection, fillsWidth: fillsWidth)
-            .fixedSize(horizontal: !fillsWidth, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-    }
-}
-
-/// SwiftUI's segmented Picker cannot stretch its segments, so this wraps NSSegmentedControl for `.fillEqually`.
-private struct PaneSegmentedControl<Tab: PaneTab>: NSViewRepresentable {
-    let label: String
-    @Binding var selection: Tab
-    let fillsWidth: Bool
-
     private var tabs: [Tab] { Array(Tab.allCases) }
 
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let images = tabs.map { NSImage(systemSymbolName: $0.systemImage, accessibilityDescription: $0.title) ?? NSImage() }
-        let control = NSSegmentedControl(images: images, trackingMode: .selectOne,
-                                         target: context.coordinator, action: #selector(Coordinator.changed(_:)))
-        control.segmentDistribution = fillsWidth ? .fillEqually : .fit
-        control.setAccessibilityLabel(label)
-        for (index, tab) in tabs.enumerated() {
-            control.setToolTip(tab.title, forSegment: index)
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(tabs) { tab in
+                let isSelected = selection == tab
+                Button {
+                    selection = tab
+                } label: {
+                    Image(systemName: tab.systemImage)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 22)
+                        .padding(.horizontal, fillsWidth ? 0 : 10)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(tab.title)
+                .accessibilityLabel(tab.title)
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            }
         }
-        control.setContentHuggingPriority(fillsWidth ? .defaultLow : .required, for: .horizontal)
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.parent = self
-        control.selectedSegment = tabs.firstIndex(of: selection) ?? 0
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var parent: PaneSegmentedControl
-
-        init(parent: PaneSegmentedControl) { self.parent = parent }
-
-        @objc func changed(_ sender: NSSegmentedControl) {
-            let tabs = parent.tabs
-            guard tabs.indices.contains(sender.selectedSegment) else { return }
-            parent.selection = tabs[sender.selectedSegment]
-        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(.quaternary.opacity(0.5))
+        )
+        .frame(maxWidth: .infinity, alignment: fillsWidth ? .center : .leading)
+        .padding(.horizontal, 10)
+        .frame(height: BarMetrics.height)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
     }
 }

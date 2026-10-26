@@ -97,4 +97,11 @@ import simd
         let candidates = DimensionLabelsOverlayView.buildCandidates(session: session, workspace: workspace)
         #expect(candidates.isEmpty)
     }
+
+    @Test @MainActor func testBuildCandidatesSkipsDatumPlaneWithoutExplicitAnchors() {
+        let workspace = WorkspaceModel()
+        let session = CommandSession.makeDatumPlane(workspace: workspace)
+        let candidates = DimensionLabelsOverlayView.buildCandidates(session: session, workspace: workspace)
+        #expect(candidates.isEmpty)
+    }
 }

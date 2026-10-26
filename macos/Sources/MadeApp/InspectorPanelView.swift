@@ -62,6 +62,66 @@ enum InspectorUnitConversion {
     }
 }
 
+extension EnvironmentValues {
+    @Entry var inspectorContentWidth: CGFloat = 260
+}
+
+struct InspectorFormStyle: FormStyle {
+    @Environment(\.inspectorContentWidth) private var inspectorContentWidth
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            configuration.content
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(width: inspectorContentWidth, alignment: .leading)
+    }
+}
+
+struct InspectorLabeledContentStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            configuration.label
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: 4)
+            configuration.content
+                .font(.callout)
+                .multilineTextAlignment(.trailing)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct InspectorToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            configuration.label
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Toggle("", isOn: configuration.$isOn)
+                .labelsHidden()
+                .toggleStyle(.checkbox)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension View {
+    func inspectorForm() -> some View {
+        self
+            .formStyle(InspectorFormStyle())
+            .labeledContentStyle(InspectorLabeledContentStyle())
+            .toggleStyle(InspectorToggleStyle())
+            .controlSize(.small)
+    }
+}
+
 struct InspectorPanelView: View {
     @Environment(WorkspaceModel.self) private var workspace
     @Environment(\.openWindow) private var openWindow
@@ -73,24 +133,36 @@ struct InspectorPanelView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        VStack(spacing: 0) {
-            PaneTabBar(label: "Inspector", selection: $workspace.inspectorTab, fillsWidth: true)
-            Divider()
-            if workspace.commandPanelPlacement == .inspector, let session = workspace.activeCommand {
-                ScrollView {
-                    CommandPanelView(session: session)
+        GeometryReader { geo in
+            let contentWidth = max(200, geo.size.width)
+            VStack(spacing: 0) {
+                PaneTabBar(label: "Inspector", selection: $workspace.inspectorTab, fillsWidth: true)
+                Divider()
+                Group {
+                    if workspace.commandPanelPlacement == .inspector, let session = workspace.activeCommand {
+                        ScrollView {
+                            CommandPanelView(session: session)
+                                .frame(width: contentWidth, alignment: .leading)
+                        }
+                    } else {
+                        switch workspace.inspectorTab {
+                        case .properties:
+                            properties
+                        case .metadata:
+                            metadataTabContent
+                        case .physical:
+                            physicalTabContent
+                        case .document:
+                            DocumentSettingsInspectorView()
+                        }
+                    }
                 }
+                .environment(\.inspectorContentWidth, contentWidth)
+                .frame(width: contentWidth)
                 .frame(maxHeight: .infinity)
-            } else {
-                switch workspace.inspectorTab {
-                case .properties:
-                    properties
-                        .frame(maxHeight: .infinity)
-                case .document:
-                    DocumentSettingsInspectorView()
-                        .frame(maxHeight: .infinity)
-                }
+                .clipped()
             }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 
@@ -110,7 +182,7 @@ struct InspectorPanelView: View {
                     ContentUnavailableView("No Drawing Sheet", systemImage: "doc.text")
                 }
             }
-        } else if workspace.document.selection.count > 1 {
+        } else if workspace.document.selectedIds.count > 1 {
             multiSelectionView
         } else if let fixture = workspace.selectedSimulationFixture, let study = workspace.selectedSimulationStudy {
             ScrollView {
@@ -152,19 +224,13 @@ struct InspectorPanelView: View {
             ScrollView {
                 Form {
                     identitySection(selected)
-                    partPropertiesSection(selected)
                     transformSection(selected)
                         .disabled(selected.isLocked)
                     dimensionsSection(selected)
                         .disabled(selected.isLocked)
                     boundingBoxSection(selected)
-                    materialSection(selected)
-                        .disabled(selected.isLocked)
-                    massPropertiesSection(selected)
                 }
-                .formStyle(.columns)
-                .controlSize(.small)
-                .padding()
+                .inspectorForm()
             }
         } else if let sketch = workspace.selectedSketchFeature {
             ScrollView {
@@ -174,9 +240,7 @@ struct InspectorPanelView: View {
                     sketchConstraintsSection(sketch)
                     sketchRegionsSection(sketch)
                 }
-                .formStyle(.columns)
-                .controlSize(.small)
-                .padding()
+                .inspectorForm()
             }
         } else if let datumPlane = workspace.selectedDatumPlaneFeature {
             ScrollView {
@@ -184,9 +248,7 @@ struct InspectorPanelView: View {
                     datumPlaneIdentitySection(datumPlane)
                     datumPlaneParametersSection(datumPlane)
                 }
-                .formStyle(.columns)
-                .controlSize(.small)
-                .padding()
+                .inspectorForm()
             }
         } else if let datumAxis = workspace.selectedDatumAxisFeature {
             ScrollView {
@@ -194,9 +256,7 @@ struct InspectorPanelView: View {
                     datumAxisIdentitySection(datumAxis)
                     datumAxisParametersSection(datumAxis)
                 }
-                .formStyle(.columns)
-                .controlSize(.small)
-                .padding()
+                .inspectorForm()
             }
         } else if let datumPoint = workspace.selectedDatumPointFeature {
             ScrollView {
@@ -204,9 +264,7 @@ struct InspectorPanelView: View {
                     datumPointIdentitySection(datumPoint)
                     datumPointParametersSection(datumPoint)
                 }
-                .formStyle(.columns)
-                .controlSize(.small)
-                .padding()
+                .inspectorForm()
             }
         } else if let ucs = workspace.selectedDatumCoordinateSystemFeature {
             ScrollView {
@@ -214,9 +272,7 @@ struct InspectorPanelView: View {
                     datumCoordinateSystemIdentitySection(ucs)
                     datumCoordinateSystemParametersSection(ucs)
                 }
-                .formStyle(.columns)
-                .controlSize(.small)
-                .padding()
+                .inspectorForm()
             }
         } else if workspace.document.objects.isEmpty && !hasAnySketches && !hasAnyDatums {
             ContentUnavailableView {
@@ -240,6 +296,98 @@ struct InspectorPanelView: View {
                 "No Object Selected",
                 systemImage: "cursorarrow.slash",
                 description: Text("Select a solid in the viewport or Navigator to inspect its properties.")
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var metadataTabContent: some View {
+        if let component = selectedComponentInstance {
+            ScrollView {
+                Form {
+                    Section {
+                        LabeledContent("Name") {
+                            TextField("Name", text: Binding(
+                                get: { component.name },
+                                set: { workspace.setComponentInstanceName(id: component.id, name: $0) }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 145)
+                            .disabled(component.isLocked)
+                        }
+                        LabeledContent("Instance ID") {
+                            Text(component.solidId.rawValue)
+                                .monospaced()
+                                .textSelection(.enabled)
+                        }
+                    } header: {
+                        sectionHeader("Component Identity", isFirst: true)
+                    }
+                    MetadataPropertiesView(
+                        metadata: component.metadata,
+                        idPrefix: "inspector-component",
+                        isLocked: component.isLocked,
+                        onSetProperty: { key, val in
+                            workspace.setComponentProperty(id: component.id, key: key, value: val)
+                        }
+                    )
+                }
+                .inspectorForm()
+            }
+        } else if let selected = workspace.selectedObject {
+            ScrollView {
+                Form {
+                    identitySection(selected)
+                    partPropertiesSection(selected)
+                }
+                .inspectorForm()
+            }
+        } else {
+            ScrollView {
+                Form {
+                    MetadataPropertiesView(
+                        metadata: workspace.document.metadata,
+                        idPrefix: "inspector-doc",
+                        isLocked: false,
+                        isFirstSection: true,
+                        onSetProperty: { key, val in
+                            workspace.setDocumentProperty(key: key, value: val)
+                        }
+                    )
+                }
+                .inspectorForm()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var physicalTabContent: some View {
+        if let component = selectedComponentInstance {
+            ScrollView {
+                Form {
+                    InspectorMassPropertiesSection(
+                        solidId: component.solidId,
+                        metadata: component.metadata,
+                        isLocked: component.isLocked,
+                        isFirstSection: true
+                    )
+                }
+                .inspectorForm()
+            }
+        } else if let selected = workspace.selectedObject {
+            ScrollView {
+                Form {
+                    materialSection(selected, isFirst: true)
+                        .disabled(selected.isLocked)
+                    massPropertiesSection(selected)
+                }
+                .inspectorForm()
+            }
+        } else {
+            ContentUnavailableView(
+                "No Object Selected",
+                systemImage: "scalemass",
+                description: Text("Select a solid or component in the viewport or Navigator to inspect its material and mass properties.")
             )
         }
     }
@@ -277,9 +425,7 @@ struct InspectorPanelView: View {
                     }
                 }
             }
-            .formStyle(.columns)
-            .controlSize(.small)
-            .padding()
+            .inspectorForm()
             .accessibilityIdentifier("inspector-multi-selection")
         }
     }
@@ -288,12 +434,16 @@ struct InspectorPanelView: View {
 
     private func identitySection(_ obj: SceneObject) -> some View {
         Section {
-            TextField("Name", text: Binding(
-                get: { obj.name },
-                set: { workspace.setBodyName(id: obj.id, name: $0) }
-            ))
-            .disabled(obj.isLocked)
-            Toggle("Visible in Viewport", isOn: Binding(
+            LabeledContent("Name") {
+                TextField("Name", text: Binding(
+                    get: { obj.name },
+                    set: { workspace.setBodyName(id: obj.id, name: $0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 145)
+                .disabled(obj.isLocked)
+            }
+            Toggle("Visible", isOn: Binding(
                 get: { obj.isVisible },
                 set: { workspace.setBodyVisibility(id: obj.id, isVisible: $0) }
             ))
@@ -323,7 +473,7 @@ struct InspectorPanelView: View {
     private func transformSection(_ obj: SceneObject) -> some View {
         Section {
             let lengthUnit = workspace.document.settings.units.lengthUnit
-            LabeledContent("Position (\(lengthUnit.symbol))") {
+            LabeledContent("Position") {
                 vectorFields(obj.transform.position, unit: lengthUnit) { position in
                     var t = obj.transform
                     t.position = position
@@ -599,16 +749,22 @@ struct InspectorPanelView: View {
                 let obb2 = InspectorUnitConversion.displayLength(obbDims.z, unit: unit)
                 let obbStr = "\(obb0.formatted(.number.precision(.fractionLength(1)))) × \(obb1.formatted(.number.precision(.fractionLength(1)))) × \(obb2.formatted(.number.precision(.fractionLength(1)))) \(unit.symbol)"
 
-                LabeledContent("Axis-Aligned (X, Y, Z)") {
+                LabeledContent("Axis-Aligned") {
                     Text(aabbStr)
+                        .font(.caption)
                         .accessibilityIdentifier("inspector-aabb-size")
                         .monospaced()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .textSelection(.enabled)
                 }
-                LabeledContent("Oriented (Optimal)") {
+                LabeledContent("Oriented") {
                     Text(obbStr)
+                        .font(.caption)
                         .accessibilityIdentifier("inspector-obb-size")
                         .monospaced()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .textSelection(.enabled)
                 }
             } else {
@@ -623,36 +779,40 @@ struct InspectorPanelView: View {
         }
     }
 
-    private func materialSection(_ obj: SceneObject) -> some View {
+    private func materialSection(_ obj: SceneObject, isFirst: Bool = false) -> some View {
         Section {
             if let materialName = obj.material.materialName, !materialName.isEmpty {
                 LabeledContent("Material", value: materialName)
                     .accessibilityIdentifier("inspector-body-material-name")
             }
 
-            ColorPicker("Body Color", selection: Binding(
-                get: {
-                    let c = obj.material.color
-                    return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z), opacity: Double(c.w))
-                },
-                set: { newColor in
-                    let resolved = newColor.resolve(in: EnvironmentValues())
-                    let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
-                    workspace.setBodyColor(id: obj.id, color: simdColor)
-                }
-            ), supportsOpacity: false)
-            .accessibilityIdentifier("inspector-body-color-picker")
+            LabeledContent("Body Color") {
+                ColorPicker("Body Color", selection: Binding(
+                    get: {
+                        let c = obj.material.color
+                        return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z), opacity: Double(c.w))
+                    },
+                    set: { newColor in
+                        let resolved = newColor.resolve(in: EnvironmentValues())
+                        let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
+                        workspace.setBodyColor(id: obj.id, color: simdColor)
+                    }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                .accessibilityIdentifier("inspector-body-color-picker")
+            }
 
             Button {
                 openWindow(id: MaterialLibraryView.windowID)
             } label: {
                 Label("Browse Material Library…", systemImage: "books.vertical")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .accessibilityIdentifier("browse-material-library-button")
         } header: {
-            sectionHeader("Material")
+            sectionHeader("Material", isFirst: isFirst)
         }
     }
 
@@ -667,14 +827,18 @@ struct InspectorPanelView: View {
 
     private func sketchIdentitySection(_ sketch: Feature) -> some View {
         Section {
-            TextField("Name", text: Binding(
-                get: { sketch.name },
-                set: { newName in
-                    var updated = sketch
-                    updated.name = newName
-                    workspace.document.updateFeature(updated)
-                }
-            ))
+            LabeledContent("Name") {
+                TextField("Name", text: Binding(
+                    get: { sketch.name },
+                    set: { newName in
+                        var updated = sketch
+                        updated.name = newName
+                        workspace.document.updateFeature(updated)
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 145)
+            }
             if case .sketch(let data) = sketch.operation {
                 LabeledContent("Plane", value: data.planeName ?? "XY Ground Plane")
                 LabeledContent("Entities", value: "\(data.entities.count)")
@@ -693,14 +857,18 @@ struct InspectorPanelView: View {
 
     private func datumPlaneIdentitySection(_ datumPlane: Feature) -> some View {
         Section {
-            TextField("Name", text: Binding(
-                get: { datumPlane.name },
-                set: { newName in
-                    var updated = datumPlane
-                    updated.name = newName
-                    workspace.document.updateFeature(updated)
-                }
-            ))
+            LabeledContent("Name") {
+                TextField("Name", text: Binding(
+                    get: { datumPlane.name },
+                    set: { newName in
+                        var updated = datumPlane
+                        updated.name = newName
+                        workspace.document.updateFeature(updated)
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 145)
+            }
             if case .datumPlane(let data) = datumPlane.operation {
                 LabeledContent("Mode", value: data.mode.rawValue.capitalized)
                 if let cached = data.cachedPlane {
@@ -793,14 +961,18 @@ struct InspectorPanelView: View {
 
     private func datumAxisIdentitySection(_ datumAxis: Feature) -> some View {
         Section {
-            TextField("Name", text: Binding(
-                get: { datumAxis.name },
-                set: { newName in
-                    var updated = datumAxis
-                    updated.name = newName
-                    workspace.document.updateFeature(updated)
-                }
-            ))
+            LabeledContent("Name") {
+                TextField("Name", text: Binding(
+                    get: { datumAxis.name },
+                    set: { newName in
+                        var updated = datumAxis
+                        updated.name = newName
+                        workspace.document.updateFeature(updated)
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 145)
+            }
             if case .datumAxis(let data) = datumAxis.operation {
                 LabeledContent("Mode", value: data.mode.rawValue.capitalized)
                 if let cached = data.cachedAxis {
@@ -854,14 +1026,18 @@ struct InspectorPanelView: View {
 
     private func datumPointIdentitySection(_ datumPoint: Feature) -> some View {
         Section {
-            TextField("Name", text: Binding(
-                get: { datumPoint.name },
-                set: { newName in
-                    var updated = datumPoint
-                    updated.name = newName
-                    workspace.document.updateFeature(updated)
-                }
-            ))
+            LabeledContent("Name") {
+                TextField("Name", text: Binding(
+                    get: { datumPoint.name },
+                    set: { newName in
+                        var updated = datumPoint
+                        updated.name = newName
+                        workspace.document.updateFeature(updated)
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 145)
+            }
             if case .datumPoint(let data) = datumPoint.operation {
                 LabeledContent("Mode", value: data.mode.rawValue.capitalized)
                 if let cached = data.cachedPoint {
@@ -900,14 +1076,18 @@ struct InspectorPanelView: View {
 
     private func datumCoordinateSystemIdentitySection(_ ucs: Feature) -> some View {
         Section {
-            TextField("Name", text: Binding(
-                get: { ucs.name },
-                set: { newName in
-                    var updated = ucs
-                    updated.name = newName
-                    workspace.document.updateFeature(updated)
-                }
-            ))
+            LabeledContent("Name") {
+                TextField("Name", text: Binding(
+                    get: { ucs.name },
+                    set: { newName in
+                        var updated = ucs
+                        updated.name = newName
+                        workspace.document.updateFeature(updated)
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 145)
+            }
             if case .datumCoordinateSystem(let data) = ucs.operation {
                 LabeledContent("Mode", value: data.mode.rawValue.capitalized)
                 if let cached = data.cachedCoordinateSystem {
@@ -1210,6 +1390,7 @@ struct InspectorPanelView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 
@@ -1221,7 +1402,7 @@ struct InspectorPanelView: View {
         unit: LengthUnit? = nil,
         onChange: @escaping (SIMD3<Float>) -> Void
     ) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 3) {
             ForEach(0..<3, id: \.self) { axis in
                 let name = ["X", "Y", "Z"][axis]
                 let rawValue = Double(value[axis])
@@ -1232,6 +1413,7 @@ struct InspectorPanelView: View {
                     CommitNumberField(
                         label: name,
                         value: displayValue,
+                        width: 40,
                         step: unit?.defaultStep ?? 1.0,
                         parameterResolver: { paramName in
                             workspace.document.parameter(named: paramName)?.value
@@ -1276,20 +1458,12 @@ struct InspectorPanelView: View {
             get: { displayValue },
             set: { onChange(InspectorUnitConversion.commitLength($0, unit: lengthUnit)) }
         )
-        return LabeledContent(label) {
+        return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Slider(value: binding, in: displayMin...displayMax) {
-                    Text(label)
-                } onEditingChanged: { editing in
-                    if editing {
-                        workspace.beginInteractiveParamEdit(id, key)
-                    } else {
-                        workspace.endInteractiveParamEdit(id, key)
-                    }
-                }
-                .accessibilityLabel(label)
-                .accessibilityValue(spoken)
-
+                Text(label)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
                 CommitNumberField(
                     label: label,
                     value: displayValue,
@@ -1311,12 +1485,28 @@ struct InspectorPanelView: View {
                 )
                 .accessibilityLabel(label)
                 .accessibilityValue(spoken)
-                Text(symbol).foregroundStyle(.secondary)
+                Text(symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Stepper(label, value: binding, in: displayMin...displayMax, step: lengthUnit.defaultStep)
+                    .labelsHidden()
                     .accessibilityLabel(label)
                     .accessibilityValue(spoken)
             }
+
+            Slider(value: binding, in: displayMin...displayMax) {
+                Text(label)
+            } onEditingChanged: { editing in
+                if editing {
+                    workspace.beginInteractiveParamEdit(id, key)
+                } else {
+                    workspace.endInteractiveParamEdit(id, key)
+                }
+            }
             .labelsHidden()
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(label)
+            .accessibilityValue(spoken)
         }
     }
 }
@@ -1329,8 +1519,6 @@ struct InspectorComponentInstanceView: View {
     var body: some View {
         Form {
             identitySection
-            componentPropertiesSection
-            massPropertiesSection
             if component.isSubassembly {
                 subassemblySection
             }
@@ -1346,9 +1534,7 @@ struct InspectorComponentInstanceView: View {
             degreesOfFreedomSection
             matesAndJointsSection
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     private var subassemblySection: some View {
@@ -1436,11 +1622,15 @@ struct InspectorComponentInstanceView: View {
 
     private var identitySection: some View {
         Section {
-            TextField("Name", text: Binding(
-                get: { component.name },
-                set: { workspace.setComponentInstanceName(id: component.id, name: $0) }
-            ))
-            .disabled(component.isLocked)
+            LabeledContent("Name") {
+                TextField("Name", text: Binding(
+                    get: { component.name },
+                    set: { workspace.setComponentInstanceName(id: component.id, name: $0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 145)
+                .disabled(component.isLocked)
+            }
 
             Toggle("Visible in Viewport", isOn: Binding(
                 get: { component.isVisible },
@@ -1694,6 +1884,7 @@ struct InspectorComponentInstanceView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -1704,6 +1895,7 @@ struct InspectorMassPropertiesSection: View {
     let solidId: SolidId
     let metadata: [String: String]
     var isLocked: Bool = false
+    var isFirstSection: Bool = false
 
     @State private var coordSystem: MassPropertiesCoordinateSystem = .centroid
 
@@ -1824,6 +2016,9 @@ struct InspectorMassPropertiesSection: View {
                 let densityStr = "\(matName ?? "Standard"): \(String(format: "%.1f", density)) kg/m³"
                 LabeledContent("Material & Density") {
                     Text(densityStr)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .accessibilityIdentifier("inspector-mass-density")
                         .monospaced()
                         .textSelection(.enabled)
@@ -1833,6 +2028,9 @@ struct InspectorMassPropertiesSection: View {
                 LabeledContent("Mass") {
                     HStack(spacing: 4) {
                         Text(massStr)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                             .accessibilityIdentifier("inspector-mass-value")
                             .monospaced()
                             .textSelection(.enabled)
@@ -1848,6 +2046,9 @@ struct InspectorMassPropertiesSection: View {
                 let volStr = units.formatVolume(props.volume)
                 LabeledContent("Volume") {
                     Text(volStr)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .accessibilityIdentifier("inspector-volume-value")
                         .monospaced()
                         .textSelection(.enabled)
@@ -1856,6 +2057,9 @@ struct InspectorMassPropertiesSection: View {
                 let areaStr = units.formatArea(props.surfaceArea)
                 LabeledContent("Surface Area") {
                     Text(areaStr)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .accessibilityIdentifier("inspector-surface-area-value")
                         .monospaced()
                         .textSelection(.enabled)
@@ -1868,6 +2072,9 @@ struct InspectorMassPropertiesSection: View {
                 LabeledContent("Center of Mass") {
                     HStack(spacing: 4) {
                         Text(cmStr)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                             .accessibilityIdentifier("inspector-center-of-mass")
                             .monospaced()
                             .textSelection(.enabled)
@@ -1886,6 +2093,9 @@ struct InspectorMassPropertiesSection: View {
                 let inertiaStr = "\(ixxStr), \(iyyStr), \(izzStr) kg·mm²"
                 LabeledContent("Moments of Inertia") {
                     Text(inertiaStr)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .accessibilityIdentifier("inspector-moments-of-inertia")
                         .monospaced()
                         .textSelection(.enabled)
@@ -1897,6 +2107,9 @@ struct InspectorMassPropertiesSection: View {
                 let principalStr = "\(i1Str), \(i2Str), \(i3Str) kg·mm²"
                 LabeledContent("Principal Moments") {
                     Text(principalStr)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .accessibilityIdentifier("inspector-principal-moments")
                         .monospaced()
                         .textSelection(.enabled)
@@ -1920,7 +2133,7 @@ struct InspectorMassPropertiesSection: View {
                 }
             }
         } header: {
-            sectionHeader("Mass Properties")
+            sectionHeader("Mass Properties", isFirst: isFirstSection)
         }
     }
 
@@ -1938,11 +2151,12 @@ struct InspectorMassPropertiesSection: View {
         workspace.setOverrideCenterOfMass(id: solidId, centerOfMassLocal: com)
     }
 
-    private func sectionHeader(_ title: String) -> some View {
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Divider()
+            if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -2097,9 +2311,7 @@ struct InspectorAssemblyConstraintView: View {
                 sectionHeader("Actions")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     @ViewBuilder
@@ -2128,6 +2340,7 @@ struct InspectorAssemblyConstraintView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -2234,9 +2447,7 @@ struct InspectorExplodedView: View {
                 .accessibilityIdentifier("inspector-delete-exploded-view-button")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     @ViewBuilder
@@ -2347,6 +2558,7 @@ struct InspectorExplodedView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -2595,9 +2807,7 @@ struct InspectorSimulationStudyView: View {
                 .accessibilityIdentifier("inspector-simulation-delete-study-button")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
@@ -2605,6 +2815,7 @@ struct InspectorSimulationStudyView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -2916,9 +3127,7 @@ struct InspectorSimulationFixtureView: View {
                 sectionHeader("Targets & Actions")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
@@ -2926,6 +3135,7 @@ struct InspectorSimulationFixtureView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -3210,9 +3420,7 @@ struct InspectorSimulationLoadView: View {
                 sectionHeader("Targets & Actions")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
@@ -3220,6 +3428,7 @@ struct InspectorSimulationLoadView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -3407,9 +3616,7 @@ struct InspectorSimulationConnectionView: View {
                 sectionHeader("Actions")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
@@ -3417,6 +3624,7 @@ struct InspectorSimulationConnectionView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -3884,9 +4092,7 @@ struct InspectorSimulationMeshView: View {
                 }
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
@@ -3894,6 +4100,7 @@ struct InspectorSimulationMeshView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -4971,9 +5178,7 @@ struct InspectorSimulationResultsView: View {
             }
             .accessibilityIdentifier("inspector-simulation-paraview-section")
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
     }
 
     private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
@@ -4981,6 +5186,7 @@ struct InspectorSimulationResultsView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -4990,6 +5196,7 @@ struct MetadataPropertiesView: View {
     let metadata: [String: String]
     var idPrefix: String = "inspector-doc"
     var isLocked: Bool = false
+    var isFirstSection: Bool = false
     var onSetProperty: (String, String?) -> Void
 
     @State private var newKey: String = ""
@@ -4997,35 +5204,51 @@ struct MetadataPropertiesView: View {
 
     var body: some View {
         Section {
-            TextField("Part Number", text: Binding(
-                get: { metadata[CustomPropertyKey.partNumber] ?? "" },
-                set: { onSetProperty(CustomPropertyKey.partNumber, $0) }
-            ))
-            .disabled(isLocked)
-            .accessibilityIdentifier("\(idPrefix)-part-number")
+            LabeledContent("Part Number") {
+                TextField("Part Number", text: Binding(
+                    get: { metadata[CustomPropertyKey.partNumber] ?? "" },
+                    set: { onSetProperty(CustomPropertyKey.partNumber, $0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 135)
+                .disabled(isLocked)
+                .accessibilityIdentifier("\(idPrefix)-part-number")
+            }
 
-            TextField("Description", text: Binding(
-                get: { metadata[CustomPropertyKey.description] ?? "" },
-                set: { onSetProperty(CustomPropertyKey.description, $0) }
-            ))
-            .disabled(isLocked)
-            .accessibilityIdentifier("\(idPrefix)-description")
+            LabeledContent("Description") {
+                TextField("Description", text: Binding(
+                    get: { metadata[CustomPropertyKey.description] ?? "" },
+                    set: { onSetProperty(CustomPropertyKey.description, $0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 135)
+                .disabled(isLocked)
+                .accessibilityIdentifier("\(idPrefix)-description")
+            }
 
-            TextField("Revision", text: Binding(
-                get: { metadata[CustomPropertyKey.revision] ?? "" },
-                set: { onSetProperty(CustomPropertyKey.revision, $0) }
-            ))
-            .disabled(isLocked)
-            .accessibilityIdentifier("\(idPrefix)-revision")
+            LabeledContent("Revision") {
+                TextField("Revision", text: Binding(
+                    get: { metadata[CustomPropertyKey.revision] ?? "" },
+                    set: { onSetProperty(CustomPropertyKey.revision, $0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 135)
+                .disabled(isLocked)
+                .accessibilityIdentifier("\(idPrefix)-revision")
+            }
 
-            TextField("Vendor", text: Binding(
-                get: { metadata[CustomPropertyKey.vendor] ?? "" },
-                set: { onSetProperty(CustomPropertyKey.vendor, $0) }
-            ))
-            .disabled(isLocked)
-            .accessibilityIdentifier("\(idPrefix)-vendor")
+            LabeledContent("Vendor") {
+                TextField("Vendor", text: Binding(
+                    get: { metadata[CustomPropertyKey.vendor] ?? "" },
+                    set: { onSetProperty(CustomPropertyKey.vendor, $0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 135)
+                .disabled(isLocked)
+                .accessibilityIdentifier("\(idPrefix)-vendor")
+            }
         } header: {
-            sectionHeader("Standard Properties")
+            sectionHeader("Standard Properties", isFirst: isFirstSection)
         }
 
         Section {
@@ -5090,11 +5313,12 @@ struct MetadataPropertiesView: View {
         newValue = ""
     }
 
-    private func sectionHeader(_ title: String) -> some View {
+    private func sectionHeader(_ title: String, isFirst: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Divider()
+            if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -5115,9 +5339,7 @@ struct DocumentSettingsInspectorView: View {
                 tolerancesSection
                 materialSection
             }
-            .formStyle(.columns)
-            .controlSize(.small)
-            .padding()
+            .inspectorForm()
         }
         .alert("Parameter Error", isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) { }
@@ -5208,40 +5430,53 @@ struct DocumentSettingsInspectorView: View {
 
     private var unitsSection: some View {
         Section {
-            Picker("Length Unit", selection: Binding(
-                get: { workspace.document.settings.units.lengthUnit },
-                set: { newUnit in
-                    var u = workspace.document.settings.units
-                    u.lengthUnit = newUnit
-                    workspace.setDocumentUnits(u)
+            LabeledContent("Length Unit") {
+                Picker("Length Unit", selection: Binding(
+                    get: { workspace.document.settings.units.lengthUnit },
+                    set: { newUnit in
+                        var u = workspace.document.settings.units
+                        u.lengthUnit = newUnit
+                        workspace.setDocumentUnits(u)
+                    }
+                )) {
+                    ForEach(LengthUnit.allCases) { unit in
+                        Text(unit.displayName).tag(unit)
+                    }
                 }
-            )) {
-                ForEach(LengthUnit.allCases) { unit in
-                    Text(unit.displayName).tag(unit)
-                }
+                .labelsHidden()
             }
 
-            Picker("Angular Unit", selection: Binding(
-                get: { workspace.document.settings.units.angleUnit },
-                set: { newUnit in
-                    var u = workspace.document.settings.units
-                    u.angleUnit = newUnit
-                    workspace.setDocumentUnits(u)
+            LabeledContent("Angular Unit") {
+                Picker("Angular Unit", selection: Binding(
+                    get: { workspace.document.settings.units.angleUnit },
+                    set: { newUnit in
+                        var u = workspace.document.settings.units
+                        u.angleUnit = newUnit
+                        workspace.setDocumentUnits(u)
+                    }
+                )) {
+                    ForEach(AngleUnit.allCases) { unit in
+                        Text(unit.displayName).tag(unit)
+                    }
                 }
-            )) {
-                ForEach(AngleUnit.allCases) { unit in
-                    Text(unit.displayName).tag(unit)
-                }
+                .labelsHidden()
             }
 
-            Stepper("Decimal Places: \(workspace.document.settings.units.decimalPrecision)", value: Binding(
-                get: { workspace.document.settings.units.decimalPrecision },
-                set: { newPrecision in
-                    var u = workspace.document.settings.units
-                    u.decimalPrecision = newPrecision
-                    workspace.setDocumentUnits(u)
+            LabeledContent("Decimal Places") {
+                HStack(spacing: 4) {
+                    Text("\(workspace.document.settings.units.decimalPrecision)")
+                        .monospacedDigit()
+                    Stepper("Decimal Places: \(workspace.document.settings.units.decimalPrecision)", value: Binding(
+                        get: { workspace.document.settings.units.decimalPrecision },
+                        set: { newPrecision in
+                            var u = workspace.document.settings.units
+                            u.decimalPrecision = newPrecision
+                            workspace.setDocumentUnits(u)
+                        }
+                    ), in: UnitSettings.minDecimalPrecision...UnitSettings.maxDecimalPrecision)
+                    .labelsHidden()
                 }
-            ), in: UnitSettings.minDecimalPrecision...UnitSettings.maxDecimalPrecision)
+            }
 
             LabeledContent("Length Preview") {
                 Text(workspace.document.settings.units.formatLength(100.0))
@@ -5336,19 +5571,22 @@ struct DocumentSettingsInspectorView: View {
                     .accessibilityIdentifier("inspector-default-material-name")
             }
 
-            ColorPicker("Default Color", selection: Binding(
-                get: {
-                    let c = workspace.document.settings.defaultMaterial.color
-                    return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z), opacity: Double(c.w))
-                },
-                set: { newColor in
-                    let resolved = newColor.resolve(in: EnvironmentValues())
-                    let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
-                    var current = workspace.document.settings.defaultMaterial
-                    current.color = simdColor
-                    workspace.setDocumentDefaultMaterial(current)
-                }
-            ), supportsOpacity: false)
+            LabeledContent("Default Color") {
+                ColorPicker("Default Color", selection: Binding(
+                    get: {
+                        let c = workspace.document.settings.defaultMaterial.color
+                        return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z), opacity: Double(c.w))
+                    },
+                    set: { newColor in
+                        let resolved = newColor.resolve(in: EnvironmentValues())
+                        let simdColor = SIMD4<Float>(resolved.red, resolved.green, resolved.blue, 1.0)
+                        var current = workspace.document.settings.defaultMaterial
+                        current.color = simdColor
+                        workspace.setDocumentDefaultMaterial(current)
+                    }
+                ), supportsOpacity: false)
+                .labelsHidden()
+            }
 
             Button {
                 openWindow(id: MaterialLibraryView.windowID)
@@ -5374,6 +5612,7 @@ struct DocumentSettingsInspectorView: View {
             if !isFirst { Divider() }
             Text(title).font(.headline)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
     }
 }
@@ -6747,9 +6986,7 @@ struct DrawingSheetInspectorView: View {
                 .accessibilityIdentifier("inspector-title-block-date-field")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
         .accessibilityIdentifier("drawing-sheet-inspector-view")
     }
 }
@@ -7150,9 +7387,7 @@ struct DrawingViewInspectorView: View {
                 .accessibilityIdentifier("inspector-view-delete-button")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
         .accessibilityIdentifier("drawing-view-inspector-view")
     }
 }
@@ -7228,9 +7463,7 @@ struct DrawingAnnotationInspectorView: View {
                 .accessibilityIdentifier("inspector-annotation-delete-button")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
         .accessibilityIdentifier("drawing-annotation-inspector-view")
     }
 
@@ -7814,9 +8047,7 @@ struct DrawingBOMTableInspectorView: View {
                 .accessibilityIdentifier("inspector-bom-table-delete-button")
             }
         }
-        .formStyle(.columns)
-        .controlSize(.small)
-        .padding()
+        .inspectorForm()
         .accessibilityIdentifier("drawing-bom-table-inspector-view")
     }
 }

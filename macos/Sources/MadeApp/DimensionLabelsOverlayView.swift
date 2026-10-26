@@ -37,11 +37,24 @@ struct DimensionLabelsOverlayView: View {
 
     @MainActor
     static func buildCandidates(session: CommandSession, workspace: WorkspaceModel) -> [DimensionLabelCandidate] {
-        session.inputs.compactMap { input in
-            guard case .number(let val, _, _, let unit) = input.value,
-                  let anchor = session.dimensionAnchor(for: input.id, workspace: workspace) else {
+        let visibleNumericCount = session.visibleInputs.reduce(into: 0) { count, input in
+            if case .number = input.value { count += 1 }
+        }
+        let allowSceneCenterFallback = session.dimensionAnchorsProvider != nil
+            || (session.onPreviewUpdate != nil && visibleNumericCount == 1)
+        guard allowSceneCenterFallback else { return [] }
+
+        return session.visibleInputs.compactMap { input in
+            guard case .number(let val, _, _, let unit) = input.value else {
                 return nil
             }
+            let anchor: SIMD3<Float>?
+            if let provider = session.dimensionAnchorsProvider {
+                anchor = provider()[input.id]
+            } else {
+                anchor = session.dimensionAnchor(for: input.id, workspace: workspace)
+            }
+            guard let anchor else { return nil }
             return DimensionLabelCandidate(
                 id: input.id,
                 label: input.label,

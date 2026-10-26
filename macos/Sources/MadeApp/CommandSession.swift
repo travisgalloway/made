@@ -80,6 +80,12 @@ final class CommandSession: Identifiable {
     var onCommit: (@MainActor () -> Void)?
     var onCancel: (@MainActor () -> Void)?
     var dimensionAnchorsProvider: (@MainActor () -> [String: SIMD3<Float>])?
+    var inputVisibilityPredicate: (@MainActor (CommandSession, CommandInput) -> Bool)?
+
+    var visibleInputs: [CommandInput] {
+        guard let predicate = inputVisibilityPredicate else { return inputs }
+        return inputs.filter { predicate(self, $0) }
+    }
 
     init(
         id: String = UUID().uuidString,
@@ -93,7 +99,8 @@ final class CommandSession: Identifiable {
         onPreviewUpdate: (@MainActor () -> Void)? = nil,
         onCommit: (@MainActor () -> Void)? = nil,
         onCancel: (@MainActor () -> Void)? = nil,
-        dimensionAnchorsProvider: (@MainActor () -> [String: SIMD3<Float>])? = nil
+        dimensionAnchorsProvider: (@MainActor () -> [String: SIMD3<Float>])? = nil,
+        inputVisibilityPredicate: (@MainActor (CommandSession, CommandInput) -> Bool)? = nil
     ) {
         self.id = id
         self.title = title
@@ -107,6 +114,7 @@ final class CommandSession: Identifiable {
         self.onCommit = onCommit
         self.onCancel = onCancel
         self.dimensionAnchorsProvider = dimensionAnchorsProvider
+        self.inputVisibilityPredicate = inputVisibilityPredicate
     }
 
     var canCommit: Bool {
@@ -1177,7 +1185,18 @@ extension CommandSession {
             title: "Revolve",
             selectionSlots: [axisSlot],
             inputs: inputs,
-            isPreviewEnabled: true
+            isPreviewEnabled: true,
+            inputVisibilityPredicate: { session, input in
+                let mode = session.choiceValue(for: "mode") ?? "Full"
+                switch input.id {
+                case "angle":
+                    return mode != "Full"
+                case "angle2":
+                    return mode == "Two-Direction"
+                default:
+                    return true
+                }
+            }
         )
 
         func parseMode(_ str: String?) -> RevolveMode {
@@ -1502,7 +1521,18 @@ extension CommandSession {
             title: "Chamfer",
             selectionSlots: [edgeSlot],
             inputs: inputs,
-            isPreviewEnabled: true
+            isPreviewEnabled: true,
+            inputVisibilityPredicate: { session, input in
+                let mode = session.choiceValue(for: "mode") ?? "Equal Distance"
+                switch input.id {
+                case "distance2":
+                    return mode == "Two Distances"
+                case "angle":
+                    return mode == "Distance-Angle"
+                default:
+                    return true
+                }
+            }
         )
 
         func resolveEdges(session: CommandSession) -> [TopologicalReference] {
@@ -1763,7 +1793,26 @@ extension CommandSession {
             title: "Hole",
             selectionSlots: [faceSlot, sketchSlot],
             inputs: inputs,
-            isPreviewEnabled: true
+            isPreviewEnabled: true,
+            inputVisibilityPredicate: { session, input in
+                let type = session.choiceValue(for: "type") ?? "Simple"
+                let standard = session.choiceValue(for: "standard") ?? "ISO Metric"
+                let termination = session.choiceValue(for: "termination") ?? "Through All"
+                switch input.id {
+                case "size":
+                    return standard != "Custom"
+                case "depth":
+                    return termination == "Blind"
+                case "cbDiameter", "cbDepth":
+                    return type == "Counterbore"
+                case "csDiameter", "csAngle":
+                    return type == "Countersink"
+                case "threadClass":
+                    return type == "Tapped"
+                default:
+                    return true
+                }
+            }
         )
 
         func resolveFaceRef(session: CommandSession) -> TopologicalReference? {
@@ -2305,7 +2354,28 @@ extension CommandSession {
                 CommandInput(id: "point3Z", label: "Point 3 Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
                 CommandInput(id: "flip", label: "Flip Normal", value: .toggle(false))
             ],
-            isPreviewEnabled: false
+            isPreviewEnabled: false,
+            inputVisibilityPredicate: { session, input in
+                let mode = session.choiceValue(for: "mode") ?? "Origin"
+                switch input.id {
+                case "name", "mode", "flip":
+                    return true
+                case "originPreset":
+                    return mode == "Origin" || mode == "Offset" || mode == "At Angle" || mode == "Tangent"
+                case "offset":
+                    return mode == "Offset"
+                case "angle":
+                    return mode == "At Angle"
+                case "curveParameter":
+                    return mode == "Normal to Curve"
+                case "point1X", "point1Y", "point1Z", "point2X", "point2Y", "point2Z":
+                    return mode == "Three Points" || mode == "Midplane"
+                case "point3X", "point3Y", "point3Z":
+                    return mode == "Three Points"
+                default:
+                    return true
+                }
+            }
         )
 
         session.customValidation = { [weak session] in
@@ -2442,7 +2512,20 @@ extension CommandSession {
                 CommandInput(id: "point2Z", label: "Point 2 Z", value: .number(10.0, range: nil, step: 1.0, unit: "mm")),
                 CommandInput(id: "flip", label: "Flip Direction", value: .toggle(false))
             ],
-            isPreviewEnabled: false
+            isPreviewEnabled: false,
+            inputVisibilityPredicate: { session, input in
+                let mode = session.choiceValue(for: "mode") ?? "Preset"
+                switch input.id {
+                case "name", "mode", "flip":
+                    return true
+                case "preset":
+                    return mode == "Preset"
+                case "point1X", "point1Y", "point1Z", "point2X", "point2Y", "point2Z":
+                    return mode == "Two Points"
+                default:
+                    return true
+                }
+            }
         )
 
         session.customValidation = { [weak session] in
@@ -2544,7 +2627,22 @@ extension CommandSession {
                 CommandInput(id: "point2Z", label: "Point 2 Z", value: .number(0.0, range: nil, step: 1.0, unit: "mm")),
                 CommandInput(id: "curveParameter", label: "Curve Parameter t", value: .number(0.5, range: 0.0...1.0, step: 0.1, unit: "t"))
             ],
-            isPreviewEnabled: false
+            isPreviewEnabled: false,
+            inputVisibilityPredicate: { session, input in
+                let mode = session.choiceValue(for: "mode") ?? "Coordinates"
+                switch input.id {
+                case "name", "mode":
+                    return true
+                case "coordX", "coordY", "coordZ":
+                    return mode == "Coordinates"
+                case "point1X", "point1Y", "point1Z", "point2X", "point2Y", "point2Z":
+                    return mode == "Midpoint"
+                case "curveParameter":
+                    return mode == "Along Curve"
+                default:
+                    return true
+                }
+            }
         )
 
         session.customValidation = { [weak session] in
@@ -2656,7 +2754,24 @@ extension CommandSession {
                 CommandInput(id: "rotY", label: "Rotation Y", value: .number(0.0, range: -360.0...360.0, step: 5.0, unit: "°")),
                 CommandInput(id: "rotZ", label: "Rotation Z", value: .number(0.0, range: -360.0...360.0, step: 5.0, unit: "°"))
             ],
-            isPreviewEnabled: false
+            isPreviewEnabled: false,
+            inputVisibilityPredicate: { session, input in
+                let mode = session.choiceValue(for: "mode") ?? "Origin and Axes"
+                switch input.id {
+                case "name", "mode":
+                    return true
+                case "originX", "originY", "originZ":
+                    return mode == "Origin and Axes" || mode == "Aligned with Plane"
+                case "point1X", "point1Y", "point1Z", "point2X", "point2Y", "point2Z", "point3X", "point3Y", "point3Z":
+                    return mode == "Three Points"
+                case "offsetX", "offsetY", "offsetZ":
+                    return mode == "Offset from Parent"
+                case "rotX", "rotY", "rotZ":
+                    return mode == "Origin and Axes" || mode == "Offset from Parent"
+                default:
+                    return true
+                }
+            }
         )
 
         session.customValidation = { [weak session] in
@@ -3287,7 +3402,13 @@ extension CommandSession {
             title: "Circular Pattern",
             selectionSlots: [targetSlot],
             inputs: inputs,
-            isPreviewEnabled: true
+            isPreviewEnabled: true,
+            inputVisibilityPredicate: { session, input in
+                if input.id == "totalAngle" {
+                    return !(session.toggleValue(for: "isFullCircle") ?? true)
+                }
+                return true
+            }
         )
 
         func resolveTargetId(session: CommandSession) -> SolidId? {

@@ -78,9 +78,15 @@ import MadeCore
     // MARK: - Inspector Document Tab Tests (BL-FND-11)
 
     @Test @MainActor func testInspectorTabEnumerationAndDocumentTab() {
-        #expect(InspectorTab.allCases.count == 2)
-        #expect(InspectorTab.allCases.contains(.properties))
-        #expect(InspectorTab.allCases.contains(.document))
+        #expect(NavigatorTab.allCases == [.scene, .construction, .simulation])
+        #expect(NavigatorTab.scene.title == "Scene")
+        #expect(NavigatorTab.construction.title == "Construction")
+        #expect(NavigatorTab.simulation.title == "Simulation")
+
+        #expect(InspectorTab.allCases == [.properties, .metadata, .physical, .document])
+        #expect(InspectorTab.properties.title == "Attributes")
+        #expect(InspectorTab.metadata.title == "Metadata")
+        #expect(InspectorTab.physical.title == "Physical")
         #expect(InspectorTab.document.title == "Document")
         #expect(InspectorTab.document.systemImage == "doc.text")
 

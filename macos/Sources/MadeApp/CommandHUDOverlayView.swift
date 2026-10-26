@@ -3,7 +3,7 @@ import MadeCore
 import simd
 
 private struct HUDSizePreferenceKey: PreferenceKey {
-    static let defaultValue: CGSize = CGSize(width: 260, height: 280)
+    static let defaultValue: CGSize = CGSize(width: 280, height: 280)
     static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
         let next = nextValue()
         if next.width > 0 && next.height > 0 {
@@ -15,14 +15,23 @@ private struct HUDSizePreferenceKey: PreferenceKey {
 struct CommandHUDOverlayView: View {
     @Environment(WorkspaceModel.self) private var workspace
     @Bindable var session: CommandSession
-    @State private var hudSize: CGSize = CGSize(width: 260, height: 280)
+    @State private var hudSize: CGSize = CGSize(width: 280, height: 280)
+    @State private var dragOffset: CGSize = .zero
+    @GestureState private var activeDragTranslation: CGSize = .zero
 
     var body: some View {
         GeometryReader { geo in
             let viewportSize = geo.size
             let geomRect = computeGeometryScreenRect(viewportSize: viewportSize)
-            let pos = CommandHUDPlacement.computePosition(
+            let basePos = CommandHUDPlacement.computePosition(
                 geometryScreenRect: geomRect,
+                viewportSize: viewportSize,
+                hudSize: hudSize
+            )
+            let clampedPos = Self.clampedPosition(
+                basePosition: basePos,
+                dragOffset: dragOffset,
+                activeTranslation: activeDragTranslation,
                 viewportSize: viewportSize,
                 hudSize: hudSize
             )
@@ -35,7 +44,7 @@ struct CommandHUDOverlayView: View {
                         .strokeBorder(.separator, lineWidth: 1)
                 )
                 .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
-                .frame(width: 260)
+                .frame(width: 280)
                 .fixedSize(horizontal: true, vertical: true)
                 .background(
                     GeometryReader { cardGeo in
@@ -48,8 +57,44 @@ struct CommandHUDOverlayView: View {
                         hudSize = newSize
                     }
                 }
-                .offset(x: pos.x, y: pos.y)
+                .gesture(
+                    DragGesture(minimumDistance: 4)
+                        .updating($activeDragTranslation) { value, state, _ in
+                            state = value.translation
+                        }
+                        .onEnded { value in
+                            dragOffset = CGSize(
+                                width: dragOffset.width + value.translation.width,
+                                height: dragOffset.height + value.translation.height
+                            )
+                        }
+                )
+                .offset(x: clampedPos.x, y: clampedPos.y)
+                .onChange(of: session.id) { _, _ in
+                    dragOffset = .zero
+                }
         }
+    }
+
+    static func clampedPosition(
+        basePosition: CGPoint,
+        dragOffset: CGSize,
+        activeTranslation: CGSize = .zero,
+        viewportSize: CGSize,
+        hudSize: CGSize,
+        margin: CGFloat = 12
+    ) -> CGPoint {
+        let rawX = basePosition.x + dragOffset.width + activeTranslation.width
+        let rawY = basePosition.y + dragOffset.height + activeTranslation.height
+        guard viewportSize.width > 0 && viewportSize.height > 0 else {
+            return CGPoint(x: rawX, y: rawY)
+        }
+        let maxX = max(margin, viewportSize.width - hudSize.width - margin)
+        let maxY = max(margin, viewportSize.height - hudSize.height - margin)
+        return CGPoint(
+            x: min(max(margin, rawX), maxX),
+            y: min(max(margin, rawY), maxY)
+        )
     }
 
     private func computeGeometryScreenRect(viewportSize: CGSize) -> CGRect? {

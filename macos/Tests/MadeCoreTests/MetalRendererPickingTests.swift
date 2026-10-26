@@ -16,7 +16,7 @@ import CoreGraphics
         let ndcX = clip.x / clip.w
         let ndcY = clip.y / clip.w
         let screenX = (ndcX * 0.5 + 0.5) * Float(viewportSize.width)
-        let screenY = (1.0 - (ndcY * 0.5 + 0.5)) * Float(viewportSize.height)
+        let screenY = (ndcY * 0.5 + 0.5) * Float(viewportSize.height)
         return SIMD2<Float>(screenX, screenY)
     }
 

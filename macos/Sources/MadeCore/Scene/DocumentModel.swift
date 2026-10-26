@@ -1154,6 +1154,8 @@ public final class DocumentModel {
                 return sId == solidId
             case .feature(let fId):
                 return feature(for: fId)?.outputSolidId == solidId
+            case .face(let topRef), .edge(let topRef), .vertex(let topRef):
+                return feature(for: topRef.sourceFeatureId)?.outputSolidId == solidId
             case .component(let compId):
                 return SolidId("component-\(compId.uuidString)") == solidId
             default:
@@ -1164,6 +1166,9 @@ public final class DocumentModel {
         var updated = _selection
         for ref in matching {
             updated.remove(ref)
+        }
+        if _selectedSubElement?.solidId == solidId {
+            _selectedSubElement = nil
         }
         selection = updated
     }

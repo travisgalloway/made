@@ -204,117 +204,50 @@ struct SolidMenuCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.addBoxShortcutKey, modifiers: WorkspaceModel.addBoxShortcutModifiers)
 
-            Button("Add Box Solid…") {
-                workspace.startAddBoxCommand()
-            }
-
             Button("Add Cylinder Solid") {
                 workspace.addDefaultCylinder()
             }
             .keyboardShortcut(WorkspaceModel.addCylinderShortcutKey, modifiers: WorkspaceModel.addCylinderShortcutModifiers)
 
-            Button("Add Cylinder Solid…") {
-                workspace.startAddCylinderCommand()
+            Menu("More Primitives") {
+                Button("Add Sphere Solid") {
+                    workspace.addDefaultSphere()
+                }
+                Button("Add Cone Solid") {
+                    workspace.addDefaultCone()
+                }
+                Button("Add Torus Solid") {
+                    workspace.addDefaultTorus()
+                }
+                Button("Add Wedge Solid") {
+                    workspace.addDefaultWedge()
+                }
             }
 
-            Button("Add Sphere Solid") {
-                workspace.addDefaultSphere()
+            Menu("Add Primitive with Dialog") {
+                Button("Add Box Solid…") {
+                    workspace.startAddBoxCommand()
+                }
+                Button("Add Cylinder Solid…") {
+                    workspace.startAddCylinderCommand()
+                }
+                Button("Add Sphere Solid…") {
+                    workspace.startAddSphereCommand()
+                }
+                Button("Add Cone Solid…") {
+                    workspace.startAddConeCommand()
+                }
+                Button("Add Torus Solid…") {
+                    workspace.startAddTorusCommand()
+                }
+                Button("Add Wedge Solid…") {
+                    workspace.startAddWedgeCommand()
+                }
             }
-
-            Button("Add Sphere Solid…") {
-                workspace.startAddSphereCommand()
-            }
-
-            Button("Add Cone Solid") {
-                workspace.addDefaultCone()
-            }
-
-            Button("Add Cone Solid…") {
-                workspace.startAddConeCommand()
-            }
-
-            Button("Add Torus Solid") {
-                workspace.addDefaultTorus()
-            }
-
-            Button("Add Torus Solid…") {
-                workspace.startAddTorusCommand()
-            }
-
-            Button("Add Wedge Solid") {
-                workspace.addDefaultWedge()
-            }
-
-            Button("Add Wedge Solid…") {
-                workspace.startAddWedgeCommand()
-            }
-
-            Button("Import STEP Solid…") {
-                workspace.promptImportStepFile()
-            }
-
-            Button("Link External File…") {
-                workspace.promptLinkExternalFile()
-            }
-
-            Button("Export STEP Solid…") {
-                workspace.promptExportStepFile(selectedOnly: workspace.selectedId != nil)
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Export 3MF…") {
-                workspace.promptExportThreeMFFile()
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Export STL…") {
-                workspace.promptExportSTLFile()
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Transform Solid…") {
-                workspace.startTransformCommand()
-            }
-            .disabled(workspace.selectedObject == nil)
-
-            Button("Boolean Operation…") {
-                workspace.startBooleanCommand()
-            }
-            .disabled(workspace.document.objects.count < 2)
-
-            Button("Chamfer…") {
-                workspace.startChamferCommand()
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Shell…") {
-                workspace.startShellCommand()
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Hole…") {
-                workspace.startHoleCommand()
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Linear Pattern…") {
-                workspace.startLinearPatternCommand()
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Circular Pattern…") {
-                workspace.startCircularPatternCommand()
-            }
-            .disabled(workspace.document.objects.isEmpty)
-
-            Button("Mirror…") {
-                workspace.startMirrorCommand()
-            }
-            .disabled(workspace.document.objects.isEmpty)
 
             Divider()
 
-            Button("New Ground Sketch") {
+            Button("New Ground Sketch…") {
                 workspace.startNewSketchCommand()
             }
 
@@ -326,20 +259,68 @@ struct SolidMenuCommands: Commands {
                 workspace.startRevolveCommand()
             }
 
-            Button("New Datum Plane…") {
-                workspace.startDatumPlaneCommand()
+            Menu("Modify & Pattern") {
+                Button("Transform Solid…") {
+                    workspace.startTransformCommand()
+                }
+                .disabled(workspace.selectedObject == nil)
+
+                Button("Boolean Operation…") {
+                    workspace.startBooleanCommand()
+                }
+                .disabled(workspace.document.objects.count < 2)
+
+                Divider()
+
+                Button("Chamfer…") {
+                    workspace.startChamferCommand()
+                }
+                .disabled(workspace.document.objects.isEmpty)
+
+                Button("Shell…") {
+                    workspace.startShellCommand()
+                }
+                .disabled(workspace.document.objects.isEmpty)
+
+                Button("Hole…") {
+                    workspace.startHoleCommand()
+                }
+                .disabled(workspace.document.objects.isEmpty)
+
+                Divider()
+
+                Button("Linear Pattern…") {
+                    workspace.startLinearPatternCommand()
+                }
+                .disabled(workspace.document.objects.isEmpty)
+
+                Button("Circular Pattern…") {
+                    workspace.startCircularPatternCommand()
+                }
+                .disabled(workspace.document.objects.isEmpty)
+
+                Button("Mirror…") {
+                    workspace.startMirrorCommand()
+                }
+                .disabled(workspace.document.objects.isEmpty)
             }
 
-            Button("New Datum Axis…") {
-                workspace.startDatumAxisCommand()
-            }
+            Menu("Reference Geometry") {
+                Button("New Datum Plane…") {
+                    workspace.startDatumPlaneCommand()
+                }
 
-            Button("New Datum Point…") {
-                workspace.startDatumPointCommand()
-            }
+                Button("New Datum Axis…") {
+                    workspace.startDatumAxisCommand()
+                }
 
-            Button("New Coordinate System…") {
-                workspace.startDatumCoordinateSystemCommand()
+                Button("New Datum Point…") {
+                    workspace.startDatumPointCommand()
+                }
+
+                Button("New Coordinate System…") {
+                    workspace.startDatumCoordinateSystemCommand()
+                }
             }
 
             Divider()
@@ -363,8 +344,6 @@ struct SolidMenuCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.reloadPartShortcutKey, modifiers: WorkspaceModel.reloadPartShortcutModifiers)
             .disabled(workspace.selectedPartId == nil)
-
-            Divider()
 
             Button("Roll Back to Selected") {
                 if let sel = workspace.selectedId {
@@ -396,6 +375,23 @@ struct ViewNavigationCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
+            Menu("Navigators") {
+                ForEach(NavigatorTab.allCases) { tab in
+                    Button(tab.title) {
+                        workspace.navigatorTab = tab
+                    }
+                }
+            }
+
+            Menu("Inspectors") {
+                ForEach(InspectorTab.allCases) { tab in
+                    Button(tab.title) {
+                        workspace.isInspectorPresented = true
+                        workspace.inspectorTab = tab
+                    }
+                }
+            }
+
             Button(workspace.consoleToggleTitle) {
                 workspace.toggleConsole()
             }

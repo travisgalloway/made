@@ -514,4 +514,31 @@ import simd
         #expect(result != nil)
         #expect(result?.elementType == SubelementType.edge)
     }
+
+    @Test func testPickSolidUsesTriangleBVHWhenCylinderAABBOverlapsBox() {
+        // Cylinder with radius 30 at origin has AABB [-30, 30] x [-30, 30] x [-20, 20],
+        // whose corners (e.g. x=22, y=-22) are outside the cylinder's circular cross-section (x^2 + y^2 = 968 > 900).
+        // A box overlapping that corner region must be picked instead of the empty corner of the cylinder's AABB.
+        let cylPayload = NativeGeometryGenerator.generateCylinder(radius: 30, height: 40)
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+
+        let cylMesh = CandidateMesh(
+            id: SolidId("cylinder-1"),
+            payload: cylPayload
+        )
+        let boxMesh = CandidateMesh(
+            id: SolidId("box-1"),
+            payload: boxPayload,
+            transform: Transform(position: SIMD3<Float>(22, -22, 0))
+        )
+
+        // Ray passing through (22, -22, 0) from -Y to +Y:
+        // Enters cylinder's AABB at y = -30 (before box at y = -32? No, from +X side or top +Z):
+        // Shoot ray from (22, -22, 50) straight down (-Z):
+        // Cylinder AABB has zMax = 20, Box AABB has zMax = 10.
+        // Without triangle BVH, cylinder AABB is hit first (t = 30) even though (22, -22) is outside radius 30!
+        let ray = Ray3D(origin: SIMD3<Float>(22, -22, 50), direction: SIMD3<Float>(0, 0, -1))
+        let picked = pickSolid(ray: ray, candidateMeshes: [cylMesh, boxMesh])
+        #expect(picked?.id == SolidId("box-1"))
+    }
 }

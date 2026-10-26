@@ -132,4 +132,160 @@ final class ViewportSelectionUITests: MadeUITestCase {
         let clearedSnapshot = ProbeSnapshot.parse(clearedProbeString)
         XCTAssertTrue(clearedSnapshot.selection.isEmpty, "Expected selection to be cleared, got: '\(clearedSnapshot.selection)'")
     }
+
+    func testSelectingCylinderThenBoxAndInspectorTabAlignment() throws {
+        continueAfterFailure = true
+        let env = ProcessInfo.processInfo.environment
+        let forceNoGPU = env["MADE_FORCE_NO_GPU"] == "1"
+        let requireMetal4 = env["MADE_UI_REQUIRE_METAL4"] == "1"
+        let isMetal4 = !forceNoGPU && (MTLCreateSystemDefaultDevice()?.supportsFamily(.metal4) == true)
+
+        if requireMetal4 {
+            XCTAssertTrue(isMetal4, "Metal 4 is required by MADE_UI_REQUIRE_METAL4=1")
+        } else {
+            try XCTSkipUnless(isMetal4, "Metal 4 is unavailable")
+        }
+
+        let app = launchApp()
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10.0), "Expected main window")
+
+        let canvas = app.descendants(matching: .any)["viewport-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10.0), "Expected 'viewport-canvas' in viewport")
+
+        // 1. Check Navigator & Inspector tab buttons via macOS Accessibility
+        let sceneTab = app.buttons["Scene"]
+        let constrTab = app.buttons["Construction"]
+        let simTab = app.buttons["Simulation"]
+        let attrTab = app.buttons["Attributes"]
+        let metaTab = app.buttons["Metadata"]
+        let physTab = app.buttons["Physical"]
+        let docTab = app.buttons["Document"]
+        XCTAssertTrue(sceneTab.waitForExistence(timeout: 5.0), "Expected 'Scene' tab button")
+        XCTAssertTrue(constrTab.exists, "Expected 'Construction' tab button")
+        XCTAssertTrue(simTab.exists, "Expected 'Simulation' tab button")
+        XCTAssertTrue(attrTab.waitForExistence(timeout: 5.0), "Expected 'Attributes' tab button")
+        XCTAssertTrue(metaTab.exists, "Expected 'Metadata' tab button")
+        XCTAssertTrue(physTab.exists, "Expected 'Physical' tab button")
+        XCTAssertTrue(docTab.exists, "Expected 'Document' tab button")
+
+        let winFrame = window.frame
+        let canvasFrame = canvas.frame
+        let sceneFrame = sceneTab.frame
+        let attrFrame = attrTab.frame
+        let metaFrame = metaTab.frame
+        let physFrame = physTab.frame
+        let docFrame = docTab.frame
+        print("AX_FRAMES window=\(winFrame) canvas=\(canvasFrame) scene=\(sceneFrame) attr=\(attrFrame) meta=\(metaFrame) phys=\(physFrame) doc=\(docFrame)")
+
+        // All 4 Inspector tabs must be horizontally inside the Inspector column (to the right of canvas, inside window)
+        XCTAssertGreaterThanOrEqual(attrFrame.minX, canvasFrame.maxX - 2.0, "Attributes tab clipped to the left of inspector column: attr=\(attrFrame), canvas=\(canvasFrame)")
+        XCTAssertLessThanOrEqual(docFrame.maxX, winFrame.maxX + 2.0, "Document tab clipped to the right of window: doc=\(docFrame), win=\(winFrame)")
+        XCTAssertEqual(attrFrame.midY, docFrame.midY, accuracy: 2.0, "Inspector tabs should be vertically aligned on the same row")
+        XCTAssertEqual(sceneFrame.midY, attrFrame.midY, accuracy: 2.0, "Navigator and Inspector tab bars should be vertically aligned")
+
+        // 2. Test selecting cylinder-1 then selecting box-1 in the 3D scene
+        let initialProbeString = try XCTUnwrap(canvas.value as? String, "Missing initial probe value")
+        let initialSnapshot = ProbeSnapshot.parse(initialProbeString)
+        print("AX_PROBE initial=\(initialProbeString)")
+
+        guard let cylHit = initialSnapshot.hits.first(where: { $0.id == "cylinder-1" }) else {
+            XCTFail("cylinder-1 hit not found in probe hits: \(initialSnapshot.hits)")
+            return
+        }
+        guard let boxHit = initialSnapshot.hits.first(where: { $0.id == "box-1" }) else {
+            XCTFail("box-1 hit not found in probe hits: \(initialSnapshot.hits)")
+            return
+        }
+
+        // Click cylinder-1 first
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: cylHit.x, dy: cylHit.y)).click()
+        let afterCylProbe = try XCTUnwrap(canvas.value as? String)
+        let afterCylSnapshot = ProbeSnapshot.parse(afterCylProbe)
+        print("AX_PROBE afterCylinderClick=\(afterCylProbe)")
+        XCTAssertEqual(afterCylSnapshot.selection, "cylinder-1", "Expected selection to be 'cylinder-1' after clicking cylinder")
+
+        // Verify Inspector controls for cylinder-1 are inside the Inspector column bounds
+        let inspectorSelected = app.staticTexts["inspector-selected-object"]
+        XCTAssertTrue(inspectorSelected.waitForExistence(timeout: 5.0))
+        XCTAssertEqual(inspectorSelected.value as? String, "cylinder-1")
+        XCTAssertGreaterThanOrEqual(inspectorSelected.frame.minX, canvasFrame.maxX - 2.0, "Inspector label clipped to the left")
+        XCTAssertLessThanOrEqual(inspectorSelected.frame.maxX, winFrame.maxX + 2.0, "Inspector label clipped to the right")
+
+        // Now click box-1 after cylinder-1 is selected
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: boxHit.x, dy: boxHit.y)).click()
+        let afterBoxProbe = try XCTUnwrap(canvas.value as? String)
+        let afterBoxSnapshot = ProbeSnapshot.parse(afterBoxProbe)
+        print("AX_PROBE afterBoxClick=\(afterBoxProbe)")
+        XCTAssertEqual(afterBoxSnapshot.selection, "box-1", "Expected selection to switch to 'box-1' after clicking box")
+        XCTAssertEqual(inspectorSelected.value as? String, "box-1", "Expected Inspector to follow selection back to 'box-1'")
+
+        // 3. Test selecting bodies in the left sidebar (Navigator)
+        let navCyl = app.descendants(matching: .any)["navigator-object-cylinder-1"].firstMatch
+        let navBox = app.descendants(matching: .any)["navigator-object-box-1"].firstMatch
+        XCTAssertTrue(navCyl.waitForExistence(timeout: 5.0), "Expected 'navigator-object-cylinder-1' in left sidebar")
+        XCTAssertTrue(navBox.waitForExistence(timeout: 5.0), "Expected 'navigator-object-box-1' in left sidebar")
+
+        navCyl.click()
+        let afterNavCylProbe = try XCTUnwrap(canvas.value as? String)
+        let afterNavCylSnapshot = ProbeSnapshot.parse(afterNavCylProbe)
+        print("AX_PROBE afterNavCylClick=\(afterNavCylProbe)")
+        XCTAssertEqual(afterNavCylSnapshot.selection, "cylinder-1", "Clicking cylinder-1 in left sidebar should select cylinder-1")
+        XCTAssertEqual(inspectorSelected.value as? String, "cylinder-1", "Inspector should show cylinder-1 after left sidebar click")
+
+        navBox.click()
+        let afterNavBoxProbe = try XCTUnwrap(canvas.value as? String)
+        let afterNavBoxSnapshot = ProbeSnapshot.parse(afterNavBoxProbe)
+        print("AX_PROBE afterNavBoxClick=\(afterNavBoxProbe)")
+        XCTAssertEqual(afterNavBoxSnapshot.selection, "box-1", "Clicking box-1 in left sidebar should select box-1")
+        XCTAssertEqual(inspectorSelected.value as? String, "box-1", "Inspector should show box-1 after left sidebar click")
+
+        // 4. Verify right sidebar (Inspector) content alignment across tabs via macOS Accessibility
+        let inspectorLeftMargin = canvasFrame.maxX + 12.0
+        let inspectorRightMargin = winFrame.maxX - 12.0
+
+        let identityHeader = app.staticTexts["Identity"]
+        let transformHeader = app.staticTexts["Transform"]
+        let dimensionsHeader = app.staticTexts["Dimensions"]
+        let aabbValue = app.staticTexts["inspector-aabb-size"]
+        XCTAssertTrue(identityHeader.exists, "Expected 'Identity' section header in Attributes tab")
+        XCTAssertTrue(transformHeader.exists, "Expected 'Transform' section header in Attributes tab")
+        XCTAssertTrue(dimensionsHeader.exists, "Expected 'Dimensions' section header in Attributes tab")
+        XCTAssertTrue(aabbValue.exists, "Expected 'inspector-aabb-size' in Attributes tab")
+
+        print("AX_INSPECTOR_ATTR identity=\(identityHeader.frame) transform=\(transformHeader.frame) dims=\(dimensionsHeader.frame) selectedID=\(inspectorSelected.frame) aabb=\(aabbValue.frame) expectedLeft=\(inspectorLeftMargin) expectedRight=\(inspectorRightMargin)")
+
+        // Section headers must be flush-left at inspectorLeftMargin (not indented into a right column)
+        XCTAssertEqual(identityHeader.frame.minX, inspectorLeftMargin, accuracy: 6.0, "Identity header should align with left margin of Inspector")
+        XCTAssertEqual(transformHeader.frame.minX, inspectorLeftMargin, accuracy: 6.0, "Transform header should align with left margin of Inspector")
+        XCTAssertEqual(dimensionsHeader.frame.minX, inspectorLeftMargin, accuracy: 6.0, "Dimensions header should align with left margin of Inspector")
+
+        // Right-aligned values must be flush-right at inspectorRightMargin and never clipped
+        XCTAssertGreaterThanOrEqual(inspectorSelected.frame.minX, canvasFrame.maxX, "Selected ID clipped left")
+        XCTAssertEqual(inspectorSelected.frame.maxX, inspectorRightMargin, accuracy: 16.0, "Selected ID should align near right margin of Inspector")
+        XCTAssertGreaterThanOrEqual(aabbValue.frame.minX, canvasFrame.maxX, "AABB size clipped left")
+        XCTAssertLessThanOrEqual(aabbValue.frame.maxX, winFrame.maxX, "AABB size clipped right")
+
+        // Check Metadata tab content alignment
+        metaTab.click()
+        let stdPropsHeader = app.staticTexts["Standard Properties"]
+        let partNumField = app.textFields["inspector-part-part-number"]
+        XCTAssertTrue(stdPropsHeader.waitForExistence(timeout: 5.0), "Expected 'Standard Properties' header in Metadata tab")
+        XCTAssertTrue(partNumField.exists, "Expected 'inspector-part-part-number' text field in Metadata tab")
+        print("AX_INSPECTOR_META stdProps=\(stdPropsHeader.frame) partNumField=\(partNumField.frame)")
+        XCTAssertEqual(stdPropsHeader.frame.minX, inspectorLeftMargin, accuracy: 6.0, "Standard Properties header should align with left margin of Inspector")
+        XCTAssertGreaterThanOrEqual(partNumField.frame.minX, canvasFrame.maxX, "Part Number field clipped left")
+        XCTAssertEqual(partNumField.frame.maxX, inspectorRightMargin, accuracy: 8.0, "Part Number field should align with right margin of Inspector")
+
+        // Check Physical tab content alignment
+        physTab.click()
+        let materialHeader = app.staticTexts["Material"]
+        let massDensity = app.staticTexts["inspector-mass-density"]
+        XCTAssertTrue(materialHeader.waitForExistence(timeout: 5.0), "Expected 'Material' header in Physical tab")
+        XCTAssertTrue(massDensity.exists, "Expected 'inspector-mass-density' in Physical tab")
+        print("AX_INSPECTOR_PHYS material=\(materialHeader.frame) massDensity=\(massDensity.frame)")
+        XCTAssertEqual(materialHeader.frame.minX, inspectorLeftMargin, accuracy: 6.0, "Material header should align with left margin of Inspector")
+        XCTAssertGreaterThanOrEqual(massDensity.frame.minX, canvasFrame.maxX, "Mass density value clipped left")
+        XCTAssertLessThanOrEqual(massDensity.frame.maxX, winFrame.maxX, "Mass density value clipped right")
+    }
 }
