@@ -166,6 +166,11 @@ struct ContentView: View {
                 Button("All Filters") {
                     workspace.resetSelectionFilters()
                 }
+                Divider()
+                Picker("Selection Shape", selection: $workspace.selectionShape) {
+                    Text("Box Selection").tag(SelectionShape.box)
+                    Text("Lasso Selection").tag(SelectionShape.lasso)
+                }
             } label: {
                 Label(
                     "Selection Filters",
