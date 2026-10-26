@@ -224,11 +224,11 @@ public final class CADToolRegistry {
             ),
             MCPToolDefinition(
                 name: "cad_add_sketch_entity",
-                description: "Adds a 2D geometric entity (line, arc, or circle) to an existing sketch in the document.",
+                description: "Adds a 2D geometric entity (line, arc, circle, or text) to an existing sketch in the document.",
                 inputSchema: MCPInputSchema(
                     properties: [
                         "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature to add the entity to"),
-                        "type": MCPProperty(type: "string", description: "The entity type: 'line', 'arc', or 'circle'", enum: ["line", "arc", "circle"]),
+                        "type": MCPProperty(type: "string", description: "The entity type: 'line', 'arc', 'circle', or 'text'", enum: ["line", "arc", "circle", "text"]),
                         "startX": MCPProperty(type: "number", description: "Start X coordinate for line or arc"),
                         "startY": MCPProperty(type: "number", description: "Start Y coordinate for line or arc"),
                         "endX": MCPProperty(type: "number", description: "End X coordinate for line or arc"),
@@ -237,6 +237,11 @@ public final class CADToolRegistry {
                         "centerY": MCPProperty(type: "number", description: "Center Y coordinate for arc or circle"),
                         "radius": MCPProperty(type: "number", description: "Radius for circle (must be > 0)"),
                         "clockwise": MCPProperty(type: "boolean", description: "Optional: True if arc is oriented clockwise (default false)"),
+                        "text": MCPProperty(type: "string", description: "Text content for text entity"),
+                        "fontName": MCPProperty(type: "string", description: "Optional: Font name for text entity (default 'Helvetica')"),
+                        "fontSize": MCPProperty(type: "number", description: "Optional: Font size in mm for text entity (default 12.0)"),
+                        "originX": MCPProperty(type: "number", description: "Optional: Origin X coordinate for text entity (default 0.0)"),
+                        "originY": MCPProperty(type: "number", description: "Optional: Origin Y coordinate for text entity (default 0.0)"),
                         "isConstruction": MCPProperty(type: "boolean", description: "Optional: True if entity is a construction guide (default false)")
                     ],
                     required: ["sketchId", "type"]
@@ -1836,8 +1841,30 @@ public final class CADToolRegistry {
             }
             return SketchEntity.circle(center: SIMD2(cx, cy), radius: r, isConstruction: isConstruction)
 
+        case "text":
+            guard let text = dict["text"]?.stringValue, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ArgumentError(message: "Text entity missing or empty 'text'")
+            }
+            let fontName = dict["fontName"]?.stringValue ?? "Helvetica"
+            let fontSize = dict["fontSize"]?.doubleValue ?? 12.0
+            guard fontSize.isFinite, fontSize > 0 else {
+                throw ArgumentError(message: "Text entity missing or invalid 'fontSize' (must be > 0)")
+            }
+            let ox = dict["originX"]?.doubleValue ?? dict["startX"]?.doubleValue ?? 0.0
+            let oy = dict["originY"]?.doubleValue ?? dict["startY"]?.doubleValue ?? 0.0
+            guard ox.isFinite, oy.isFinite else {
+                throw ArgumentError(message: "Text entity invalid origin coordinates")
+            }
+            return SketchEntity.text(
+                text: text,
+                origin: SIMD2(ox, oy),
+                fontSize: fontSize,
+                fontName: fontName,
+                isConstruction: isConstruction
+            )
+
         default:
-            throw ArgumentError(message: "Unknown entity type '\(type)' (supported: 'line', 'arc', 'circle')")
+            throw ArgumentError(message: "Unknown entity type '\(type)' (supported: 'line', 'arc', 'circle', 'text')")
         }
     }
 

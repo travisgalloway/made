@@ -2274,6 +2274,33 @@ final class WorkspaceModel {
     }
 
     @discardableResult
+    func addSketchText(
+        to featureId: UUID? = nil,
+        text: String = "Text",
+        origin: SIMD2<Double> = .zero,
+        fontSize: Double = 12.0,
+        fontName: String = "Helvetica"
+    ) throws -> SketchEntity {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let entity = SketchEntity.text(
+            text: text,
+            origin: origin,
+            fontSize: fontSize,
+            fontName: fontName
+        )
+        let res = document.addSketchEntity(to: targetId, entity: entity)
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        document.undoManager?.setActionName("Add Text")
+        refreshSketchStatus(for: targetId)
+        recomputeDependents(of: targetId)
+        return entity
+    }
+
+    @discardableResult
     func addCornerRectangle(
         to featureId: UUID? = nil,
         corner1: SIMD2<Double>? = nil,

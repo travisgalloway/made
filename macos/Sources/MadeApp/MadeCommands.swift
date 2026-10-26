@@ -570,6 +570,11 @@ struct ToolsMenuCommands: Commands {
                 }
                 .disabled(workspace.selectedSketchFeature == nil)
 
+                Button("Add Text") {
+                    _ = try? workspace.addSketchText()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
                 Divider()
 
                 Button("Trim Entity") {

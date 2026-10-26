@@ -37,6 +37,16 @@ public enum SketchProfileBuilder {
             guard let r = entity.radius, r > minEntityTolerance else {
                 throw SketchError.invalidEntity("Circle entity \(entity.id.uuidString) radius must be greater than 1e-5 mm")
             }
+        case "text":
+            guard let text = entity.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw SketchError.invalidEntity("Text entity \(entity.id.uuidString) has empty or missing text")
+            }
+            guard let fontSize = entity.fontSize, fontSize.isFinite, fontSize > minEntityTolerance else {
+                throw SketchError.invalidEntity("Text entity \(entity.id.uuidString) font size must be greater than 1e-5 mm")
+            }
+            guard let origin = entity.origin, origin.x.isFinite, origin.y.isFinite else {
+                throw SketchError.invalidEntity("Text entity \(entity.id.uuidString) has invalid or non-finite origin coordinates")
+            }
         default:
             throw SketchError.invalidEntity("Unsupported entity kind: '\(entity.kind)'")
         }
@@ -80,6 +90,15 @@ public enum SketchProfileBuilder {
                 points.append(SIMD2<Float>(x, y))
             }
             return SketchProfile(plane: plane, points: points)
+        }
+
+        // If sketch contains text entities, extract primary region from detectRegions
+        if activeEntities.contains(where: { $0.kind == "text" }) {
+            let regions = try detectRegions(from: activeEntities, plane: plane)
+            guard let primary = regions.first else {
+                throw SketchError.noClosedLoop
+            }
+            return primary.toProfile(plane: plane)
         }
 
         // Validate that sketch does not contain dangling or open endpoints

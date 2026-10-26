@@ -152,6 +152,18 @@ public enum SketchRegionDetector {
             try SketchProfileBuilder.validateEntity(entity)
         }
 
+        let textEntities = activeEntities.filter { $0.kind == "text" }
+        let geometricEntities = activeEntities.filter { $0.kind != "text" }
+
+        var textRegions: [SketchRegion] = []
+        for te in textEntities {
+            textRegions.append(contentsOf: SketchTextOutliner.extractRegions(for: te))
+        }
+
+        if geometricEntities.isEmpty {
+            return textRegions
+        }
+
         let registry = VertexRegistry(tolerance: snappingTolerance)
 
         // 1. Collect all intersections among entities
@@ -159,7 +171,7 @@ public enum SketchRegionDetector {
         var arcIntersections: [UUID: [SIMD2<Double>]] = [:]
         var circleIntersections: [UUID: [SIMD2<Double>]] = [:]
 
-        for e in activeEntities {
+        for e in geometricEntities {
             switch e.kind {
             case "line": lineIntersections[e.id] = []
             case "arc": arcIntersections[e.id] = []
@@ -168,11 +180,11 @@ public enum SketchRegionDetector {
             }
         }
 
-        let n = activeEntities.count
+        let n = geometricEntities.count
         for i in 0..<n {
             for j in (i + 1)..<n {
-                let e1 = activeEntities[i]
-                let e2 = activeEntities[j]
+                let e1 = geometricEntities[i]
+                let e2 = geometricEntities[j]
                 let pts = findIntersections(e1, e2)
                 for p in pts {
                     if lineIntersections[e1.id] != nil { lineIntersections[e1.id]?.append(p) }
@@ -190,7 +202,7 @@ public enum SketchRegionDetector {
         var atomicCurves: [AtomicCurve] = []
         var standaloneCircles: [(center: SIMD2<Double>, radius: Double)] = []
 
-        for entity in activeEntities {
+        for entity in geometricEntities {
             switch entity.kind {
             case "line":
                 guard let sp = entity.startPoint, let ep = entity.endPoint else { continue }
@@ -457,7 +469,7 @@ public enum SketchRegionDetector {
             detectedLoops.append(ClosedLoop(points: pts, area: area, centroid: centroid, bbox: bbox))
         }
 
-        guard !detectedLoops.isEmpty else { return [] }
+        guard !detectedLoops.isEmpty else { return textRegions }
 
         // 6. Nested Loop Containment Hierarchy & Hole Assignment
         let loopCount = detectedLoops.count
@@ -556,6 +568,19 @@ public enum SketchRegionDetector {
                 centroid: item.centroid
             )
             regions.append(region)
+        }
+
+        if !textRegions.isEmpty {
+            regions.append(contentsOf: textRegions)
+            regions.sort {
+                if abs($0.area - $1.area) > 1e-3 {
+                    return $0.area > $1.area
+                }
+                if abs($0.centroid.x - $1.centroid.x) > 1e-3 {
+                    return $0.centroid.x < $1.centroid.x
+                }
+                return $0.centroid.y < $1.centroid.y
+            }
         }
 
         return regions

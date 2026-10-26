@@ -6210,6 +6210,77 @@ struct InspectorSketchEntityRow: View {
                         }
                     }
                 }
+            case "text":
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("Text:").font(.caption2).foregroundStyle(.secondary)
+                        TextField("Text", text: Binding(
+                            get: { entity.text ?? "" },
+                            set: {
+                                var e = entity
+                                e.text = $0
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    }
+                    HStack(spacing: 6) {
+                        Text("Font:").font(.caption2).foregroundStyle(.secondary)
+                        TextField("Font", text: Binding(
+                            get: { entity.fontName ?? "Helvetica" },
+                            set: {
+                                var e = entity
+                                e.fontName = $0
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    }
+                    HStack(spacing: 6) {
+                        Text("Size:").font(.caption2).foregroundStyle(.secondary)
+                        CommitNumberField(
+                            label: "Size",
+                            value: entity.fontSize ?? 12.0,
+                            width: 50,
+                            step: 1.0,
+                            parameterResolver: sketchParamResolver,
+                            evaluator: sketchEvaluator
+                        ) {
+                            var e = entity
+                            e.fontSize = $0
+                            workspace.updateSketchEntity(in: sketchId, entity: e)
+                        }
+                        if let origin = entity.origin {
+                            Text("Origin:").font(.caption2).foregroundStyle(.secondary)
+                            CommitNumberField(
+                                label: "OX",
+                                value: origin.x,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
+                                var e = entity
+                                e.origin = SIMD2<Double>($0, origin.y)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                            CommitNumberField(
+                                label: "OY",
+                                value: origin.y,
+                                width: 44,
+                                step: 1.0,
+                                parameterResolver: sketchParamResolver,
+                                evaluator: sketchEvaluator
+                            ) {
+                                var e = entity
+                                e.origin = SIMD2<Double>(origin.x, $0)
+                                workspace.updateSketchEntity(in: sketchId, entity: e)
+                            }
+                        }
+                    }
+                }
             default:
                 EmptyView()
             }
