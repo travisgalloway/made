@@ -37,6 +37,16 @@ public enum SketchProfileBuilder {
             guard let r = entity.radius, r > minEntityTolerance else {
                 throw SketchError.invalidEntity("Circle entity \(entity.id.uuidString) radius must be greater than 1e-5 mm")
             }
+        case "ellipse":
+            guard let rx = entity.radiusX, let ry = entity.radiusY,
+                  rx > minEntityTolerance, ry > minEntityTolerance else {
+                throw SketchError.invalidEntity("Ellipse entity \(entity.id.uuidString) radii must be greater than 1e-5 mm")
+            }
+        case "ellipticalArc":
+            guard let rx = entity.radiusX, let ry = entity.radiusY,
+                  rx > minEntityTolerance, ry > minEntityTolerance else {
+                throw SketchError.invalidEntity("Elliptical arc entity \(entity.id.uuidString) radii must be greater than 1e-5 mm")
+            }
         case "text":
             guard let text = entity.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw SketchError.invalidEntity("Text entity \(entity.id.uuidString) has empty or missing text")
@@ -87,6 +97,31 @@ public enum SketchProfileBuilder {
                 let theta = (2.0 * Double.pi * Double(i)) / 32.0
                 let x = Float(center.x + r * cos(theta))
                 let y = Float(center.y + r * sin(theta))
+                points.append(SIMD2<Float>(x, y))
+            }
+            return SketchProfile(plane: plane, points: points)
+        }
+
+        // Single ellipse loop fast path
+        if activeEntities.count == 1, activeEntities[0].kind == "ellipse" {
+            let ellipse = activeEntities[0]
+            guard let rx = ellipse.radiusX, let ry = ellipse.radiusY, rx > minEntityTolerance, ry > minEntityTolerance else {
+                throw SketchError.invalidEntity("Ellipse radii must be positive")
+            }
+            let center = ellipse.centerPoint ?? .zero
+            let rot = ellipse.rotationAngle ?? 0.0
+            let cosRot = cos(rot)
+            let sinRot = sin(rot)
+            var points: [SIMD2<Float>] = []
+            points.reserveCapacity(32)
+            for i in 0..<32 {
+                let theta = (2.0 * Double.pi * Double(i)) / 32.0
+                let px = rx * cos(theta)
+                let py = ry * sin(theta)
+                let xRot = px * cosRot - py * sinRot
+                let yRot = px * sinRot + py * cosRot
+                let x = Float(center.x + xRot)
+                let y = Float(center.y + yRot)
                 points.append(SIMD2<Float>(x, y))
             }
             return SketchProfile(plane: plane, points: points)

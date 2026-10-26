@@ -560,6 +560,12 @@ struct ToolsMenuCommands: Commands {
                     .keyboardShortcut(WorkspaceModel.toolTrimShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
                 Button("Rectangle") { workspace.tool = .rectangle }
                     .keyboardShortcut(WorkspaceModel.toolRectangleShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
+                Button("Slot") { workspace.tool = .slot }
+                    .keyboardShortcut(WorkspaceModel.toolSlotShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
+                Button("Polygon") { workspace.tool = .polygon }
+                    .keyboardShortcut(WorkspaceModel.toolPolygonShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
+                Button("Ellipse") { workspace.tool = .ellipse }
+                    .keyboardShortcut(WorkspaceModel.toolEllipseShortcutKey, modifiers: WorkspaceModel.toolShortcutModifiers)
             }
 
             Divider()
@@ -591,6 +597,40 @@ struct ToolsMenuCommands: Commands {
                     Button("Three-Point Rectangle") {
                         workspace.activeRectangleKind = .threePoint
                         _ = try? workspace.addThreePointRectangle()
+                    }
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Menu("Slot") {
+                    Button("Straight Slot") {
+                        workspace.activeSlotKind = .straight
+                        _ = try? workspace.addStraightSlot()
+                    }
+                    Button("Arc Slot") {
+                        workspace.activeSlotKind = .arc
+                        _ = try? workspace.addArcSlot()
+                    }
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Menu("Polygon") {
+                    Button("Inscribed Regular Polygon") {
+                        workspace.activePolygonKind = .inscribed
+                        _ = try? workspace.addRegularPolygon()
+                    }
+                    Button("Circumscribed Regular Polygon") {
+                        workspace.activePolygonKind = .circumscribed
+                        _ = try? workspace.addRegularPolygon()
+                    }
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Menu("Ellipse") {
+                    Button("Full Ellipse") {
+                        _ = try? workspace.addEllipse()
+                    }
+                    Button("Elliptical Arc") {
+                        _ = try? workspace.addEllipticalArc()
                     }
                 }
                 .disabled(workspace.selectedSketchFeature == nil)

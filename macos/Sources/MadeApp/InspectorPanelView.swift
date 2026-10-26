@@ -1220,6 +1220,78 @@ struct InspectorPanelView: View {
                 }
                 .controlSize(.mini)
 
+                Menu("+ Slot") {
+                    Button("Straight Slot") {
+                        let offset = Double(data.entities.count * 5)
+                        _ = try? workspace.addStraightSlot(
+                            to: sketch.id,
+                            center1: SIMD2<Double>(offset, offset),
+                            center2: SIMD2<Double>(offset + 30, offset),
+                            width: 10
+                        )
+                    }
+                    Button("Arc Slot") {
+                        let offset = Double(data.entities.count * 5)
+                        _ = try? workspace.addArcSlot(
+                            to: sketch.id,
+                            center: SIMD2<Double>(offset, offset),
+                            radius: 25,
+                            startAngle: 0,
+                            endAngle: Double.pi,
+                            width: 10
+                        )
+                    }
+                }
+                .controlSize(.mini)
+
+                Menu("+ Polygon") {
+                    Button("Hexagon (Inscribed)") {
+                        let offset = Double(data.entities.count * 5)
+                        _ = try? workspace.addRegularPolygon(
+                            to: sketch.id,
+                            center: SIMD2<Double>(offset, offset),
+                            radius: 20,
+                            sides: 6,
+                            kind: .inscribed
+                        )
+                    }
+                    Button("Hexagon (Circumscribed)") {
+                        let offset = Double(data.entities.count * 5)
+                        _ = try? workspace.addRegularPolygon(
+                            to: sketch.id,
+                            center: SIMD2<Double>(offset, offset),
+                            radius: 20,
+                            sides: 6,
+                            kind: .circumscribed
+                        )
+                    }
+                }
+                .controlSize(.mini)
+
+                Menu("+ Ellipse") {
+                    Button("Ellipse") {
+                        let offset = Double(data.entities.count * 5)
+                        _ = try? workspace.addEllipse(
+                            to: sketch.id,
+                            center: SIMD2<Double>(offset, offset),
+                            radiusX: 25,
+                            radiusY: 15
+                        )
+                    }
+                    Button("Elliptical Arc") {
+                        let offset = Double(data.entities.count * 5)
+                        _ = try? workspace.addEllipticalArc(
+                            to: sketch.id,
+                            center: SIMD2<Double>(offset, offset),
+                            radiusX: 25,
+                            radiusY: 15,
+                            startAngle: 0,
+                            endAngle: Double.pi
+                        )
+                    }
+                }
+                .controlSize(.mini)
+
                 Button("+ Project") {
                     _ = workspace.projectSelectedGeometry()
                 }

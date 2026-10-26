@@ -15,6 +15,9 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
     case pointNotOnEntity(entityId: UUID)
     case degenerateProjection(String)
     case degenerateRectangle(String)
+    case degenerateSlot(String)
+    case degeneratePolygon(String)
+    case degenerateEllipse(String)
 
     public var errorDescription: String? {
         switch self {
@@ -44,6 +47,12 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
             return "Degenerate projection: \(msg)"
         case .degenerateRectangle(let msg):
             return "Degenerate rectangle: \(msg)"
+        case .degenerateSlot(let msg):
+            return "Degenerate slot: \(msg)"
+        case .degeneratePolygon(let msg):
+            return "Degenerate polygon: \(msg)"
+        case .degenerateEllipse(let msg):
+            return "Degenerate ellipse: \(msg)"
         }
     }
 }

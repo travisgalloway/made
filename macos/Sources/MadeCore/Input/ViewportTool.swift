@@ -8,6 +8,9 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
     case zoom
     case trim
     case rectangle
+    case slot
+    case polygon
+    case ellipse
 
     public var id: String { rawValue }
 
@@ -19,6 +22,9 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
         case .zoom: return "Zoom"
         case .trim: return "Trim"
         case .rectangle: return "Rectangle"
+        case .slot: return "Slot"
+        case .polygon: return "Polygon"
+        case .ellipse: return "Ellipse"
         }
     }
 
@@ -30,6 +36,9 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
         case .zoom: return "magnifyingglass"
         case .trim: return "scissors"
         case .rectangle: return "rectangle"
+        case .slot: return "capsule"
+        case .polygon: return "hexagon"
+        case .ellipse: return "oval"
         }
     }
 
@@ -42,6 +51,9 @@ public enum ViewportTool: String, CaseIterable, Identifiable, Sendable {
         case .zoom: return "z"
         case .trim: return "t"
         case .rectangle: return "r"
+        case .slot: return "s"
+        case .polygon: return "g"
+        case .ellipse: return "e"
         }
     }
 
@@ -144,6 +156,9 @@ extension ViewportTool {
         case .zoom: return .zoom
         case .trim: return .manipulate
         case .rectangle: return .manipulate
+        case .slot: return .manipulate
+        case .polygon: return .manipulate
+        case .ellipse: return .manipulate
         }
     }
 

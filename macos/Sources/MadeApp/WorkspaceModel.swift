@@ -692,6 +692,9 @@ final class WorkspaceModel {
         }
     }
     var activeRectangleKind: SketchRectangleKind = .corner
+    var activeSlotKind: SketchSlotKind = .straight
+    var activePolygonSides: Int = 6
+    var activePolygonKind: SketchPolygonKind = .inscribed
     var selectionFilter: SelectionFilter = .all {
         didSet {
             if selectionFilter != oldValue {
@@ -2405,6 +2408,178 @@ final class WorkspaceModel {
             entities: result.entities,
             constraints: result.constraints,
             actionName: "Add Three-Point Rectangle"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func addStraightSlot(
+        to featureId: UUID? = nil,
+        center1: SIMD2<Double>? = nil,
+        center2: SIMD2<Double>? = nil,
+        width: Double = 10.0
+    ) throws -> SketchSlotResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let c1 = center1 ?? SIMD2<Double>(0, 0)
+        let c2 = center2 ?? SIMD2<Double>(30, 0)
+        let result = try SketchSlot.makeStraightSlot(center1: c1, center2: c2, width: width)
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Straight Slot"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func addArcSlot(
+        to featureId: UUID? = nil,
+        center: SIMD2<Double>? = nil,
+        radius: Double = 25.0,
+        startAngle: Double = 0.0,
+        endAngle: Double = Double.pi,
+        width: Double = 10.0
+    ) throws -> SketchSlotResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let c = center ?? SIMD2<Double>(0, 0)
+        let result = try SketchSlot.makeArcSlot(
+            center: c,
+            radius: radius,
+            startAngle: startAngle,
+            endAngle: endAngle,
+            width: width
+        )
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Arc Slot"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func addRegularPolygon(
+        to featureId: UUID? = nil,
+        center: SIMD2<Double>? = nil,
+        radius: Double = 20.0,
+        sides: Int? = nil,
+        rotationAngle: Double = 0.0,
+        kind: SketchPolygonKind? = nil
+    ) throws -> SketchPolygonResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let c = center ?? SIMD2<Double>(0, 0)
+        let nSides = sides ?? activePolygonSides
+        let polyKind = kind ?? activePolygonKind
+        let result = try SketchPolygon.makeRegularPolygon(
+            center: c,
+            radius: radius,
+            sides: nSides,
+            rotationAngle: rotationAngle,
+            kind: polyKind
+        )
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Regular Polygon"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func addEllipse(
+        to featureId: UUID? = nil,
+        center: SIMD2<Double>? = nil,
+        radiusX: Double = 25.0,
+        radiusY: Double = 15.0,
+        rotation: Double = 0.0
+    ) throws -> SketchEllipseResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let c = center ?? SIMD2<Double>(0, 0)
+        let result = try SketchEllipse.makeEllipse(
+            center: c,
+            radiusX: radiusX,
+            radiusY: radiusY,
+            rotation: rotation
+        )
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Ellipse"
+        )
+        if case .failure(let err) = res {
+            throw SketchError.invalidEntity("Document mutation failed: \(err)")
+        }
+        refreshSketchStatus(for: targetId)
+        solveSketchConstraints(featureId: targetId)
+        recomputeDependents(of: targetId)
+        return result
+    }
+
+    @discardableResult
+    func addEllipticalArc(
+        to featureId: UUID? = nil,
+        center: SIMD2<Double>? = nil,
+        radiusX: Double = 25.0,
+        radiusY: Double = 15.0,
+        rotation: Double = 0.0,
+        startAngle: Double = 0.0,
+        endAngle: Double = Double.pi,
+        clockwise: Bool = false
+    ) throws -> SketchEllipseResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let c = center ?? SIMD2<Double>(0, 0)
+        let result = try SketchEllipse.makeEllipticalArc(
+            center: c,
+            radiusX: radiusX,
+            radiusY: radiusY,
+            rotation: rotation,
+            startAngle: startAngle,
+            endAngle: endAngle,
+            clockwise: clockwise
+        )
+        let res = document.addSketchEntitiesAndConstraints(
+            to: targetId,
+            entities: result.entities,
+            constraints: result.constraints,
+            actionName: "Add Elliptical Arc"
         )
         if case .failure(let err) = res {
             throw SketchError.invalidEntity("Document mutation failed: \(err)")
@@ -9289,6 +9464,9 @@ public struct SimulationAnimationState: Sendable, Equatable {
     static let toolZoomShortcutKey: KeyEquivalent = "4"
     static let toolTrimShortcutKey: KeyEquivalent = "5"
     static let toolRectangleShortcutKey: KeyEquivalent = "6"
+    static let toolSlotShortcutKey: KeyEquivalent = "7"
+    static let toolPolygonShortcutKey: KeyEquivalent = "8"
+    static let toolEllipseShortcutKey: KeyEquivalent = "9"
     static let toolShortcutModifiers: EventModifiers = [.command, .option]
     static let projectGeometryShortcutKey: KeyEquivalent = "j"
     static let projectGeometryShortcutModifiers: EventModifiers = [.command]
@@ -9354,6 +9532,9 @@ public struct SimulationAnimationState: Sendable, Equatable {
         ShortcutCheatsheetEntry(title: "Pan", shortcut: "P / ⌥⌘3", category: .tools, description: "Pan tool — pan camera view parallel to screen"),
         ShortcutCheatsheetEntry(title: "Zoom", shortcut: "Z / ⌥⌘4", category: .tools, description: "Zoom tool — drag to smoothly zoom in or out"),
         ShortcutCheatsheetEntry(title: "Rectangle", shortcut: "R / ⌥⌘6", category: .tools, description: "Rectangle tool — draw corner, center, or 3-point rectangles"),
+        ShortcutCheatsheetEntry(title: "Slot", shortcut: "S / ⌥⌘7", category: .tools, description: "Slot tool — draw straight or arc slots"),
+        ShortcutCheatsheetEntry(title: "Polygon", shortcut: "G / ⌥⌘8", category: .tools, description: "Polygon tool — draw regular polygons"),
+        ShortcutCheatsheetEntry(title: "Ellipse", shortcut: "E / ⌥⌘9", category: .tools, description: "Ellipse tool — draw ellipses or elliptical arcs"),
 
         ShortcutCheatsheetEntry(title: "Filter Faces", shortcut: "⌥F", category: .editing, description: "Filter selection to faces"),
         ShortcutCheatsheetEntry(title: "Filter Edges", shortcut: "⌥E", category: .editing, description: "Filter selection to edges"),

@@ -524,31 +524,31 @@ public struct ConstraintSolver: Sendable {
             return [0.0]
 
         case .coincident:
-            if let lineA = entityA.asLine(), let lineB = entityB?.asLine() {
-                let dStartStart = hypot(lineA.start.x - lineB.start.x, lineA.start.y - lineB.start.y)
-                let dStartEnd = hypot(lineA.start.x - lineB.end.x, lineA.start.y - lineB.end.y)
-                let dEndStart = hypot(lineA.end.x - lineB.start.x, lineA.end.y - lineB.start.y)
-                let dEndEnd = hypot(lineA.end.x - lineB.end.x, lineA.end.y - lineB.end.y)
+            if let curveA = entityA.curveEndpoints(), let curveB = entityB?.curveEndpoints() {
+                let dStartStart = hypot(curveA.0.x - curveB.0.x, curveA.0.y - curveB.0.y)
+                let dStartEnd = hypot(curveA.0.x - curveB.1.x, curveA.0.y - curveB.1.y)
+                let dEndStart = hypot(curveA.1.x - curveB.0.x, curveA.1.y - curveB.0.y)
+                let dEndEnd = hypot(curveA.1.x - curveB.1.x, curveA.1.y - curveB.1.y)
 
                 let minDist = min(dStartStart, dStartEnd, dEndStart, dEndEnd)
                 if dStartStart <= minDist + 1e-3 {
-                    return [lineA.start.x - lineB.start.x, lineA.start.y - lineB.start.y]
+                    return [curveA.0.x - curveB.0.x, curveA.0.y - curveB.0.y]
                 } else if dStartEnd <= minDist + 1e-3 {
-                    return [lineA.start.x - lineB.end.x, lineA.start.y - lineB.end.y]
+                    return [curveA.0.x - curveB.1.x, curveA.0.y - curveB.1.y]
                 } else if dEndStart <= minDist + 1e-3 {
-                    return [lineA.end.x - lineB.start.x, lineA.end.y - lineB.start.y]
+                    return [curveA.1.x - curveB.0.x, curveA.1.y - curveB.0.y]
                 } else {
-                    return [lineA.end.x - lineB.end.x, lineA.end.y - lineB.end.y]
+                    return [curveA.1.x - curveB.1.x, curveA.1.y - curveB.1.y]
                 }
-            } else if let lineA = entityA.asLine(), let cB = entityB?.centerPoint {
-                let dStart = hypot(lineA.start.x - cB.x, lineA.start.y - cB.y)
-                let dEnd = hypot(lineA.end.x - cB.x, lineA.end.y - cB.y)
-                let pA = dStart <= min(dStart, dEnd) + 1e-3 ? lineA.start : lineA.end
+            } else if let curveA = entityA.curveEndpoints(), let cB = entityB?.centerPoint {
+                let dStart = hypot(curveA.0.x - cB.x, curveA.0.y - cB.y)
+                let dEnd = hypot(curveA.1.x - cB.x, curveA.1.y - cB.y)
+                let pA = dStart <= min(dStart, dEnd) + 1e-3 ? curveA.0 : curveA.1
                 return [pA.x - cB.x, pA.y - cB.y]
-            } else if let cA = entityA.centerPoint, let lineB = entityB?.asLine() {
-                let dStart = hypot(cA.x - lineB.start.x, cA.y - lineB.start.y)
-                let dEnd = hypot(cA.x - lineB.end.x, cA.y - lineB.end.y)
-                let pB = dStart <= min(dStart, dEnd) + 1e-3 ? lineB.start : lineB.end
+            } else if let cA = entityA.centerPoint, let curveB = entityB?.curveEndpoints() {
+                let dStart = hypot(cA.x - curveB.0.x, cA.y - curveB.0.y)
+                let dEnd = hypot(cA.x - curveB.1.x, cA.y - curveB.1.y)
+                let pB = dStart <= min(dStart, dEnd) + 1e-3 ? curveB.0 : curveB.1
                 return [cA.x - pB.x, cA.y - pB.y]
             } else {
                 let pA = entityA.startPoint ?? entityA.centerPoint ?? .zero
@@ -1023,7 +1023,22 @@ private extension SketchEntity {
     }
 
     func asCircle() -> (center: SIMD2<Double>, radius: Double)? {
-        guard kind == "circle", let c = centerPoint, let r = radius else { return nil }
-        return (center: c, radius: r)
+        if kind == "circle", let c = centerPoint, let r = radius {
+            return (center: c, radius: r)
+        }
+        if kind == "arc", let c = centerPoint {
+            let r = radius ?? startPoint.map { hypot($0.x - c.x, $0.y - c.y) }
+            if let r {
+                return (center: c, radius: r)
+            }
+        }
+        return nil
+    }
+
+    func curveEndpoints() -> (SIMD2<Double>, SIMD2<Double>)? {
+        guard kind == "line" || kind == "arc" || kind == "ellipticalArc",
+              let s = startPoint, let e = endPoint else { return nil }
+        return (s, e)
     }
 }
+
