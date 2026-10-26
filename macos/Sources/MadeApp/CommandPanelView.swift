@@ -17,7 +17,7 @@ struct CommandPanelView: View {
 
             inputsSection
 
-            if session.title != "Measure" {
+            if session.onPreviewUpdate != nil && session.title != "Measure" {
                 Divider()
 
                 Toggle("Preview", isOn: $session.isPreviewEnabled)
@@ -45,13 +45,26 @@ struct CommandPanelView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 6) {
             Image(systemName: "wrench.and.screwdriver")
                 .foregroundStyle(.tint)
             Text(session.title)
                 .font(.headline)
+                .lineLimit(1)
             Spacer()
+            Button {
+                workspace.cancelActiveCommand()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss (Esc)")
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier("command-panel-close-button")
         }
+        .contentShape(Rectangle())
     }
 
     private var selectionSlotsSection: some View {
@@ -70,7 +83,7 @@ struct CommandPanelView: View {
 
     private var inputsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(session.inputs) { input in
+            ForEach(session.visibleInputs) { input in
                 inputRow(input)
             }
         }

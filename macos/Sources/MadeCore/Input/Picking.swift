@@ -442,8 +442,16 @@ public func pickSolid(ray: Ray3D, candidateMeshes: [CandidateMesh]) -> PickResul
         }
 
         if misses || tMax < 0 { continue }
-        let t = tMin >= 0 ? tMin : tMax
-        guard t >= 0 else { continue }
+
+        let t: Float
+        if let bvh = mesh.spatialIndex?.triangleBVH, !bvh.nodes.isEmpty {
+            let localRay = Ray3D(origin: localOrigin, direction: localDir)
+            guard let triHit = bvh.raycast(ray: localRay) else { continue }
+            t = triHit.distance
+        } else {
+            t = tMin >= 0 ? tMin : tMax
+            guard t >= 0 else { continue }
+        }
 
         let hitPoint = worldRay.origin + worldRay.direction * t
         let hit = PickResult(id: mesh.id, distance: t, hitPoint: hitPoint)

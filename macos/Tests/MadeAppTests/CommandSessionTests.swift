@@ -1688,6 +1688,112 @@ extension WorkspaceModelTests {
             #expect(abs(pt.z) < 1.0)
         }
     }
+
+    @Test @MainActor func testDatumAndFeatureVisibleInputsFilterByMode() {
+        let workspace = WorkspaceModel()
+
+        let planeSession = CommandSession.makeDatumPlane(workspace: workspace)
+        #expect(planeSession.visibleInputs.map(\.id) == ["name", "mode", "originPreset", "flip"])
+
+        planeSession.setChoiceValue("Offset", for: "mode")
+        #expect(planeSession.visibleInputs.map(\.id) == ["name", "mode", "originPreset", "offset", "flip"])
+
+        planeSession.setChoiceValue("At Angle", for: "mode")
+        #expect(planeSession.visibleInputs.map(\.id) == ["name", "mode", "originPreset", "angle", "flip"])
+
+        planeSession.setChoiceValue("Three Points", for: "mode")
+        #expect(planeSession.visibleInputs.map(\.id) == [
+            "name", "mode",
+            "point1X", "point1Y", "point1Z",
+            "point2X", "point2Y", "point2Z",
+            "point3X", "point3Y", "point3Z",
+            "flip"
+        ])
+
+        let axisSession = CommandSession.makeDatumAxis(workspace: workspace)
+        #expect(axisSession.visibleInputs.map(\.id) == ["name", "mode", "preset", "flip"])
+        axisSession.setChoiceValue("Two Points", for: "mode")
+        #expect(axisSession.visibleInputs.map(\.id) == [
+            "name", "mode",
+            "point1X", "point1Y", "point1Z",
+            "point2X", "point2Y", "point2Z",
+            "flip"
+        ])
+
+        let pointSession = CommandSession.makeDatumPoint(workspace: workspace)
+        #expect(pointSession.visibleInputs.map(\.id) == ["name", "mode", "coordX", "coordY", "coordZ"])
+        pointSession.setChoiceValue("Along Curve", for: "mode")
+        #expect(pointSession.visibleInputs.map(\.id) == ["name", "mode", "curveParameter"])
+
+        let chamferSession = CommandSession.makeChamfer(workspace: workspace)
+        #expect(chamferSession.visibleInputs.map(\.id) == ["mode", "distance"])
+        chamferSession.setChoiceValue("Two Distances", for: "mode")
+        #expect(chamferSession.visibleInputs.map(\.id) == ["mode", "distance", "distance2"])
+        chamferSession.setChoiceValue("Distance-Angle", for: "mode")
+        #expect(chamferSession.visibleInputs.map(\.id) == ["mode", "distance", "angle"])
+    }
+
+    @Test @MainActor func testCommandHUDClampedPositionWithDragOffset() {
+        let base = CGPoint(x: 100, y: 100)
+        let viewport = CGSize(width: 800, height: 600)
+        let hud = CGSize(width: 280, height: 240)
+
+        let moved = CommandHUDOverlayView.clampedPosition(
+            basePosition: base,
+            dragOffset: CGSize(width: 150, height: 80),
+            viewportSize: viewport,
+            hudSize: hud
+        )
+        #expect(moved == CGPoint(x: 250, y: 180))
+
+        let clampedTopLeft = CommandHUDOverlayView.clampedPosition(
+            basePosition: base,
+            dragOffset: CGSize(width: -500, height: -500),
+            viewportSize: viewport,
+            hudSize: hud,
+            margin: 12
+        )
+        #expect(clampedTopLeft == CGPoint(x: 12, y: 12))
+
+        let clampedBottomRight = CommandHUDOverlayView.clampedPosition(
+            basePosition: base,
+            dragOffset: CGSize(width: 1000, height: 1000),
+            viewportSize: viewport,
+            hudSize: hud,
+            margin: 12
+        )
+        #expect(clampedBottomRight == CGPoint(x: 800 - 280 - 12, y: 600 - 240 - 12))
+    }
+
+    @Test @MainActor func testInspectorPanelViewSingleSolidSelectionDoesNotTriggerMultiSelectAndFitsSidebarWidth() {
+        let workspace = WorkspaceModel()
+        let boxId = SolidId("box-1")
+        workspace.document.selectedId = boxId
+
+        // Simulate viewport click selecting both the body and a face of the same solid
+        if let feat = workspace.document.features.first(where: { $0.outputSolidId == boxId }),
+           let topRef = feat.generatedTopology.values.first {
+            workspace.document.selectedSubElement = SelectedSubElement(
+                solidId: boxId,
+                elementType: .face,
+                elementId: 0,
+                deterministicId: topRef.id
+            )
+        }
+
+        // Even with a face sub-element in document.selection, selectedIds has only 1 solid
+        #expect(workspace.document.selectedIds.count == 1)
+        #expect(workspace.selectedObject?.id == boxId)
+
+        let hosting = NSHostingView(
+            rootView: InspectorPanelView()
+                .environment(workspace)
+                .frame(width: 280, height: 600)
+        )
+        hosting.frame = NSRect(x: 0, y: 0, width: 280, height: 600)
+        hosting.layoutSubtreeIfNeeded()
+        #expect(hosting.fittingSize.width <= 340)
+    }
 }
 
 }

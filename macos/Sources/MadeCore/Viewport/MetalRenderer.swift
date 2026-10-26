@@ -1349,7 +1349,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         guard width > 0, height > 0 else { return nil }
 
         let px = Int(pointer.x)
-        let py = Int(pointer.y)
+        let py = height - 1 - Int(pointer.y)
         guard px >= 0, px < width, py >= 0, py < height else { return nil }
 
         let aspect = Float(width) / Float(height)

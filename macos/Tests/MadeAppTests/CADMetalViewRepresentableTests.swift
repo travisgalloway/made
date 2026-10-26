@@ -287,7 +287,7 @@ private enum MetalTestSupport {
         let vp = simd_mul(matrices.projection, matrices.view)
         let clip = simd_mul(vp, SIMD4<Float>(cornerVertex.position, 1.0))
         let screenX = (clip.x / clip.w * 0.5 + 0.5) * Float(width)
-        let screenY = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * Float(height)
+        let screenY = (clip.y / clip.w * 0.5 + 0.5) * Float(height)
         let cornerPt = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
 
         let event = makeMouseEvent(type: .mouseMoved, location: cornerPt, windowNumber: window.windowNumber)
@@ -514,7 +514,7 @@ private enum MetalTestSupport {
         let vp = simd_mul(matrices.projection, matrices.view)
         let clip = simd_mul(vp, SIMD4<Float>(50, 0, 0, 1.0))
         let screenX = (clip.x / clip.w * 0.5 + 0.5) * Float(width)
-        let screenY = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * Float(height)
+        let screenY = (clip.y / clip.w * 0.5 + 0.5) * Float(height)
         let cylCenter = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
 
         // Initial state: single box selected
@@ -553,7 +553,7 @@ private enum MetalTestSupport {
         let vp = simd_mul(matrices.projection, matrices.view)
         let clip = simd_mul(vp, SIMD4<Float>(50, 0, 0, 1.0))
         let screenX = (clip.x / clip.w * 0.5 + 0.5) * Float(width)
-        let screenY = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * Float(height)
+        let screenY = (clip.y / clip.w * 0.5 + 0.5) * Float(height)
         let cylCenter = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
 
         // Pre-select both box and cylinder
@@ -590,7 +590,7 @@ private enum MetalTestSupport {
         let vp = simd_mul(matrices.projection, matrices.view)
         let clip = simd_mul(vp, SIMD4<Float>(50, 0, 0, 1.0))
         let screenX = (clip.x / clip.w * 0.5 + 0.5) * Float(width)
-        let screenY = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * Float(height)
+        let screenY = (clip.y / clip.w * 0.5 + 0.5) * Float(height)
         let cylCenter = CGPoint(x: CGFloat(screenX), y: CGFloat(screenY))
 
         // Command-click cylinder center
@@ -1091,5 +1091,53 @@ private enum MetalTestSupport {
         let snapshot = ViewportProbe.parse(probeValue)
         #expect(snapshot.state == "ready")
         #expect(snapshot.hits.contains { $0.id == SolidId("box-1") })
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testSelectingCylinderThenClickingBoxSelectsBox() throws {
+        let (window, view, coordinator, renderer, document, _) = try makeHarness()
+        let boxId = SolidId("box-1")
+        let cylId = SolidId("cylinder-1")
+
+        // Position box at (-25, 0, 0) and cylinder at (25, 0, 0) matching default scene
+        let boxTransform = Transform(position: SIMD3<Float>(-25, 0, 0))
+        document.setTransform(id: boxId, transform: boxTransform)
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        renderer.meshes[boxId] = try #require(
+            renderer.createMesh(from: boxPayload, solidId: boxId, transform: boxTransform, color: SIMD4<Float>(0.35, 0.55, 0.85, 1.0))
+        )
+
+        let cylTransform = Transform(position: SIMD3<Float>(25, 0, 0))
+        let cylPayload = NativeGeometryGenerator.generateCylinder(radius: 15, height: 40)
+        renderer.meshes[cylId] = try #require(
+            renderer.createMesh(from: cylPayload, solidId: cylId, transform: cylTransform, color: SIMD4<Float>(0.85, 0.45, 0.35, 1.0))
+        )
+
+        let viewportSize = CGSize(width: width, height: height)
+        let aspect = Float(width) / Float(height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let vp = simd_mul(matrices.projection, matrices.view)
+
+        let cylScreen = try #require(projectToScreen(point: SIMD3<Float>(25, 0, 0), viewProjectionMatrix: vp, viewportSize: viewportSize))
+        let boxScreen = try #require(projectToScreen(point: SIMD3<Float>(-25, 0, 0), viewProjectionMatrix: vp, viewportSize: viewportSize))
+
+        // 1. Click cylinder to select it
+        let cylPt = CGPoint(x: CGFloat(cylScreen.x), y: CGFloat(cylScreen.y))
+        coordinator.handleMouseDown(with: makeMouseEvent(type: .leftMouseDown, location: cylPt, windowNumber: window.windowNumber), button: .left)
+        coordinator.handleMouseUp(with: makeMouseEvent(type: .leftMouseUp, location: cylPt, windowNumber: window.windowNumber), button: .left)
+        coordinator.parent.update(view: view, coordinator: coordinator)
+
+        #expect(document.selectedId == cylId)
+        #expect(renderer.selectedIds == [cylId])
+
+        // 2. Click box to switch selection back to box
+        let boxPt = CGPoint(x: CGFloat(boxScreen.x), y: CGFloat(boxScreen.y))
+        coordinator.handleMouseDown(with: makeMouseEvent(type: .leftMouseDown, location: boxPt, windowNumber: window.windowNumber), button: .left)
+        coordinator.handleMouseUp(with: makeMouseEvent(type: .leftMouseUp, location: boxPt, windowNumber: window.windowNumber), button: .left)
+        coordinator.parent.update(view: view, coordinator: coordinator)
+
+        #expect(document.selectedId == boxId)
+        #expect(document.selectedIds == [boxId])
+        #expect(renderer.selectedIds == [boxId])
     }
 }

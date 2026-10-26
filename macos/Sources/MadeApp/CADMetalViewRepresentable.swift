@@ -683,24 +683,26 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
                 let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
 
-                let candidateMeshes = parent.renderer.candidateMeshes()
-                let pickedSolidId = pickSolidAtPointer(
-                    pointer: pointerPt,
-                    viewportSize: view.bounds.size,
-                    viewMatrix: matrices.view,
-                    projectionMatrix: matrices.projection,
-                    candidateMeshes: candidateMeshes
-                )
-                var hitSelected = (pickedSolidId == selectedId)
-                if !hitSelected && parent.selectionFilter.allowsSubElements {
-                    if let subHit = parent.renderer.pickSubElement(
-                        at: pointerPt,
-                        viewportSize: view.bounds.size,
-                        filter: parent.selectionFilter
-                    ), subHit.solidId == selectedId {
-                        hitSelected = true
-                    }
+                var hitId: SolidId? = nil
+                if parent.selectionFilter.allowsSubElements,
+                   let subHit = parent.renderer.pickSubElement(
+                       at: pointerPt,
+                       viewportSize: view.bounds.size,
+                       filter: parent.selectionFilter
+                   ) {
+                    hitId = subHit.solidId
                 }
+                if hitId == nil {
+                    let candidateMeshes = parent.renderer.candidateMeshes()
+                    hitId = pickSolidAtPointer(
+                        pointer: pointerPt,
+                        viewportSize: view.bounds.size,
+                        viewMatrix: matrices.view,
+                        projectionMatrix: matrices.projection,
+                        candidateMeshes: candidateMeshes
+                    )
+                }
+                let hitSelected = (hitId == selectedId)
 
                 if hitSelected,
                    let startRay = screenPointToRay(
@@ -989,6 +991,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private func handleGizmoDrag(at loc: CGPoint, in view: MTKView, isTouch: Bool) {
             guard var drag = dragState else { return }
             let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            if !drag.hasMoved && simd_distance(pointerPt, drag.startPointer) < mouseClickThresholdPx {
+                return
+            }
             let testPointer = isTouch ? SIMD2<Float>(pointerPt.x, pointerPt.y + touchPickOffsetPt) : pointerPt
             let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
             let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
@@ -1162,6 +1167,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         private func handleWidgetlessDrag(at loc: CGPoint, in view: MTKView, isTouch: Bool) {
             guard var drag = widgetlessDragState else { return }
             let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            if !drag.hasMoved && simd_distance(pointerPt, drag.startPointer) < mouseClickThresholdPx {
+                return
+            }
             let testPointer = isTouch ? SIMD2<Float>(pointerPt.x, pointerPt.y + touchPickOffsetPt) : pointerPt
             let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
             let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
@@ -1324,7 +1332,15 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             activeOrbitPivot = nil
             (mtkView as? CADMTKView)?.endDragCursor()
             
+            var wasStationaryGizmoClick = false
+
             if let drag = widgetlessDragState {
+                let pointerMoved: Bool = {
+                    guard let view = mtkView else { return false }
+                    let loc = view.convert(event.locationInWindow, from: nil)
+                    let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
+                    return simd_length(pointerPt - drag.startPointer) >= mouseClickThresholdPx
+                }()
                 if let comp = parent.document.componentInstances.first(where: { $0.solidId == drag.selectedId }), !comp.isGrounded {
                     if drag.hasMoved {
                         parent.onAssemblyDragEnd?(comp.id)
@@ -1348,7 +1364,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 }
                 pointerRouter.arbiter.reset()
                 invalidate(reason: .interaction)
-                return
+                if drag.hasMoved || pointerMoved {
+                    return
+                }
             }
 
             if let drag = dragState {
@@ -1405,7 +1423,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 }
                 pointerRouter.arbiter.reset()
                 invalidate(reason: .interaction)
-                return
+                if drag.hasMoved {
+                    return
+                }
+                wasStationaryGizmoClick = true
             }
 
             if let drag = sketchDragState {
@@ -1576,7 +1597,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     if let hitId {
                         if isExtend {
                             parent.document.toggleSelection(solidId: hitId)
-                            if parent.document.selection.count > 1 {
+                            if parent.document.selectedIds.count > 1 {
                                 parent.document.selectedSubElement = nil
                             } else if parent.document.isSelected(solidId: hitId) {
                                 parent.document.selectedSubElement = selectedSub
@@ -1592,7 +1613,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                                 parent.onSelectObjectForCommand?(hitId)
                             }
                         }
-                    } else {
+                    } else if !wasStationaryGizmoClick {
                         // Empty space click clears selection
                         parent.document.clearSelection()
                     }
@@ -2756,6 +2777,9 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         private func handleGizmoDrag(at loc: CGPoint, in view: MTKView, isTouch: Bool) {
             guard var drag = dragState else { return }
             let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            if !drag.hasMoved && simd_distance(pointerPt, drag.startPointer) < mouseClickThresholdPx {
+                return
+            }
             let testPointer = isTouch ? SIMD2<Float>(pointerPt.x, pointerPt.y + touchPickOffsetPt) : pointerPt
             let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
             let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
@@ -2883,6 +2907,9 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         private func handleWidgetlessDrag(at loc: CGPoint, in view: MTKView, isTouch: Bool) {
             guard var drag = widgetlessDragState else { return }
             let pointerPt = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            if !drag.hasMoved && simd_distance(pointerPt, drag.startPointer) < mouseClickThresholdPx {
+                return
+            }
             let testPointer = isTouch ? SIMD2<Float>(pointerPt.x, pointerPt.y + touchPickOffsetPt) : pointerPt
             let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
             let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
