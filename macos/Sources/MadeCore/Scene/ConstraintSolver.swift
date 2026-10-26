@@ -563,6 +563,18 @@ public struct ConstraintSolver: Sendable {
         case .vertical:
             guard let line = entityA.asLine() else { return [0.0] }
             return [line.end.x - line.start.x]
+
+        case .equal:
+            if let lineA = entityA.asLine(), let lineB = entityB?.asLine() {
+                let vA = lineA.end - lineA.start
+                let vB = lineB.end - lineB.start
+                let lenA = hypot(vA.x, vA.y)
+                let lenB = hypot(vB.x, vB.y)
+                return [lenA - lenB]
+            } else if let cA = entityA.asCircle(), let cB = entityB?.asCircle() {
+                return [cA.radius - cB.radius]
+            }
+            return [0.0]
         }
     }
 

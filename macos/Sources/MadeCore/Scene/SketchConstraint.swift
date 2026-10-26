@@ -19,6 +19,7 @@ public struct SketchConstraint: Sendable, Codable, Equatable, Identifiable {
         case coincident
         case horizontal
         case vertical
+        case equal
     }
 
     public init(
@@ -218,6 +219,22 @@ public struct SketchConstraint: Sendable, Codable, Equatable, Identifiable {
             let symDiff = abs(d1 + d2)
             guard symDiff.isFinite else { return nil }
             return (symDiff, false)
+
+        case .equal:
+            guard entityIds.count >= 2,
+                  let e1 = entityMap[entityIds[0]],
+                  let e2 = entityMap[entityIds[1]] else { return nil }
+            if let len1 = e1.length, let len2 = e2.length {
+                let diff = abs(len1 - len2)
+                guard diff.isFinite else { return nil }
+                return (diff, false)
+            }
+            if let r1 = e1.radius, let r2 = e2.radius {
+                let diff = abs(r1 - r2)
+                guard diff.isFinite else { return nil }
+                return (diff, false)
+            }
+            return nil
         }
     }
 

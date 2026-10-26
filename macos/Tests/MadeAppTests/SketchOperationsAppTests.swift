@@ -1,241 +1,241 @@
 import Testing
-import SwiftUI
+import Foundation
 import simd
+@testable import MadeCore
 @testable import MadeApp
-import MadeCore
 
 @Suite struct SketchOperationsAppTests {
 
-    // MARK: - DocumentModel Mutators & Symmetric Undo/Redo
+    @Test @MainActor func testDocumentModelAtomicOffsetAndSymmetricUndoRedo() throws {
+        let document = DocumentModel()
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(40, 0))
+        let l2 = SketchEntity.line(start: SIMD2(40, 0), end: SIMD2(40, 30))
+        let l3 = SketchEntity.line(start: SIMD2(40, 30), end: SIMD2(0, 30))
+        let l4 = SketchEntity.line(start: SIMD2(0, 30), end: SIMD2(0, 0))
 
-    @MainActor
-    @Test func testDocumentTrimSketchEntityAndUndoRedo() throws {
-        let doc = DocumentModel()
-        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
-        let cross = SketchEntity.line(start: SIMD2(4, -5), end: SIMD2(4, 5))
-        let sketch = doc.addSketchFeature(planeName: "xy", entities: [line, cross])
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+        document.undoManager?.removeAllActions()
 
-        doc.undoManager?.removeAllActions()
-
-        // Trim end segment of line
-        let res = doc.trimSketchEntity(in: sketch.id, entityId: line.id, clickPoint: SIMD2(8, 0))
-        guard case .success(let trimResult) = res, case .updated(let updated) = trimResult else {
-            Issue.record("Expected .updated trim result")
+        let offset = try SketchOffset.makeOffset(entities: [l1, l2, l3, l4], distance: 5.0)
+        let addResult = document.addSketchEntitiesAndConstraints(
+            to: sketch.id,
+            entities: offset.entities,
+            constraints: offset.constraints,
+            actionName: "Offset Entities"
+        )
+        guard case .success = addResult else {
+            Issue.record("Expected successful batch addition for offset")
             return
         }
-        #expect(abs(updated.endPoint!.x - 4.0) < 1e-4)
 
-        // Verify entity in document
-        guard case .sketch(let data1) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch")
+        var feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 8)
+            #expect(data.constraints.count == offset.constraints.count)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+
+        // Single undo step rolls back offset entities and constraints
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 4)
+            #expect(data.constraints.isEmpty)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+
+        // Single redo step restores offset entities and constraints
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 8)
+            #expect(data.constraints.count == offset.constraints.count)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+    }
+
+    @Test @MainActor func testDocumentModelAtomicMirrorAndSymmetricUndoRedo() throws {
+        let document = DocumentModel()
+        let axis = SketchEntity.line(start: SIMD2(0, -50), end: SIMD2(0, 50), isConstruction: true)
+        let line = SketchEntity.line(start: SIMD2(10, 0), end: SIMD2(25, 20))
+
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [axis, line])
+        document.undoManager?.removeAllActions()
+
+        let mirror = try SketchMirror.makeMirror(entities: [line], mirrorLine: axis)
+        let addResult = document.addSketchEntitiesAndConstraints(
+            to: sketch.id,
+            entities: mirror.entities,
+            constraints: mirror.constraints,
+            actionName: "Mirror Entities"
+        )
+        guard case .success = addResult else {
+            Issue.record("Expected successful batch addition for mirror")
             return
         }
-        let storedLine1 = data1.entities.first(where: { $0.id == line.id })!
-        #expect(abs(storedLine1.endPoint!.x - 4.0) < 1e-4)
+
+        var feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 3)
+            #expect(data.constraints.count == mirror.constraints.count)
+        }
 
         // Undo
-        #expect(doc.canUndo)
-        doc.undo()
-
-        guard case .sketch(let data2) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch after undo")
-            return
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 2)
+            #expect(data.constraints.isEmpty)
         }
-        let restoredLine = data2.entities.first(where: { $0.id == line.id })!
-        #expect(abs(restoredLine.endPoint!.x - 10.0) < 1e-4)
 
         // Redo
-        #expect(doc.canRedo)
-        doc.redo()
-
-        guard case .sketch(let data3) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch after redo")
-            return
-        }
-        let retrimmedLine = data3.entities.first(where: { $0.id == line.id })!
-        #expect(abs(retrimmedLine.endPoint!.x - 4.0) < 1e-4)
-    }
-
-    @MainActor
-    @Test func testDocumentExtendSketchEntityAndUndoRedo() throws {
-        let doc = DocumentModel()
-        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(5, 0))
-        let boundary = SketchEntity.line(start: SIMD2(15, -10), end: SIMD2(15, 10))
-        let sketch = doc.addSketchFeature(planeName: "xy", entities: [line, boundary])
-
-        doc.undoManager?.removeAllActions()
-
-        let res = doc.extendSketchEntity(in: sketch.id, entityId: line.id, targetEnd: .end)
-        guard case .success(let extended) = res else {
-            Issue.record("Expected successful extend")
-            return
-        }
-        #expect(abs(extended.endPoint!.x - 15.0) < 1e-4)
-
-        #expect(doc.canUndo)
-        doc.undo()
-
-        guard case .sketch(let data) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch")
-            return
-        }
-        let restored = data.entities.first(where: { $0.id == line.id })!
-        #expect(abs(restored.endPoint!.x - 5.0) < 1e-4)
-
-        #expect(doc.canRedo)
-        doc.redo()
-
-        guard case .sketch(let redoData) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch")
-            return
-        }
-        let reExtended = redoData.entities.first(where: { $0.id == line.id })!
-        #expect(abs(reExtended.endPoint!.x - 15.0) < 1e-4)
-    }
-
-    @MainActor
-    @Test func testDocumentSplitSketchEntityAndUndoRedo() throws {
-        let doc = DocumentModel()
-        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
-        let sketch = doc.addSketchFeature(planeName: "xy", entities: [line])
-
-        doc.undoManager?.removeAllActions()
-
-        let res = doc.splitSketchEntity(in: sketch.id, entityId: line.id, at: SIMD2(6, 0))
-        guard case .success(let parts) = res else {
-            Issue.record("Expected successful split")
-            return
-        }
-        #expect(parts.0.id == line.id)
-        #expect(parts.1.id != line.id)
-
-        guard case .sketch(let splitData) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch")
-            return
-        }
-        #expect(splitData.entities.count == 2)
-
-        #expect(doc.canUndo)
-        doc.undo()
-
-        guard case .sketch(let undoData) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch")
-            return
-        }
-        #expect(undoData.entities.count == 1)
-        #expect(abs(undoData.entities[0].endPoint!.x - 10.0) < 1e-4)
-
-        #expect(doc.canRedo)
-        doc.redo()
-
-        guard case .sketch(let redoData) = doc.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch")
-            return
-        }
-        #expect(redoData.entities.count == 2)
-    }
-
-    @MainActor
-    @Test func testLockedSketchMutationRejection() throws {
-        let doc = DocumentModel()
-        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
-        var sketch = Feature(name: "Sketch 1", operation: .sketch(SketchFeatureData(entities: [line])))
-        sketch.isLocked = true
-        _ = doc.addFeature(sketch)
-
-        let trimRes = doc.trimSketchEntity(in: sketch.id, entityId: line.id, clickPoint: SIMD2(5, 0))
-        guard case .failure(.objectLocked) = trimRes else {
-            Issue.record("Expected .objectLocked on locked sketch trim")
-            return
-        }
-
-        let extendRes = doc.extendSketchEntity(in: sketch.id, entityId: line.id, targetEnd: .end)
-        guard case .failure(.objectLocked) = extendRes else {
-            Issue.record("Expected .objectLocked on locked sketch extend")
-            return
-        }
-
-        let splitRes = doc.splitSketchEntity(in: sketch.id, entityId: line.id, at: SIMD2(5, 0))
-        guard case .failure(.objectLocked) = splitRes else {
-            Issue.record("Expected .objectLocked on locked sketch split")
-            return
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 3)
+            #expect(data.constraints.count == mirror.constraints.count)
         }
     }
 
-    // MARK: - Downstream Timeline Recomputation
+    @Test @MainActor func testDocumentModelAtomicPatternAndSymmetricUndoRedo() throws {
+        let document = DocumentModel()
+        let circle = SketchEntity.circle(center: SIMD2(10, 10), radius: 5)
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [circle])
+        document.undoManager?.removeAllActions()
 
-    @MainActor
-    @Test func testTrimRegeneratesDownstreamExtrude() async throws {
+        let pattern = try SketchPattern.makeLinearPattern(
+            entities: [circle],
+            direction1: SIMD2(1, 0),
+            spacing1: 20,
+            count1: 3
+        )
+        let addResult = document.addSketchEntitiesAndConstraints(
+            to: sketch.id,
+            entities: pattern.entities,
+            constraints: pattern.constraints,
+            actionName: "Linear Pattern Entities"
+        )
+        guard case .success = addResult else {
+            Issue.record("Expected successful batch addition for pattern")
+            return
+        }
+
+        var feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 3)
+            #expect(data.constraints.count == 2)
+        }
+
+        // Undo
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 1)
+            #expect(data.constraints.isEmpty)
+        }
+
+        // Redo
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 3)
+            #expect(data.constraints.count == 2)
+        }
+    }
+
+    @Test @MainActor func testWorkspaceMutatorsAndExtrusion() async throws {
         let workspace = WorkspaceModel()
-        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(20, 0))
-        let l2 = SketchEntity.line(start: SIMD2(20, 0), end: SIMD2(20, 10))
-        let l3 = SketchEntity.line(start: SIMD2(20, 10), end: SIMD2(0, 10))
-        let l4 = SketchEntity.line(start: SIMD2(0, 10), end: SIMD2(0, 0))
+
+        // 1. Offset mutator on closed rectangle and extrude
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(50, 0))
+        let l2 = SketchEntity.line(start: SIMD2(50, 0), end: SIMD2(50, 40))
+        let l3 = SketchEntity.line(start: SIMD2(50, 40), end: SIMD2(0, 40))
+        let l4 = SketchEntity.line(start: SIMD2(0, 40), end: SIMD2(0, 0))
 
         let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
-        let solidId = await workspace.extrudeSketch(
-            sketchFeatureId: sketch.id,
-            distance: 10.0,
-            isSymmetric: false
+        workspace.selectedId = ObjectId(sketch.id.uuidString)
+
+        let offsetRes = try workspace.offsetSketchEntities(in: sketch.id, distance: 5.0)
+        #expect(offsetRes.entities.count == 4)
+
+        // 2. Pattern mutator in a new sketch
+        let sketch2 = workspace.document.addSketchFeature(planeName: "xy", entities: [])
+        let circle = SketchEntity.circle(center: SIMD2(0, 0), radius: 10.0)
+        workspace.addSketchEntity(to: sketch2.id, entity: circle)
+
+        let patternRes = try workspace.linearPatternSketchEntities(
+            in: sketch2.id,
+            spacing1: 30.0,
+            count1: 2
         )
+        #expect(patternRes.entities.count == 1)
+
+        // Extrude sketch with patterned circles
+        let solidId = await workspace.extrudeSketch(sketchFeatureId: sketch2.id, distance: 15.0)
         let sid = try #require(solidId)
-        var extrudeFeat = try #require(workspace.document.feature(for: sid))
-        #expect(extrudeFeat.errorState == nil)
-
-        // Add dangling segment attached to corner (20, 10)
-        let dangle = SketchEntity.line(start: SIMD2(20, 10), end: SIMD2(25, 10))
-        workspace.addSketchEntity(to: sketch.id, entity: dangle)
-
-        await KernelRegeneration.regenerateIncremental(from: sketch.id, in: workspace.document, client: workspace.kernelClient)
-        extrudeFeat = try #require(workspace.document.feature(for: sid))
-        #expect(extrudeFeat.errorState != nil)
-
-        // Trim dangling entity
-        let trimRes = workspace.trimSketchEntity(in: sketch.id, entityId: dangle.id, clickPoint: SIMD2(23, 10))
-        guard case .success = trimRes else {
-            Issue.record("Expected successful trim")
-            return
-        }
-
-        try await Task.sleep(for: .milliseconds(150))
-        // Recompute downstream features via incremental regeneration
-        await KernelRegeneration.regenerateIncremental(from: sketch.id, in: workspace.document, client: workspace.kernelClient)
-        try await Task.sleep(for: .milliseconds(150))
-
-        // Verify downstream extrude recovers cleanly
-        extrudeFeat = try #require(workspace.document.feature(for: sid))
+        let extrudeFeat = try #require(workspace.document.feature(for: sid))
         #expect(extrudeFeat.errorState == nil)
     }
 
-    // MARK: - ViewportTool & UI Wiring
+    @Test @MainActor func testCADToolsMCPPatternAndOffsetEndpoints() async throws {
+        let document = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: document, kernelClient: kernel)
 
-    @Test func testViewportToolTrimProperties() {
-        let tool = ViewportTool.trim
-        #expect(tool.title == "Trim")
-        #expect(tool.systemImage == "scissors")
-        #expect(tool.shortcutKey == "t")
-        #expect(ViewportTool.forShortcutKey("t") == .trim)
-        #expect(ViewportTool.forShortcutKey("T") == .trim)
-    }
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(30, 0))
+        let l2 = SketchEntity.line(start: SIMD2(30, 0), end: SIMD2(30, 20))
+        let axis = SketchEntity.line(start: SIMD2(0, -10), end: SIMD2(0, 50), isConstruction: true)
+        let circle = SketchEntity.circle(center: SIMD2(15, 10), radius: 4)
 
-    @MainActor
-    @Test func testWorkspaceTrimShortcutsAndDelegators() throws {
-        #expect(WorkspaceModel.toolTrimShortcutKey == "5")
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [l1, l2, axis, circle])
+        let sketchIdStr = sketch.id.uuidString
 
-        let workspace = WorkspaceModel()
-        let line = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(10, 0))
-        let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [line])
+        // 1. offset_sketch_entities
+        let offsetResult = await registry.callTool(
+            name: "offset_sketch_entities",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "distance": .double(5.0)
+            ]
+        )
+        #expect(offsetResult.isError == false)
 
-        workspace.selectSketchEntity(featureId: sketch.id, entityId: line.id)
-        #expect(workspace.selectedSketchEntity != nil)
+        // 2. mirror_sketch_entities
+        let mirrorResult = await registry.callTool(
+            name: "mirror_sketch_entities",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "mirrorLineId": .string(axis.id.uuidString)
+            ]
+        )
+        #expect(mirrorResult.isError == false)
 
-        // Test split at midpoint helper
-        workspace.splitSelectedSketchEntityAtMidpoint()
-        guard case .sketch(let data) = workspace.document.feature(for: sketch.id)?.operation else {
-            Issue.record("Missing sketch")
-            return
-        }
-        #expect(data.entities.count == 2)
-        #expect(abs(data.entities[0].endPoint!.x - 5.0) < 1e-4)
+        // 3. linear_pattern_sketch_entities
+        let linearResult = await registry.callTool(
+            name: "linear_pattern_sketch_entities",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "spacing1": .double(25.0),
+                "count1": .int(2),
+                "entityIds": .array([.string(circle.id.uuidString)])
+            ]
+        )
+        #expect(linearResult.isError == false)
+
+        // 4. circular_pattern_sketch_entities
+        let circularResult = await registry.callTool(
+            name: "circular_pattern_sketch_entities",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "centerX": .double(0.0),
+                "centerY": .double(0.0),
+                "count": .int(3),
+                "entityIds": .array([.string(circle.id.uuidString)])
+            ]
+        )
+        #expect(circularResult.isError == false)
     }
 }

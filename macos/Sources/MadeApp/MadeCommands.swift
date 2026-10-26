@@ -642,6 +642,28 @@ struct ToolsMenuCommands: Commands {
 
                 Divider()
 
+                Button("Offset Entities...") {
+                    _ = try? workspace.offsetSketchEntities()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Button("Mirror Entities...") {
+                    _ = try? workspace.mirrorSketchEntities()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Button("Linear Pattern...") {
+                    _ = try? workspace.linearPatternSketchEntities()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Button("Circular Pattern...") {
+                    _ = try? workspace.circularPatternSketchEntities()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Divider()
+
                 Button("Trim Entity") {
                     workspace.tool = .trim
                 }
