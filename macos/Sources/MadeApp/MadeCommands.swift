@@ -195,6 +195,26 @@ struct EditMenuCommands: Commands {
                 workspace.cycleSelection()
             }
             .keyboardShortcut(WorkspaceModel.cycleSelectionShortcutKey, modifiers: [])
+
+            Divider()
+
+            Button("Select Tangent Chain") {
+                workspace.selectTangentChain()
+            }
+            .keyboardShortcut(WorkspaceModel.selectTangentChainShortcutKey, modifiers: WorkspaceModel.topologySelectionModifiers)
+            .disabled(!workspace.canSelectTangentChain)
+
+            Button("Select Edge Loop") {
+                workspace.selectEdgeLoop()
+            }
+            .keyboardShortcut(WorkspaceModel.selectEdgeLoopShortcutKey, modifiers: WorkspaceModel.topologySelectionModifiers)
+            .disabled(!workspace.canSelectEdgeLoop)
+
+            Button("Select Feature Faces") {
+                workspace.selectFeatureFaces()
+            }
+            .keyboardShortcut(WorkspaceModel.selectFeatureFacesShortcutKey, modifiers: WorkspaceModel.topologySelectionModifiers)
+            .disabled(!workspace.canSelectFeatureFaces)
         }
     }
 }

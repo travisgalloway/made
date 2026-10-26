@@ -1285,6 +1285,63 @@ import simd
         #expect(doc.selectedSubElement == nil)
     }
 
+    @Test func testMultiSubElementSelectionLifecycle() {
+        let doc = DocumentModel()
+        #expect(doc.selectedSubElements.isEmpty)
+
+        let sub1 = SelectedSubElement(solidId: boxSolidId, elementType: .edge, elementId: 0)
+        let sub2 = SelectedSubElement(solidId: boxSolidId, elementType: .edge, elementId: 1)
+        let sub3 = SelectedSubElement(solidId: boxSolidId, elementType: .edge, elementId: 2)
+
+        doc.selectedSubElements = [sub1, sub2, sub3]
+        #expect(doc.selectedSubElements.count == 3)
+        #expect(doc.selectedSubElement != nil)
+        #expect([sub1, sub2, sub3].contains(doc.selectedSubElement!))
+
+        // Clearing selection clears both
+        doc.clearSelection()
+        #expect(doc.selectedSubElements.isEmpty)
+        #expect(doc.selectedSubElement == nil)
+
+        // Setting single selectedSubElement updates selectedSubElements
+        doc.selectedSubElement = sub1
+        #expect(doc.selectedSubElements == [sub1])
+
+        // Setting selectedId to another solid clears subelements of previous solid
+        doc.selectedId = cylinderSolidId
+        #expect(doc.selectedSubElements.isEmpty)
+        #expect(doc.selectedSubElement == nil)
+    }
+
+    @Test func testDocumentModelSelectTangentChainAndEdgeLoop() {
+        let doc = DocumentModel()
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: boxSolidId, payload: payload)
+
+        // Seed on edge 4
+        doc.selectedSubElement = SelectedSubElement(solidId: boxSolidId, elementType: .edge, elementId: 4)
+        doc.selectEdgeLoop(candidateMesh: mesh)
+        #expect(doc.selectedSubElements.count >= 4)
+        #expect(doc.selectedSubElements.contains { $0.elementId == 4 })
+
+        // Face tangent chain on box face: 90 deg corners terminate
+        doc.selectedSubElement = SelectedSubElement(solidId: boxSolidId, elementType: .face, elementId: 0)
+        doc.selectTangentChain(candidateMesh: mesh)
+        #expect(doc.selectedSubElements.count == 1)
+        #expect(doc.selectedSubElements.first?.elementId == 0)
+    }
+
+    @Test func testDocumentModelSelectFeatureFaces() {
+        let doc = DocumentModel()
+        let payload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let mesh = CandidateMesh(id: boxSolidId, payload: payload)
+
+        doc.selectedId = boxSolidId
+        doc.selectFeatureFaces(candidateMesh: mesh)
+        #expect(!doc.selectedSubElements.isEmpty)
+        #expect(doc.selectedSubElements.allSatisfy { $0.solidId == boxSolidId && $0.elementType == .face })
+    }
+
     // MARK: - Rollback Marker (BL-FND-05)
 
     @Test func testAddFeatureInsertsAtRollbackMarker() {

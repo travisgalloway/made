@@ -9096,6 +9096,48 @@ public struct SimulationAnimationState: Sendable, Equatable {
     func fitToScene() { coordinator?.fitToScene() }
     public func cycleSelection(backward: Bool = false) { coordinator?.cycleSelection(backward: backward) }
 
+    public var canSelectTangentChain: Bool {
+        guard let sub = document.selectedSubElement ?? document.selectedSubElements.first else { return false }
+        return sub.elementType == .edge || sub.elementType == .face
+    }
+
+    public var canSelectEdgeLoop: Bool {
+        guard let sub = document.selectedSubElement ?? document.selectedSubElements.first else { return false }
+        return sub.elementType == .edge
+    }
+
+    public var canSelectFeatureFaces: Bool {
+        document.selectedSubElement != nil || !document.selectedSubElements.isEmpty || document.selectedId != nil
+    }
+
+    public func selectTangentChain() {
+        if let coordinator {
+            coordinator.selectTangentChain()
+        } else if let sub = document.selectedSubElement ?? document.selectedSubElements.first,
+                  let mesh = viewportManager.renderer?.candidateMeshes().first(where: { $0.id == sub.solidId }) {
+            document.selectTangentChain(for: sub, candidateMesh: mesh)
+        }
+    }
+
+    public func selectEdgeLoop() {
+        if let coordinator {
+            coordinator.selectEdgeLoop()
+        } else if let sub = document.selectedSubElement ?? document.selectedSubElements.first,
+                  let mesh = viewportManager.renderer?.candidateMeshes().first(where: { $0.id == sub.solidId }) {
+            document.selectEdgeLoop(for: sub, candidateMesh: mesh)
+        }
+    }
+
+    public func selectFeatureFaces() {
+        if let coordinator {
+            coordinator.selectFeatureFaces()
+        } else {
+            let solidId = document.selectedSubElement?.solidId ?? document.selectedSubElements.first?.solidId ?? document.selectedId
+            let mesh = viewportManager.renderer?.candidateMeshes().first(where: { $0.id == solidId })
+            document.selectFeatureFaces(for: document.selectedSubElement, candidateMesh: mesh)
+        }
+    }
+
     func handleSnapChanged(_ result: SnapResult?) {
         activeSnapResult = result
         activeSnapKind = result?.kind
@@ -9261,6 +9303,10 @@ public struct SimulationAnimationState: Sendable, Equatable {
     static let filterAllShortcutKey: KeyEquivalent = "a"
     static let filterShortcutModifiers: EventModifiers = [.option]
     static let cycleSelectionShortcutKey: KeyEquivalent = .tab
+    static let selectTangentChainShortcutKey: KeyEquivalent = "t"
+    static let selectEdgeLoopShortcutKey: KeyEquivalent = "l"
+    static let selectFeatureFacesShortcutKey: KeyEquivalent = "f"
+    static let topologySelectionModifiers: EventModifiers = [.command, .shift]
 
     // MARK: - View Navigation Shortcuts (BL-VPT-07)
 

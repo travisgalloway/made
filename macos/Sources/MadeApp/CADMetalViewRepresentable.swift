@@ -169,6 +169,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var renderer: MetalRenderer
     var selectedId: ObjectId?
     var selectedSubElement: SelectedSubElement?
+    var selectedSubElements: Set<SelectedSubElement> = []
     var tool: ViewportTool
     var showsGrid: Bool
     var showsAxes: Bool
@@ -229,6 +230,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         renderer: MetalRenderer,
         selectedId: ObjectId? = nil,
         selectedSubElement: SelectedSubElement? = nil,
+        selectedSubElements: Set<SelectedSubElement> = [],
         tool: ViewportTool = .select,
         selectionFilter: SelectionFilter = .all,
         showsGrid: Bool = true,
@@ -283,6 +285,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.renderer = renderer
         self.selectedId = selectedId
         self.selectedSubElement = selectedSubElement
+        self.selectedSubElements = selectedSubElements
         self.tool = tool
         self.selectionFilter = selectionFilter
         self.showsGrid = showsGrid
@@ -367,9 +370,11 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         let activeSelectedId = selectedId ?? document.selectedId
         let activeSelectedIds = selectedId.map { [$0] } ?? document.selectedIds
         let activeSubElement = selectedSubElement ?? document.selectedSubElement
+        let activeSubElements = !selectedSubElements.isEmpty ? selectedSubElements : document.selectedSubElements
         renderer.selectedId = activeSelectedId
         renderer.selectedIds = activeSelectedIds
         renderer.selectedSubElement = activeSubElement
+        renderer.selectedSubElements = activeSubElements
         renderer.preselectedSubElement = context.coordinator.preselectedSubElement
         let isLocked = document.objects.first(where: { $0.id == activeSelectedId })?.isLocked ?? false
         renderer.showsGrid = showsGrid
@@ -426,11 +431,13 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         let isLocked = document.objects.first(where: { $0.id == selectedId })?.isLocked ?? false
         let targetSelectedIds = selectedId.map { [$0] } ?? document.selectedIds
         let effectiveGizmo = showsGizmo && !isLocked && targetSelectedIds.count <= 1
+        let targetSubElements = !selectedSubElements.isEmpty ? selectedSubElements : document.selectedSubElements
         var needsInvalidate = false
-        if renderer.selectedId != selectedId || renderer.selectedIds != targetSelectedIds || renderer.selectedSubElement != selectedSubElement {
+        if renderer.selectedId != selectedId || renderer.selectedIds != targetSelectedIds || renderer.selectedSubElement != selectedSubElement || renderer.selectedSubElements != targetSubElements {
             renderer.selectedId = selectedId
             renderer.selectedIds = targetSelectedIds
             renderer.selectedSubElement = selectedSubElement
+            renderer.selectedSubElements = targetSubElements
             needsInvalidate = true
         }
         if renderer.showsGrid != showsGrid {
@@ -659,6 +666,39 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 cycleIndex = (cycleIndex + 1) % cycleCandidates.count
             }
             applyCycleSelection(candidate: cycleCandidates[cycleIndex])
+        }
+
+        public func selectTangentChain() {
+            let activeSub = parent.document.selectedSubElement ?? parent.document.selectedSubElements.first
+            guard let sub = activeSub else { return }
+            let meshes = parent.renderer.candidateMeshes()
+            guard let mesh = meshes.first(where: { $0.id == sub.solidId }) else { return }
+            parent.document.selectTangentChain(for: sub, candidateMesh: mesh)
+            parent.renderer.selectedSubElements = parent.document.selectedSubElements
+            parent.renderer.selectedSubElement = parent.document.selectedSubElement
+            invalidate(reason: .interaction)
+        }
+
+        public func selectEdgeLoop() {
+            let activeSub = parent.document.selectedSubElement ?? parent.document.selectedSubElements.first
+            guard let sub = activeSub else { return }
+            let meshes = parent.renderer.candidateMeshes()
+            guard let mesh = meshes.first(where: { $0.id == sub.solidId }) else { return }
+            parent.document.selectEdgeLoop(for: sub, candidateMesh: mesh)
+            parent.renderer.selectedSubElements = parent.document.selectedSubElements
+            parent.renderer.selectedSubElement = parent.document.selectedSubElement
+            invalidate(reason: .interaction)
+        }
+
+        public func selectFeatureFaces() {
+            let activeSolidId = parent.document.selectedSubElement?.solidId ?? parent.document.selectedSubElements.first?.solidId ?? parent.document.selectedId
+            guard let sId = activeSolidId else { return }
+            let meshes = parent.renderer.candidateMeshes()
+            let mesh = meshes.first(where: { $0.id == sId })
+            parent.document.selectFeatureFaces(for: parent.document.selectedSubElement, candidateMesh: mesh)
+            parent.renderer.selectedSubElements = parent.document.selectedSubElements
+            parent.renderer.selectedSubElement = parent.document.selectedSubElement
+            invalidate(reason: .interaction)
         }
         
         func handleFrameRendered() {
@@ -2604,6 +2644,9 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         }
 
         public func cycleSelection(backward: Bool = false) {}
+        public func selectTangentChain() {}
+        public func selectEdgeLoop() {}
+        public func selectFeatureFaces() {}
         
         public func clearPreselection() {
             guard preselectedSubElement != nil else { return }

@@ -1752,6 +1752,44 @@ import MadeCore
         #expect(WorkspaceModel.filterShortcutModifiers == [.option])
     }
 
+    @Test @MainActor func testWorkspaceMultiSelectionCommands() {
+        let model = WorkspaceModel()
+
+        // Shortcut constants
+        #expect(WorkspaceModel.selectTangentChainShortcutKey == "t")
+        #expect(WorkspaceModel.selectEdgeLoopShortcutKey == "l")
+        #expect(WorkspaceModel.selectFeatureFacesShortcutKey == "f")
+        #expect(WorkspaceModel.topologySelectionModifiers == [.command, .shift])
+
+        // Initial state: selectedId is boxSolidId
+        #expect(model.canSelectFeatureFaces)
+        #expect(!model.canSelectTangentChain)
+        #expect(!model.canSelectEdgeLoop)
+
+        // Select an edge
+        model.document.selectedSubElement = SelectedSubElement(solidId: ObjectId("box-1"), elementType: .edge, elementId: 0)
+        #expect(model.canSelectTangentChain)
+        #expect(model.canSelectEdgeLoop)
+        #expect(model.canSelectFeatureFaces)
+
+        // Select a face
+        model.document.selectedSubElement = SelectedSubElement(solidId: ObjectId("box-1"), elementType: .face, elementId: 0)
+        #expect(model.canSelectTangentChain)
+        #expect(!model.canSelectEdgeLoop)
+        #expect(model.canSelectFeatureFaces)
+
+        // Clear selection
+        model.document.clearSelection()
+        #expect(!model.canSelectTangentChain)
+        #expect(!model.canSelectEdgeLoop)
+        #expect(!model.canSelectFeatureFaces)
+
+        // Invoking commands without coordinator does not crash
+        model.selectTangentChain()
+        model.selectEdgeLoop()
+        model.selectFeatureFaces()
+    }
+
     @Test @MainActor func testBeginInteractiveSketchDragSelectsEntity() throws {
         let workspace = WorkspaceModel()
         let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
