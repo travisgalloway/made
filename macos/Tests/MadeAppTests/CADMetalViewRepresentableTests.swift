@@ -1141,7 +1141,8 @@ private enum MetalTestSupport {
         #expect(renderer.selectedIds == [boxId])
     }
 
-    @Test func testMarqueeDragLeftToRightWindowMode() throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMarqueeDragLeftToRightWindowMode() throws {
         let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
 
         let start = CGPoint(x: 100, y: 100)
@@ -1173,11 +1174,12 @@ private enum MetalTestSupport {
         #expect(coordinator.activeMarquee == nil)
     }
 
-    @Test func testMarqueeDragRightToLeftCrossingModeWithModifiers() throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMarqueeDragRightToLeftCrossingModeWithModifiers() throws {
         let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
 
-        let start = CGPoint(x: 300, y: 300)
-        let end = CGPoint(x: 150, y: 200)
+        let start = CGPoint(x: 300, y: 100)
+        let end = CGPoint(x: 150, y: 100)
 
         coordinator.handleMouseDown(
             with: makeMouseEvent(type: .leftMouseDown, location: start, windowNumber: window.windowNumber, modifierFlags: .shift),
@@ -1201,7 +1203,8 @@ private enum MetalTestSupport {
         #expect(coordinator.activeMarquee == nil)
     }
 
-    @Test func testStationaryClickPreservesNormalSelectionWithoutMarquee() throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testStationaryClickPreservesNormalSelectionWithoutMarquee() throws {
         let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
 
         let start = CGPoint(x: 100, y: 100)
@@ -1227,7 +1230,8 @@ private enum MetalTestSupport {
         #expect(coordinator.activeMarquee == nil)
     }
 
-    @Test func testEscapeCancelsActiveMarquee() throws {
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testEscapeCancelsActiveMarquee() throws {
         let (window, _, coordinator, _, _, _) = try makeHarness(tool: .select)
 
         let start = CGPoint(x: 100, y: 100)
