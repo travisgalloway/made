@@ -120,6 +120,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public var selectedId: SolidId? = nil
     public var selectedIds: Set<SolidId> = []
     public var selectedSubElement: SelectedSubElement? = nil
+    public var selectedSubElements: Set<SelectedSubElement> = []
     public var preselectedSubElement: SelectedSubElement? = nil
     public var activeGizmoHandle: GizmoHandle? = nil
     public var showsGrid: Bool = true
@@ -151,13 +152,17 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     @MainActor
     public func snapshotSceneState() -> SceneSnapshot {
-        SceneSnapshot(
+        let subs = !selectedSubElements.isEmpty
+            ? selectedSubElements
+            : (selectedSubElement.map { [$0] } ?? [])
+        return SceneSnapshot(
             meshes: meshes,
             hiddenSolidIds: hiddenSolidIds,
             camera: camera,
             selectedId: selectedId,
             selectedIds: !selectedIds.isEmpty ? selectedIds : (selectedId.map { [$0] } ?? []),
-            selectedSubElement: selectedSubElement,
+            selectedSubElement: selectedSubElement ?? subs.first,
+            selectedSubElements: subs,
             preselectedSubElement: preselectedSubElement,
             activeSnap: activeSnap,
             activeGizmoHandle: activeGizmoHandle,
@@ -980,7 +985,11 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
 
         // Sub-element highlight passes: committed selection (amber) and hover preselection (cyan)
-        if let selectedSub = scene.selectedSubElement {
+        let elementsToHighlight = !scene.selectedSubElements.isEmpty
+            ? scene.selectedSubElements
+            : (scene.selectedSubElement.map { [$0] } ?? [])
+
+        for selectedSub in elementsToHighlight {
             drawSubElementHighlight(
                 ctx,
                 scene: scene,
@@ -994,7 +1003,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         }
 
         if let preselectedSub = scene.preselectedSubElement,
-           preselectedSub != scene.selectedSubElement {
+           !elementsToHighlight.contains(preselectedSub) {
             drawSubElementHighlight(
                 ctx,
                 scene: scene,

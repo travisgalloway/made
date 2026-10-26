@@ -346,6 +346,7 @@ public struct SceneSnapshot: Sendable {
     public let selectedId: SolidId?
     public let selectedIds: Set<SolidId>
     public let selectedSubElement: SelectedSubElement?
+    public let selectedSubElements: Set<SelectedSubElement>
     public let preselectedSubElement: SelectedSubElement?
     public let activeSnap: SnapResult?
     public let activeGizmoHandle: GizmoHandle?
@@ -359,6 +360,7 @@ public struct SceneSnapshot: Sendable {
         selectedId: SolidId? = nil,
         selectedIds: Set<SolidId>? = nil,
         selectedSubElement: SelectedSubElement? = nil,
+        selectedSubElements: Set<SelectedSubElement>? = nil,
         preselectedSubElement: SelectedSubElement? = nil,
         activeSnap: SnapResult? = nil,
         activeGizmoHandle: GizmoHandle? = nil,
@@ -370,7 +372,9 @@ public struct SceneSnapshot: Sendable {
         self.camera = camera
         self.selectedId = selectedId
         self.selectedIds = selectedIds ?? (selectedId.map { [$0] } ?? [])
-        self.selectedSubElement = selectedSubElement
+        let subs = selectedSubElements ?? (selectedSubElement.map { [$0] } ?? [])
+        self.selectedSubElements = subs
+        self.selectedSubElement = selectedSubElement ?? subs.first
         self.preselectedSubElement = preselectedSubElement
         self.activeSnap = activeSnap
         self.activeGizmoHandle = activeGizmoHandle

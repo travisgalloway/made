@@ -291,4 +291,26 @@ import CoreGraphics
         let result = renderer.pickSubElement(at: centerPointer, viewportSize: CGSize(width: width, height: height), filter: .bodies)
         #expect(result == nil, "Sub-element pick with .bodies only must return nil")
     }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testMultiSubElementHighlightRendering() async throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(MetalRenderer(device: device))
+
+        renderer.updateGrid(size: 0)
+        renderer.updateAxes(length: 0)
+        renderer.showsEdges = false
+
+        let payload = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        let mesh = try #require(renderer.createMesh(from: payload, color: SIMD4<Float>(0.4, 0.6, 0.9, 1.0)))
+        renderer.meshes[SolidId("box")] = mesh
+
+        let sub1 = SelectedSubElement(solidId: SolidId("box"), elementType: .face, elementId: 0)
+        let sub2 = SelectedSubElement(solidId: SolidId("box"), elementType: .face, elementId: 1)
+        renderer.selectedSubElements = [sub1, sub2]
+
+        let snap = await renderer.captureSnapshotPngBase64()
+        #expect(snap != nil)
+        #expect(renderer.lastDrawCalls == 3)
+    }
 }

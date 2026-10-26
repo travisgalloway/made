@@ -905,6 +905,7 @@ public final class DocumentModel {
     @ObservationIgnored private var _selection: Set<Reference> = [Reference.body(boxSolidId)]
     @ObservationIgnored private var _selectedId: ObjectId? = boxSolidId
     @ObservationIgnored private var _selectedSubElement: SelectedSubElement? = nil
+    @ObservationIgnored private var _selectedSubElements: Set<SelectedSubElement> = []
 
     public var undoManager: UndoManager? = UndoManager() {
         didSet {
@@ -953,6 +954,11 @@ public final class DocumentModel {
             }
             if derivedId == nil || _selectedSubElement?.solidId != derivedId {
                 selectedSubElement = nil
+            }
+            if let derivedId {
+                _selectedSubElements = _selectedSubElements.filter { $0.solidId == derivedId }
+            } else {
+                _selectedSubElements = []
             }
         }
     }
@@ -1024,6 +1030,13 @@ public final class DocumentModel {
             withMutation(keyPath: \.selectedSubElement) {
                 _selectedSubElement = newValue
             }
+            withMutation(keyPath: \.selectedSubElements) {
+                if let sub = newValue {
+                    _selectedSubElements = [sub]
+                } else {
+                    _selectedSubElements = []
+                }
+            }
             if let sub = newValue, let detId = sub.deterministicId {
                 if let feat = features.first(where: { $0.outputSolidId == sub.solidId }),
                    let topRef = feat.generatedTopology.values.first(where: { $0.id == detId }) {
@@ -1036,6 +1049,113 @@ public final class DocumentModel {
                     select(ref)
                 }
             }
+        }
+    }
+
+    public var selectedSubElements: Set<SelectedSubElement> {
+        get {
+            access(keyPath: \.selectedSubElements)
+            return _selectedSubElements
+        }
+        set {
+            guard _selectedSubElements != newValue else { return }
+            withMutation(keyPath: \.selectedSubElements) {
+                _selectedSubElements = newValue
+            }
+            withMutation(keyPath: \.selectedSubElement) {
+                _selectedSubElement = newValue.first
+            }
+
+            var newRefs: [Reference] = []
+            for sub in newValue {
+                if let detId = sub.deterministicId,
+                   let feat = features.first(where: { $0.outputSolidId == sub.solidId }),
+                   let topRef = feat.generatedTopology.values.first(where: { $0.id == detId }) {
+                    let ref: Reference
+                    switch sub.elementType {
+                    case .face: ref = .face(topRef)
+                    case .edge: ref = .edge(topRef)
+                    case .vertex: ref = .vertex(topRef)
+                    }
+                    newRefs.append(ref)
+                }
+            }
+            if !newRefs.isEmpty {
+                var current = selection.filter { ref in
+                    switch ref.target {
+                    case .face, .edge, .vertex: return false
+                    default: return true
+                    }
+                }
+                for r in newRefs { current.insert(r) }
+                selection = current
+            }
+        }
+    }
+
+    public func selectTangentChain(
+        for seed: SelectedSubElement? = nil,
+        candidateMesh: CandidateMesh? = nil,
+        angularTolerance: Float = .pi * 10.0 / 180.0
+    ) {
+        guard let sub = seed ?? selectedSubElement ?? selectedSubElements.first else { return }
+        guard let mesh = candidateMesh else { return }
+        switch sub.elementType {
+        case .edge:
+            let elements = findTangentEdgeChain(seedEdgeId: sub.elementId, in: mesh, angularTolerance: angularTolerance)
+            if !elements.isEmpty {
+                selectedSubElements = elements
+            }
+        case .face:
+            let elements = findTangentFaceChain(seedFaceId: sub.elementId, in: mesh, angularTolerance: angularTolerance)
+            if !elements.isEmpty {
+                selectedSubElements = elements
+            }
+        default:
+            break
+        }
+    }
+
+    public func selectEdgeLoop(
+        for seed: SelectedSubElement? = nil,
+        candidateMesh: CandidateMesh? = nil
+    ) {
+        guard let sub = seed ?? selectedSubElement ?? selectedSubElements.first else { return }
+        guard sub.elementType == .edge else { return }
+        guard let mesh = candidateMesh else { return }
+        let elements = findEdgeLoop(seedEdgeId: sub.elementId, in: mesh)
+        if !elements.isEmpty {
+            selectedSubElements = elements
+        }
+    }
+
+    public func selectFeatureFaces(
+        for seed: SelectedSubElement? = nil,
+        candidateMesh: CandidateMesh? = nil
+    ) {
+        let activeSolidId = seed?.solidId ?? selectedSubElement?.solidId ?? selectedSubElements.first?.solidId ?? selectedId
+        guard let sId = activeSolidId else { return }
+        guard let feat = feature(for: sId) else { return }
+
+        let topoFaces = feat.generatedTopology.values.filter { $0.elementType == .face }
+        if let mesh = candidateMesh {
+            let elements = findFeatureFaces(in: Array(feat.generatedTopology.values), candidateMesh: mesh)
+            if !elements.isEmpty {
+                selectedSubElements = elements
+                return
+            }
+            if !mesh.faceRanges.isEmpty {
+                let allFaces = Set(mesh.faceRanges.map { range in
+                    SelectedSubElement(solidId: sId, elementType: .face, elementId: range.faceId, deterministicId: range.deterministicId)
+                })
+                selectedSubElements = allFaces
+                return
+            }
+        }
+
+        let refs = Set(topoFaces.map { Reference.face($0) })
+        if !refs.isEmpty {
+            selection = refs
         }
     }
 
@@ -1120,7 +1240,7 @@ public final class DocumentModel {
     }
 
     public func clearSelection() {
-        guard !_selection.isEmpty || _selectedId != nil || _selectedSubElement != nil else { return }
+        guard !_selection.isEmpty || _selectedId != nil || _selectedSubElement != nil || !_selectedSubElements.isEmpty else { return }
         if !_selection.isEmpty {
             withMutation(keyPath: \.selection) {
                 _selection = []
@@ -1134,6 +1254,11 @@ public final class DocumentModel {
         if _selectedSubElement != nil {
             withMutation(keyPath: \.selectedSubElement) {
                 _selectedSubElement = nil
+            }
+        }
+        if !_selectedSubElements.isEmpty {
+            withMutation(keyPath: \.selectedSubElements) {
+                _selectedSubElements = []
             }
         }
     }
@@ -1169,6 +1294,11 @@ public final class DocumentModel {
         }
         if _selectedSubElement?.solidId == solidId {
             _selectedSubElement = nil
+        }
+        if !_selectedSubElements.isEmpty {
+            withMutation(keyPath: \.selectedSubElements) {
+                _selectedSubElements = _selectedSubElements.filter { $0.solidId != solidId }
+            }
         }
         selection = updated
     }
