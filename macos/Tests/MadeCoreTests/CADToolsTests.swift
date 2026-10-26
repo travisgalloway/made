@@ -1974,6 +1974,55 @@ import simd
         }
     }
 
+    @Test func testCADAddConstraintDriven() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let sink = RecordingMeshSink()
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel, meshSink: sink)
+
+        let createRes = await registry.callTool(name: "cad_create_sketch", arguments: [
+            "plane": .string("XY"),
+            "entities": .array([
+                .dictionary([
+                    "type": .string("line"),
+                    "startX": .double(0),
+                    "startY": .double(0),
+                    "endX": .double(20),
+                    "endY": .double(0)
+                ])
+            ])
+        ])
+        #expect(createRes.isError == false)
+        let json = try #require(try JSONSerialization.jsonObject(with: createRes.content.first!.text!.data(using: .utf8)!) as? [String: Any])
+        let sketchIdStr = try #require(json["id"] as? String)
+        let sketchUUID = try #require(UUID(uuidString: sketchIdStr))
+
+        let feat = try #require(doc.feature(for: sketchUUID))
+        guard case .sketch(let sketchData) = feat.operation else {
+            Issue.record("Expected sketch feature")
+            return
+        }
+        let e1Id = sketchData.entities[0].id.uuidString
+
+        let hRes = await registry.callTool(name: "cad_add_constraint", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("horizontal"),
+            "entityIds": .array([.string(e1Id)]),
+            "isDriven": .bool(true)
+        ])
+        #expect(hRes.isError == false)
+        let resText = try #require(hRes.content.first?.text)
+        #expect(resText.contains("(driven reference)"))
+
+        let featWithConstraints = try #require(doc.feature(for: sketchUUID))
+        if case .sketch(let data) = featWithConstraints.operation {
+            #expect(data.constraints.count == 1)
+            let c = data.constraints[0]
+            #expect(c.kind == .horizontal)
+            #expect(c.isDriven == true)
+        }
+    }
+
     @Test func testExtrudeSketchCreatesSolidAndMesh() async throws {
         let doc = DocumentModel()
         let kernel = KernelClient(debounceDuration: .milliseconds(5))

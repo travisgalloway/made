@@ -626,6 +626,44 @@ struct ToolsMenuCommands: Commands {
                 Button("Apply Symmetric Constraint") {
                     workspace.applyConstraintToSelectedSketch(.symmetric)
                 }
+                Button("Apply Horizontal Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.horizontal)
+                }
+                Button("Apply Vertical Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.vertical)
+                }
+                Button("Apply Coincident Constraint") {
+                    workspace.applyConstraintToSelectedSketch(.coincident)
+                }
+
+                Divider()
+
+                Menu("Apply Driven Constraint") {
+                    Button("Driven Parallel") {
+                        workspace.applyConstraintToSelectedSketch(.parallel, isDriven: true)
+                    }
+                    Button("Driven Perpendicular") {
+                        workspace.applyConstraintToSelectedSketch(.perpendicular, isDriven: true)
+                    }
+                    Button("Driven Tangent") {
+                        workspace.applyConstraintToSelectedSketch(.tangent, isDriven: true)
+                    }
+                    Button("Driven Concentric") {
+                        workspace.applyConstraintToSelectedSketch(.concentric, isDriven: true)
+                    }
+                    Button("Driven Symmetric") {
+                        workspace.applyConstraintToSelectedSketch(.symmetric, isDriven: true)
+                    }
+                    Button("Driven Horizontal") {
+                        workspace.applyConstraintToSelectedSketch(.horizontal, isDriven: true)
+                    }
+                    Button("Driven Vertical") {
+                        workspace.applyConstraintToSelectedSketch(.vertical, isDriven: true)
+                    }
+                    Button("Driven Coincident") {
+                        workspace.applyConstraintToSelectedSketch(.coincident, isDriven: true)
+                    }
+                }
                 Divider()
                 Button("Solve Sketch Constraints") {
                     workspace.solveActiveSketchConstraints()

@@ -559,4 +559,117 @@ import MadeCore
         #expect(workspace.overConstrainedMessage == nil)
         #expect(workspace.redundantConstraintsMessage == nil)
     }
+
+    @Test @MainActor func testDirectDrivenConstraintAddition() throws {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB], constraints: [c1])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+        workspace.selectFeature(feature.id)
+
+        let initialDOF = workspace.sketchDOFStatus
+        let drivenConstraint = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id], isDriven: true)
+        workspace.addDrivenConstraint(to: feature.id, constraint: drivenConstraint)
+
+        #expect(workspace.conflictingConstraintIds.isEmpty)
+        #expect(workspace.overConstrainedMessage == nil)
+        #expect(workspace.sketchDOFStatus == initialDOF)
+
+        guard let updatedFeat = workspace.document.feature(for: feature.id),
+              case .sketch(let updatedData) = updatedFeat.operation else {
+            Issue.record("Expected sketch feature")
+            return
+        }
+        let added = try #require(updatedData.constraints.first(where: { $0.id == drivenConstraint.id }))
+        #expect(added.isDriven == true)
+    }
+
+    @Test @MainActor func testDimensionCommandDrivenMode() throws {
+        let workspace = WorkspaceModel()
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let lineB = SketchEntity.line(start: SIMD2<Double>(0, 5), end: SIMD2<Double>(10, 5))
+        let c1 = SketchConstraint(kind: .parallel, entityIds: [lineA.id, lineB.id])
+        let c2 = SketchConstraint(kind: .perpendicular, entityIds: [lineA.id, lineB.id])
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA, lineB], constraints: [c1, c2])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+        workspace.selectFeature(feature.id)
+
+        let session = CommandSession.makeDimension(workspace: workspace, sketchFeatureId: feature.id, entityId: lineA.id)
+        #expect(session.canCommit == false)
+
+        session.setToggleValue(true, for: "isDriven")
+        #expect(session.canCommit == true)
+
+        session.onCommit?()
+
+        guard let updatedFeat = workspace.document.feature(for: feature.id),
+              case .sketch(let updatedData) = updatedFeat.operation else {
+            Issue.record("Expected sketch feature")
+            return
+        }
+        let drivenConstraints = updatedData.constraints.filter { $0.isDriven }
+        #expect(!drivenConstraints.isEmpty)
+        #expect(drivenConstraints.contains(where: { $0.entityIds.contains(lineA.id) }))
+    }
+
+    @Test func testMeasuredGeometricValueFormatting() {
+        let line = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let cHorizontal = SketchConstraint(kind: .horizontal, entityIds: [line.id], isDriven: true)
+        let mmSettings = UnitSettings(lengthUnit: .millimeters, angleUnit: .degrees, decimalPrecision: 2)
+        #expect(cHorizontal.formattedMeasuredValue(in: [line], unitSettings: mmSettings) == "(10.00 mm)")
+
+        let inchSettings = UnitSettings(lengthUnit: .inches, angleUnit: .degrees, decimalPrecision: 2)
+        #expect(cHorizontal.formattedMeasuredValue(in: [line], unitSettings: inchSettings) == "(0.39 in)")
+
+        let line2 = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(0, 10))
+        let cPerp = SketchConstraint(kind: .perpendicular, entityIds: [line.id, line2.id], isDriven: true)
+        #expect(cPerp.formattedMeasuredValue(in: [line, line2], unitSettings: mmSettings) == "(90.00 deg)")
+
+        let radSettings = UnitSettings(lengthUnit: .millimeters, angleUnit: .radians, decimalPrecision: 3)
+        #expect(cPerp.formattedMeasuredValue(in: [line, line2], unitSettings: radSettings) == "(1.571 rad)")
+    }
+
+    @Test @MainActor func testDrivenConstraintUndoRedo() throws {
+        let workspace = WorkspaceModel()
+        let undo = UndoManager()
+        workspace.document.undoManager = undo
+
+        let lineA = SketchEntity.line(start: SIMD2<Double>(0, 0), end: SIMD2<Double>(10, 0))
+        let sketchData = SketchFeatureData(planeName: "XY", entities: [lineA], constraints: [])
+        let feature = Feature(name: "Sketch 1", operation: .sketch(sketchData))
+        workspace.document.addFeature(feature)
+        undo.removeAllActions()
+
+        let drivenConstraint = SketchConstraint(kind: .horizontal, entityIds: [lineA.id], isDriven: true)
+        workspace.addDrivenConstraint(to: feature.id, constraint: drivenConstraint)
+
+        guard let featWithDriven = workspace.document.feature(for: feature.id),
+              case .sketch(let dataWithDriven) = featWithDriven.operation else {
+            Issue.record("Expected sketch feature")
+            return
+        }
+        #expect(dataWithDriven.constraints.count == 1)
+        #expect(dataWithDriven.constraints[0].isDriven == true)
+
+        workspace.undo()
+        guard let featUndone = workspace.document.feature(for: feature.id),
+              case .sketch(let dataUndone) = featUndone.operation else {
+            Issue.record("Expected sketch feature")
+            return
+        }
+        #expect(dataUndone.constraints.isEmpty)
+
+        workspace.redo()
+        guard let featRedone = workspace.document.feature(for: feature.id),
+              case .sketch(let dataRedone) = featRedone.operation else {
+            Issue.record("Expected sketch feature")
+            return
+        }
+        #expect(dataRedone.constraints.count == 1)
+        #expect(dataRedone.constraints[0].isDriven == true)
+    }
 }

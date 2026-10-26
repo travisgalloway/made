@@ -2561,6 +2561,12 @@ final class WorkspaceModel {
         recomputeDependents(of: featureId)
     }
 
+    public func addDrivenConstraint(to featureId: UUID, constraint: SketchConstraint) {
+        var drivenConstraint = constraint
+        drivenConstraint.isDriven = true
+        addSketchConstraint(to: featureId, constraint: drivenConstraint)
+    }
+
     func removeSketchConstraint(from featureId: UUID, constraintId: UUID) {
         _ = document.removeSketchConstraint(from: featureId, constraintId: constraintId)
         solveSketchConstraints(featureId: featureId)
@@ -2610,7 +2616,7 @@ final class WorkspaceModel {
         solveSketchConstraints(featureId: sketch.id)
     }
 
-    func applyConstraintToSelectedSketch(_ kind: SketchConstraint.Kind) {
+    func applyConstraintToSelectedSketch(_ kind: SketchConstraint.Kind, isDriven: Bool = false) {
         guard let sketch = selectedSketchFeature, case .sketch(let data) = sketch.operation else { return }
         let lines = data.entities.filter { $0.kind == "line" }
         let circles = data.entities.filter { $0.kind == "circle" }
@@ -2618,38 +2624,39 @@ final class WorkspaceModel {
         switch kind {
         case .parallel, .perpendicular:
             if lines.count >= 2 {
-                let constraint = SketchConstraint(kind: kind, entityIds: [lines[0].id, lines[1].id])
+                let constraint = SketchConstraint(kind: kind, entityIds: [lines[0].id, lines[1].id], isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             }
         case .tangent:
             if let line = lines.first, let circle = circles.first {
-                let constraint = SketchConstraint(kind: kind, entityIds: [line.id, circle.id])
+                let constraint = SketchConstraint(kind: kind, entityIds: [line.id, circle.id], isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             } else if circles.count >= 2 {
-                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id])
+                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id], isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             }
         case .concentric:
             if circles.count >= 2 {
-                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id])
+                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id], isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             }
         case .symmetric:
             if lines.count >= 3 {
-                let constraint = SketchConstraint(kind: kind, entityIds: [lines[0].id, lines[1].id], referenceEntityId: lines[2].id)
+                let constraint = SketchConstraint(kind: kind, entityIds: [lines[0].id, lines[1].id], referenceEntityId: lines[2].id, isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             } else if lines.count >= 1 && circles.count >= 2 {
-                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id], referenceEntityId: lines[0].id)
+                let constraint = SketchConstraint(kind: kind, entityIds: [circles[0].id, circles[1].id], referenceEntityId: lines[0].id, isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             }
         case .horizontal, .vertical:
-            if let line = lines.first {
-                let constraint = SketchConstraint(kind: kind, entityIds: [line.id])
+            let targetLineId = (selectedSketchEntity?.featureId == sketch.id && selectedSketchEntity?.entity.kind == "line") ? selectedSketchEntity?.entity.id : lines.first?.id
+            if let targetLineId {
+                let constraint = SketchConstraint(kind: kind, entityIds: [targetLineId], isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             }
         case .coincident:
             if data.entities.count >= 2 {
-                let constraint = SketchConstraint(kind: kind, entityIds: [data.entities[0].id, data.entities[1].id])
+                let constraint = SketchConstraint(kind: kind, entityIds: [data.entities[0].id, data.entities[1].id], isDriven: isDriven)
                 addSketchConstraint(to: sketch.id, constraint: constraint)
             }
         }
