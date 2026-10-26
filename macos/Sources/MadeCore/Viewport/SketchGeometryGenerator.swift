@@ -191,6 +191,35 @@ public enum SketchGeometryGenerator {
                     }
                 }
 
+            case "text":
+                let contours = SketchTextOutliner.extractContours(for: entity)
+                for contour in contours {
+                    guard contour.count >= 2 else { continue }
+                    let count = contour.count
+                    for i in 0..<count {
+                        let p0_2d = contour[i]
+                        let p1_2d = contour[(i + 1) % count]
+                        let segLen = hypot(p1_2d.x - p0_2d.x, p1_2d.y - p0_2d.y)
+                        guard segLen > 1e-9 else { continue }
+                        if !entity.isConstruction {
+                            appendSegment(plane.unprojectPoint(p0_2d), plane.unprojectPoint(p1_2d))
+                        } else {
+                            let dir = (p1_2d - p0_2d) / segLen
+                            var d = 0.0
+                            while d < segLen {
+                                let segStart = d
+                                let segEnd = min(d + effectiveDash, segLen)
+                                if segEnd > segStart + 1e-9 {
+                                    let s0 = plane.unprojectPoint(p0_2d + dir * segStart)
+                                    let s1 = plane.unprojectPoint(p0_2d + dir * segEnd)
+                                    appendSegment(s0, s1)
+                                }
+                                d += period
+                            }
+                        }
+                    }
+                }
+
             default:
                 continue
             }

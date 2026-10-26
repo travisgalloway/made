@@ -1880,10 +1880,25 @@ import simd
         ])
         #expect(addConstLineRes.isError == false)
 
+        // 3b. Add a text entity
+        let addTextRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(sketchIdStr),
+            "type": .string("text"),
+            "text": .string("Test Text"),
+            "fontName": .string("Helvetica"),
+            "fontSize": .double(14.0),
+            "originX": .double(2.0),
+            "originY": .double(3.0)
+        ])
+        #expect(addTextRes.isError == false)
+
         let updatedFeat = try #require(doc.feature(for: sketchUUID))
         if case .sketch(let data) = updatedFeat.operation {
-            #expect(data.entities.count == 4)
-            #expect(data.entities.last?.isConstruction == true)
+            #expect(data.entities.count == 5)
+            #expect(data.entities.last?.kind == "text")
+            #expect(data.entities.last?.text == "Test Text")
+            #expect(data.entities.last?.fontSize == 14.0)
+            #expect(data.entities.last?.origin == SIMD2(2.0, 3.0))
         }
 
         // 4. Create sketch on XZ and YZ planes
@@ -2287,6 +2302,22 @@ import simd
             "endY": .double(0)
         ])
         #expect(nonFiniteRes.isError == true)
+
+        // cad_add_sketch_entity: text entity missing text
+        let missingTextRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(fakeUUID),
+            "type": .string("text")
+        ])
+        #expect(missingTextRes.isError == true)
+
+        // cad_add_sketch_entity: text entity non-positive fontSize
+        let negFontSizeRes = await registry.callTool(name: "cad_add_sketch_entity", arguments: [
+            "sketchId": .string(fakeUUID),
+            "type": .string("text"),
+            "text": .string("Hello"),
+            "fontSize": .double(-5.0)
+        ])
+        #expect(negFontSizeRes.isError == true)
 
         // cad_add_constraint: missing entityIds
         let noEntitiesRes = await registry.callTool(name: "cad_add_constraint", arguments: [

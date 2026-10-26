@@ -8,6 +8,8 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
     public var data: [String: Double]
     public var isConstruction: Bool
     public var reference: Reference?
+    public var text: String?
+    public var fontName: String?
 
     public var isProjected: Bool {
         reference != nil
@@ -18,17 +20,21 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         kind: String,
         data: [String: Double] = [:],
         isConstruction: Bool = false,
-        reference: Reference? = nil
+        reference: Reference? = nil,
+        text: String? = nil,
+        fontName: String? = nil
     ) {
         self.id = id
         self.kind = kind
         self.data = data
         self.isConstruction = isConstruction
         self.reference = reference
+        self.text = text
+        self.fontName = fontName
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, data, isConstruction, reference
+        case id, kind, data, isConstruction, reference, text, fontName
     }
 
     public init(from decoder: Decoder) throws {
@@ -38,6 +44,8 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         self.data = try container.decode([String: Double].self, forKey: .data)
         self.isConstruction = try container.decodeIfPresent(Bool.self, forKey: .isConstruction) ?? false
         self.reference = try container.decodeIfPresent(Reference.self, forKey: .reference)
+        self.text = try container.decodeIfPresent(String.self, forKey: .text)
+        self.fontName = try container.decodeIfPresent(String.self, forKey: .fontName)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -50,6 +58,12 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         }
         if let reference {
             try container.encode(reference, forKey: .reference)
+        }
+        if let text {
+            try container.encode(text, forKey: .text)
+        }
+        if let fontName {
+            try container.encode(fontName, forKey: .fontName)
         }
     }
 
@@ -135,6 +149,29 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
             ],
             isConstruction: isConstruction,
             reference: reference
+        )
+    }
+
+    public static func text(
+        id: UUID = UUID(),
+        text: String,
+        origin: SIMD2<Double> = .zero,
+        fontSize: Double = 12.0,
+        fontName: String = "Helvetica",
+        isConstruction: Bool = false
+    ) -> SketchEntity {
+        SketchEntity(
+            id: id,
+            kind: "text",
+            data: [
+                "originX": origin.x,
+                "originY": origin.y,
+                "fontSize": fontSize
+            ],
+            isConstruction: isConstruction,
+            reference: nil,
+            text: text,
+            fontName: fontName
         )
     }
 
@@ -225,6 +262,40 @@ public struct SketchEntity: Sendable, Codable, Equatable, Identifiable {
         }
         set {
             data["clockwise"] = newValue ? 1.0 : 0.0
+        }
+    }
+
+    public var textString: String? {
+        get { text }
+        set { text = newValue }
+    }
+
+    public var origin: SIMD2<Double>? {
+        get {
+            guard let ox = data["originX"], let oy = data["originY"] else { return nil }
+            return SIMD2<Double>(ox, oy)
+        }
+        set {
+            if let newValue {
+                data["originX"] = newValue.x
+                data["originY"] = newValue.y
+            } else {
+                data.removeValue(forKey: "originX")
+                data.removeValue(forKey: "originY")
+            }
+        }
+    }
+
+    public var fontSize: Double? {
+        get {
+            data["fontSize"]
+        }
+        set {
+            if let newValue {
+                data["fontSize"] = newValue
+            } else {
+                data.removeValue(forKey: "fontSize")
+            }
         }
     }
 
