@@ -238,4 +238,167 @@ import simd
         )
         #expect(circularResult.isError == false)
     }
+
+    @Test @MainActor func testDocumentModelAtomicFilletAndSymmetricUndoRedo() throws {
+        let document = DocumentModel()
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(40, 0))
+        let l2 = SketchEntity.line(start: SIMD2(40, 0), end: SIMD2(40, 30))
+        let l3 = SketchEntity.line(start: SIMD2(40, 30), end: SIMD2(0, 30))
+        let l4 = SketchEntity.line(start: SIMD2(0, 30), end: SIMD2(0, 0))
+
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+        document.undoManager?.removeAllActions()
+
+        let filletRes = document.filletSketchCorner(in: sketch.id, line1Id: l1.id, line2Id: l2.id, radius: 5.0)
+        guard case .success(let result) = filletRes else {
+            Issue.record("Expected successful fillet corner mutation")
+            return
+        }
+
+        #expect(result.constraints.count == 4)
+        var feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 5)
+            #expect(data.constraints.count == 4)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+
+        // Single undo step restores original 4 lines
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 4)
+            #expect(data.constraints.isEmpty)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+
+        // Single redo step restores fillet
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 5)
+            #expect(data.constraints.count == 4)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+    }
+
+    @Test @MainActor func testDocumentModelAtomicChamferAndSymmetricUndoRedo() throws {
+        let document = DocumentModel()
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(40, 0))
+        let l2 = SketchEntity.line(start: SIMD2(40, 0), end: SIMD2(40, 30))
+        let l3 = SketchEntity.line(start: SIMD2(40, 30), end: SIMD2(0, 30))
+        let l4 = SketchEntity.line(start: SIMD2(0, 30), end: SIMD2(0, 0))
+
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+        document.undoManager?.removeAllActions()
+
+        let chamferRes = document.chamferSketchCorner(
+            in: sketch.id,
+            line1Id: l1.id,
+            line2Id: l2.id,
+            distance1: 6.0,
+            distance2: 8.0
+        )
+        guard case .success(let result) = chamferRes else {
+            Issue.record("Expected successful chamfer corner mutation")
+            return
+        }
+
+        #expect(result.constraints.count == 2)
+        var feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 5)
+            #expect(data.constraints.count == 2)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+
+        // Single undo step restores original 4 lines
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 4)
+            #expect(data.constraints.isEmpty)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+
+        // Single redo step restores chamfer
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 5)
+            #expect(data.constraints.count == 2)
+        } else {
+            Issue.record("Expected sketch operation")
+        }
+    }
+
+    @Test @MainActor func testWorkspaceFilletAndChamferMutatorsWithExtrusion() async throws {
+        let workspace = WorkspaceModel()
+
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(60, 0))
+        let l2 = SketchEntity.line(start: SIMD2(60, 0), end: SIMD2(60, 40))
+        let l3 = SketchEntity.line(start: SIMD2(60, 40), end: SIMD2(0, 40))
+        let l4 = SketchEntity.line(start: SIMD2(0, 40), end: SIMD2(0, 0))
+
+        let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+        workspace.selectedId = ObjectId(sketch.id.uuidString)
+
+        // 1. Fillet corner between l1 and l2 with radius 8.0
+        let filletRes = try workspace.filletSketchCorner(in: sketch.id, entity1Id: l1.id, entity2Id: l2.id, radius: 8.0)
+        #expect(filletRes.filletArc.kind == "arc")
+
+        // 2. Chamfer corner between l3 and l4 with distance 6.0
+        let chamferRes = try workspace.chamferSketchCorner(in: sketch.id, entity1Id: l3.id, entity2Id: l4.id, distance1: 6.0)
+        #expect(chamferRes.chamferLine.kind == "line")
+
+        // 3. Extrude modified closed profile
+        let solidId = await workspace.extrudeSketch(sketchFeatureId: sketch.id, distance: 20.0)
+        let sid = try #require(solidId)
+        let extrudeFeat = try #require(workspace.document.feature(for: sid))
+        #expect(extrudeFeat.errorState == nil)
+    }
+
+    @Test @MainActor func testCADToolsMCPFilletAndChamferEndpoints() async throws {
+        let document = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: document, kernelClient: kernel)
+
+        let l1 = SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(50, 0))
+        let l2 = SketchEntity.line(start: SIMD2(50, 0), end: SIMD2(50, 40))
+        let l3 = SketchEntity.line(start: SIMD2(50, 40), end: SIMD2(0, 40))
+        let l4 = SketchEntity.line(start: SIMD2(0, 40), end: SIMD2(0, 0))
+
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [l1, l2, l3, l4])
+        let sketchIdStr = sketch.id.uuidString
+
+        // 1. fillet_sketch_corner
+        let filletCallResult = await registry.callTool(
+            name: "fillet_sketch_corner",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "line1Id": .string(l1.id.uuidString),
+                "line2Id": .string(l2.id.uuidString),
+                "radius": .double(5.0)
+            ]
+        )
+        #expect(filletCallResult.isError == false)
+
+        // 2. chamfer_sketch_corner
+        let chamferCallResult = await registry.callTool(
+            name: "chamfer_sketch_corner",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "line1Id": .string(l3.id.uuidString),
+                "line2Id": .string(l4.id.uuidString),
+                "distance1": .double(6.0),
+                "distance2": .double(8.0)
+            ]
+        )
+        #expect(chamferCallResult.isError == false)
+    }
 }

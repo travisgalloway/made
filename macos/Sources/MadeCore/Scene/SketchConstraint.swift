@@ -149,8 +149,8 @@ public struct SketchConstraint: Sendable, Codable, Equatable, Identifiable {
                   let e2 = entityMap[entityIds[1]] else { return nil }
 
             let circleAndLine: (circle: SketchEntity, line: SketchEntity)? = {
-                if e1.kind == "circle" && e2.kind == "line" { return (e1, e2) }
-                if e2.kind == "circle" && e1.kind == "line" { return (e2, e1) }
+                if (e1.kind == "circle" || e1.kind == "arc") && e2.kind == "line" { return (e1, e2) }
+                if (e2.kind == "circle" || e2.kind == "arc") && e1.kind == "line" { return (e2, e1) }
                 return nil
             }()
 

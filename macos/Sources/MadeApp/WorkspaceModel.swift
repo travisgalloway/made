@@ -2782,6 +2782,156 @@ final class WorkspaceModel {
         return result
     }
 
+    @discardableResult
+    func filletSketchCorner(
+        in featureId: UUID? = nil,
+        entity1Id: UUID? = nil,
+        entity2Id: UUID? = nil,
+        radius: Double = 5.0
+    ) throws -> SketchFilletResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        guard let feat = document.feature(for: targetId), case .sketch(let sketchData) = feat.operation else {
+            throw SketchError.invalidEntity("Target feature \(targetId) is not a sketch")
+        }
+
+        let (id1, id2): (UUID, UUID) = try {
+            if let e1 = entity1Id, let e2 = entity2Id {
+                return (e1, e2)
+            }
+            let selectedLineIds: [UUID] = document.selection.compactMap { ref in
+                if case .sketchEntity(let featId, let entId) = ref.target, featId == targetId {
+                    if let ent = sketchData.entities.first(where: { $0.id == entId && $0.kind == "line" }) {
+                        return ent.id
+                    }
+                }
+                return nil
+            }
+            if selectedLineIds.count >= 2 {
+                return (selectedLineIds[0], selectedLineIds[1])
+            }
+            let lines = sketchData.entities.filter { $0.kind == "line" && !$0.isConstruction }
+            if lines.count >= 2 {
+                for i in 0..<(lines.count - 1) {
+                    for j in (i + 1)..<lines.count {
+                        let l1 = lines[i]
+                        let l2 = lines[j]
+                        if let s1 = l1.startPoint, let e1 = l1.endPoint,
+                           let s2 = l2.startPoint, let e2 = l2.endPoint {
+                            if hypot(s1.x - s2.x, s1.y - s2.y) < 1e-3 ||
+                               hypot(s1.x - e2.x, s1.y - e2.y) < 1e-3 ||
+                               hypot(e1.x - s2.x, e1.y - s2.y) < 1e-3 ||
+                               hypot(e1.x - e2.x, e1.y - e2.y) < 1e-3 {
+                                return (l1.id, l2.id)
+                            }
+                        }
+                    }
+                }
+                return (lines[0].id, lines[1].id)
+            }
+            throw SketchError.degenerateFillet("At least two line entities are required in the sketch")
+        }()
+
+        let mutationResult = document.filletSketchCorner(
+            in: targetId,
+            line1Id: id1,
+            line2Id: id2,
+            radius: radius
+        )
+        switch mutationResult {
+        case .success(let res):
+            solveSketchConstraints(featureId: targetId)
+            refreshDetectedSketchRegions(for: targetId)
+            refreshSketchStatus(for: targetId)
+            recomputeDependents(of: targetId)
+            markDocumentModified()
+            return res
+        case .failure(let err):
+            if case .sketchError(let sErr) = err {
+                throw sErr
+            }
+            throw SketchError.invalidEntity("Fillet failed: \(err)")
+        }
+    }
+
+    @discardableResult
+    func chamferSketchCorner(
+        in featureId: UUID? = nil,
+        entity1Id: UUID? = nil,
+        entity2Id: UUID? = nil,
+        distance1: Double = 5.0,
+        distance2: Double? = nil,
+        angle: Double? = nil
+    ) throws -> SketchChamferResult {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        guard let feat = document.feature(for: targetId), case .sketch(let sketchData) = feat.operation else {
+            throw SketchError.invalidEntity("Target feature \(targetId) is not a sketch")
+        }
+
+        let (id1, id2): (UUID, UUID) = try {
+            if let e1 = entity1Id, let e2 = entity2Id {
+                return (e1, e2)
+            }
+            let selectedLineIds: [UUID] = document.selection.compactMap { ref in
+                if case .sketchEntity(let featId, let entId) = ref.target, featId == targetId {
+                    if let ent = sketchData.entities.first(where: { $0.id == entId && $0.kind == "line" }) {
+                        return ent.id
+                    }
+                }
+                return nil
+            }
+            if selectedLineIds.count >= 2 {
+                return (selectedLineIds[0], selectedLineIds[1])
+            }
+            let lines = sketchData.entities.filter { $0.kind == "line" && !$0.isConstruction }
+            if lines.count >= 2 {
+                for i in 0..<(lines.count - 1) {
+                    for j in (i + 1)..<lines.count {
+                        let l1 = lines[i]
+                        let l2 = lines[j]
+                        if let s1 = l1.startPoint, let e1 = l1.endPoint,
+                           let s2 = l2.startPoint, let e2 = l2.endPoint {
+                            if hypot(s1.x - s2.x, s1.y - s2.y) < 1e-3 ||
+                               hypot(s1.x - e2.x, s1.y - e2.y) < 1e-3 ||
+                               hypot(e1.x - s2.x, e1.y - s2.y) < 1e-3 ||
+                               hypot(e1.x - e2.x, e1.y - e2.y) < 1e-3 {
+                                return (l1.id, l2.id)
+                            }
+                        }
+                    }
+                }
+                return (lines[0].id, lines[1].id)
+            }
+            throw SketchError.degenerateChamfer("At least two line entities are required in the sketch")
+        }()
+
+        let mutationResult = document.chamferSketchCorner(
+            in: targetId,
+            line1Id: id1,
+            line2Id: id2,
+            distance1: distance1,
+            distance2: distance2,
+            angle: angle
+        )
+        switch mutationResult {
+        case .success(let res):
+            solveSketchConstraints(featureId: targetId)
+            refreshDetectedSketchRegions(for: targetId)
+            refreshSketchStatus(for: targetId)
+            recomputeDependents(of: targetId)
+            markDocumentModified()
+            return res
+        case .failure(let err):
+            if case .sketchError(let sErr) = err {
+                throw sErr
+            }
+            throw SketchError.invalidEntity("Chamfer failed: \(err)")
+        }
+    }
+
     func updateSketchEntity(in featureId: UUID, entity: SketchEntity) {
         _ = document.updateSketchEntity(in: featureId, entity: entity)
         solveSketchConstraints(featureId: featureId, draggedEntityId: entity.id)

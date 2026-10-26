@@ -21,6 +21,8 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
     case degenerateOffset(String)
     case degenerateMirror(String)
     case degeneratePattern(String)
+    case degenerateFillet(String)
+    case degenerateChamfer(String)
 
     public var errorDescription: String? {
         switch self {
@@ -62,6 +64,10 @@ public enum SketchError: Error, Equatable, Sendable, LocalizedError {
             return "Degenerate mirror: \(msg)"
         case .degeneratePattern(let msg):
             return "Degenerate pattern: \(msg)"
+        case .degenerateFillet(let msg):
+            return "Degenerate fillet: \(msg)"
+        case .degenerateChamfer(let msg):
+            return "Degenerate chamfer: \(msg)"
         }
     }
 }

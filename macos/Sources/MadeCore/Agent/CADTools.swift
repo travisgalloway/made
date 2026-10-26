@@ -384,6 +384,34 @@ public final class CADToolRegistry {
                     ],
                     required: ["sketchId", "centerX", "centerY", "count"]
                 )
+            ),
+            MCPToolDefinition(
+                name: "fillet_sketch_corner",
+                description: "Rounds a 2D sketch corner between two intersecting lines with a tangent circular arc, trimming lines and creating tangent and coincident constraints.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
+                        "line1Id": MCPProperty(type: "string", description: "The UUID of the first line entity"),
+                        "line2Id": MCPProperty(type: "string", description: "The UUID of the second line entity"),
+                        "radius": MCPProperty(type: "number", description: "Fillet arc radius in mm (must be positive)")
+                    ],
+                    required: ["sketchId", "line1Id", "line2Id", "radius"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "chamfer_sketch_corner",
+                description: "Bevels a 2D sketch corner between two intersecting lines with a straight segment, trimming lines and creating coincident constraints.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the sketch feature"),
+                        "line1Id": MCPProperty(type: "string", description: "The UUID of the first line entity"),
+                        "line2Id": MCPProperty(type: "string", description: "The UUID of the second line entity"),
+                        "distance1": MCPProperty(type: "number", description: "Setback distance along first line in mm"),
+                        "distance2": MCPProperty(type: "number", description: "Optional setback distance along second line in mm (defaults to distance1)"),
+                        "angle": MCPProperty(type: "number", description: "Optional chamfer angle in degrees for distance-angle mode")
+                    ],
+                    required: ["sketchId", "line1Id", "line2Id", "distance1"]
+                )
             )
         ]
     }
@@ -461,6 +489,12 @@ public final class CADToolRegistry {
 
         case "circular_pattern_sketch_entities", "cad_circular_pattern_sketch_entities":
             return handleCircularPatternSketchEntities(arguments: arguments)
+
+        case "fillet_sketch_corner", "cad_fillet_sketch_corner":
+            return handleFilletSketchCorner(arguments: arguments)
+
+        case "chamfer_sketch_corner", "cad_chamfer_sketch_corner":
+            return handleChamferSketchCorner(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -2864,6 +2898,86 @@ public final class CADToolRegistry {
             }
         } catch {
             return .error("Circular pattern operation failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func handleFilletSketchCorner(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let line1IdStr = arguments["line1Id"]?.stringValue else {
+            return .error("Missing required argument 'line1Id'")
+        }
+        guard let line1UUID = UUID(uuidString: line1IdStr) else {
+            return .error("Invalid UUID for 'line1Id': '\(line1IdStr)'")
+        }
+        guard let line2IdStr = arguments["line2Id"]?.stringValue else {
+            return .error("Missing required argument 'line2Id'")
+        }
+        guard let line2UUID = UUID(uuidString: line2IdStr) else {
+            return .error("Invalid UUID for 'line2Id': '\(line2IdStr)'")
+        }
+        guard let radius = arguments["radius"]?.doubleValue, radius.isFinite else {
+            return .error("Missing or invalid numeric argument 'radius'")
+        }
+
+        let res = document.filletSketchCorner(
+            in: sketchUUID,
+            line1Id: line1UUID,
+            line2Id: line2UUID,
+            radius: radius
+        )
+        switch res {
+        case .success(let filletResult):
+            onViewportInvalidated?()
+            return .text("Filleted corner between lines '\(line1IdStr)' and '\(line2IdStr)' in sketch '\(sketchIdStr)' with radius \(radius) mm, added arc '\(filletResult.filletArc.id.uuidString)' and \(filletResult.constraints.count) constraints")
+        case .failure(let err):
+            return .error("Fillet operation failed: \(err.localizedDescription)")
+        }
+    }
+
+    private func handleChamferSketchCorner(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let line1IdStr = arguments["line1Id"]?.stringValue else {
+            return .error("Missing required argument 'line1Id'")
+        }
+        guard let line1UUID = UUID(uuidString: line1IdStr) else {
+            return .error("Invalid UUID for 'line1Id': '\(line1IdStr)'")
+        }
+        guard let line2IdStr = arguments["line2Id"]?.stringValue else {
+            return .error("Missing required argument 'line2Id'")
+        }
+        guard let line2UUID = UUID(uuidString: line2IdStr) else {
+            return .error("Invalid UUID for 'line2Id': '\(line2IdStr)'")
+        }
+        guard let distance1 = arguments["distance1"]?.doubleValue, distance1.isFinite else {
+            return .error("Missing or invalid numeric argument 'distance1'")
+        }
+        let distance2 = arguments["distance2"]?.doubleValue
+        let angle = arguments["angle"]?.doubleValue
+
+        let res = document.chamferSketchCorner(
+            in: sketchUUID,
+            line1Id: line1UUID,
+            line2Id: line2UUID,
+            distance1: distance1,
+            distance2: distance2,
+            angle: angle
+        )
+        switch res {
+        case .success(let chamferResult):
+            onViewportInvalidated?()
+            return .text("Chamfered corner between lines '\(line1IdStr)' and '\(line2IdStr)' in sketch '\(sketchIdStr)', added bevel line '\(chamferResult.chamferLine.id.uuidString)' and \(chamferResult.constraints.count) constraints")
+        case .failure(let err):
+            return .error("Chamfer operation failed: \(err.localizedDescription)")
         }
     }
 }
