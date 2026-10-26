@@ -505,6 +505,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 parent.activeMarquee = activeMarquee
             }
         }
+        public var cycleCandidates: [PickCycleCandidate] = []
+        public var cycleIndex: Int = 0
+        public var lastCyclePointer: SIMD2<Float>? = nil
 
         func makeViewportProbeString() -> String {
             guard let mtkView = self.mtkView else {
@@ -571,6 +574,91 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         public func invalidate(reason: InvalidateReason) {
             viewportCoordinator.invalidate(reason: reason)
+        }
+
+        public func resetCycleSelection() {
+            cycleCandidates.removeAll()
+            cycleIndex = 0
+            lastCyclePointer = nil
+        }
+
+        public func applyCycleSelection(candidate: PickCycleCandidate) {
+            parent.document.selectedId = candidate.solidId
+            if let sub = candidate.subElement {
+                parent.document.selectedSubElement = SelectedSubElement(
+                    solidId: sub.solidId,
+                    elementType: sub.elementType,
+                    elementId: sub.elementId,
+                    deterministicId: sub.deterministicId,
+                    hitPoint: sub.hitPoint
+                )
+            } else {
+                parent.document.selectedSubElement = nil
+            }
+
+            if parent.isCommandActive {
+                if let onSelectElement = parent.onSelectElementForCommand {
+                    onSelectElement(candidate.solidId, parent.document.selectedSubElement)
+                } else {
+                    parent.onSelectObjectForCommand?(candidate.solidId)
+                }
+            }
+
+            let targetSelectedIds = parent.document.selectedIds
+            let targetSelectedId = parent.document.selectedId
+            let targetSubElement = parent.document.selectedSubElement
+            let isLocked = parent.document.objects.first(where: { $0.id == targetSelectedId })?.isLocked ?? false
+            let effectiveGizmo = parent.showsGizmo && !isLocked && targetSelectedIds.count <= 1
+
+            var needsInvalidate = false
+            if parent.renderer.selectedIds != targetSelectedIds || parent.renderer.selectedId != targetSelectedId || parent.renderer.selectedSubElement != targetSubElement {
+                parent.renderer.selectedIds = targetSelectedIds
+                parent.renderer.selectedId = targetSelectedId
+                parent.renderer.selectedSubElement = targetSubElement
+                needsInvalidate = true
+            }
+            if parent.renderer.showsGizmo != effectiveGizmo {
+                parent.renderer.showsGizmo = effectiveGizmo
+                needsInvalidate = true
+            }
+            if needsInvalidate {
+                invalidate(reason: .interaction)
+            }
+        }
+
+        public func cycleSelection(backward: Bool = false) {
+            if cycleCandidates.isEmpty {
+                let pointer: SIMD2<Float>
+                if let last = lastCyclePointer {
+                    pointer = last
+                } else if let hover = lastHoverLocation {
+                    pointer = SIMD2<Float>(Float(hover.x), Float(hover.y))
+                } else if let view = mtkView {
+                    pointer = SIMD2<Float>(Float(view.bounds.midX), Float(view.bounds.midY))
+                } else {
+                    return
+                }
+                guard let view = mtkView else { return }
+                let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                cycleCandidates = pickCandidatesAtPointer(
+                    pointer: pointer,
+                    viewportSize: view.bounds.size,
+                    viewMatrix: matrices.view,
+                    projectionMatrix: matrices.projection,
+                    candidateMeshes: parent.renderer.candidateMeshes(),
+                    filter: parent.selectionFilter
+                )
+                lastCyclePointer = pointer
+                cycleIndex = 0
+            }
+            guard !cycleCandidates.isEmpty else { return }
+            if backward {
+                cycleIndex = (cycleIndex - 1 + cycleCandidates.count) % cycleCandidates.count
+            } else {
+                cycleIndex = (cycleIndex + 1) % cycleCandidates.count
+            }
+            applyCycleSelection(candidate: cycleCandidates[cycleIndex])
         }
         
         func handleFrameRendered() {
@@ -924,6 +1012,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         
         func handleKeyDown(with event: NSEvent) -> Bool {
             if event.keyCode == 53 { // Esc
+                let hadCycle = !cycleCandidates.isEmpty || lastCyclePointer != nil
+                resetCycleSelection()
                 if isMarqueeActive || marqueeStartLocation != nil {
                     activeMarquee = nil
                     marqueeStartLocation = nil
@@ -973,6 +1063,9 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     parent.onDismissRadialMenu?()
                     return true
                 }
+                if hadCycle {
+                    return true
+                }
             }
 
             if parent.isCommandActive {
@@ -987,6 +1080,12 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
 
             let blocking: NSEvent.ModifierFlags = [.command, .control, .option]
+            if event.modifierFlags.intersection(blocking).isEmpty && (event.keyCode == 48 || event.charactersIgnoringModifiers == "`") { // Tab or backtick
+                let backward = event.modifierFlags.contains(.shift)
+                cycleSelection(backward: backward)
+                return true
+            }
+
             guard event.modifierFlags.intersection(blocking).isEmpty,
                   let key = event.charactersIgnoringModifiers?.lowercased().first else { return false }
             if let tool = ViewportTool.forShortcutKey(key) {
@@ -1638,42 +1737,161 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                     let loc = view.convert(event.locationInWindow, from: nil)
                     let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
 
-                    var hitId: SolidId? = nil
-                    var selectedSub: SelectedSubElement? = nil
                     var pickedFace: (SolidId, Int)? = nil
+                    let isExtend = event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.command)
 
-                    if parent.selectionFilter.allowsSubElements {
-                        let pickResult = parent.renderer.pickSubElement(
-                            at: pointer,
-                            viewportSize: view.bounds.size,
-                            filter: parent.selectionFilter
-                        )
-                        if let pick = pickResult {
-                            hitId = pick.solidId
-                            selectedSub = SelectedSubElement(
-                                solidId: pick.solidId,
-                                elementType: pick.elementType,
-                                elementId: pick.elementId,
-                                deterministicId: pick.deterministicId,
-                                hitPoint: pick.hitPoint
+                    if !isExtend {
+                        if let last = lastCyclePointer, simd_distance(pointer, last) <= 5.0, cycleCandidates.count > 1 {
+                            cycleIndex = (cycleIndex + 1) % cycleCandidates.count
+                            let candidate = cycleCandidates[cycleIndex]
+                            applyCycleSelection(candidate: candidate)
+                            if let sub = candidate.subElement, sub.elementType == .face {
+                                pickedFace = (candidate.solidId, sub.elementId)
+                            }
+                        } else {
+                            let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                            let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                            let candidates = pickCandidatesAtPointer(
+                                pointer: pointer,
+                                viewportSize: view.bounds.size,
+                                viewMatrix: matrices.view,
+                                projectionMatrix: matrices.projection,
+                                candidateMeshes: parent.renderer.candidateMeshes(),
+                                filter: parent.selectionFilter
                             )
-                            if pick.elementType == .face {
-                                pickedFace = (pick.solidId, pick.elementId)
+                            if !candidates.isEmpty {
+                                cycleCandidates = candidates
+                                cycleIndex = 0
+                                lastCyclePointer = pointer
+                                let candidate = candidates[0]
+                                applyCycleSelection(candidate: candidate)
+                                if let sub = candidate.subElement, sub.elementType == .face {
+                                    pickedFace = (candidate.solidId, sub.elementId)
+                                }
+                            } else {
+                                var fallbackResult: SubElementPickResult? = nil
+                                if parent.selectionFilter.allowsSubElements {
+                                    fallbackResult = parent.renderer.pickSubElement(
+                                        at: pointer,
+                                        viewportSize: view.bounds.size,
+                                        filter: parent.selectionFilter
+                                    )
+                                }
+                                if let pick = fallbackResult {
+                                    let c = PickCycleCandidate(solidId: pick.solidId, subElement: pick, distance: pick.distance)
+                                    cycleCandidates = [c]
+                                    cycleIndex = 0
+                                    lastCyclePointer = pointer
+                                    applyCycleSelection(candidate: c)
+                                    if pick.elementType == .face {
+                                        pickedFace = (pick.solidId, pick.elementId)
+                                    }
+                                } else {
+                                    resetCycleSelection()
+                                    if !wasStationaryGizmoClick {
+                                        parent.document.clearSelection()
+                                    }
+
+                                    let targetSelectedIds = parent.document.selectedIds
+                                    let targetSelectedId = parent.document.selectedId
+                                    let targetSubElement = parent.document.selectedSubElement
+                                    let isLocked = parent.document.objects.first(where: { $0.id == targetSelectedId })?.isLocked ?? false
+                                    let effectiveGizmo = parent.showsGizmo && !isLocked && targetSelectedIds.count <= 1
+
+                                    var needsInvalidate = false
+                                    if parent.renderer.selectedIds != targetSelectedIds || parent.renderer.selectedId != targetSelectedId || parent.renderer.selectedSubElement != targetSubElement {
+                                        parent.renderer.selectedIds = targetSelectedIds
+                                        parent.renderer.selectedId = targetSelectedId
+                                        parent.renderer.selectedSubElement = targetSubElement
+                                        needsInvalidate = true
+                                    }
+                                    if parent.renderer.showsGizmo != effectiveGizmo {
+                                        parent.renderer.showsGizmo = effectiveGizmo
+                                        needsInvalidate = true
+                                    }
+                                    if needsInvalidate {
+                                        invalidate(reason: .interaction)
+                                    }
+                                }
                             }
                         }
-                    }
+                    } else {
+                        resetCycleSelection()
+                        var hitId: SolidId? = nil
+                        var selectedSub: SelectedSubElement? = nil
 
-                    if hitId == nil && parent.selectionFilter.allowsBodies {
-                        let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
-                        let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
-                        hitId = pickSolidAtPointer(
-                            pointer: pointer,
-                            viewportSize: view.bounds.size,
-                            viewMatrix: matrices.view,
-                            projectionMatrix: matrices.projection,
-                            candidateMeshes: parent.renderer.candidateMeshes()
-                        )
-                        selectedSub = nil
+                        if parent.selectionFilter.allowsSubElements {
+                            let pickResult = parent.renderer.pickSubElement(
+                                at: pointer,
+                                viewportSize: view.bounds.size,
+                                filter: parent.selectionFilter
+                            )
+                            if let pick = pickResult {
+                                hitId = pick.solidId
+                                selectedSub = SelectedSubElement(
+                                    solidId: pick.solidId,
+                                    elementType: pick.elementType,
+                                    elementId: pick.elementId,
+                                    deterministicId: pick.deterministicId,
+                                    hitPoint: pick.hitPoint
+                                )
+                                if pick.elementType == .face {
+                                    pickedFace = (pick.solidId, pick.elementId)
+                                }
+                            }
+                        }
+
+                        if hitId == nil && parent.selectionFilter.allowsBodies {
+                            let aspect = Float(max(1.0, view.bounds.width) / max(1.0, view.bounds.height))
+                            let matrices = parent.renderer.viewAndProjectionMatrices(aspect: aspect)
+                            hitId = pickSolidAtPointer(
+                                pointer: pointer,
+                                viewportSize: view.bounds.size,
+                                viewMatrix: matrices.view,
+                                projectionMatrix: matrices.projection,
+                                candidateMeshes: parent.renderer.candidateMeshes()
+                            )
+                            selectedSub = nil
+                        }
+
+                        if let hitId {
+                            parent.document.toggleSelection(solidId: hitId)
+                            if parent.document.selectedIds.count > 1 {
+                                parent.document.selectedSubElement = nil
+                            } else if parent.document.isSelected(solidId: hitId) {
+                                parent.document.selectedSubElement = selectedSub
+                            }
+                            if parent.isCommandActive {
+                                if let onSelectElement = parent.onSelectElementForCommand {
+                                    onSelectElement(hitId, selectedSub)
+                                } else {
+                                    parent.onSelectObjectForCommand?(hitId)
+                                }
+                            }
+                        } else if !wasStationaryGizmoClick {
+                            parent.document.clearSelection()
+                        }
+
+                        let targetSelectedIds = parent.document.selectedIds
+                        let targetSelectedId = parent.document.selectedId
+                        let targetSubElement = parent.document.selectedSubElement
+                        let isLocked = parent.document.objects.first(where: { $0.id == targetSelectedId })?.isLocked ?? false
+                        let effectiveGizmo = parent.showsGizmo && !isLocked && targetSelectedIds.count <= 1
+
+                        var needsInvalidate = false
+                        if parent.renderer.selectedIds != targetSelectedIds || parent.renderer.selectedId != targetSelectedId || parent.renderer.selectedSubElement != targetSubElement {
+                            parent.renderer.selectedIds = targetSelectedIds
+                            parent.renderer.selectedId = targetSelectedId
+                            parent.renderer.selectedSubElement = targetSubElement
+                            needsInvalidate = true
+                        }
+                        if parent.renderer.showsGizmo != effectiveGizmo {
+                            parent.renderer.showsGizmo = effectiveGizmo
+                            needsInvalidate = true
+                        }
+                        if needsInvalidate {
+                            invalidate(reason: .interaction)
+                        }
                     }
 
                     if let plane = parent.activeSketchPlane, !parent.sketchRegions.isEmpty,
@@ -1696,52 +1914,6 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                         }
                     }
 
-                    let isExtend = event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.command)
-
-                    if let hitId {
-                        if isExtend {
-                            parent.document.toggleSelection(solidId: hitId)
-                            if parent.document.selectedIds.count > 1 {
-                                parent.document.selectedSubElement = nil
-                            } else if parent.document.isSelected(solidId: hitId) {
-                                parent.document.selectedSubElement = selectedSub
-                            }
-                        } else {
-                            parent.document.selectedId = hitId
-                            parent.document.selectedSubElement = selectedSub
-                        }
-                        if parent.isCommandActive {
-                            if let onSelectElement = parent.onSelectElementForCommand {
-                                onSelectElement(hitId, selectedSub)
-                            } else {
-                                parent.onSelectObjectForCommand?(hitId)
-                            }
-                        }
-                    } else if !wasStationaryGizmoClick {
-                        // Empty space click clears selection
-                        parent.document.clearSelection()
-                    }
-
-                    let targetSelectedIds = parent.document.selectedIds
-                    let targetSelectedId = parent.document.selectedId
-                    let targetSubElement = parent.document.selectedSubElement
-                    let isLocked = parent.document.objects.first(where: { $0.id == targetSelectedId })?.isLocked ?? false
-                    let effectiveGizmo = parent.showsGizmo && !isLocked && targetSelectedIds.count <= 1
-
-                    var needsInvalidate = false
-                    if parent.renderer.selectedIds != targetSelectedIds || parent.renderer.selectedId != targetSelectedId || parent.renderer.selectedSubElement != targetSubElement {
-                        parent.renderer.selectedIds = targetSelectedIds
-                        parent.renderer.selectedId = targetSelectedId
-                        parent.renderer.selectedSubElement = targetSubElement
-                        needsInvalidate = true
-                    }
-                    if parent.renderer.showsGizmo != effectiveGizmo {
-                        parent.renderer.showsGizmo = effectiveGizmo
-                        needsInvalidate = true
-                    }
-                    if needsInvalidate {
-                        invalidate(reason: .interaction)
-                    }
                     if event.clickCount == 2, let (faceSolidId, faceId) = pickedFace {
                         parent.onDoubleTapFace?(faceSolidId, faceId)
                     }
@@ -1760,6 +1932,10 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             }
             guard let view = mtkView else { return }
             let loc = view.convert(event.locationInWindow, from: nil)
+            let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
+            if let last = lastCyclePointer, simd_distance(pointer, last) > 8.0 {
+                resetCycleSelection()
+            }
             if let lastHover = lastHoverLocation {
                 let dx = loc.x - lastHover.x
                 let dy = loc.y - lastHover.y
@@ -1809,7 +1985,6 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
                 return
             }
 
-            let pointer = SIMD2<Float>(Float(loc.x), Float(loc.y))
             let pickResult = parent.renderer.pickSubElement(at: pointer, viewportSize: view.bounds.size, filter: parent.selectionFilter)
             let newPreselection = pickResult.map {
                 SelectedSubElement(
@@ -2427,6 +2602,8 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
             parent.renderer.camera = Camera.zoom(camera: parent.renderer.camera, factor: factor)
             invalidate(reason: .camera)
         }
+
+        public func cycleSelection(backward: Bool = false) {}
         
         public func clearPreselection() {
             guard preselectedSubElement != nil else { return }

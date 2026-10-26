@@ -541,4 +541,125 @@ import simd
         let picked = pickSolid(ray: ray, candidateMeshes: [cylMesh, boxMesh])
         #expect(picked?.id == SolidId("box-1"))
     }
+
+    // MARK: - Multi-Element Picking & Cycling (BL-SEL-08)
+
+    @Test func testPickAllSolidsReturnsAllPiercedSolidsSortedByDepth() {
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let box1 = CandidateMesh(
+            id: SolidId("box-front"),
+            payload: boxPayload,
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        let box2 = CandidateMesh(
+            id: SolidId("box-back"),
+            payload: boxPayload,
+            transform: Transform(position: SIMD3<Float>(0, 40, 0))
+        )
+
+        // Ray from (0, -30, 0) pointing along +Y
+        let ray = Ray3D(origin: SIMD3<Float>(0, -30, 0), direction: SIMD3<Float>(0, 1, 0))
+        let allHits = pickAllSolids(ray: ray, candidateMeshes: [box2, box1])
+
+        #expect(allHits.count == 2)
+        #expect(allHits[0].id == SolidId("box-front"))
+        #expect(allHits[1].id == SolidId("box-back"))
+        #expect(allHits[0].distance < allHits[1].distance)
+
+        // Single pick returns frontmost
+        let firstHit = pickSolid(ray: ray, candidateMeshes: [box2, box1])
+        #expect(firstHit?.id == SolidId("box-front"))
+    }
+
+    @Test func testPickAllSubElementsReturnsFrontAndBackFaces() {
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let box = CandidateMesh(
+            id: SolidId("box-1"),
+            payload: boxPayload,
+            transform: .identity
+        )
+
+        let ray = Ray3D(origin: SIMD3<Float>(0, -30, 0), direction: SIMD3<Float>(0, 1, 0))
+        let allSub = pickAllSubElements(
+            ray: ray,
+            candidateMeshes: [box],
+            filter: .faces,
+            includeOccluded: true
+        )
+
+        #expect(allSub.count == 2)
+        #expect(allSub[0].elementType == .face)
+        #expect(allSub[1].elementType == .face)
+        #expect(allSub[0].elementId != allSub[1].elementId)
+        #expect(allSub[0].distance < allSub[1].distance)
+
+        // With includeOccluded: false, only the front face is returned
+        let frontOnly = pickAllSubElements(
+            ray: ray,
+            candidateMeshes: [box],
+            filter: .faces,
+            includeOccluded: false
+        )
+        #expect(frontOnly.count == 1)
+        #expect(frontOnly[0].elementId == allSub[0].elementId)
+    }
+
+    @Test func testPickCandidatesAtPointerWithFilters() {
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let box1 = CandidateMesh(
+            id: SolidId("box-1"),
+            payload: boxPayload,
+            transform: Transform(position: SIMD3<Float>(0, 0, 0))
+        )
+        let box2 = CandidateMesh(
+            id: SolidId("box-2"),
+            payload: boxPayload,
+            transform: Transform(position: SIMD3<Float>(0, 40, 0))
+        )
+
+        let eye = SIMD3<Float>(0, -50, 0)
+        let viewMatrix = Orientation.makeLookAt(eye: eye, target: .zero, up: Orientation.worldUp)
+        let projMatrix = Orientation.makePerspective(fovyRadians: .pi / 4.0, aspect: 800.0 / 600.0, nearZ: 0.1, farZ: 1000.0)
+        let viewport = CGSize(width: 800, height: 600)
+
+        let centerPointer = SIMD2<Float>(400, 300)
+
+        // Filter: bodies only -> returns both solid bodies
+        let bodyCandidates = pickCandidatesAtPointer(
+            pointer: centerPointer,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            candidateMeshes: [box1, box2],
+            filter: .bodies
+        )
+        #expect(bodyCandidates.count == 2)
+        #expect(bodyCandidates[0].solidId == SolidId("box-1"))
+        #expect(bodyCandidates[1].solidId == SolidId("box-2"))
+        #expect(bodyCandidates[0].subElement == nil)
+        #expect(bodyCandidates[1].subElement == nil)
+
+        // Filter: faces only -> returns faces across the stacked boxes
+        let faceCandidates = pickCandidatesAtPointer(
+            pointer: centerPointer,
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            candidateMeshes: [box1, box2],
+            filter: .faces
+        )
+        #expect(faceCandidates.count >= 2)
+        #expect(faceCandidates[0].subElement?.elementType == .face)
+
+        // Pointer missing geometry -> returns empty array
+        let missCandidates = pickCandidatesAtPointer(
+            pointer: SIMD2<Float>(10, 10),
+            viewportSize: viewport,
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            candidateMeshes: [box1, box2],
+            filter: .all
+        )
+        #expect(missCandidates.isEmpty)
+    }
 }

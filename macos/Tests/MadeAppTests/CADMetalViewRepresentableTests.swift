@@ -1267,4 +1267,160 @@ private enum MetalTestSupport {
         #expect(!coordinator.isMarqueeActive)
         #expect(coordinator.activeMarquee == nil)
     }
+
+    // MARK: - Selection Cycling Tests (BL-SEL-08)
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testStationaryClickCyclesSelectionThroughOverlappingSolids() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness(selectionFilter: .bodies)
+        let aspect = Float(width / height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let center = CGPoint(x: width / 2.0, y: height / 2.0)
+        let centerPointer = SIMD2<Float>(Float(center.x), Float(center.y))
+        let ray = try #require(screenPointToRay(
+            screenPoint: centerPointer,
+            viewportSize: CGSize(width: width, height: height),
+            viewMatrix: matrices.view,
+            projectionMatrix: matrices.projection
+        ))
+
+        let box2Id = SolidId("box-2")
+        let payload2 = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        var mesh2 = try #require(renderer.createMesh(from: payload2, solidId: box2Id, color: SIMD4<Float>(0.9, 0.4, 0.4, 1.0)))
+        mesh2.transform = Transform(position: ray.origin + ray.direction * 180.0)
+        renderer.meshes[box2Id] = mesh2
+
+        document.selectedId = nil
+        renderer.selectedId = nil
+
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: center, windowNumber: window.windowNumber)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: center, windowNumber: window.windowNumber)
+
+        // First click selects front box
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+        #expect(document.selectedId == ObjectId("box-1"))
+
+        // Second stationary click cycles to second box
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+        #expect(document.selectedId == ObjectId("box-2"))
+
+        // Third stationary click wraps back to first box
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+        #expect(document.selectedId == ObjectId("box-1"))
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testTabKeyCyclesSelectionForwardAndBackward() throws {
+        let (window, _, coordinator, renderer, document, _) = try makeHarness(selectionFilter: .bodies)
+        let aspect = Float(width / height)
+        let matrices = renderer.viewAndProjectionMatrices(aspect: aspect)
+        let center = CGPoint(x: width / 2.0, y: height / 2.0)
+        let centerPointer = SIMD2<Float>(Float(center.x), Float(center.y))
+        let ray = try #require(screenPointToRay(
+            screenPoint: centerPointer,
+            viewportSize: CGSize(width: width, height: height),
+            viewMatrix: matrices.view,
+            projectionMatrix: matrices.projection
+        ))
+
+        let box2Id = SolidId("box-2")
+        let payload2 = NativeGeometryGenerator.generateBox(width: 40, depth: 30, height: 20)
+        var mesh2 = try #require(renderer.createMesh(from: payload2, solidId: box2Id, color: SIMD4<Float>(0.9, 0.4, 0.4, 1.0)))
+        mesh2.transform = Transform(position: ray.origin + ray.direction * 180.0)
+        renderer.meshes[box2Id] = mesh2
+
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: center, windowNumber: window.windowNumber)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: center, windowNumber: window.windowNumber)
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+        #expect(document.selectedId == ObjectId("box-1"))
+
+        let tabEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\t",
+            charactersIgnoringModifiers: "\t",
+            isARepeat: false,
+            keyCode: 48
+        )!
+
+        // Tab cycles forward to box-2
+        let handled1 = coordinator.handleKeyDown(with: tabEvent)
+        #expect(handled1)
+        #expect(document.selectedId == ObjectId("box-2"))
+
+        // Shift+Tab cycles backward to box-1
+        let shiftTabEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\t",
+            charactersIgnoringModifiers: "\t",
+            isARepeat: false,
+            keyCode: 48
+        )!
+        let handled2 = coordinator.handleKeyDown(with: shiftTabEvent)
+        #expect(handled2)
+        #expect(document.selectedId == ObjectId("box-1"))
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testCursorDisplacementResetsCycleSelection() throws {
+        let (window, _, coordinator, _, _, _) = try makeHarness(selectionFilter: .bodies)
+        let center = CGPoint(x: width / 2.0, y: height / 2.0)
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: center, windowNumber: window.windowNumber)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: center, windowNumber: window.windowNumber)
+
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+        #expect(!coordinator.cycleCandidates.isEmpty)
+        #expect(coordinator.lastCyclePointer != nil)
+
+        // Move cursor 20px away (> 8px displacement)
+        let farMove = CGPoint(x: center.x + 20.0, y: center.y + 20.0)
+        let moveEvent = makeMouseEvent(type: .mouseMoved, location: farMove, windowNumber: window.windowNumber)
+        coordinator.handleMouseMoved(with: moveEvent)
+
+        #expect(coordinator.cycleCandidates.isEmpty)
+        #expect(coordinator.lastCyclePointer == nil)
+    }
+
+    @Test(.enabled(if: MetalTestSupport.isMetal4Available, "Metal 4 unavailable"))
+    func testEscapeResetsCycleSelection() throws {
+        let (window, _, coordinator, _, _, _) = try makeHarness(selectionFilter: .bodies)
+        let center = CGPoint(x: width / 2.0, y: height / 2.0)
+        let downEvent = makeMouseEvent(type: .leftMouseDown, location: center, windowNumber: window.windowNumber)
+        let upEvent = makeMouseEvent(type: .leftMouseUp, location: center, windowNumber: window.windowNumber)
+
+        coordinator.handleMouseDown(with: downEvent, button: .left)
+        coordinator.handleMouseUp(with: upEvent, button: .left)
+        #expect(!coordinator.cycleCandidates.isEmpty)
+
+        let escEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        )!
+        let handled = coordinator.handleKeyDown(with: escEvent)
+        #expect(handled)
+        #expect(coordinator.cycleCandidates.isEmpty)
+        #expect(coordinator.lastCyclePointer == nil)
+    }
 }

@@ -377,4 +377,36 @@ import simd
         let screenBounds = aabbBehind.projectedScreenBounds(viewProjectionMatrix: vp, viewportSize: CGSize(width: 800, height: 600))
         #expect(screenBounds == nil)
     }
+
+    // MARK: - 8. Multi-Hit Raycasting (BL-SEL-08)
+
+    @Test func testRaycastAllReturnsAllPiercedTrianglesInDepthOrder() {
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let box = CandidateMesh(id: SolidId("box-multi"), payload: boxPayload, transform: .identity)
+        guard let bvh = box.spatialIndex?.triangleBVH else {
+            Issue.record("Missing triangle BVH")
+            return
+        }
+
+        // Ray from (0, -30, 0) pointing along +Y through center of box [-10, 10]
+        let ray = Ray3D(origin: SIMD3<Float>(0, -30, 0), direction: SIMD3<Float>(0, 1, 0))
+        let hits = bvh.raycastAll(ray: ray)
+
+        // Pierces front face at y = -10 (distance 20) and back face at y = 10 (distance 40)
+        #expect(hits.count >= 2)
+        #expect(abs(hits[0].distance - 20.0) < 1e-3)
+        #expect(abs(hits.last!.distance - 40.0) < 1e-3)
+        #expect(hits[0].distance < hits.last!.distance)
+    }
+
+    @Test func testRaycastAllEmptyBVHAndMiss() {
+        let emptyBVH = TriangleBVH(primitives: [])
+        let ray = Ray3D(origin: SIMD3<Float>(0, -30, 0), direction: SIMD3<Float>(0, 1, 0))
+        #expect(emptyBVH.raycastAll(ray: ray).isEmpty)
+
+        let boxPayload = NativeGeometryGenerator.generateBox(width: 20, depth: 20, height: 20)
+        let box = CandidateMesh(id: SolidId("box-miss"), payload: boxPayload, transform: .identity)
+        let missRay = Ray3D(origin: SIMD3<Float>(50, -30, 0), direction: SIMD3<Float>(0, 1, 0))
+        #expect(box.spatialIndex?.triangleBVH.raycastAll(ray: missRay).isEmpty == true)
+    }
 }

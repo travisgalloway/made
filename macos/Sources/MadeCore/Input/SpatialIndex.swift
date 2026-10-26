@@ -498,6 +498,80 @@ public struct TriangleBVH: Sendable {
         return closestHit
     }
 
+    public func raycastAll(ray: Ray3D, minT: Float = 1e-4, maxT: Float = .greatestFiniteMagnitude) -> [TriangleRaycastHit] {
+        guard !nodes.isEmpty else { return [] }
+
+        var stack = [Int32](repeating: 0, count: 64)
+        var stackPtr = 0
+        stack[0] = 0
+        var hits: [TriangleRaycastHit] = []
+
+        while stackPtr >= 0 {
+            let nodeIdx = Int(stack[stackPtr])
+            stackPtr -= 1
+
+            let node = nodes[nodeIdx]
+            let (hitBox, tBox) = node.bounds.intersects(ray: ray, minT: minT, maxT: maxT)
+            if !hitBox || tBox > maxT { continue }
+
+            if node.isLeaf {
+                let start = Int(node.leftOrPrimitiveIndex)
+                let count = Int(node.primitiveCount)
+                for i in start..<(start + count) {
+                    let tri = primitives[i]
+                    let edge1 = tri.v1 - tri.v0
+                    let edge2 = tri.v2 - tri.v0
+                    let h = simd_cross(ray.direction, edge2)
+                    let a = simd_dot(edge1, h)
+                    if abs(a) < 1e-7 { continue }
+                    let f = 1.0 / a
+                    let s = ray.origin - tri.v0
+                    let u = f * simd_dot(s, h)
+                    if u < 0.0 || u > 1.0 { continue }
+                    let q = simd_cross(s, edge1)
+                    let v = f * simd_dot(ray.direction, q)
+                    if v < 0.0 || u + v > 1.0 { continue }
+                    let t = f * simd_dot(edge2, q)
+                    if t >= minT && t <= maxT {
+                        let hitPt = ray.origin + ray.direction * t
+                        hits.append(TriangleRaycastHit(
+                            hitPoint: hitPt,
+                            distance: t,
+                            triIndex: tri.triIndex,
+                            faceId: tri.faceId,
+                            deterministicId: tri.deterministicId
+                        ))
+                    }
+                }
+            } else {
+                let leftIdx = node.leftOrPrimitiveIndex
+                let rightIdx = node.rightChildIndex
+                let (hitLeft, tLeft) = nodes[Int(leftIdx)].bounds.intersects(ray: ray, minT: minT, maxT: maxT)
+                let (hitRight, tRight) = nodes[Int(rightIdx)].bounds.intersects(ray: ray, minT: minT, maxT: maxT)
+
+                if stackPtr + 2 >= stack.count {
+                    stack.append(contentsOf: repeatElement(Int32(0), count: 32))
+                }
+
+                if hitLeft && hitRight {
+                    if tLeft < tRight {
+                        stackPtr += 1; stack[stackPtr] = rightIdx
+                        stackPtr += 1; stack[stackPtr] = leftIdx
+                    } else {
+                        stackPtr += 1; stack[stackPtr] = leftIdx
+                        stackPtr += 1; stack[stackPtr] = rightIdx
+                    }
+                } else if hitLeft {
+                    stackPtr += 1; stack[stackPtr] = leftIdx
+                } else if hitRight {
+                    stackPtr += 1; stack[stackPtr] = rightIdx
+                }
+            }
+        }
+        hits.sort { $0.distance < $1.distance }
+        return hits
+    }
+
     public func closestPoint(
         to point: SIMD3<Float>,
         maxDistance: Float = .greatestFiniteMagnitude
