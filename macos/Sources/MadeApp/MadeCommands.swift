@@ -337,6 +337,12 @@ struct SolidMenuCommands: Commands {
             .keyboardShortcut(WorkspaceModel.lockSolidShortcutKey, modifiers: WorkspaceModel.lockSolidShortcutModifiers)
             .disabled(workspace.selectedObject == nil)
 
+            Button(workspace.suppressToggleTitle) {
+                workspace.toggleSelectedFeatureSuppression()
+            }
+            .keyboardShortcut(WorkspaceModel.suppressFeatureShortcutKey, modifiers: WorkspaceModel.suppressFeatureShortcutModifiers)
+            .disabled(workspace.selectedFeature == nil || (workspace.selectedFeature?.isLocked ?? false))
+
             Divider()
 
             Button("Reload Part") {

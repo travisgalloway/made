@@ -5354,6 +5354,64 @@ final class WorkspaceModel {
         setFeatureLocked(id: id, isLocked: !feat.isLocked)
     }
 
+    // MARK: - Feature Suppression (BL-FND-06, #176)
+
+    var suppressToggleTitle: String {
+        guard let feat = selectedFeature else { return "Suppress Feature" }
+        return feat.isSuppressed ? "Unsuppress Feature" : "Suppress Feature"
+    }
+
+    func toggleSelectedFeatureSuppression() {
+        guard let feat = selectedFeature, !feat.isLocked else { return }
+        toggleFeatureSuppressed(feat.id)
+    }
+
+    func toggleFeatureSuppressed(_ id: UUID) {
+        guard let feat = document.feature(for: id) else { return }
+        setFeatureSuppressed(id: id, isSuppressed: !feat.isSuppressed)
+    }
+
+    @discardableResult
+    func setFeatureSuppressed(id: UUID, isSuppressed: Bool) -> Task<Void, Never> {
+        guard let feat = document.feature(for: id), feat.isSuppressed != isSuppressed else {
+            return Task {}
+        }
+        guard !feat.isLocked else { return Task {} }
+
+        let result = document.setFeatureSuppressed(id: id, isSuppressed: isSuppressed)
+        guard case .success = result else { return Task {} }
+
+        if isFeatureSelected(feat) {
+            syncViewportSelection()
+        }
+        markDocumentModified()
+
+        let task = Task {
+            if isSuppressed, let solidId = feat.outputSolidId {
+                await kernelClient.dispose(solidId: solidId)
+            }
+            await KernelRegeneration.regenerateIncremental(from: id, in: self.document, client: self.kernelClient)
+            let affected = [feat] + self.document.dependentFeatures(referencing: id)
+            for f in affected {
+                if let solidId = f.outputSolidId {
+                    self.recomputeSolid(id: solidId)
+                }
+            }
+            self.invalidateViewport(.model)
+        }
+
+        if isSuppressed, let solidId = feat.outputSolidId {
+            recomputeFailures.clear(solidId)
+            if let renderer = viewportManager.renderer {
+                _ = SolidMeshApplier.remove(id: solidId, from: renderer)
+            }
+        }
+
+        log(.info, "Scene", "\(isSuppressed ? "Suppressed" : "Unsuppressed") feature \(feat.name) (\(id.uuidString))")
+        invalidateViewport(.model)
+        return task
+    }
+
     // MARK: - Body Mutators (BL-FND-13)
 
     func setBodyName(id: BodyId, name: String) {
@@ -8530,6 +8588,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
     func undo() -> Task<Void, Never> {
         let oldObjects = document.objects
         let oldFeatureIds = Set(document.features.map(\.id))
+        let oldSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
         document.undo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
         syncHiddenSolidIds()
@@ -8552,7 +8611,8 @@ public struct SimulationAnimationState: Sendable, Equatable {
         if let sketch = selectedSketchFeature {
             refreshSketchStatus(for: sketch.id)
         }
-        if oldFeatureIds != Set(document.features.map(\.id)) {
+        let currentSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
+        if oldFeatureIds != Set(document.features.map(\.id)) || oldSuppressedIds != currentSuppressedIds {
             return Task {
                 await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
                 self.invalidateViewport(.model)
@@ -8565,6 +8625,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
     func redo() -> Task<Void, Never> {
         let oldObjects = document.objects
         let oldFeatureIds = Set(document.features.map(\.id))
+        let oldSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
         document.redo()
         syncMeshes(removedFrom: oldObjects, to: document.objects)
         syncHiddenSolidIds()
@@ -8587,7 +8648,8 @@ public struct SimulationAnimationState: Sendable, Equatable {
         if let sketch = selectedSketchFeature {
             refreshSketchStatus(for: sketch.id)
         }
-        if oldFeatureIds != Set(document.features.map(\.id)) {
+        let currentSuppressedIds = Set(document.features.filter(\.isSuppressed).map(\.id))
+        if oldFeatureIds != Set(document.features.map(\.id)) || oldSuppressedIds != currentSuppressedIds {
             return Task {
                 await KernelRegeneration.regenerate(document: self.document, client: self.kernelClient)
                 self.invalidateViewport(.model)
@@ -8998,6 +9060,9 @@ public struct SimulationAnimationState: Sendable, Equatable {
 
     static let lockSolidShortcutKey: KeyEquivalent = "l"
     static let lockSolidShortcutModifiers: EventModifiers = [.command, .shift]
+
+    static let suppressFeatureShortcutKey: KeyEquivalent = "u"
+    static let suppressFeatureShortcutModifiers: EventModifiers = [.command, .shift]
 
     static let reloadPartShortcutKey: KeyEquivalent = "r"
     static let reloadPartShortcutModifiers: EventModifiers = [.control, .command]

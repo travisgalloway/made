@@ -66,6 +66,12 @@ struct NavigatorSidebarView: View {
                         .disabled(body.isLocked)
                         Button(body.isVisible ? "Hide" : "Show") { workspace.toggleBodyVisibility(id) }
                         Button(body.isLocked ? "Unlock" : "Lock") { workspace.toggleBodyLocked(id) }
+                        if let feat = workspace.document.feature(for: id) {
+                            Button(feat.isSuppressed ? "Unsuppress" : "Suppress") {
+                                workspace.toggleFeatureSuppressed(feat.id)
+                            }
+                            .disabled(feat.isLocked)
+                        }
                         Divider()
                         Button("Delete", role: .destructive) { workspace.requestDeleteObject(id) }
                             .disabled(body.isLocked)
@@ -282,6 +288,14 @@ struct NavigatorSidebarView: View {
                 }
             }
         }
+
+        if !suppressedSolidFeatures.isEmpty {
+            Section("Suppressed Features") {
+                ForEach(suppressedSolidFeatures) { feat in
+                    NavigatorSuppressedFeatureRow(feature: feat)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -464,7 +478,7 @@ struct NavigatorSidebarView: View {
                         .controlSize(.small)
                     }
                 }
-            } else if !filterText.isEmpty && filteredBodies.isEmpty && filteredComponents.isEmpty && filteredConstraints.isEmpty {
+            } else if !filterText.isEmpty && filteredBodies.isEmpty && filteredComponents.isEmpty && filteredConstraints.isEmpty && suppressedSolidFeatures.isEmpty {
                 ContentUnavailableView.search(text: filterText)
             }
 
@@ -644,6 +658,32 @@ struct NavigatorSidebarView: View {
             if let obj = workspace.document.objects.first(where: { $0.id == body.id }) {
                 return obj.def.kind.localizedCaseInsensitiveContains(trimmed) || obj.parameterSummary.localizedCaseInsensitiveContains(trimmed)
             }
+            return false
+        }
+    }
+
+    private var suppressedSolidFeatures: [Feature] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        let solidFeatures = workspace.document.activeFeatures.filter { feat in
+            feat.isSuppressed && !Self.isConstructionFeature(feat)
+        }
+        guard !trimmed.isEmpty else { return solidFeatures }
+        return solidFeatures.filter { feat in
+            if feat.name.localizedCaseInsensitiveContains(trimmed) {
+                return true
+            }
+            if let solidId = feat.outputSolidId, solidId.rawValue.localizedCaseInsensitiveContains(trimmed) {
+                return true
+            }
+            return false
+        }
+    }
+
+    nonisolated static func isConstructionFeature(_ feat: Feature) -> Bool {
+        switch feat.operation {
+        case .sketch, .datumPlane, .datumAxis, .datumPoint, .datumCoordinateSystem:
+            return true
+        default:
             return false
         }
     }
@@ -943,6 +983,208 @@ private struct NavigatorRow: View {
         case .hole: return .teal
         case .pattern: return .indigo
         case .mirror: return .cyan
+        }
+    }
+}
+
+/// Outline row for a suppressed solid feature in the Navigator sidebar.
+struct NavigatorSuppressedFeatureRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let feature: Feature
+    @State private var isHovered = false
+
+    init(feature: Feature) {
+        self.feature = feature
+    }
+
+    nonisolated static let defaultAccessibilityTraits: AccessibilityTraits = .isButton
+
+    nonisolated static func accessibilityTraits(isSelected: Bool = false) -> AccessibilityTraits {
+        isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
+    }
+
+    nonisolated static func accessibilityLabel(featureName: String, kind: String, isLocked: Bool = false) -> String {
+        "\(featureName), \(kind), Suppressed\(isLocked ? ", Locked" : "")"
+    }
+
+    var body: some View {
+        let isSelected = workspace.isFeatureSelected(feature)
+        let kind = Self.featureKind(for: feature)
+
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: Self.featureIcon(for: feature))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(feature.name)
+                        .font(.body)
+                        .lineLimit(1)
+                        .strikethrough()
+                        .foregroundStyle(.secondary)
+
+                    Text(kind)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+
+                    Text("Suppressed")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                }
+
+                if let solidId = feature.outputSolidId {
+                    Text(solidId.rawValue)
+                        .font(.caption2)
+                        .monospaced()
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            Group {
+                if isHovered || feature.isSuppressed {
+                    Button("Unsuppress Feature", systemImage: "eye.slash.fill") {
+                        workspace.toggleFeatureSuppressed(feature.id)
+                    }
+                    .foregroundStyle(.orange)
+                    .help("Unsuppress Feature")
+                    .disabled(feature.isLocked)
+                }
+                if isHovered || feature.isLocked {
+                    Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                           systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleFeatureLocked(feature.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                }
+            }
+            .barControl()
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            workspace.selectFeature(feature.id)
+        }
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
+        .contextMenu {
+            Button("Unsuppress") {
+                workspace.toggleFeatureSuppressed(feature.id)
+            }
+            .disabled(feature.isLocked)
+
+            Button(feature.isLocked ? "Unlock" : "Lock") {
+                workspace.toggleFeatureLocked(feature.id)
+            }
+
+            Divider()
+
+            Button("Delete", role: .destructive) {
+                workspace.requestDeleteFeature(feature.id)
+            }
+            .disabled(feature.isLocked)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, kind: kind, isLocked: feature.isLocked))
+        .accessibilityIdentifier("navigator-suppressed-feature-\(feature.id.uuidString)")
+        .accessibilityAction {
+            workspace.selectFeature(feature.id)
+        }
+        .accessibilityAction(named: "Unsuppress Feature") {
+            workspace.toggleFeatureSuppressed(feature.id)
+        }
+        .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
+            workspace.toggleFeatureLocked(feature.id)
+        }
+        .accessibilityAction(named: "Delete") {
+            workspace.requestDeleteFeature(feature.id)
+        }
+    }
+
+    nonisolated static func featureKind(for feature: Feature) -> String {
+        switch feature.operation {
+        case .primitive(let data):
+            switch data {
+            case .box: return "Box"
+            case .cylinder: return "Cylinder"
+            case .sphere: return "Sphere"
+            case .cone: return "Cone"
+            case .torus: return "Torus"
+            case .wedge: return "Wedge"
+            }
+        case .extrude:
+            return "Extrude"
+        case .revolve:
+            return "Revolve"
+        case .boolean(let data):
+            return data.op.rawValue.capitalized
+        case .part:
+            return "Part"
+        case .imported:
+            return "Imported"
+        case .chamfer:
+            return "Chamfer"
+        case .shell:
+            return "Shell"
+        case .hole:
+            return "Hole"
+        case .pattern:
+            return "Pattern"
+        case .mirror:
+            return "Mirror"
+        case .combine:
+            return "Combine"
+        case .moveBody:
+            return "Move"
+        case .copyBody:
+            return "Copy"
+        case .deleteBody:
+            return "Delete"
+        default:
+            return "Solid"
+        }
+    }
+
+    nonisolated static func featureIcon(for feature: Feature) -> String {
+        switch feature.operation {
+        case .primitive(let data):
+            switch data {
+            case .box: return "shippingbox.fill"
+            case .cylinder: return "cylinder.fill"
+            case .sphere: return "globe"
+            case .cone: return "cone.fill"
+            case .torus: return "circle.circle"
+            case .wedge: return "triangle.fill"
+            }
+        case .extrude: return "arrow.up.forward.app.fill"
+        case .revolve: return "arrow.triangle.2.circlepath"
+        case .boolean: return "square.on.circle"
+        case .part: return "curlybraces.square.fill"
+        case .imported: return "cube.transparent"
+        case .chamfer: return "skew"
+        case .shell: return "square.dashed"
+        case .hole: return "circle.circle"
+        case .pattern: return "square.grid.3x3.fill"
+        case .mirror: return "arrow.left.and.right.righttriangle.left.righttriangle.right"
+        case .combine: return "square.on.circle"
+        case .moveBody: return "arrow.up.and.down.and.arrow.left.and.right"
+        case .copyBody: return "plus.square.on.square"
+        case .deleteBody: return "trash"
+        default: return "cube.fill"
         }
     }
 }
@@ -1421,6 +1663,8 @@ struct NavigatorSketchRow: View {
                     Text(feature.name)
                         .font(.body)
                         .lineLimit(1)
+                        .strikethrough(feature.isSuppressed)
+                        .foregroundStyle(feature.isSuppressed ? .secondary : .primary)
 
                     Text("Sketch")
                         .font(.caption2)
@@ -1431,6 +1675,16 @@ struct NavigatorSketchRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if feature.isSuppressed {
+                        Text("Suppressed")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    }
 
                     if !status.isInactive {
                         dofBadge(for: status)
@@ -1444,15 +1698,26 @@ struct NavigatorSketchRow: View {
 
             Spacer(minLength: 4)
 
-            if isHovered || feature.isLocked {
-                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
-                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
-                    workspace.toggleFeatureLocked(feature.id)
+            Group {
+                if isHovered || feature.isSuppressed {
+                    Button(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature",
+                           systemImage: feature.isSuppressed ? "eye.slash.fill" : "eye") {
+                        workspace.toggleFeatureSuppressed(feature.id)
+                    }
+                    .foregroundStyle(feature.isSuppressed ? .orange : .secondary)
+                    .help(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature")
+                    .disabled(feature.isLocked)
                 }
-                .foregroundStyle(.secondary)
-                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
-                .barControl()
+                if isHovered || feature.isLocked {
+                    Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                           systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleFeatureLocked(feature.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                }
             }
+            .barControl()
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
@@ -1462,6 +1727,11 @@ struct NavigatorSketchRow: View {
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
         .contextMenu {
+            Button(feature.isSuppressed ? "Unsuppress" : "Suppress") {
+                workspace.toggleFeatureSuppressed(feature.id)
+            }
+            .disabled(feature.isLocked)
+
             Button(feature.isLocked ? "Unlock" : "Lock") {
                 workspace.toggleFeatureLocked(feature.id)
             }
@@ -1473,9 +1743,12 @@ struct NavigatorSketchRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
-        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, entityCount: count, status: status, isLocked: feature.isLocked))
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, entityCount: count, status: status, isLocked: feature.isLocked, isSuppressed: feature.isSuppressed))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
+        }
+        .accessibilityAction(named: feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature") {
+            workspace.toggleFeatureSuppressed(feature.id)
         }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
@@ -1548,8 +1821,8 @@ struct NavigatorSketchRow: View {
         }
     }
 
-    nonisolated static func accessibilityLabel(featureName: String, entityCount: Int, status: SketchDOFStatus, isLocked: Bool = false) -> String {
-        "\(featureName), Sketch, \(entityCount) entities, \(status.statusText)\(isLocked ? ", Locked" : "")"
+    nonisolated static func accessibilityLabel(featureName: String, entityCount: Int, status: SketchDOFStatus, isLocked: Bool = false, isSuppressed: Bool = false) -> String {
+        "\(featureName), Sketch, \(entityCount) entities, \(status.statusText)\(isLocked ? ", Locked" : "")\(isSuppressed ? ", Suppressed" : "")"
     }
 }
 
@@ -1569,8 +1842,8 @@ struct NavigatorDatumPlaneRow: View {
         isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
     }
 
-    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
-        "\(featureName), Datum Plane\(isLocked ? ", Locked" : "")"
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false, isSuppressed: Bool = false) -> String {
+        "\(featureName), Datum Plane\(isLocked ? ", Locked" : "")\(isSuppressed ? ", Suppressed" : "")"
     }
 
     var body: some View {
@@ -1585,6 +1858,8 @@ struct NavigatorDatumPlaneRow: View {
                     Text(feature.name)
                         .font(.body)
                         .lineLimit(1)
+                        .strikethrough(feature.isSuppressed)
+                        .foregroundStyle(feature.isSuppressed ? .secondary : .primary)
 
                     Text("Datum")
                         .font(.caption2)
@@ -1595,6 +1870,16 @@ struct NavigatorDatumPlaneRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if feature.isSuppressed {
+                        Text("Suppressed")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    }
                 }
 
                 if case .datumPlane(let data) = feature.operation {
@@ -1606,15 +1891,26 @@ struct NavigatorDatumPlaneRow: View {
 
             Spacer(minLength: 4)
 
-            if isHovered || feature.isLocked {
-                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
-                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
-                    workspace.toggleFeatureLocked(feature.id)
+            Group {
+                if isHovered || feature.isSuppressed {
+                    Button(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature",
+                           systemImage: feature.isSuppressed ? "eye.slash.fill" : "eye") {
+                        workspace.toggleFeatureSuppressed(feature.id)
+                    }
+                    .foregroundStyle(feature.isSuppressed ? .orange : .secondary)
+                    .help(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature")
+                    .disabled(feature.isLocked)
                 }
-                .foregroundStyle(.secondary)
-                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
-                .barControl()
+                if isHovered || feature.isLocked {
+                    Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                           systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleFeatureLocked(feature.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                }
             }
+            .barControl()
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
@@ -1624,6 +1920,11 @@ struct NavigatorDatumPlaneRow: View {
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
         .contextMenu {
+            Button(feature.isSuppressed ? "Unsuppress" : "Suppress") {
+                workspace.toggleFeatureSuppressed(feature.id)
+            }
+            .disabled(feature.isLocked)
+
             Button(feature.isLocked ? "Unlock" : "Lock") {
                 workspace.toggleFeatureLocked(feature.id)
             }
@@ -1635,9 +1936,12 @@ struct NavigatorDatumPlaneRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
-        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked, isSuppressed: feature.isSuppressed))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
+        }
+        .accessibilityAction(named: feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature") {
+            workspace.toggleFeatureSuppressed(feature.id)
         }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
@@ -1664,8 +1968,8 @@ struct NavigatorDatumAxisRow: View {
         isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
     }
 
-    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
-        "\(featureName), Datum Axis\(isLocked ? ", Locked" : "")"
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false, isSuppressed: Bool = false) -> String {
+        "\(featureName), Datum Axis\(isLocked ? ", Locked" : "")\(isSuppressed ? ", Suppressed" : "")"
     }
 
     var body: some View {
@@ -1680,6 +1984,8 @@ struct NavigatorDatumAxisRow: View {
                     Text(feature.name)
                         .font(.body)
                         .lineLimit(1)
+                        .strikethrough(feature.isSuppressed)
+                        .foregroundStyle(feature.isSuppressed ? .secondary : .primary)
 
                     Text("Axis")
                         .font(.caption2)
@@ -1690,6 +1996,16 @@ struct NavigatorDatumAxisRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if feature.isSuppressed {
+                        Text("Suppressed")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    }
                 }
 
                 if case .datumAxis(let data) = feature.operation {
@@ -1701,15 +2017,26 @@ struct NavigatorDatumAxisRow: View {
 
             Spacer(minLength: 4)
 
-            if isHovered || feature.isLocked {
-                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
-                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
-                    workspace.toggleFeatureLocked(feature.id)
+            Group {
+                if isHovered || feature.isSuppressed {
+                    Button(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature",
+                           systemImage: feature.isSuppressed ? "eye.slash.fill" : "eye") {
+                        workspace.toggleFeatureSuppressed(feature.id)
+                    }
+                    .foregroundStyle(feature.isSuppressed ? .orange : .secondary)
+                    .help(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature")
+                    .disabled(feature.isLocked)
                 }
-                .foregroundStyle(.secondary)
-                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
-                .barControl()
+                if isHovered || feature.isLocked {
+                    Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                           systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleFeatureLocked(feature.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                }
             }
+            .barControl()
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
@@ -1719,6 +2046,11 @@ struct NavigatorDatumAxisRow: View {
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
         .contextMenu {
+            Button(feature.isSuppressed ? "Unsuppress" : "Suppress") {
+                workspace.toggleFeatureSuppressed(feature.id)
+            }
+            .disabled(feature.isLocked)
+
             Button(feature.isLocked ? "Unlock" : "Lock") {
                 workspace.toggleFeatureLocked(feature.id)
             }
@@ -1730,9 +2062,12 @@ struct NavigatorDatumAxisRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
-        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked, isSuppressed: feature.isSuppressed))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
+        }
+        .accessibilityAction(named: feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature") {
+            workspace.toggleFeatureSuppressed(feature.id)
         }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
@@ -1759,8 +2094,8 @@ struct NavigatorDatumPointRow: View {
         isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
     }
 
-    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
-        "\(featureName), Datum Point\(isLocked ? ", Locked" : "")"
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false, isSuppressed: Bool = false) -> String {
+        "\(featureName), Datum Point\(isLocked ? ", Locked" : "")\(isSuppressed ? ", Suppressed" : "")"
     }
 
     var body: some View {
@@ -1775,6 +2110,8 @@ struct NavigatorDatumPointRow: View {
                     Text(feature.name)
                         .font(.body)
                         .lineLimit(1)
+                        .strikethrough(feature.isSuppressed)
+                        .foregroundStyle(feature.isSuppressed ? .secondary : .primary)
 
                     Text("Point")
                         .font(.caption2)
@@ -1785,6 +2122,16 @@ struct NavigatorDatumPointRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if feature.isSuppressed {
+                        Text("Suppressed")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    }
                 }
 
                 if case .datumPoint(let data) = feature.operation {
@@ -1796,15 +2143,26 @@ struct NavigatorDatumPointRow: View {
 
             Spacer(minLength: 4)
 
-            if isHovered || feature.isLocked {
-                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
-                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
-                    workspace.toggleFeatureLocked(feature.id)
+            Group {
+                if isHovered || feature.isSuppressed {
+                    Button(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature",
+                           systemImage: feature.isSuppressed ? "eye.slash.fill" : "eye") {
+                        workspace.toggleFeatureSuppressed(feature.id)
+                    }
+                    .foregroundStyle(feature.isSuppressed ? .orange : .secondary)
+                    .help(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature")
+                    .disabled(feature.isLocked)
                 }
-                .foregroundStyle(.secondary)
-                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
-                .barControl()
+                if isHovered || feature.isLocked {
+                    Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                           systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleFeatureLocked(feature.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                }
             }
+            .barControl()
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
@@ -1814,6 +2172,11 @@ struct NavigatorDatumPointRow: View {
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
         .contextMenu {
+            Button(feature.isSuppressed ? "Unsuppress" : "Suppress") {
+                workspace.toggleFeatureSuppressed(feature.id)
+            }
+            .disabled(feature.isLocked)
+
             Button(feature.isLocked ? "Unlock" : "Lock") {
                 workspace.toggleFeatureLocked(feature.id)
             }
@@ -1825,9 +2188,12 @@ struct NavigatorDatumPointRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
-        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked, isSuppressed: feature.isSuppressed))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
+        }
+        .accessibilityAction(named: feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature") {
+            workspace.toggleFeatureSuppressed(feature.id)
         }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)
@@ -1854,8 +2220,8 @@ struct NavigatorDatumCoordinateSystemRow: View {
         isSelected ? [defaultAccessibilityTraits, .isSelected] : defaultAccessibilityTraits
     }
 
-    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false) -> String {
-        "\(featureName), Datum UCS\(isLocked ? ", Locked" : "")"
+    nonisolated static func accessibilityLabel(featureName: String, isLocked: Bool = false, isSuppressed: Bool = false) -> String {
+        "\(featureName), Datum UCS\(isLocked ? ", Locked" : "")\(isSuppressed ? ", Suppressed" : "")"
     }
 
     var body: some View {
@@ -1870,6 +2236,8 @@ struct NavigatorDatumCoordinateSystemRow: View {
                     Text(feature.name)
                         .font(.body)
                         .lineLimit(1)
+                        .strikethrough(feature.isSuppressed)
+                        .foregroundStyle(feature.isSuppressed ? .secondary : .primary)
 
                     Text("UCS")
                         .font(.caption2)
@@ -1880,6 +2248,16 @@ struct NavigatorDatumCoordinateSystemRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.secondary.opacity(0.12))
                         )
+
+                    if feature.isSuppressed {
+                        Text("Suppressed")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    }
                 }
 
                 if case .datumCoordinateSystem(let data) = feature.operation {
@@ -1891,15 +2269,26 @@ struct NavigatorDatumCoordinateSystemRow: View {
 
             Spacer(minLength: 4)
 
-            if isHovered || feature.isLocked {
-                Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
-                       systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
-                    workspace.toggleFeatureLocked(feature.id)
+            Group {
+                if isHovered || feature.isSuppressed {
+                    Button(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature",
+                           systemImage: feature.isSuppressed ? "eye.slash.fill" : "eye") {
+                        workspace.toggleFeatureSuppressed(feature.id)
+                    }
+                    .foregroundStyle(feature.isSuppressed ? .orange : .secondary)
+                    .help(feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature")
+                    .disabled(feature.isLocked)
                 }
-                .foregroundStyle(.secondary)
-                .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
-                .barControl()
+                if isHovered || feature.isLocked {
+                    Button(feature.isLocked ? "Unlock Feature" : "Lock Feature",
+                           systemImage: feature.isLocked ? "lock.fill" : "lock.open") {
+                        workspace.toggleFeatureLocked(feature.id)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(feature.isLocked ? "Unlock Feature" : "Lock Feature")
+                }
             }
+            .barControl()
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
@@ -1909,6 +2298,11 @@ struct NavigatorDatumCoordinateSystemRow: View {
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
         .contextMenu {
+            Button(feature.isSuppressed ? "Unsuppress" : "Suppress") {
+                workspace.toggleFeatureSuppressed(feature.id)
+            }
+            .disabled(feature.isLocked)
+
             Button(feature.isLocked ? "Unlock" : "Lock") {
                 workspace.toggleFeatureLocked(feature.id)
             }
@@ -1920,9 +2314,12 @@ struct NavigatorDatumCoordinateSystemRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(Self.accessibilityTraits(isSelected: isSelected))
-        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked))
+        .accessibilityLabel(Self.accessibilityLabel(featureName: feature.name, isLocked: feature.isLocked, isSuppressed: feature.isSuppressed))
         .accessibilityAction {
             workspace.selectFeature(feature.id)
+        }
+        .accessibilityAction(named: feature.isSuppressed ? "Unsuppress Feature" : "Suppress Feature") {
+            workspace.toggleFeatureSuppressed(feature.id)
         }
         .accessibilityAction(named: feature.isLocked ? "Unlock Feature" : "Lock Feature") {
             workspace.toggleFeatureLocked(feature.id)

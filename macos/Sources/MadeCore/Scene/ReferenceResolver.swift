@@ -95,7 +95,7 @@ public enum ReferenceResolver {
                 return .failure(.forwardReference(referencedFeatureId: targetId, currentFeatureId: referencingFeature.id))
             }
             let targetFeature = document.features[targetIndex]
-            if targetFeature.isSuppressed {
+            if referencingFeature != nil && targetFeature.isSuppressed {
                 return .failure(.targetFeatureSuppressed(targetId))
             }
             return .success(ResolvedReference(reference: reference, target: .feature(targetFeature)))
