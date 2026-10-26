@@ -9094,6 +9094,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
     func resetView() { applyPerspective(defaultPerspective) }
     func zoomStep(zoomIn: Bool) { coordinator?.zoomStep(zoomIn: zoomIn) }
     func fitToScene() { coordinator?.fitToScene() }
+    public func cycleSelection(backward: Bool = false) { coordinator?.cycleSelection(backward: backward) }
 
     func handleSnapChanged(_ result: SnapResult?) {
         activeSnapResult = result
@@ -9259,6 +9260,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
     static let filterSketchShortcutKey: KeyEquivalent = "s"
     static let filterAllShortcutKey: KeyEquivalent = "a"
     static let filterShortcutModifiers: EventModifiers = [.option]
+    static let cycleSelectionShortcutKey: KeyEquivalent = .tab
 
     // MARK: - View Navigation Shortcuts (BL-VPT-07)
 
@@ -9313,6 +9315,7 @@ public struct SimulationAnimationState: Sendable, Equatable {
         ShortcutCheatsheetEntry(title: "Filter Bodies", shortcut: "⌥B", category: .editing, description: "Filter selection to solid bodies"),
         ShortcutCheatsheetEntry(title: "Filter Sketch Entities", shortcut: "⌥S", category: .editing, description: "Filter selection to sketch entities"),
         ShortcutCheatsheetEntry(title: "All Filters", shortcut: "⌥A", category: .editing, description: "Reset selection filters to allow all entities"),
+        ShortcutCheatsheetEntry(title: "Cycle Selection", shortcut: "Tab", category: .editing, description: "Cycle through overlapping elements under cursor"),
 
         ShortcutCheatsheetEntry(title: "Reset View", shortcut: "⌘0", category: .navigation, description: "Reset camera to default perspective view"),
         ShortcutCheatsheetEntry(title: "Zoom to Fit", shortcut: "⇧⌘F", category: .navigation, description: "Frame all visible solids within viewport"),

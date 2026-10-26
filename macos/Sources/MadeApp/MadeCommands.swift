@@ -190,6 +190,11 @@ struct EditMenuCommands: Commands {
                 }
                 .keyboardShortcut(WorkspaceModel.filterAllShortcutKey, modifiers: WorkspaceModel.filterShortcutModifiers)
             }
+
+            Button("Cycle Selection") {
+                workspace.cycleSelection()
+            }
+            .keyboardShortcut(WorkspaceModel.cycleSelectionShortcutKey, modifiers: [])
         }
     }
 }
