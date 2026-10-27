@@ -2932,7 +2932,7 @@ final class WorkspaceModel {
         }
     }
 
-    // MARK: - DXF Sketch Import (BL-XCH-08, #361)
+    // MARK: - DXF and SVG Sketch Import (BL-XCH-08, BL-SKT-14, #361, #362)
 
     @discardableResult
     func importDXFIntoSketch(
@@ -2970,6 +2970,70 @@ final class WorkspaceModel {
         return try importDXFIntoSketch(featureId: featureId, dxfText: dxfText, options: options)
     }
 
+    @discardableResult
+    func importSVGIntoSketch(
+        featureId: UUID? = nil,
+        svgText: String,
+        options: SVGImportOptions = SVGImportOptions()
+    ) throws -> ([SketchEntity], [SketchConstraint]) {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let result = document.importSVGEntities(to: targetId, svgText: svgText, options: options)
+        switch result {
+        case .success(let imported):
+            solveSketchConstraints(featureId: targetId)
+            refreshDetectedSketchRegions(for: targetId)
+            refreshSketchStatus(for: targetId)
+            recomputeDependents(of: targetId)
+            markDocumentModified()
+            return imported
+        case .failure(let err):
+            if case .sketchError(let sErr) = err {
+                throw sErr
+            }
+            throw SketchError.invalidEntity("SVG import failed: \(err)")
+        }
+    }
+
+    @discardableResult
+    func importSVGFile(
+        at url: URL,
+        to featureId: UUID? = nil,
+        options: SVGImportOptions = SVGImportOptions()
+    ) throws -> ([SketchEntity], [SketchConstraint]) {
+        let svgText = try String(contentsOf: url, encoding: .utf8)
+        return try importSVGIntoSketch(featureId: featureId, svgText: svgText, options: options)
+    }
+
+    @discardableResult
+    func importVectorFileIntoSketch(
+        at url: URL,
+        to featureId: UUID? = nil,
+        options: SketchImportOptions? = nil
+    ) throws -> ([SketchEntity], [SketchConstraint]) {
+        let ext = url.pathExtension.lowercased()
+        if ext == "svg" {
+            var svgOpts = SVGImportOptions()
+            if let opts = options {
+                svgOpts.unitOverride = opts.unitOverride
+                svgOpts.scale = opts.scale
+                svgOpts.weldEndpoints = opts.weldEndpoints
+                svgOpts.markAllConstruction = opts.markAllConstruction
+            }
+            return try importSVGFile(at: url, to: featureId, options: svgOpts)
+        } else {
+            var dxfOpts = DXFImportOptions()
+            if let opts = options {
+                dxfOpts.unitOverride = opts.unitOverride
+                dxfOpts.scale = opts.scale
+                dxfOpts.weldEndpoints = opts.weldEndpoints
+                dxfOpts.markAllConstruction = opts.markAllConstruction
+            }
+            return try importDXFFile(at: url, to: featureId, options: dxfOpts)
+        }
+    }
+
     func promptImportDXFToSketch(targetSketchId: UUID? = nil) {
         guard let sketchId = targetSketchId ?? selectedSketchFeature?.id else {
             log(.error, "Sketch", "No active sketch selected for DXF import")
@@ -2986,12 +3050,80 @@ final class WorkspaceModel {
         if let t2 = UTType("com.autodesk.dxf") { contentTypes.append(t2) }
         panel.allowedContentTypes = contentTypes.isEmpty ? [.data] : contentTypes
 
+        let accessory = SketchImportAccessoryHostingView()
+        panel.accessoryView = accessory
+
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            _ = try importDXFFile(at: url, to: sketchId)
+            var opts = DXFImportOptions()
+            opts.unitOverride = accessory.options.unitOverride
+            opts.scale = accessory.options.scale
+            opts.weldEndpoints = accessory.options.weldEndpoints
+            opts.markAllConstruction = accessory.options.markAllConstruction
+            _ = try importDXFFile(at: url, to: sketchId, options: opts)
             log(.info, "Sketch", "Imported DXF file \(url.lastPathComponent) into sketch \(sketchId)")
         } catch {
             log(.error, "Sketch", "Failed to import DXF file: \(error.localizedDescription)")
+        }
+    }
+
+    func promptImportSVGToSketch(targetSketchId: UUID? = nil) {
+        guard let sketchId = targetSketchId ?? selectedSketchFeature?.id else {
+            log(.error, "Sketch", "No active sketch selected for SVG import")
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.title = "Import SVG to Sketch"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [UTType.svg]
+        if let t = UTType(filenameExtension: "svg") { contentTypes.append(t) }
+        panel.allowedContentTypes = contentTypes
+
+        let accessory = SketchImportAccessoryHostingView()
+        panel.accessoryView = accessory
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            var opts = SVGImportOptions()
+            opts.unitOverride = accessory.options.unitOverride
+            opts.scale = accessory.options.scale
+            opts.weldEndpoints = accessory.options.weldEndpoints
+            opts.markAllConstruction = accessory.options.markAllConstruction
+            _ = try importSVGFile(at: url, to: sketchId, options: opts)
+            log(.info, "Sketch", "Imported SVG file \(url.lastPathComponent) into sketch \(sketchId)")
+        } catch {
+            log(.error, "Sketch", "Failed to import SVG file: \(error.localizedDescription)")
+        }
+    }
+
+    func promptImportVectorToSketch(targetSketchId: UUID? = nil) {
+        guard let sketchId = targetSketchId ?? selectedSketchFeature?.id else {
+            log(.error, "Sketch", "No active sketch selected for vector import")
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.title = "Import Vector to Sketch"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [UTType.svg]
+        if let t1 = UTType(filenameExtension: "dxf") { contentTypes.append(t1) }
+        if let t2 = UTType(filenameExtension: "svg") { contentTypes.append(t2) }
+        panel.allowedContentTypes = contentTypes
+
+        let accessory = SketchImportAccessoryHostingView()
+        panel.accessoryView = accessory
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            _ = try importVectorFileIntoSketch(at: url, to: sketchId, options: accessory.options)
+            log(.info, "Sketch", "Imported vector file \(url.lastPathComponent) into sketch \(sketchId)")
+        } catch {
+            log(.error, "Sketch", "Failed to import vector file: \(error.localizedDescription)")
         }
     }
 

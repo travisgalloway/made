@@ -431,6 +431,28 @@ public final class CADToolRegistry {
                     ],
                     required: ["sketchId"]
                 )
+            ),
+            MCPToolDefinition(
+                name: "cad_import_svg_to_sketch",
+                description: "Imports Scalable Vector Graphics (SVG) geometry (lines, rectangles, circles, ellipses, polylines, polygons, Bézier and arc paths) into a 2D sketch with optional unit scaling, layer filtering, construction classification, and endpoint welding.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the target sketch feature"),
+                        "svgContent": MCPProperty(type: "string", description: "Raw SVG file content XML string (required if filePath is omitted)"),
+                        "filePath": MCPProperty(type: "string", description: "Absolute path to an SVG file on disk (used if svgContent is omitted)"),
+                        "unit": MCPProperty(type: "string", description: "Optional length unit override: 'mm', 'cm', 'm', 'in', 'ft'", enum: ["mm", "cm", "m", "in", "ft"]),
+                        "scale": MCPProperty(type: "number", description: "Optional additional uniform scale factor (default 1.0)"),
+                        "offsetX": MCPProperty(type: "number", description: "Optional X offset in mm applied to all coordinates (default 0.0)"),
+                        "offsetY": MCPProperty(type: "number", description: "Optional Y offset in mm applied to all coordinates (default 0.0)"),
+                        "dpi": MCPProperty(type: "number", description: "Optional dots per inch for pixel unit conversion (default 96.0)"),
+                        "invertY": MCPProperty(type: "boolean", description: "Optional boolean whether to invert the Y axis to match CAD conventions (default true)"),
+                        "layers": MCPProperty(type: "array", description: "Optional array of layer/group names or IDs to import. Omitted layers are discarded."),
+                        "weldEndpoints": MCPProperty(type: "boolean", description: "Optional boolean whether to weld matching endpoints within tolerance and generate coincident constraints (default true)"),
+                        "markConstruction": MCPProperty(type: "boolean", description: "Optional boolean whether to force all imported entities as construction geometry (default false)"),
+                        "curveIntervals": MCPProperty(type: "integer", description: "Optional number of piecewise linear segments for Bézier curve discretization (default 32)")
+                    ],
+                    required: ["sketchId"]
+                )
             )
         ]
     }
@@ -517,6 +539,9 @@ public final class CADToolRegistry {
 
         case "cad_import_dxf_to_sketch", "import_dxf_to_sketch":
             return handleImportDXFToSketch(arguments: arguments)
+
+        case "cad_import_svg_to_sketch", "import_svg_to_sketch":
+            return handleImportSVGToSketch(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -3066,6 +3091,81 @@ public final class CADToolRegistry {
             return .text("Imported \(entities.count) entities and \(constraints.count) constraints into sketch '\(sketchIdStr)'")
         case .failure(let err):
             return .error("DXF import failed: \(err.localizedDescription)")
+        }
+    }
+
+    private func handleImportSVGToSketch(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+
+        let svgText: String
+        if let rawText = arguments["svgContent"]?.stringValue, !rawText.isEmpty {
+            svgText = rawText
+        } else if let path = arguments["filePath"]?.stringValue, !path.isEmpty {
+            do {
+                svgText = try String(contentsOfFile: path, encoding: .utf8)
+            } catch {
+                return .error("Failed to read SVG file at '\(path)': \(error.localizedDescription)")
+            }
+        } else {
+            return .error("Either 'svgContent' or 'filePath' must be provided")
+        }
+
+        var options = SVGImportOptions()
+        if let unitStr = arguments["unit"]?.stringValue {
+            options.unitOverride = LengthUnit(rawValue: unitStr)
+        }
+        if let scaleVal = arguments["scale"]?.doubleValue, scaleVal > 0 {
+            options.scale = scaleVal
+        }
+        var offX = 0.0
+        var offY = 0.0
+        if let x = arguments["offsetX"]?.doubleValue { offX = x }
+        if let y = arguments["offsetY"]?.doubleValue { offY = y }
+        options.offset = SIMD2<Double>(offX, offY)
+
+        if let dpiVal = arguments["dpi"]?.doubleValue, dpiVal > 0 {
+            options.dpi = dpiVal
+        }
+        if let invY = arguments["invertY"]?.boolValue {
+            options.invertY = invY
+        }
+        if let layersArr = arguments["layers"]?.arrayValue {
+            let names = layersArr.compactMap(\.stringValue)
+            if !names.isEmpty {
+                options.layerFilter = Set(names)
+            }
+        }
+        if let weld = arguments["weldEndpoints"]?.boolValue {
+            options.weldEndpoints = weld
+        }
+        if let constr = arguments["markConstruction"]?.boolValue {
+            options.markAllConstruction = constr
+        }
+        if let intervals = arguments["curveIntervals"]?.intValue, intervals > 1 {
+            options.curveIntervals = intervals
+        }
+
+        let result = document.importSVGEntities(to: sketchUUID, svgText: svgText, options: options)
+        switch result {
+        case .success(let (entities, constraints)):
+            onViewportInvalidated?()
+            let summary: [String: Any] = [
+                "sketchId": sketchIdStr,
+                "entitiesImported": entities.count,
+                "constraintsImported": constraints.count
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]),
+               let jsonText = String(data: jsonData, encoding: .utf8) {
+                return .text(jsonText)
+            }
+            return .text("Imported \(entities.count) entities and \(constraints.count) constraints into sketch '\(sketchIdStr)'")
+        case .failure(let err):
+            return .error("SVG import failed: \(err.localizedDescription)")
         }
     }
 }

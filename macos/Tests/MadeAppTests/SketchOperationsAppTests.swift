@@ -573,4 +573,104 @@ import simd
         )
         #expect(aliasResult.isError == false)
     }
+
+    @Test @MainActor func testDocumentModelAtomicSVGImportAndSymmetricUndoRedo() throws {
+        let document = DocumentModel()
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [])
+        document.undoManager?.removeAllActions()
+
+        let svg = """
+        <svg viewBox="0 0 100 100" width="100mm" height="100mm" xmlns="http://www.w3.org/2000/svg">
+            <line x1="0" y1="0" x2="50" y2="0" />
+            <line x1="50" y1="0" x2="50" y2="30" />
+        </svg>
+        """
+
+        let result = document.importSVGEntities(to: sketch.id, svgText: svg)
+        guard case .success(let (entities, _)) = result else {
+            Issue.record("Expected successful SVG import")
+            return
+        }
+        #expect(entities.count == 2)
+
+        var feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 2)
+        }
+
+        // Single undo step removes all imported entities
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.isEmpty)
+        }
+
+        // Single redo step restores all imported entities
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 2)
+        }
+    }
+
+    @Test @MainActor func testWorkspaceSVGImportAndExtrusion() async throws {
+        let workspace = WorkspaceModel()
+        let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [])
+        workspace.selectedId = ObjectId(sketch.id.uuidString)
+
+        let svgRectangle = """
+        <svg viewBox="0 0 100 100" width="100mm" height="100mm" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="40" height="25" />
+        </svg>
+        """
+
+        let (importedEntities, _) = try workspace.importSVGIntoSketch(featureId: sketch.id, svgText: svgRectangle)
+        #expect(importedEntities.count == 4)
+
+        // Extrude imported SVG loop into 3D solid
+        let solidId = await workspace.extrudeSketch(sketchFeatureId: sketch.id, distance: 15.0)
+        let sid = try #require(solidId)
+        let extrudeFeat = try #require(workspace.document.feature(for: sid))
+        #expect(extrudeFeat.errorState == nil)
+    }
+
+    @Test @MainActor func testCADToolsMCPImportSVGToSketch() async throws {
+        let document = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: document, kernelClient: kernel)
+
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [])
+        let sketchIdStr = sketch.id.uuidString
+
+        let svg = """
+        <svg viewBox="0 0 100 100" width="100mm" height="100mm" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="20" cy="20" r="10" />
+        </svg>
+        """
+
+        let result = await registry.callTool(
+            name: "cad_import_svg_to_sketch",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "svgContent": .string(svg)
+            ]
+        )
+        #expect(result.isError == false)
+        guard let responseText = result.content.first?.text else {
+            Issue.record("Expected text response")
+            return
+        }
+        #expect(responseText.contains("entitiesImported"))
+        #expect(responseText.contains("1"))
+
+        // Also test alias import_svg_to_sketch
+        let aliasResult = await registry.callTool(
+            name: "import_svg_to_sketch",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "svgContent": .string(svg)
+            ]
+        )
+        #expect(aliasResult.isError == false)
+    }
 }
