@@ -19,6 +19,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
     public var componentMirrors: [ComponentMirror]?
     public var explodedViews: [ExplodedView]?
     public var activeExplodedViewId: UUID?
+    public var configurations: [DocumentConfiguration]?
+    public var activeConfigurationId: UUID?
     public var studies: [SimulationStudy]?
     public var activeStudyId: UUID?
     public var sheets: [DrawingSheet]?
@@ -41,6 +43,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         componentMirrors: [ComponentMirror]? = nil,
         explodedViews: [ExplodedView]? = nil,
         activeExplodedViewId: UUID? = nil,
+        configurations: [DocumentConfiguration]? = nil,
+        activeConfigurationId: UUID? = nil,
         studies: [SimulationStudy]? = nil,
         activeStudyId: UUID? = nil,
         sheets: [DrawingSheet]? = nil,
@@ -57,6 +61,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.configurations = configurations
+        self.activeConfigurationId = activeConfigurationId
         self.studies = studies
         self.activeStudyId = activeStudyId
         self.sheets = sheets
@@ -88,8 +94,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.selection = selection
     }
 
-    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil, assemblyConstraints: [AssemblyConstraint]? = nil, componentPatterns: [ComponentPattern]? = nil, componentMirrors: [ComponentMirror]? = nil, explodedViews: [ExplodedView]? = nil, activeExplodedViewId: UUID? = nil, studies: [SimulationStudy]? = nil, activeStudyId: UUID? = nil, sheets: [DrawingSheet]? = nil, activeSheetId: UUID? = nil, customMaterials: [MaterialDefinition]? = nil) {
-        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances, assemblyConstraints: assemblyConstraints, componentPatterns: componentPatterns, componentMirrors: componentMirrors, explodedViews: explodedViews, activeExplodedViewId: activeExplodedViewId, studies: studies, activeStudyId: activeStudyId, sheets: sheets, activeSheetId: activeSheetId, customMaterials: customMaterials)
+    public init(schemaVersion: Int = DocumentData.currentSchemaVersion, objects: [SceneObject], selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, bodies: [Body]? = nil, selection: [Reference]? = nil, parameters: [DocumentParameter]? = nil, documentType: DocumentType? = nil, componentInstances: [ComponentInstance]? = nil, assemblyConstraints: [AssemblyConstraint]? = nil, componentPatterns: [ComponentPattern]? = nil, componentMirrors: [ComponentMirror]? = nil, explodedViews: [ExplodedView]? = nil, activeExplodedViewId: UUID? = nil, configurations: [DocumentConfiguration]? = nil, activeConfigurationId: UUID? = nil, studies: [SimulationStudy]? = nil, activeStudyId: UUID? = nil, sheets: [DrawingSheet]? = nil, activeSheetId: UUID? = nil, customMaterials: [MaterialDefinition]? = nil) {
+        self.init(schemaVersion: schemaVersion, features: nil, objects: objects, selectedId: selectedId, rollbackIndex: rollbackIndex, bodies: bodies, selection: selection, parameters: parameters, documentType: documentType, componentInstances: componentInstances, assemblyConstraints: assemblyConstraints, componentPatterns: componentPatterns, componentMirrors: componentMirrors, explodedViews: explodedViews, activeExplodedViewId: activeExplodedViewId, configurations: configurations, activeConfigurationId: activeConfigurationId, studies: studies, activeStudyId: activeStudyId, sheets: sheets, activeSheetId: activeSheetId, customMaterials: customMaterials)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -108,6 +114,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         case componentMirrors
         case explodedViews
         case activeExplodedViewId
+        case configurations
+        case activeConfigurationId
         case studies
         case activeStudyId
         case sheets
@@ -188,6 +196,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         self.componentMirrors = try container.decodeIfPresent([ComponentMirror].self, forKey: .componentMirrors)
         self.explodedViews = try container.decodeIfPresent([ExplodedView].self, forKey: .explodedViews)
         self.activeExplodedViewId = try container.decodeIfPresent(UUID.self, forKey: .activeExplodedViewId)
+        self.configurations = try container.decodeIfPresent([DocumentConfiguration].self, forKey: .configurations)
+        self.activeConfigurationId = try container.decodeIfPresent(UUID.self, forKey: .activeConfigurationId)
         self.studies = try container.decodeIfPresent([SimulationStudy].self, forKey: .studies)
         self.activeStudyId = try container.decodeIfPresent(UUID.self, forKey: .activeStudyId)
         self.sheets = try container.decodeIfPresent([DrawingSheet].self, forKey: .sheets)
@@ -214,6 +224,8 @@ public struct DocumentData: Codable, Sendable, Equatable {
         try container.encodeIfPresent(componentMirrors, forKey: .componentMirrors)
         try container.encodeIfPresent(explodedViews, forKey: .explodedViews)
         try container.encodeIfPresent(activeExplodedViewId, forKey: .activeExplodedViewId)
+        try container.encodeIfPresent(configurations, forKey: .configurations)
+        try container.encodeIfPresent(activeConfigurationId, forKey: .activeConfigurationId)
         if let studies, !studies.isEmpty {
             try container.encode(studies, forKey: .studies)
         }
@@ -330,6 +342,8 @@ public enum DocumentModelCoder {
             componentMirrors: document.componentMirrors,
             explodedViews: document.explodedViews,
             activeExplodedViewId: document.activeExplodedViewId,
+            configurations: document.configurations.isEmpty ? nil : document.configurations,
+            activeConfigurationId: document.activeConfigurationId,
             studies: document.studies.isEmpty ? nil : document.studies,
             activeStudyId: document.activeStudyId,
             sheets: document.sheets,
@@ -359,6 +373,8 @@ public enum DocumentModelCoder {
         let mirrors = docData.componentMirrors ?? []
         let explodedViews = docData.explodedViews ?? []
         let activeExplodedViewId = docData.activeExplodedViewId
+        let configurations = docData.configurations ?? []
+        let activeConfigurationId = docData.activeConfigurationId
         let studies = docData.studies ?? []
         let activeStudyId = docData.activeStudyId
         let sheets = docData.sheets ?? []
@@ -378,6 +394,8 @@ public enum DocumentModelCoder {
                 componentMirrors: mirrors,
                 explodedViews: explodedViews,
                 activeExplodedViewId: activeExplodedViewId,
+                configurations: configurations,
+                activeConfigurationId: activeConfigurationId,
                 studies: studies,
                 activeStudyId: activeStudyId,
                 sheets: sheets,
@@ -398,6 +416,8 @@ public enum DocumentModelCoder {
                 componentMirrors: mirrors,
                 explodedViews: explodedViews,
                 activeExplodedViewId: activeExplodedViewId,
+                configurations: configurations,
+                activeConfigurationId: activeConfigurationId,
                 studies: studies,
                 activeStudyId: activeStudyId,
                 sheets: sheets,

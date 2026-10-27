@@ -849,6 +849,12 @@ public final class DocumentModel {
     public private(set) var componentMirrors: [ComponentMirror] = []
     public private(set) var explodedViews: [ExplodedView] = []
     public private(set) var activeExplodedViewId: UUID? = nil
+    public private(set) var configurations: [DocumentConfiguration] = []
+    public private(set) var activeConfigurationId: UUID? = nil
+    public var activeConfiguration: DocumentConfiguration? {
+        guard let id = activeConfigurationId else { return nil }
+        return configurations.first(where: { $0.id == id })
+    }
     public private(set) var studies: [SimulationStudy] = []
     public private(set) var activeStudyId: UUID? = nil
     public var activeStudy: SimulationStudy? {
@@ -1450,7 +1456,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public init(documentType: DocumentType, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, configurations: [DocumentConfiguration] = [], activeConfigurationId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, settings: DocumentSettings = DocumentSettings(), metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         self.features = []
         self.rollbackIndex = nil
         self.documentType = documentType
@@ -1460,6 +1466,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.configurations = configurations
+        self.activeConfigurationId = activeConfigurationId ?? configurations.first(where: { $0.isDefault })?.id
         self.studies = studies
         self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
@@ -1480,7 +1488,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public init(features: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, configurations: [DocumentConfiguration] = [], activeConfigurationId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         self.features = features
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1489,6 +1497,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.configurations = configurations
+        self.activeConfigurationId = activeConfigurationId ?? configurations.first(where: { $0.isDefault })?.id
         self.studies = studies
         self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
@@ -1525,9 +1535,11 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public init(objects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, configurations: [DocumentConfiguration] = [], activeConfigurationId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         let convertedFeatures = objects.map { Feature(from: $0) }
         self.features = convertedFeatures
+        self.configurations = configurations
+        self.activeConfigurationId = activeConfigurationId ?? configurations.first(where: { $0.isDefault })?.id
         self.sheets = sheets
         self.activeSheetId = activeSheetId ?? sheets.first?.id
         self.metadata = metadata
@@ -1556,7 +1568,7 @@ public final class DocumentModel {
         setupUndoObservers()
     }
 
-    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public func reset(with newFeatures: [Feature], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, configurations: [DocumentConfiguration] = [], activeConfigurationId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1565,6 +1577,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.configurations = configurations
+        self.activeConfigurationId = activeConfigurationId ?? configurations.first(where: { $0.isDefault })?.id
         self.studies = studies
         self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
@@ -1606,7 +1620,7 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
-    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
+    public func reset(with newObjects: [SceneObject], selection: Set<Reference>? = nil, selectedId: ObjectId? = nil, rollbackIndex: Int? = nil, settings: DocumentSettings? = nil, parameters: [DocumentParameter] = [], documentType: DocumentType = .part, componentInstances: [ComponentInstance] = [], assemblyConstraints: [AssemblyConstraint] = [], componentPatterns: [ComponentPattern] = [], componentMirrors: [ComponentMirror] = [], explodedViews: [ExplodedView] = [], activeExplodedViewId: UUID? = nil, configurations: [DocumentConfiguration] = [], activeConfigurationId: UUID? = nil, studies: [SimulationStudy] = [], activeStudyId: UUID? = nil, sheets: [DrawingSheet] = [], activeSheetId: UUID? = nil, metadata: [String: String] = [:], customMaterials: [MaterialDefinition] = []) {
         undoManager?.removeAllActions()
         self.documentType = documentType
         self.componentInstances = componentInstances
@@ -1615,6 +1629,8 @@ public final class DocumentModel {
         self.componentMirrors = componentMirrors
         self.explodedViews = explodedViews
         self.activeExplodedViewId = activeExplodedViewId
+        self.configurations = configurations
+        self.activeConfigurationId = activeConfigurationId ?? configurations.first(where: { $0.isDefault })?.id
         self.studies = studies
         self.activeStudyId = activeStudyId ?? studies.first?.id
         if documentType == .drawing && sheets.isEmpty {
@@ -1747,7 +1763,7 @@ public final class DocumentModel {
         var currentObjects: [SceneObject] = []
 
         for feature in activeFeatures {
-            guard !feature.isSuppressed else { continue }
+            guard !isFeatureSuppressedInActiveConfiguration(featureId: feature.id) else { continue }
             switch feature.operation {
             case .combine(let data):
                 if let obj = feature.toSceneObject() {
@@ -6346,7 +6362,7 @@ public final class DocumentModel {
     }
 
     public func evaluateExpression(_ expr: String) throws -> ExpressionEvaluationResult {
-        let context = EvaluationContext(documentParameters: parameters, unitSettings: settings.unitSettings)
+        let context = EvaluationContext(documentParameters: effectiveParameters, unitSettings: settings.unitSettings)
         return try ExpressionEvaluator.evaluate(expr, context: context)
     }
 
@@ -7080,6 +7096,427 @@ public final class DocumentModel {
             return .failure(.objectLocked(id))
         }
         features[index].material = material
+        return .success(())
+    }
+
+    // MARK: - Configurations (BL-PAR-04, #177)
+
+    public func configuration(id: UUID) -> DocumentConfiguration? {
+        configurations.first(where: { $0.id == id })
+    }
+
+    public func configuration(named name: String) -> DocumentConfiguration? {
+        configurations.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })
+    }
+
+    public func effectiveParameterValue(named name: String) -> Double? {
+        guard parameters.contains(where: { $0.name == name }) else { return nil }
+        if let activeConfig = activeConfiguration,
+           let overrideVal = activeConfig.parameterOverrides[name] {
+            return overrideVal
+        }
+        return parameters.first(where: { $0.name == name })?.value
+    }
+
+    public var effectiveParameters: [DocumentParameter] {
+        guard let activeConfig = activeConfiguration else { return parameters }
+        return parameters.map { param in
+            var copy = param
+            if let overrideVal = activeConfig.parameterOverrides[param.name] {
+                copy.value = overrideVal
+            }
+            return copy
+        }
+    }
+
+    public func isFeatureSuppressedInActiveConfiguration(featureId: UUID) -> Bool {
+        guard let feat = feature(for: featureId) else { return false }
+        if let activeConfig = activeConfiguration,
+           let overrideSuppressed = activeConfig.suppressionOverrides[featureId] {
+            return overrideSuppressed
+        }
+        return feat.isSuppressed
+    }
+
+    @discardableResult
+    public func addConfiguration(
+        _ config: DocumentConfiguration,
+        at index: Int? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<DocumentConfiguration, DocumentMutationError> {
+        do {
+            try DocumentConfiguration.validateName(config.name, existingNames: configurations.map(\.name))
+        } catch let err as DocumentConfigurationError {
+            return .failure(.invalidOperation(err.localizedDescription))
+        } catch {
+            return .failure(.invalidOperation(error.localizedDescription))
+        }
+
+        var configToInsert = config
+        if configToInsert.isDefault {
+            for i in 0..<configurations.count {
+                configurations[i].isDefault = false
+            }
+        } else if configurations.isEmpty {
+            configToInsert.isDefault = true
+        }
+
+        let insertionIndex = min(max(0, index ?? configurations.count), configurations.count)
+        configurations.insert(configToInsert, at: insertionIndex)
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Add Configuration"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.deleteConfiguration(id: configToInsert.id, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(configToInsert)
+    }
+
+    @discardableResult
+    public func updateConfiguration(
+        _ config: DocumentConfiguration,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = configurations.firstIndex(where: { $0.id == config.id }) else {
+            return .failure(.invalidOperation("Configuration with id \(config.id) not found"))
+        }
+
+        let existingNames = configurations.enumerated().compactMap { i, c in
+            i == index ? nil : c.name
+        }
+        do {
+            try DocumentConfiguration.validateName(config.name, existingNames: existingNames)
+        } catch let err as DocumentConfigurationError {
+            return .failure(.invalidOperation(err.localizedDescription))
+        } catch {
+            return .failure(.invalidOperation(error.localizedDescription))
+        }
+
+        let old = configurations[index]
+        guard old != config else { return .success(()) }
+
+        configurations[index] = config
+
+        if config.isDefault && !old.isDefault {
+            for i in 0..<configurations.count where i != index {
+                configurations[i].isDefault = false
+            }
+        }
+
+        if activeConfigurationId == config.id {
+            syncObjectsFromFeatures()
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Update Configuration"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.updateConfiguration(old, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func deleteConfiguration(
+        id: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = configurations.firstIndex(where: { $0.id == id }) else {
+            return .failure(.invalidOperation("Configuration with id \(id) not found"))
+        }
+
+        let removed = configurations.remove(at: index)
+        let oldActiveId = activeConfigurationId
+
+        if activeConfigurationId == id {
+            activeConfigurationId = configurations.first(where: { $0.isDefault })?.id
+            syncObjectsFromFeatures()
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Delete Configuration"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.addConfiguration(removed, at: index, actionName: effectiveActionName, registerUndo: true)
+                    if oldActiveId == id {
+                        _ = target.setActiveConfiguration(id: oldActiveId, actionName: effectiveActionName, registerUndo: false)
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func setActiveConfiguration(
+        id: UUID?,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        if let id {
+            guard configurations.contains(where: { $0.id == id }) else {
+                return .failure(.invalidOperation("Configuration with id \(id) not found"))
+            }
+        }
+        let oldActiveId = activeConfigurationId
+        guard oldActiveId != id else { return .success(()) }
+        activeConfigurationId = id
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? (id != nil ? "Activate Configuration" : "Deactivate Configuration")
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setActiveConfiguration(id: oldActiveId, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func duplicateConfiguration(
+        id: UUID,
+        newName: String? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<DocumentConfiguration, DocumentMutationError> {
+        guard let source = configuration(id: id) else {
+            return .failure(.invalidOperation("Configuration with id \(id) not found"))
+        }
+
+        let nameToUse: String
+        if let newName, !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            nameToUse = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            var counter = 1
+            var candidate = "\(source.name) Copy"
+            let existingNames = configurations.map(\.name)
+            while existingNames.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
+                counter += 1
+                candidate = "\(source.name) Copy \(counter)"
+            }
+            nameToUse = candidate
+        }
+
+        let duplicate = DocumentConfiguration(
+            id: UUID(),
+            name: nameToUse,
+            comment: source.comment,
+            parameterOverrides: source.parameterOverrides,
+            suppressionOverrides: source.suppressionOverrides,
+            isDefault: false
+        )
+
+        return addConfiguration(duplicate, actionName: actionName ?? "Duplicate Configuration", registerUndo: registerUndo)
+    }
+
+    @discardableResult
+    public func setParameterOverride(
+        configurationId: UUID,
+        parameterName: String,
+        value: Double,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = configurations.firstIndex(where: { $0.id == configurationId }) else {
+            return .failure(.invalidOperation("Configuration with id \(configurationId) not found"))
+        }
+
+        let oldOverrides = configurations[index].parameterOverrides
+        let hadOverride = oldOverrides[parameterName] != nil
+        let oldValue = oldOverrides[parameterName]
+
+        configurations[index].parameterOverrides[parameterName] = value
+
+        if activeConfigurationId == configurationId {
+            syncObjectsFromFeatures()
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Set Parameter Override"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    if hadOverride, let oldValue {
+                        _ = target.setParameterOverride(configurationId: configurationId, parameterName: parameterName, value: oldValue, actionName: effectiveActionName, registerUndo: true)
+                    } else {
+                        _ = target.removeParameterOverride(configurationId: configurationId, parameterName: parameterName, actionName: effectiveActionName, registerUndo: true)
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeParameterOverride(
+        configurationId: UUID,
+        parameterName: String,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = configurations.firstIndex(where: { $0.id == configurationId }) else {
+            return .failure(.invalidOperation("Configuration with id \(configurationId) not found"))
+        }
+
+        guard let oldValue = configurations[index].parameterOverrides.removeValue(forKey: parameterName) else {
+            return .success(())
+        }
+
+        if activeConfigurationId == configurationId {
+            syncObjectsFromFeatures()
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Parameter Override"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setParameterOverride(configurationId: configurationId, parameterName: parameterName, value: oldValue, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func setSuppressionOverride(
+        configurationId: UUID,
+        featureId: UUID,
+        isSuppressed: Bool,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = configurations.firstIndex(where: { $0.id == configurationId }) else {
+            return .failure(.invalidOperation("Configuration with id \(configurationId) not found"))
+        }
+
+        let oldOverrides = configurations[index].suppressionOverrides
+        let hadOverride = oldOverrides[featureId] != nil
+        let oldValue = oldOverrides[featureId]
+
+        configurations[index].suppressionOverrides[featureId] = isSuppressed
+
+        if activeConfigurationId == configurationId {
+            syncObjectsFromFeatures()
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Set Suppression Override"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    if hadOverride, let oldValue {
+                        _ = target.setSuppressionOverride(configurationId: configurationId, featureId: featureId, isSuppressed: oldValue, actionName: effectiveActionName, registerUndo: true)
+                    } else {
+                        _ = target.removeSuppressionOverride(configurationId: configurationId, featureId: featureId, actionName: effectiveActionName, registerUndo: true)
+                    }
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeSuppressionOverride(
+        configurationId: UUID,
+        featureId: UUID,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        guard let index = configurations.firstIndex(where: { $0.id == configurationId }) else {
+            return .failure(.invalidOperation("Configuration with id \(configurationId) not found"))
+        }
+
+        guard let oldValue = configurations[index].suppressionOverrides.removeValue(forKey: featureId) else {
+            return .success(())
+        }
+
+        if activeConfigurationId == configurationId {
+            syncObjectsFromFeatures()
+        }
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Remove Suppression Override"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setSuppressionOverride(configurationId: configurationId, featureId: featureId, isSuppressed: oldValue, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func setComponentInstanceConfiguration(
+        id: UUID,
+        configurationName: String?,
+        configurationId: UUID? = nil,
+        actionName: String? = nil,
+        registerUndo: Bool = true
+    ) -> Result<Void, DocumentMutationError> {
+        func mutate(instances: inout [ComponentInstance]) -> (oldName: String?, oldId: UUID?)? {
+            for i in 0..<instances.count {
+                if instances[i].id == id {
+                    let old = (instances[i].configurationName, instances[i].configurationId)
+                    instances[i].configurationName = configurationName
+                    instances[i].configurationId = configurationId
+                    return old
+                }
+                if let old = mutate(instances: &instances[i].childInstances) {
+                    return old
+                }
+            }
+            return nil
+        }
+
+        guard let old = mutate(instances: &componentInstances) else {
+            return .failure(.invalidOperation("Component instance with id \(id) not found"))
+        }
+
+        syncObjectsFromFeatures()
+
+        if registerUndo {
+            let effectiveActionName = actionName ?? "Set Component Configuration"
+            undoManager?.registerUndo(withTarget: self) { target in
+                MainActor.assumeIsolated {
+                    _ = target.setComponentInstanceConfiguration(id: id, configurationName: old.oldName, configurationId: old.oldId, actionName: effectiveActionName, registerUndo: true)
+                    target.undoManager?.setActionName(effectiveActionName)
+                }
+            }
+            undoManager?.setActionName(effectiveActionName)
+        }
+        undoStateVersion += 1
         return .success(())
     }
 

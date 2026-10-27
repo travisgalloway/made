@@ -1848,6 +1848,24 @@ struct InspectorComponentInstanceView: View {
                 LabeledContent("Source", value: "Subassembly")
                 LabeledContent("Subassembly Name", value: name)
             }
+
+            Picker("Configuration", selection: Binding(
+                get: { component.configurationName ?? "" },
+                set: { val in
+                    let configName = val.isEmpty ? nil : val
+                    let configId = workspace.document.configurations.first(where: { $0.name == configName })?.id
+                    workspace.setComponentInstanceConfiguration(id: component.id, configurationName: configName, configurationId: configId)
+                }
+            )) {
+                Text("Default").tag("")
+                if let current = component.configurationName, !workspace.document.configurations.contains(where: { $0.name == current }) {
+                    Text("\(current) (Missing)").tag(current)
+                }
+                ForEach(workspace.document.configurations) { config in
+                    Text(config.name).tag(config.name)
+                }
+            }
+            .accessibilityIdentifier("inspector-component-configuration-picker")
         } header: {
             sectionHeader("Reference")
         }
@@ -5479,6 +5497,7 @@ struct DocumentSettingsInspectorView: View {
             Form {
                 documentTypeSection
                 documentPropertiesSection
+                configurationsSection
                 parametersSection
                 unitsSection
                 tolerancesSection
@@ -5513,6 +5532,51 @@ struct DocumentSettingsInspectorView: View {
                 workspace.setDocumentProperty(key: key, value: val)
             }
         )
+    }
+
+    private var configurationsSection: some View {
+        Section {
+            if workspace.document.configurations.isEmpty {
+                Text("No configurations defined.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Spacer().frame(width: 14)
+                        Text("Name").font(.caption).bold().frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Overrides").font(.caption).bold().frame(width: 70, alignment: .trailing)
+                        Spacer().frame(width: 24)
+                    }
+                    Divider()
+                    ForEach(workspace.document.configurations) { config in
+                        DocumentConfigurationRowView(config: config)
+                    }
+                }
+            }
+
+            Button {
+                addDefaultConfiguration()
+            } label: {
+                Label("Add Configuration", systemImage: "plus")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("inspector-add-configuration-button")
+        } header: {
+            sectionHeader("Configurations", isFirst: false)
+        }
+    }
+
+    private func addDefaultConfiguration() {
+        let count = workspace.document.configurations.count + 1
+        var candidate = "Config \(count)"
+        var counter = count
+        while workspace.document.configurations.contains(where: { $0.name == candidate }) {
+            counter += 1
+            candidate = "Config \(counter)"
+        }
+        _ = workspace.addConfiguration(name: candidate)
     }
 
     private var parametersSection: some View {
@@ -5759,6 +5823,91 @@ struct DocumentSettingsInspectorView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
+    }
+}
+
+struct DocumentConfigurationRowView: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let config: MadeCore.DocumentConfiguration
+
+    var body: some View {
+        let isActive = workspace.document.activeConfigurationId == config.id
+        HStack(spacing: 6) {
+            Button {
+                _ = workspace.setActiveConfiguration(id: isActive ? nil : config.id)
+            } label: {
+                Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            .help(isActive ? "Deactivate Configuration" : "Activate Configuration")
+            .accessibilityIdentifier("inspector-configuration-activate-\(config.id.uuidString)")
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(config.name)
+                        .font(.body)
+                        .lineLimit(1)
+                    if config.isDefault {
+                        Text("Default")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.secondary.opacity(0.12))
+                            )
+                    }
+                    if isActive {
+                        Text("Active")
+                            .font(.caption2)
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.accentColor.opacity(0.15))
+                            )
+                            .accessibilityIdentifier("inspector-configuration-active-badge-\(config.id.uuidString)")
+                    }
+                }
+                if !config.comment.isEmpty {
+                    Text(config.comment)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            let overrideCount = config.parameterOverrides.count + config.suppressionOverrides.count
+            Text("\(overrideCount)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 70, alignment: .trailing)
+
+            Menu {
+                Button(isActive ? "Deactivate" : "Activate") {
+                    _ = workspace.setActiveConfiguration(id: isActive ? nil : config.id)
+                }
+                Button("Duplicate") {
+                    _ = workspace.duplicateConfiguration(id: config.id)
+                }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    _ = workspace.deleteConfiguration(id: config.id)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 20, height: 20)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 24)
+            .accessibilityIdentifier("inspector-configuration-menu-\(config.id.uuidString)")
+        }
+        .padding(.vertical, 2)
     }
 }
 
