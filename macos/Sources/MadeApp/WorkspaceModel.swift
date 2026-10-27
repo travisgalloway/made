@@ -3099,6 +3099,87 @@ final class WorkspaceModel {
         }
     }
 
+    func promptAddSketchImageUnderlay(targetSketchId: UUID? = nil) {
+        guard let sketchId = targetSketchId ?? selectedSketchFeature?.id else {
+            log(.error, "Sketch", "No active sketch selected for image underlay")
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.title = "Add Image Underlay to Sketch"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [.png, .jpeg, .tiff, .image]
+        if let heic = UTType("public.heic") { contentTypes.append(heic) }
+        if let webp = UTType("org.webmproject.webp") { contentTypes.append(webp) }
+        panel.allowedContentTypes = contentTypes
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let underlay = try addSketchImageUnderlay(from: url, to: sketchId)
+            log(.info, "Sketch", "Added image underlay \(underlay.name) to sketch \(sketchId)")
+        } catch {
+            log(.error, "Sketch", "Failed to add image underlay: \(error.localizedDescription)")
+        }
+    }
+
+    @discardableResult
+    func addSketchImageUnderlay(from url: URL, to featureId: UUID) throws -> SketchImageUnderlay {
+        let data = try Data(contentsOf: url)
+        let filename = url.lastPathComponent
+        let displayName = url.deletingPathExtension().lastPathComponent
+        return try addSketchImageUnderlay(data: data, name: displayName, assetFilename: filename, to: featureId)
+    }
+
+    @discardableResult
+    func addSketchImageUnderlay(data: Data, name: String, assetFilename: String? = nil, to featureId: UUID) throws -> SketchImageUnderlay {
+        let actualAssetFilename = assetFilename ?? "underlay-\(UUID().uuidString).png"
+        let underlay = try SketchImageUnderlay(
+            id: UUID(),
+            name: name,
+            imageData: data,
+            assetFilename: actualAssetFilename,
+            origin: .zero,
+            width: nil,
+            height: nil,
+            rotationAngle: 0.0,
+            opacity: 1.0,
+            isLocked: false,
+            isVisible: true,
+            preserveAspectRatio: true
+        )
+        let result = document.addSketchImageUnderlay(to: featureId, underlay: underlay)
+        switch result {
+        case .success:
+            updateStats()
+            return underlay
+        case .failure(let err):
+            throw err
+        }
+    }
+
+    func updateSketchImageUnderlay(in featureId: UUID, underlay: SketchImageUnderlay) {
+        let result = document.updateSketchImageUnderlay(in: featureId, underlay: underlay)
+        if case .success = result {
+            updateStats()
+        }
+    }
+
+    func removeSketchImageUnderlay(from featureId: UUID, underlayId: UUID) {
+        let result = document.removeSketchImageUnderlay(from: featureId, underlayId: underlayId)
+        if case .success = result {
+            updateStats()
+        }
+    }
+
+    @discardableResult
+    func calibrateSketchImageUnderlay(in featureId: UUID, underlayId: UUID, point1: SIMD2<Double>, point2: SIMD2<Double>, targetDistance: Double) throws -> SketchImageUnderlay {
+        let underlay = try document.calibrateSketchImageUnderlay(in: featureId, underlayId: underlayId, point1: point1, point2: point2, targetDistance: targetDistance)
+        updateStats()
+        return underlay
+    }
+
     func promptImportVectorToSketch(targetSketchId: UUID? = nil) {
         guard let sketchId = targetSketchId ?? selectedSketchFeature?.id else {
             log(.error, "Sketch", "No active sketch selected for vector import")
@@ -4648,6 +4729,15 @@ final class WorkspaceModel {
             if case .imported(let imp) = feature.operation {
                 if !imp.isLinked {
                     try collectAsset(name: imp.name, sourceURL: imp.sourceURL, data: imp.data)
+                }
+            } else if case .sketch(let sketchData) = feature.operation {
+                for underlay in sketchData.underlays {
+                    let filename = underlay.assetFilename ?? "underlay-\(underlay.id.uuidString).png"
+                    if let data = underlay.imageData {
+                        if assets[filename] == nil {
+                            assets[filename] = data
+                        }
+                    }
                 }
             }
         }

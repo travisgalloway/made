@@ -1684,6 +1684,21 @@ public final class DocumentModel {
                         changed = true
                     }
                 }
+            case .sketch(var sketchData):
+                var underlaysChanged = false
+                for u in 0..<sketchData.underlays.count {
+                    if let filename = sketchData.underlays[u].assetFilename {
+                        let cleanName = URL(fileURLWithPath: filename).lastPathComponent
+                        if !cleanName.isEmpty && cleanName != filename {
+                            sketchData.underlays[u].assetFilename = cleanName
+                            underlaysChanged = true
+                        }
+                    }
+                }
+                if underlaysChanged {
+                    updatedFeatures[i].operation = .sketch(sketchData)
+                    changed = true
+                }
             default:
                 break
             }
@@ -3083,6 +3098,156 @@ public final class DocumentModel {
         undoManager?.setActionName("Add Sketch Entity")
         undoStateVersion += 1
         return .success(())
+    }
+
+    @discardableResult
+    public func addSketchImageUnderlay(to featureId: UUID, underlay: SketchImageUnderlay) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let underlayId = underlay.id
+        sketchData.underlays.append(underlay)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeSketchImageUnderlay(from: featureId, underlayId: underlayId)
+            }
+        }
+        undoManager?.setActionName("Add Image Underlay")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func updateSketchImageUnderlay(in featureId: UUID, underlay: SketchImageUnderlay) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let uIndex = sketchData.underlays.firstIndex(where: { $0.id == underlay.id }) else {
+            return .failure(.objectNotFound(ObjectId(underlay.id.uuidString)))
+        }
+
+        let oldUnderlay = sketchData.underlays[uIndex]
+        sketchData.underlays[uIndex] = underlay
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchImageUnderlay(in: featureId, underlay: oldUnderlay)
+            }
+        }
+        undoManager?.setActionName("Update Image Underlay")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func removeSketchImageUnderlay(from featureId: UUID, underlayId: UUID) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard let uIndex = sketchData.underlays.firstIndex(where: { $0.id == underlayId }) else {
+            return .failure(.objectNotFound(ObjectId(underlayId.uuidString)))
+        }
+
+        let removedUnderlay = sketchData.underlays.remove(at: uIndex)
+        features[index].operation = .sketch(sketchData)
+
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.insertSketchImageUnderlay(to: featureId, underlay: removedUnderlay, at: uIndex)
+            }
+        }
+        undoManager?.setActionName("Delete Image Underlay")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func insertSketchImageUnderlay(to featureId: UUID, underlay: SketchImageUnderlay, at insertIndex: Int) -> Result<Void, DocumentMutationError> {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !features[index].isLocked else {
+            return .failure(.objectLocked(features[index].outputSolidId ?? ObjectId(featureId.uuidString)))
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+
+        let clampedIndex = min(max(0, insertIndex), sketchData.underlays.count)
+        sketchData.underlays.insert(underlay, at: clampedIndex)
+        features[index].operation = .sketch(sketchData)
+
+        let underlayId = underlay.id
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.removeSketchImageUnderlay(from: featureId, underlayId: underlayId)
+            }
+        }
+        undoManager?.setActionName("Add Image Underlay")
+        undoStateVersion += 1
+        return .success(())
+    }
+
+    @discardableResult
+    public func calibrateSketchImageUnderlay(
+        in featureId: UUID,
+        underlayId: UUID,
+        point1: SIMD2<Double>,
+        point2: SIMD2<Double>,
+        targetDistance: Double
+    ) throws -> SketchImageUnderlay {
+        guard let index = features.firstIndex(where: { $0.id == featureId }) else {
+            throw SketchError.invalidEntity("Feature \(featureId) not found")
+        }
+        guard !features[index].isLocked else {
+            throw SketchError.invalidEntity("Feature \(featureId) is locked")
+        }
+        guard case .sketch(var sketchData) = features[index].operation else {
+            throw SketchError.invalidEntity("Feature \(featureId) is not a sketch")
+        }
+        guard let uIndex = sketchData.underlays.firstIndex(where: { $0.id == underlayId }) else {
+            throw SketchError.invalidEntity("Underlay \(underlayId) not found in sketch")
+        }
+
+        let oldUnderlay = sketchData.underlays[uIndex]
+        var updatedUnderlay = oldUnderlay
+        try updatedUnderlay.calibrate(point1: point1, point2: point2, targetDistance: targetDistance)
+
+        sketchData.underlays[uIndex] = updatedUnderlay
+        features[index].operation = .sketch(sketchData)
+
+        let actionName = "Calibrate Image Underlay"
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                _ = target.updateSketchImageUnderlay(in: featureId, underlay: oldUnderlay)
+                target.undoManager?.setActionName(actionName)
+            }
+        }
+        undoManager?.setActionName(actionName)
+        undoStateVersion += 1
+        return updatedUnderlay
     }
 
     @discardableResult

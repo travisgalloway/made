@@ -42,6 +42,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     private let unshadedPipeline: MTLRenderPipelineState
     let linePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
+    private let underlayPipeline: MTLRenderPipelineState?
     private let outlinePipeline: MTLRenderPipelineState
     private let overlayPipeline: MTLRenderPipelineState
     private let edgeHighlightPipeline: MTLRenderPipelineState
@@ -115,6 +116,12 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public private(set) var sketchVertexCount: Int = 0
     private var sketchPositionBuffer: MTLBuffer?
     private var sketchColorBuffer: MTLBuffer?
+
+    // Sketch underlays
+    public private(set) var activeSketchUnderlays: [SketchImageUnderlay] = []
+    private var underlayTextures: [UUID: MTLTexture] = [:]
+    private var underlayPositionBuffers: [UUID: MTLBuffer] = [:]
+    private var underlayTexCoordBuffers: [UUID: MTLBuffer] = [:]
 
     public var activeSnap: SnapResult? = nil
     public var selectedId: SolidId? = nil
@@ -224,6 +231,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             self.unshadedPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "unshadedFragmentShader")
             self.linePipeline = try Self.makePipeline(compiler, library, vertex: "gridVertexShader", fragment: "gridFragmentShader")
             self.billboardPipeline = try Self.makePipeline(compiler, library, vertex: "billboardVertexShader", fragment: "billboardFragmentShader", alphaBlend: true)
+            self.underlayPipeline = try Self.makePipeline(compiler, library, vertex: "underlayVertexShader", fragment: "underlayFragmentShader", alphaBlend: true)
             self.outlinePipeline = try Self.makePipeline(compiler, library, vertex: "outlineVertexShader", fragment: "outlineFragmentShader")
             self.overlayPipeline = try Self.makePipeline(compiler, library, vertex: "cadVertexShader", fragment: "cadFragmentShader", alphaBlend: true)
             self.edgeHighlightPipeline = try Self.makePipeline(compiler, library, vertex: "edgeHighlightVertexShader", fragment: "edgeHighlightFragmentShader", alphaBlend: true)
@@ -292,6 +300,7 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         "cadEdgeVertexShader", "cadEdgeFragmentShader",
         "gridVertexShader", "gridFragmentShader",
         "billboardVertexShader", "billboardFragmentShader",
+        "underlayVertexShader", "underlayFragmentShader",
         "outlineVertexShader", "outlineFragmentShader",
         "pickFaceVertexShader", "pickFaceFragmentShader",
         "pickEdgeVertexShader", "pickEdgeFragmentShader",
@@ -378,26 +387,45 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
 
     public private(set) var activeSketchPlane: SketchPlane? = nil
 
-    private func setupSketch(plane: SketchPlane = .xy, entities: [SketchEntity]) {
+    private func updateUnderlayBuffers(plane: SketchPlane, underlays: [SketchImageUnderlay]) {
+        let activeIds = Set(underlays.filter(\.isVisible).map(\.id))
+        underlayTextures = underlayTextures.filter { activeIds.contains($0.key) }
+        underlayPositionBuffers = underlayPositionBuffers.filter { activeIds.contains($0.key) }
+        underlayTexCoordBuffers = underlayTexCoordBuffers.filter { activeIds.contains($0.key) }
+
+        let quads = SketchGeometryGenerator.generateUnderlayQuads(underlays: underlays, plane: plane)
+        for quad in quads {
+            guard let underlay = underlays.first(where: { $0.id == quad.underlayId }) else { continue }
+            if underlayTextures[quad.underlayId] == nil, let data = underlay.imageData {
+                underlayTextures[quad.underlayId] = SketchGeometryGenerator.createTexture(from: data, device: device)
+            }
+            underlayPositionBuffers[quad.underlayId] = makeBuffer(quad.positions, label: "Underlay Positions \(quad.underlayId)")
+            underlayTexCoordBuffers[quad.underlayId] = makeBuffer(quad.texCoords, label: "Underlay TexCoords \(quad.underlayId)")
+        }
+    }
+
+    private func setupSketch(plane: SketchPlane = .xy, entities: [SketchEntity], underlays: [SketchImageUnderlay] = []) {
         self.activeSketchEntities = entities
+        self.activeSketchUnderlays = underlays
         let geometry = SketchGeometryGenerator.generateGeometry(entities: entities, plane: plane)
         self.sketchRenderItems = geometry.items
         self.sketchVertexCount = geometry.vertexCount
         self.sketchPositionBuffer = makeBuffer(geometry.positions, label: "Sketch Positions")
         self.sketchColorBuffer = makeBuffer(geometry.colors, label: "Sketch Colors")
+        updateUnderlayBuffers(plane: plane, underlays: underlays)
         updateResidency()
     }
 
     /// Sets or updates the active sketch plane and its entities, rebuilding grid and sketch geometry buffers.
-    public func updateSketch(plane: SketchPlane?, entities: [SketchEntity]) {
+    public func updateSketch(plane: SketchPlane?, entities: [SketchEntity], underlays: [SketchImageUnderlay] = []) {
         self.activeSketchPlane = plane
         setupGrid(plane: plane ?? .xy)
-        setupSketch(plane: plane ?? .xy, entities: entities)
+        setupSketch(plane: plane ?? .xy, entities: entities, underlays: underlays)
     }
 
     /// Rebuilds sketch geometry on the current sketch plane with new entities.
-    public func updateSketchEntities(_ entities: [SketchEntity]) {
-        setupSketch(plane: activeSketchPlane ?? .xy, entities: entities)
+    public func updateSketchEntities(_ entities: [SketchEntity], underlays: [SketchImageUnderlay]? = nil) {
+        setupSketch(plane: activeSketchPlane ?? .xy, entities: entities, underlays: underlays ?? activeSketchUnderlays)
     }
 
     private func setupGrid(plane: SketchPlane = .xy, size: Float? = nil, spacing: Float? = nil) {
@@ -416,16 +444,16 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
     public func updateGrid(plane: SketchPlane?, size: Float? = nil, spacing: Float? = nil) {
         self.activeSketchPlane = plane
         setupGrid(plane: plane ?? .xy, size: size, spacing: spacing)
-        if !activeSketchEntities.isEmpty {
-            setupSketch(plane: plane ?? .xy, entities: activeSketchEntities)
+        if !activeSketchEntities.isEmpty || !activeSketchUnderlays.isEmpty {
+            setupSketch(plane: plane ?? .xy, entities: activeSketchEntities, underlays: activeSketchUnderlays)
         }
     }
 
     /// Updates the ground grid dimensions or spacing.
     public func updateGrid(size: Float = GridGenerator.defaultSize, spacing: Float = defaultGridSpacing) {
         setupGrid(plane: activeSketchPlane ?? .xy, size: size, spacing: spacing)
-        if !activeSketchEntities.isEmpty {
-            setupSketch(plane: activeSketchPlane ?? .xy, entities: activeSketchEntities)
+        if !activeSketchEntities.isEmpty || !activeSketchUnderlays.isEmpty {
+            setupSketch(plane: activeSketchPlane ?? .xy, entities: activeSketchEntities, underlays: activeSketchUnderlays)
         }
     }
 
@@ -645,6 +673,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
         ]
         allocations += statics.compactMap { $0 }
         if let billboardTexture { allocations.append(billboardTexture) }
+        for buf in underlayPositionBuffers.values { allocations.append(buf) }
+        for buf in underlayTexCoordBuffers.values { allocations.append(buf) }
+        for tex in underlayTextures.values { allocations.append(tex) }
         for mesh in meshes.values {
             allocations += [mesh.positionBuffer, mesh.normalBuffer, mesh.indexBuffer]
             if let tf = mesh.triangleFaceIdBuffer { allocations.append(tf) }
@@ -1059,6 +1090,31 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             drawCalls += 1
         }
 
+        // Sketch image underlays on active sketch plane before sketch lines
+        if let pipeline = underlayPipeline, !activeSketchUnderlays.isEmpty {
+            for underlay in activeSketchUnderlays where underlay.isVisible {
+                guard let texture = underlayTextures[underlay.id],
+                      let posBuffer = underlayPositionBuffers[underlay.id],
+                      let uvBuffer = underlayTexCoordBuffers[underlay.id] else { continue }
+
+                let uniforms = UnderlayUniforms(
+                    viewMatrix: viewMatrix,
+                    projectionMatrix: projMatrix,
+                    opacity: Float(underlay.opacity)
+                )
+                guard ctx.bindUniforms(uniforms, at: 2) else { continue }
+                encoder.setRenderPipelineState(pipeline)
+                encoder.setDepthStencilState(billboardDepthState)
+                encoder.setCullMode(.none)
+                ctx.bind(posBuffer, at: 0)
+                ctx.bind(uvBuffer, at: 1)
+                ctx.table.setTexture(texture.gpuResourceID, index: 0)
+                ctx.table.setSamplerState(billboardSampler.gpuResourceID, index: 0)
+                encoder.drawPrimitives(primitiveType: .triangle, vertexStart: 0, vertexCount: 6)
+                drawCalls += 1
+            }
+        }
+
         // Sketch entities on the active sketch plane
         if let positions = sketchPositionBuffer, let colors = sketchColorBuffer, sketchVertexCount > 0,
            ctx.bindUniforms(lineUniforms, at: 2) {
@@ -1257,6 +1313,9 @@ public final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable
             if let vb = mesh.vertexBuffer { snapshotResidency.addAllocations([vb]) }
         }
         if let billboardTexture { snapshotResidency.addAllocations([billboardTexture]) }
+        for tex in underlayTextures.values { snapshotResidency.addAllocations([tex]) }
+        for buf in underlayPositionBuffers.values { snapshotResidency.addAllocations([buf]) }
+        for buf in underlayTexCoordBuffers.values { snapshotResidency.addAllocations([buf]) }
         let statics: [MTLBuffer?] = [
             gridPositionBuffer, gridColorBuffer, axesPositionBuffer, axesColorBuffer,
             labelCenterBuffer, labelOffsetBuffer, labelTexCoordBuffer, labelColorBuffer,

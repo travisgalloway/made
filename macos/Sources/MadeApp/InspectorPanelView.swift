@@ -237,6 +237,7 @@ struct InspectorPanelView: View {
                 Form {
                     sketchIdentitySection(sketch)
                     sketchEntitiesSection(sketch)
+                    sketchUnderlaysSection(sketch)
                     sketchConstraintsSection(sketch)
                     sketchRegionsSection(sketch)
                 }
@@ -1356,6 +1357,32 @@ struct InspectorPanelView: View {
             }
         } header: {
             sectionHeader("Entities & Profile")
+        })
+    }
+
+    private func sketchUnderlaysSection(_ sketch: Feature) -> some View {
+        guard case .sketch(let data) = sketch.operation else { return AnyView(EmptyView()) }
+
+        return AnyView(Section {
+            HStack {
+                Button("+ Add Image Underlay…") {
+                    workspace.promptAddSketchImageUnderlay(targetSketchId: sketch.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+
+            if data.underlays.isEmpty {
+                Text("No image underlays in sketch.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(data.underlays) { underlay in
+                    InspectorSketchUnderlayRow(sketchId: sketch.id, underlay: underlay)
+                }
+            }
+        } header: {
+            sectionHeader("Image Underlays")
         })
     }
 
@@ -6010,6 +6037,255 @@ struct DocumentParameterRowView: View {
             syncFromParam()
             onError(CommitFieldError.invalidNumber(trimmed))
         }
+    }
+}
+
+struct InspectorSketchUnderlayRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let sketchId: UUID
+    let underlay: SketchImageUnderlay
+
+    @State private var isShowingCalibration: Bool = false
+    @State private var calPoint1X: Double = 0.0
+    @State private var calPoint1Y: Double = 0.0
+    @State private var calPoint2X: Double = 100.0
+    @State private var calPoint2Y: Double = 0.0
+    @State private var calTargetDistance: Double = 100.0
+    @State private var calibrationError: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(underlay.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                Spacer()
+                Button {
+                    var updated = underlay
+                    updated.isVisible.toggle()
+                    workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                } label: {
+                    Image(systemName: underlay.isVisible ? "eye" : "eye.slash")
+                }
+                .buttonStyle(.plain)
+                .help(underlay.isVisible ? "Hide Underlay" : "Show Underlay")
+
+                Button {
+                    var updated = underlay
+                    updated.isLocked.toggle()
+                    workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                } label: {
+                    Image(systemName: underlay.isLocked ? "lock.fill" : "lock.open")
+                }
+                .buttonStyle(.plain)
+                .help(underlay.isLocked ? "Unlock Underlay" : "Lock Underlay")
+
+                Button(role: .destructive) {
+                    workspace.removeSketchImageUnderlay(from: sketchId, underlayId: underlay.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .help("Delete Underlay")
+            }
+
+            if !underlay.isLocked {
+                // Dimensions: Width, Height, Preserve Aspect Ratio
+                HStack(spacing: 6) {
+                    Text("W:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    TextField("Width", value: Binding(
+                        get: { underlay.width },
+                        set: { newWidth in
+                            var updated = underlay
+                            updated.setWidth(newWidth)
+                            workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                        }
+                    ), format: .number.precision(.fractionLength(2)))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.mini)
+
+                    Text("H:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    TextField("Height", value: Binding(
+                        get: { underlay.height },
+                        set: { newHeight in
+                            var updated = underlay
+                            updated.setHeight(newHeight)
+                            workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                        }
+                    ), format: .number.precision(.fractionLength(2)))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.mini)
+
+                    Button {
+                        var updated = underlay
+                        updated.preserveAspectRatio.toggle()
+                        workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                    } label: {
+                        Image(systemName: underlay.preserveAspectRatio ? "lock" : "lock.open")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(underlay.preserveAspectRatio ? "Aspect Ratio Locked" : "Aspect Ratio Unlocked")
+                }
+
+                // Origin: X, Y
+                HStack(spacing: 6) {
+                    Text("X:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    TextField("X", value: Binding(
+                        get: { underlay.origin.x },
+                        set: { newX in
+                            var updated = underlay
+                            updated.origin.x = newX
+                            workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                        }
+                    ), format: .number.precision(.fractionLength(2)))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.mini)
+
+                    Text("Y:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    TextField("Y", value: Binding(
+                        get: { underlay.origin.y },
+                        set: { newY in
+                            var updated = underlay
+                            updated.origin.y = newY
+                            workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                        }
+                    ), format: .number.precision(.fractionLength(2)))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.mini)
+                }
+
+                // Rotation (in degrees)
+                HStack(spacing: 6) {
+                    Text("Rot:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    TextField("Angle", value: Binding(
+                        get: { underlay.rotationAngle * 180.0 / .pi },
+                        set: { newDeg in
+                            var updated = underlay
+                            updated.rotationAngle = newDeg * .pi / 180.0
+                            workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                        }
+                    ), format: .number.precision(.fractionLength(1)))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.mini)
+                    Text("°")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                // Opacity slider
+                HStack(spacing: 6) {
+                    Text("Opacity:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Slider(
+                        value: Binding(
+                            get: { underlay.opacity },
+                            set: { newOp in
+                                var updated = underlay
+                                updated.opacity = newOp
+                                workspace.updateSketchImageUnderlay(in: sketchId, underlay: updated)
+                            }
+                        ),
+                        in: 0.0...1.0
+                    )
+                    .controlSize(.mini)
+                    Text("\(Int(underlay.opacity * 100))%")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, alignment: .trailing)
+                }
+
+                // Calibration button
+                Button("Calibrate Scale…") {
+                    calPoint1X = underlay.origin.x
+                    calPoint1Y = underlay.origin.y
+                    calPoint2X = underlay.origin.x + underlay.width
+                    calPoint2Y = underlay.origin.y
+                    calTargetDistance = underlay.width
+                    calibrationError = nil
+                    isShowingCalibration = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .popover(isPresented: $isShowingCalibration) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Calibrate Underlay Scale")
+                            .font(.headline)
+                        Text("Enter coordinates for two reference points on the underlay and the target real-world distance between them.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Point 1 (Anchor):").font(.caption2).fontWeight(.medium)
+                            HStack {
+                                Text("X:").font(.caption2)
+                                TextField("P1 X", value: $calPoint1X, format: .number)
+                                Text("Y:").font(.caption2)
+                                TextField("P1 Y", value: $calPoint1Y, format: .number)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Point 2:").font(.caption2).fontWeight(.medium)
+                            HStack {
+                                Text("X:").font(.caption2)
+                                TextField("P2 X", value: $calPoint2X, format: .number)
+                                Text("Y:").font(.caption2)
+                                TextField("P2 Y", value: $calPoint2Y, format: .number)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Target Distance (mm):").font(.caption2).fontWeight(.medium)
+                            TextField("Target Distance", value: $calTargetDistance, format: .number)
+                        }
+
+                        if let err = calibrationError {
+                            Text(err)
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+
+                        HStack {
+                            Button("Cancel") {
+                                isShowingCalibration = false
+                            }
+                            Spacer()
+                            Button("Apply Calibration") {
+                                do {
+                                    _ = try workspace.calibrateSketchImageUnderlay(
+                                        in: sketchId,
+                                        underlayId: underlay.id,
+                                        point1: SIMD2<Double>(calPoint1X, calPoint1Y),
+                                        point2: SIMD2<Double>(calPoint2X, calPoint2Y),
+                                        targetDistance: calTargetDistance
+                                    )
+                                    isShowingCalibration = false
+                                } catch {
+                                    calibrationError = error.localizedDescription
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding()
+                    .frame(width: 280)
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

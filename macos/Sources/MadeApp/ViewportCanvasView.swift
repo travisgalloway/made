@@ -100,6 +100,10 @@ struct ViewportCanvasView: View {
                             if case .sketch(let data) = $0.operation { return data.entities }
                             return []
                         } ?? []
+                        let sketchUnderlays: [SketchImageUnderlay] = workspace.selectedSketchFeature.flatMap {
+                            if case .sketch(let data) = $0.operation { return data.underlays }
+                            return []
+                        } ?? []
 
                         CADMetalViewRepresentable(
                             document: workspace.document,
@@ -129,6 +133,7 @@ struct ViewportCanvasView: View {
                             onCancelAnimation: { workspace.cancelCameraAnimation() },
                             activeSketchPlane: activePlane,
                             sketchEntities: sketchEntities,
+                            sketchUnderlays: sketchUnderlays,
                             sketchRegions: workspace.detectedSketchRegions,
                             onHoverSketchRegion: { regionId in workspace.setHoveredSketchRegion(regionId) },
                             onSelectSketchRegion: { regionId in

@@ -189,19 +189,22 @@ public struct SketchFeatureData: Sendable, Codable, Equatable {
     public var datumPlaneFeatureId: UUID?
     public var entities: [SketchEntity]
     public var constraints: [SketchConstraint]
+    public var underlays: [SketchImageUnderlay]
 
     public init(
         planeName: String? = nil,
         planeReference: TopologicalReference? = nil,
         datumPlaneFeatureId: UUID? = nil,
         entities: [SketchEntity] = [],
-        constraints: [SketchConstraint] = []
+        constraints: [SketchConstraint] = [],
+        underlays: [SketchImageUnderlay] = []
     ) {
         self.planeName = planeName
         self.planeReference = planeReference
         self.datumPlaneFeatureId = datumPlaneFeatureId
         self.entities = entities
         self.constraints = constraints
+        self.underlays = underlays
     }
 
     enum CodingKeys: String, CodingKey {
@@ -210,6 +213,7 @@ public struct SketchFeatureData: Sendable, Codable, Equatable {
         case datumPlaneFeatureId
         case entities
         case constraints
+        case underlays
     }
 
     public init(from decoder: Decoder) throws {
@@ -219,6 +223,17 @@ public struct SketchFeatureData: Sendable, Codable, Equatable {
         self.datumPlaneFeatureId = try container.decodeIfPresent(UUID.self, forKey: .datumPlaneFeatureId)
         self.entities = try container.decodeIfPresent([SketchEntity].self, forKey: .entities) ?? []
         self.constraints = try container.decodeIfPresent([SketchConstraint].self, forKey: .constraints) ?? []
+        self.underlays = try container.decodeIfPresent([SketchImageUnderlay].self, forKey: .underlays) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(planeName, forKey: .planeName)
+        try container.encodeIfPresent(planeReference, forKey: .planeReference)
+        try container.encodeIfPresent(datumPlaneFeatureId, forKey: .datumPlaneFeatureId)
+        try container.encode(entities, forKey: .entities)
+        try container.encode(constraints, forKey: .constraints)
+        try container.encode(underlays, forKey: .underlays)
     }
 }
 

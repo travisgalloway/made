@@ -50,6 +50,24 @@ public struct BillboardUniforms: BitwiseCopyable {
     }
 }
 
+public struct UnderlayUniforms: BitwiseCopyable {
+    public var viewMatrix: simd_float4x4
+    public var projectionMatrix: simd_float4x4
+    public var opacity: Float
+    private var _padding: SIMD3<Float> = SIMD3<Float>(0, 0, 0)
+
+    public init(
+        viewMatrix: simd_float4x4 = matrix_identity_float4x4,
+        projectionMatrix: simd_float4x4 = matrix_identity_float4x4,
+        opacity: Float = 1.0
+    ) {
+        self.viewMatrix = viewMatrix
+        self.projectionMatrix = projectionMatrix
+        self.opacity = opacity
+        self._padding = SIMD3<Float>(0, 0, 0)
+    }
+}
+
 public struct OutlineUniforms: BitwiseCopyable {
     public var modelMatrix: simd_float4x4
     public var viewMatrix: simd_float4x4

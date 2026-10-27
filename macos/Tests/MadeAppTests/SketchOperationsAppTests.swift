@@ -1,5 +1,7 @@
 import Testing
 import Foundation
+import CoreGraphics
+import ImageIO
 import simd
 @testable import MadeCore
 @testable import MadeApp
@@ -673,4 +675,248 @@ import simd
         )
         #expect(aliasResult.isError == false)
     }
+
+    private static func makeTestImageData(width: Int = 120, height: Int = 80) -> Data {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.setFillColor(CGColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 1.0))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let cgImage = context.makeImage()!
+
+        let data = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(data as CFMutableData, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        CGImageDestinationFinalize(destination)
+        return data as Data
+    }
+
+    @Test @MainActor func testDocumentModelAtomicUnderlayMutationsAndUndoRedo() throws {
+        let document = DocumentModel()
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [])
+        document.undoManager?.removeAllActions()
+
+        let pngData = Self.makeTestImageData(width: 100, height: 60)
+        let underlay = try SketchImageUnderlay(
+            name: "Initial Underlay",
+            imageData: pngData,
+            origin: SIMD2<Double>(10, 20),
+            opacity: 0.75
+        )
+
+        // 1. Add underlay
+        document.addSketchImageUnderlay(to: sketch.id, underlay: underlay)
+        var feat = try #require(document.feature(for: sketch.id))
+        guard case .sketch(let data) = feat.operation else {
+            Issue.record("Expected sketch operation")
+            return
+        }
+        #expect(data.underlays.count == 1)
+        #expect(data.underlays[0].name == "Initial Underlay")
+        #expect(data.underlays[0].opacity == 0.75)
+
+        // Undo addition
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let undoneData) = feat.operation {
+            #expect(undoneData.underlays.isEmpty)
+        }
+
+        // Redo addition
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let redoneData) = feat.operation {
+            #expect(redoneData.underlays.count == 1)
+        }
+
+        // 2. Update underlay
+        var updated = underlay
+        updated.opacity = 0.4
+        updated.isLocked = true
+        document.updateSketchImageUnderlay(in: sketch.id, underlay: updated)
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let updatedData) = feat.operation {
+            #expect(updatedData.underlays[0].opacity == 0.4)
+            #expect(updatedData.underlays[0].isLocked == true)
+        }
+
+        // Undo update
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let undoneUpdateData) = feat.operation {
+            #expect(undoneUpdateData.underlays[0].opacity == 0.75)
+            #expect(undoneUpdateData.underlays[0].isLocked == false)
+        }
+
+        // Redo update
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let redoneUpdateData) = feat.operation {
+            #expect(redoneUpdateData.underlays[0].opacity == 0.4)
+            #expect(redoneUpdateData.underlays[0].isLocked == true)
+        }
+
+        // 3. Calibrate underlay
+        let calibrated = try document.calibrateSketchImageUnderlay(
+            in: sketch.id,
+            underlayId: underlay.id,
+            point1: SIMD2<Double>(0, 0),
+            point2: SIMD2<Double>(100, 0),
+            targetDistance: 250.0
+        )
+        #expect(calibrated.width == 250.0)
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let calibratedData) = feat.operation {
+            #expect(calibratedData.underlays[0].width == 250.0)
+            #expect(calibratedData.underlays[0].height == 150.0)
+        }
+
+        // Undo calibration
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let undoneCalData) = feat.operation {
+            #expect(undoneCalData.underlays[0].width == 100.0)
+        }
+
+        // 4. Remove underlay
+        document.removeSketchImageUnderlay(from: sketch.id, underlayId: underlay.id)
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let removedData) = feat.operation {
+            #expect(removedData.underlays.isEmpty)
+        }
+
+        // Undo removal
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let restoredData) = feat.operation {
+            #expect(restoredData.underlays.count == 1)
+        }
+    }
+
+    @Test @MainActor func testCADToolsMCPPlaceAndCalibrateImageUnderlay() async throws {
+        let document = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: document, kernelClient: kernel)
+
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [])
+        let sketchIdStr = sketch.id.uuidString
+
+        let pngData = Self.makeTestImageData(width: 80, height: 40)
+        let base64String = pngData.base64EncodedString()
+
+        // Test cad_place_image_underlay
+        let placeResult = await registry.callTool(
+            name: "cad_place_image_underlay",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "imageBase64": .string(base64String),
+                "name": .string("Test Floorplan"),
+                "opacity": .double(0.6)
+            ]
+        )
+        #expect(placeResult.isError == false)
+        guard let placeResponseText = placeResult.content.first?.text else {
+            Issue.record("Expected text response from cad_place_image_underlay")
+            return
+        }
+        #expect(placeResponseText.contains("underlayId"))
+        #expect(placeResponseText.contains("Test Floorplan"))
+
+        // Extract underlayId from JSON response
+        guard let responseData = placeResponseText.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let underlayIdStr = json["underlayId"] as? String else {
+            Issue.record("Failed to parse underlayId from response")
+            return
+        }
+
+        // Test cad_calibrate_image_underlay
+        let calibrateResult = await registry.callTool(
+            name: "cad_calibrate_image_underlay",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "underlayId": .string(underlayIdStr),
+                "point1": .array([.double(0), .double(0)]),
+                "point2": .array([.double(80), .double(0)]),
+                "targetDistance": .double(160.0)
+            ]
+        )
+        #expect(calibrateResult.isError == false)
+        guard let calResponseText = calibrateResult.content.first?.text else {
+            Issue.record("Expected text response from cad_calibrate_image_underlay")
+            return
+        }
+        #expect(calResponseText.contains("160"))
+        #expect(calResponseText.contains("scaleFactor"))
+
+        // Also test alias calibrate_image_underlay
+        let aliasCalibrateResult = await registry.callTool(
+            name: "calibrate_image_underlay",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "underlayId": .string(underlayIdStr),
+                "point1": .array([.double(0), .double(0)]),
+                "point2": .array([.double(80), .double(0)]),
+                "targetDistance": .double(240.0)
+            ]
+        )
+        #expect(aliasCalibrateResult.isError == false)
+
+        // Test error when sketch does not exist
+        let nonExistentResult = await registry.callTool(
+            name: "cad_place_image_underlay",
+            arguments: [
+                "sketchId": .string(UUID().uuidString),
+                "imageBase64": .string(base64String)
+            ]
+        )
+        #expect(nonExistentResult.isError == true)
+    }
+
+    @Test @MainActor func testPackageSaveAndReloadPreservesUnderlays() throws {
+        let ws = WorkspaceModel()
+        let sketch = ws.document.addSketchFeature(planeName: "xy", entities: [])
+        let pngData = Self.makeTestImageData(width: 50, height: 50)
+        let underlay = try SketchImageUnderlay(
+            name: "Icon",
+            imageData: pngData,
+            origin: SIMD2<Double>(5, 5),
+            opacity: 0.9
+        )
+        ws.document.addSketchImageUnderlay(to: sketch.id, underlay: underlay)
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let packageURL = tempDir.appendingPathComponent("UnderlayTest.made")
+        let package = try ws.makePackage()
+        try package.write(to: packageURL)
+
+        // Reload package in new workspace
+        let ws2 = WorkspaceModel()
+        let opened = ws2.openDocument(at: packageURL)
+        #expect(opened)
+
+        let reloadedSketch = try #require(ws2.document.feature(for: sketch.id))
+        guard case .sketch(let data) = reloadedSketch.operation else {
+            Issue.record("Expected sketch operation")
+            return
+        }
+        #expect(data.underlays.count == 1)
+        #expect(data.underlays[0].name == "Icon")
+        #expect(data.underlays[0].width == 50.0)
+        #expect(data.underlays[0].height == 50.0)
+        #expect(data.underlays[0].opacity == 0.9)
+        #expect(data.underlays[0].imageData != nil)
+        #expect(data.underlays[0].imageData?.count == pngData.count)
+    }
 }
+
