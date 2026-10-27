@@ -3296,6 +3296,43 @@ public final class DocumentModel {
         undoStateVersion += 1
     }
 
+    /// Imports AutoCAD ASCII DXF entities into a sketch feature with atomic undo/redo (BL-XCH-08, #361).
+    @discardableResult
+    public func importDXFEntities(
+        to featureId: UUID,
+        dxfText: String,
+        options: DXFImportOptions = DXFImportOptions()
+    ) -> Result<([SketchEntity], [SketchConstraint]), DocumentMutationError> {
+        guard let feature = feature(for: featureId), case .sketch = feature.operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !feature.isLocked else {
+            return .failure(.objectLocked(ObjectId(featureId.uuidString)))
+        }
+        do {
+            let result = try SketchDXFImporter.importDXF(dxfText: dxfText, options: options)
+            guard !result.entities.isEmpty else {
+                return .failure(.sketchError(.emptySketch))
+            }
+            let mutation = addSketchEntitiesAndConstraints(
+                to: featureId,
+                entities: result.entities,
+                constraints: result.constraints,
+                actionName: "Import DXF"
+            )
+            switch mutation {
+            case .success:
+                return .success((result.entities, result.constraints))
+            case .failure(let err):
+                return .failure(err)
+            }
+        } catch let err as SketchError {
+            return .failure(.sketchError(err))
+        } catch {
+            return .failure(.invalidOperation("DXF import failed: \(error.localizedDescription)"))
+        }
+    }
+
     // MARK: - Interactive Sketch Drag Sessions (BL-CON-07)
 
     public func beginInteractiveSketchDrag(featureId: UUID) {

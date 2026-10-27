@@ -401,4 +401,176 @@ import simd
         )
         #expect(chamferCallResult.isError == false)
     }
+
+    @Test @MainActor func testDocumentModelAtomicDXFImportAndSymmetricUndoRedo() throws {
+        let document = DocumentModel()
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [])
+        document.undoManager?.removeAllActions()
+
+        let dxf = """
+        0
+        SECTION
+        2
+        ENTITIES
+        0
+        LINE
+        8
+        0
+        10
+        0.0
+        20
+        0.0
+        11
+        50.0
+        21
+        0.0
+        0
+        LINE
+        8
+        0
+        10
+        50.0
+        20
+        0.0
+        11
+        50.0
+        21
+        30.0
+        0
+        ENDSEC
+        0
+        EOF
+        """
+
+        let result = document.importDXFEntities(to: sketch.id, dxfText: dxf)
+        guard case .success(let (entities, _)) = result else {
+            Issue.record("Expected successful DXF import")
+            return
+        }
+        #expect(entities.count == 2)
+
+        var feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 2)
+        }
+
+        // Single undo step removes all imported entities
+        document.undoManager?.undo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.isEmpty)
+        }
+
+        // Single redo step restores all imported entities
+        document.undoManager?.redo()
+        feat = try #require(document.feature(for: sketch.id))
+        if case .sketch(let data) = feat.operation {
+            #expect(data.entities.count == 2)
+        }
+    }
+
+    @Test @MainActor func testWorkspaceDXFImportAndExtrusion() async throws {
+        let workspace = WorkspaceModel()
+        let sketch = workspace.document.addSketchFeature(planeName: "xy", entities: [])
+        workspace.selectedId = ObjectId(sketch.id.uuidString)
+
+        let dxfRectangle = """
+        0
+        SECTION
+        2
+        ENTITIES
+        0
+        LWPOLYLINE
+        8
+        0
+        70
+        1
+        90
+        4
+        10
+        0.0
+        20
+        0.0
+        10
+        40.0
+        20
+        0.0
+        10
+        40.0
+        20
+        25.0
+        10
+        0.0
+        20
+        25.0
+        0
+        ENDSEC
+        0
+        EOF
+        """
+
+        let (importedEntities, _) = try workspace.importDXFIntoSketch(featureId: sketch.id, dxfText: dxfRectangle)
+        #expect(importedEntities.count == 4)
+
+        // Extrude imported DXF loop into 3D solid
+        let solidId = await workspace.extrudeSketch(sketchFeatureId: sketch.id, distance: 15.0)
+        let sid = try #require(solidId)
+        let extrudeFeat = try #require(workspace.document.feature(for: sid))
+        #expect(extrudeFeat.errorState == nil)
+    }
+
+    @Test @MainActor func testCADToolsMCPImportDXFToSketch() async throws {
+        let document = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: document, kernelClient: kernel)
+
+        let sketch = document.addSketchFeature(planeName: "xy", entities: [])
+        let sketchIdStr = sketch.id.uuidString
+
+        let dxf = """
+        0
+        SECTION
+        2
+        ENTITIES
+        0
+        CIRCLE
+        8
+        0
+        10
+        10.0
+        20
+        10.0
+        40
+        5.0
+        0
+        ENDSEC
+        0
+        EOF
+        """
+
+        let result = await registry.callTool(
+            name: "cad_import_dxf_to_sketch",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "dxfContent": .string(dxf)
+            ]
+        )
+        #expect(result.isError == false)
+        guard let responseText = result.content.first?.text else {
+            Issue.record("Expected text response")
+            return
+        }
+        #expect(responseText.contains("entitiesImported"))
+        #expect(responseText.contains("1"))
+
+        // Also test alias import_dxf_to_sketch
+        let aliasResult = await registry.callTool(
+            name: "import_dxf_to_sketch",
+            arguments: [
+                "sketchId": .string(sketchIdStr),
+                "dxfContent": .string(dxf)
+            ]
+        )
+        #expect(aliasResult.isError == false)
+    }
 }

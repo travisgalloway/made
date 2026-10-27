@@ -2932,6 +2932,69 @@ final class WorkspaceModel {
         }
     }
 
+    // MARK: - DXF Sketch Import (BL-XCH-08, #361)
+
+    @discardableResult
+    func importDXFIntoSketch(
+        featureId: UUID? = nil,
+        dxfText: String,
+        options: DXFImportOptions = DXFImportOptions()
+    ) throws -> ([SketchEntity], [SketchConstraint]) {
+        guard let targetId = featureId ?? selectedSketchFeature?.id else {
+            throw SketchError.invalidEntity("No active sketch selected")
+        }
+        let result = document.importDXFEntities(to: targetId, dxfText: dxfText, options: options)
+        switch result {
+        case .success(let imported):
+            solveSketchConstraints(featureId: targetId)
+            refreshDetectedSketchRegions(for: targetId)
+            refreshSketchStatus(for: targetId)
+            recomputeDependents(of: targetId)
+            markDocumentModified()
+            return imported
+        case .failure(let err):
+            if case .sketchError(let sErr) = err {
+                throw sErr
+            }
+            throw SketchError.invalidEntity("DXF import failed: \(err)")
+        }
+    }
+
+    @discardableResult
+    func importDXFFile(
+        at url: URL,
+        to featureId: UUID? = nil,
+        options: DXFImportOptions = DXFImportOptions()
+    ) throws -> ([SketchEntity], [SketchConstraint]) {
+        let dxfText = try String(contentsOf: url, encoding: .utf8)
+        return try importDXFIntoSketch(featureId: featureId, dxfText: dxfText, options: options)
+    }
+
+    func promptImportDXFToSketch(targetSketchId: UUID? = nil) {
+        guard let sketchId = targetSketchId ?? selectedSketchFeature?.id else {
+            log(.error, "Sketch", "No active sketch selected for DXF import")
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.title = "Import DXF to Sketch"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = []
+        if let t1 = UTType(filenameExtension: "dxf") { contentTypes.append(t1) }
+        if let t2 = UTType("com.autodesk.dxf") { contentTypes.append(t2) }
+        panel.allowedContentTypes = contentTypes.isEmpty ? [.data] : contentTypes
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            _ = try importDXFFile(at: url, to: sketchId)
+            log(.info, "Sketch", "Imported DXF file \(url.lastPathComponent) into sketch \(sketchId)")
+        } catch {
+            log(.error, "Sketch", "Failed to import DXF file: \(error.localizedDescription)")
+        }
+    }
+
     func updateSketchEntity(in featureId: UUID, entity: SketchEntity) {
         _ = document.updateSketchEntity(in: featureId, entity: entity)
         solveSketchConstraints(featureId: featureId, draggedEntityId: entity.id)

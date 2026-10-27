@@ -54,6 +54,11 @@ struct FileMenuCommands: Commands {
                 workspace.promptImportStepFile()
             }
 
+            Button("Import DXF to Sketch…") {
+                workspace.promptImportDXFToSketch()
+            }
+            .disabled(workspace.selectedSketchFeature == nil)
+
             Button("Link External File…") {
                 workspace.promptLinkExternalFile()
             }
@@ -637,6 +642,11 @@ struct ToolsMenuCommands: Commands {
 
                 Button("Add Text") {
                     _ = try? workspace.addSketchText()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Button("Import DXF…") {
+                    workspace.promptImportDXFToSketch()
                 }
                 .disabled(workspace.selectedSketchFeature == nil)
 
