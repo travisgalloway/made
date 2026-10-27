@@ -1337,6 +1337,12 @@ struct InspectorPanelView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
+
+                Button("Import SVG…") {
+                    workspace.promptImportSVGToSketch(targetSketchId: sketch.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
             }
 
             if data.entities.isEmpty {

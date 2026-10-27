@@ -3333,6 +3333,43 @@ public final class DocumentModel {
         }
     }
 
+    /// Imports Scalable Vector Graphics (SVG) entities into a sketch feature with atomic undo/redo (BL-SKT-14, #362).
+    @discardableResult
+    public func importSVGEntities(
+        to featureId: UUID,
+        svgText: String,
+        options: SVGImportOptions = SVGImportOptions()
+    ) -> Result<([SketchEntity], [SketchConstraint]), DocumentMutationError> {
+        guard let feature = feature(for: featureId), case .sketch = feature.operation else {
+            return .failure(.objectNotFound(ObjectId(featureId.uuidString)))
+        }
+        guard !feature.isLocked else {
+            return .failure(.objectLocked(ObjectId(featureId.uuidString)))
+        }
+        do {
+            let result = try SketchSVGImporter.importSVG(svgText: svgText, options: options)
+            guard !result.entities.isEmpty else {
+                return .failure(.sketchError(.emptySketch))
+            }
+            let mutation = addSketchEntitiesAndConstraints(
+                to: featureId,
+                entities: result.entities,
+                constraints: result.constraints,
+                actionName: "Import SVG"
+            )
+            switch mutation {
+            case .success:
+                return .success((result.entities, result.constraints))
+            case .failure(let err):
+                return .failure(err)
+            }
+        } catch let err as SketchError {
+            return .failure(.sketchError(err))
+        } catch {
+            return .failure(.invalidOperation("SVG import failed: \(error.localizedDescription)"))
+        }
+    }
+
     // MARK: - Interactive Sketch Drag Sessions (BL-CON-07)
 
     public func beginInteractiveSketchDrag(featureId: UUID) {

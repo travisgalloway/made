@@ -59,6 +59,11 @@ struct FileMenuCommands: Commands {
             }
             .disabled(workspace.selectedSketchFeature == nil)
 
+            Button("Import SVG to Sketch…") {
+                workspace.promptImportSVGToSketch()
+            }
+            .disabled(workspace.selectedSketchFeature == nil)
+
             Button("Link External File…") {
                 workspace.promptLinkExternalFile()
             }
@@ -647,6 +652,11 @@ struct ToolsMenuCommands: Commands {
 
                 Button("Import DXF…") {
                     workspace.promptImportDXFToSketch()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Button("Import SVG…") {
+                    workspace.promptImportSVGToSketch()
                 }
                 .disabled(workspace.selectedSketchFeature == nil)
 

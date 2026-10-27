@@ -79,7 +79,8 @@ struct PartVerificationMCPTests {
         #expect(toolNames.contains("fillet_sketch_corner"))
         #expect(toolNames.contains("chamfer_sketch_corner"))
         #expect(toolNames.contains("cad_import_dxf_to_sketch"))
-        #expect(registry.tools.count == 27)
+        #expect(toolNames.contains("cad_import_svg_to_sketch"))
+        #expect(registry.tools.count == 28)
 
         let snapshotTool = registry.tools.first { $0.name == "cad_capture_snapshot" }
         let viewProp = snapshotTool?.inputSchema.properties["view"]
