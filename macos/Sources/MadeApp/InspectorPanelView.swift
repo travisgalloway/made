@@ -1331,6 +1331,12 @@ struct InspectorPanelView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
+
+                Button("Import DXF…") {
+                    workspace.promptImportDXFToSketch(targetSketchId: sketch.id)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
             }
 
             if data.entities.isEmpty {

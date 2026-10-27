@@ -412,6 +412,25 @@ public final class CADToolRegistry {
                     ],
                     required: ["sketchId", "line1Id", "line2Id", "distance1"]
                 )
+            ),
+            MCPToolDefinition(
+                name: "cad_import_dxf_to_sketch",
+                description: "Imports AutoCAD 2000 ASCII DXF geometry (lines, circles, arcs, ellipses, polylines with bulges, splines, text) into a 2D sketch with optional unit scaling, layer filtering, construction classification, and endpoint welding.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the target sketch feature"),
+                        "dxfContent": MCPProperty(type: "string", description: "Raw ASCII DXF file content string (required if filePath is omitted)"),
+                        "filePath": MCPProperty(type: "string", description: "Absolute path to a DXF file on disk (used if dxfContent is omitted)"),
+                        "unit": MCPProperty(type: "string", description: "Optional length unit override: 'mm', 'cm', 'm', 'in', 'ft'", enum: ["mm", "cm", "m", "in", "ft"]),
+                        "scale": MCPProperty(type: "number", description: "Optional additional uniform scale factor (default 1.0)"),
+                        "offsetX": MCPProperty(type: "number", description: "Optional X offset in mm applied to all coordinates (default 0.0)"),
+                        "offsetY": MCPProperty(type: "number", description: "Optional Y offset in mm applied to all coordinates (default 0.0)"),
+                        "layers": MCPProperty(type: "array", description: "Optional array of layer names to import. Omitted layers are discarded."),
+                        "weldEndpoints": MCPProperty(type: "boolean", description: "Optional boolean whether to weld matching endpoints within tolerance and generate coincident constraints (default true)"),
+                        "markConstruction": MCPProperty(type: "boolean", description: "Optional boolean whether to force all imported entities as construction geometry (default false)")
+                    ],
+                    required: ["sketchId"]
+                )
             )
         ]
     }
@@ -495,6 +514,9 @@ public final class CADToolRegistry {
 
         case "chamfer_sketch_corner", "cad_chamfer_sketch_corner":
             return handleChamferSketchCorner(arguments: arguments)
+
+        case "cad_import_dxf_to_sketch", "import_dxf_to_sketch":
+            return handleImportDXFToSketch(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -2978,6 +3000,72 @@ public final class CADToolRegistry {
             return .text("Chamfered corner between lines '\(line1IdStr)' and '\(line2IdStr)' in sketch '\(sketchIdStr)', added bevel line '\(chamferResult.chamferLine.id.uuidString)' and \(chamferResult.constraints.count) constraints")
         case .failure(let err):
             return .error("Chamfer operation failed: \(err.localizedDescription)")
+        }
+    }
+
+    private func handleImportDXFToSketch(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+
+        let dxfText: String
+        if let rawText = arguments["dxfContent"]?.stringValue, !rawText.isEmpty {
+            dxfText = rawText
+        } else if let path = arguments["filePath"]?.stringValue, !path.isEmpty {
+            do {
+                dxfText = try String(contentsOfFile: path, encoding: .utf8)
+            } catch {
+                return .error("Failed to read DXF file at '\(path)': \(error.localizedDescription)")
+            }
+        } else {
+            return .error("Either 'dxfContent' or 'filePath' must be provided")
+        }
+
+        var options = DXFImportOptions()
+        if let unitStr = arguments["unit"]?.stringValue {
+            options.unitOverride = LengthUnit(rawValue: unitStr)
+        }
+        if let scaleVal = arguments["scale"]?.doubleValue, scaleVal > 0 {
+            options.scale = scaleVal
+        }
+        var offX = 0.0
+        var offY = 0.0
+        if let x = arguments["offsetX"]?.doubleValue { offX = x }
+        if let y = arguments["offsetY"]?.doubleValue { offY = y }
+        options.offset = SIMD2<Double>(offX, offY)
+
+        if let layersArr = arguments["layers"]?.arrayValue {
+            let names = layersArr.compactMap(\.stringValue)
+            if !names.isEmpty {
+                options.layerFilter = Set(names)
+            }
+        }
+        if let weld = arguments["weldEndpoints"]?.boolValue {
+            options.weldEndpoints = weld
+        }
+        if let constr = arguments["markConstruction"]?.boolValue {
+            options.markAllConstruction = constr
+        }
+
+        let result = document.importDXFEntities(to: sketchUUID, dxfText: dxfText, options: options)
+        switch result {
+        case .success(let (entities, constraints)):
+            onViewportInvalidated?()
+            let summary: [String: Any] = [
+                "sketchId": sketchIdStr,
+                "entitiesImported": entities.count,
+                "constraintsImported": constraints.count
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]),
+               let jsonText = String(data: jsonData, encoding: .utf8) {
+                return .text(jsonText)
+            }
+            return .text("Imported \(entities.count) entities and \(constraints.count) constraints into sketch '\(sketchIdStr)'")
+        case .failure(let err):
+            return .error("DXF import failed: \(err.localizedDescription)")
         }
     }
 }
