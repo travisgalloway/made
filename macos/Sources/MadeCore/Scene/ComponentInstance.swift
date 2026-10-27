@@ -78,6 +78,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable, Pro
     public var childConstraints: [AssemblyConstraint]
     public var patternId: UUID?
     public var mirrorId: UUID?
+    public var configurationName: String?
+    public var configurationId: UUID?
     public var metadata: [String: String]
 
     public var isFixed: Bool {
@@ -108,6 +110,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable, Pro
         childConstraints: [AssemblyConstraint] = [],
         patternId: UUID? = nil,
         mirrorId: UUID? = nil,
+        configurationName: String? = nil,
+        configurationId: UUID? = nil,
         metadata: [String: String] = [:]
     ) {
         self.id = id
@@ -123,6 +127,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable, Pro
         self.childConstraints = childConstraints
         self.patternId = patternId
         self.mirrorId = mirrorId
+        self.configurationName = configurationName
+        self.configurationId = configurationId
         self.metadata = metadata
     }
 
@@ -140,6 +146,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable, Pro
         case childConstraints
         case patternId
         case mirrorId
+        case configurationName
+        case configurationId
         case metadata
     }
 
@@ -158,6 +166,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable, Pro
         self.childConstraints = try container.decodeIfPresent([AssemblyConstraint].self, forKey: .childConstraints) ?? []
         self.patternId = try container.decodeIfPresent(UUID.self, forKey: .patternId)
         self.mirrorId = try container.decodeIfPresent(UUID.self, forKey: .mirrorId)
+        self.configurationName = try container.decodeIfPresent(String.self, forKey: .configurationName)
+        self.configurationId = try container.decodeIfPresent(UUID.self, forKey: .configurationId)
         self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
     }
 
@@ -176,6 +186,8 @@ public struct ComponentInstance: Identifiable, Sendable, Codable, Equatable, Pro
         try container.encode(childConstraints, forKey: .childConstraints)
         try container.encodeIfPresent(patternId, forKey: .patternId)
         try container.encodeIfPresent(mirrorId, forKey: .mirrorId)
+        try container.encodeIfPresent(configurationName, forKey: .configurationName)
+        try container.encodeIfPresent(configurationId, forKey: .configurationId)
         if !metadata.isEmpty {
             try container.encode(metadata, forKey: .metadata)
         }

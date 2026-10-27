@@ -3,6 +3,8 @@ import SwiftUI
 import os
 import MadeCore
 
+public typealias DocumentConfiguration = MadeCore.DocumentConfiguration
+
 public enum ConsoleLogLevel: String, Sendable, CaseIterable {
     case info = "INFO"
     case warning = "WARNING"

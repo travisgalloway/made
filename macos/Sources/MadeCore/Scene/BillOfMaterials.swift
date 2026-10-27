@@ -26,6 +26,7 @@ public struct BOMItem: Identifiable, Sendable, Codable, Equatable {
     public var material: String
     public var quantity: Int
     public var isSubassembly: Bool
+    public var configuration: String?
     public var customProperties: [String: String]
 
     public init(
@@ -39,6 +40,7 @@ public struct BOMItem: Identifiable, Sendable, Codable, Equatable {
         material: String = "",
         quantity: Int = 1,
         isSubassembly: Bool = false,
+        configuration: String? = nil,
         customProperties: [String: String] = [:]
     ) {
         self.itemNumber = itemNumber
@@ -51,6 +53,7 @@ public struct BOMItem: Identifiable, Sendable, Codable, Equatable {
         self.material = material
         self.quantity = quantity
         self.isSubassembly = isSubassembly
+        self.configuration = configuration
         self.customProperties = customProperties
     }
 }
@@ -167,6 +170,7 @@ public struct BillOfMaterials: Sendable, Codable, Equatable {
             var vendor: String
             var material: String
             var quantity: Int
+            var configuration: String?
             var customProperties: [String: String]
             var referenceKey: String
         }
@@ -182,12 +186,14 @@ public struct BillOfMaterials: Sendable, Codable, Equatable {
                 let props = extractProperties(from: instance)
                 let pn = props.partNumber.trimmingCharacters(in: .whitespacesAndNewlines)
                 let refKey = referenceKey(for: instance.reference)
+                let config = instance.configurationName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let configSuffix = (config != nil && !config!.isEmpty) ? ":cfg:\(config!)" : ""
 
                 let groupKey: String
                 if !pn.isEmpty {
-                    groupKey = "pn:\(pn)"
+                    groupKey = "pn:\(pn)\(configSuffix)"
                 } else {
-                    groupKey = "ref:\(props.name):\(refKey)"
+                    groupKey = "ref:\(props.name):\(refKey)\(configSuffix)"
                 }
 
                 if var existing = aggregated[groupKey] {
@@ -217,6 +223,7 @@ public struct BillOfMaterials: Sendable, Codable, Equatable {
                         vendor: props.vendor,
                         material: props.material,
                         quantity: multiplier,
+                        configuration: (config?.isEmpty == false) ? config : nil,
                         customProperties: props.customProperties,
                         referenceKey: refKey
                     )
@@ -252,6 +259,7 @@ public struct BillOfMaterials: Sendable, Codable, Equatable {
                 material: entry.material,
                 quantity: entry.quantity,
                 isSubassembly: false,
+                configuration: entry.configuration,
                 customProperties: entry.customProperties
             ))
         }
@@ -280,6 +288,7 @@ public struct BillOfMaterials: Sendable, Codable, Equatable {
                 material: props.material,
                 quantity: 1,
                 isSubassembly: instance.isSubassembly,
+                configuration: instance.configurationName,
                 customProperties: props.customProperties
             )
             items.append(item)

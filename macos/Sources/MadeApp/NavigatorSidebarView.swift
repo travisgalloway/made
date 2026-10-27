@@ -293,6 +293,34 @@ struct NavigatorSidebarView: View {
             }
         }
 
+        if !workspace.document.configurations.isEmpty || workspace.document.documentType != .drawing {
+            Section {
+                if workspace.document.configurations.isEmpty {
+                    Text("No configurations defined.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(workspace.document.configurations) { config in
+                        NavigatorConfigurationRow(config: config)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Configurations")
+                    Spacer()
+                    Button {
+                        _ = workspace.addConfiguration(name: "Config \(workspace.document.configurations.count + 1)")
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(width: 16, height: 16)
+                    .help("New Configuration")
+                    .accessibilityIdentifier("navigator-add-configuration-button")
+                }
+            }
+        }
+
         if (workspace.document.documentType != .assembly && workspace.document.documentType != .drawing) || !filteredBodies.isEmpty {
             Section("Bodies") {
                 ForEach(filteredBodies) { body in
@@ -1303,6 +1331,16 @@ private struct NavigatorComponentRow: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+
+                        if let cfg = component.configurationName, !cfg.isEmpty {
+                            Text("•")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text("[Config: \(cfg)]")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
 
@@ -1393,6 +1431,14 @@ private struct NavigatorComponentRow: View {
             subassemblyBadges
         } else {
             componentBadge
+        }
+        if let cfg = component.configurationName, !cfg.isEmpty {
+            Text(cfg)
+                .font(.caption2)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.secondary.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 3))
         }
         groundedOrDOFBadge(dof: dof)
         patternAndMirrorBadges
@@ -2401,6 +2447,129 @@ struct NavigatorParameterRow: View {
         .help(param.comment.isEmpty ? "\(param.name): \(param.value) \(param.unit)" : "\(param.name) (\(param.comment))")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(param.name), \(param.value) \(param.unit)")
+    }
+}
+
+/// Outline row for a document configuration in the Navigator sidebar (BL-PAR-04, #177).
+struct NavigatorConfigurationRow: View {
+    @Environment(WorkspaceModel.self) private var workspace
+    let config: MadeCore.DocumentConfiguration
+    @State private var isHovered: Bool = false
+    @State private var isRenaming: Bool = false
+    @State private var renameText: String = ""
+
+    var body: some View {
+        let isActive = workspace.document.activeConfigurationId == config.id
+
+        HStack(alignment: .center, spacing: 6) {
+            Button {
+                _ = workspace.setActiveConfiguration(id: isActive ? nil : config.id)
+            } label: {
+                Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain)
+            .help(isActive ? "Deactivate Configuration" : "Activate Configuration")
+
+            Image(systemName: "slider.horizontal.2.square")
+                .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                .frame(width: 16)
+
+            if isRenaming {
+                TextField("Configuration Name", text: $renameText, onCommit: {
+                    var updated = config
+                    updated.name = renameText
+                    _ = workspace.updateConfiguration(updated)
+                    isRenaming = false
+                })
+                .textFieldStyle(.plain)
+                .onExitCommand { isRenaming = false }
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(config.name)
+                            .font(.body)
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
+
+                        if config.isDefault {
+                            Text("Default")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.secondary.opacity(0.12))
+                                )
+                        }
+
+                        if isActive {
+                            Text("Active")
+                                .font(.caption2)
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.accentColor.opacity(0.15))
+                                )
+                                .accessibilityIdentifier("navigator-configuration-active-badge-\(config.id.uuidString)")
+                        }
+                    }
+
+                    if !config.comment.isEmpty {
+                        Text(config.comment)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            let overrideCount = config.parameterOverrides.count + config.suppressionOverrides.count
+            if overrideCount > 0 {
+                Text("\(overrideCount) override\(overrideCount == 1 ? "" : "s")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if isHovered {
+                Button(isActive ? "Deactivate" : "Activate", systemImage: isActive ? "checkmark.circle.fill" : "checkmark.circle") {
+                    _ = workspace.setActiveConfiguration(id: isActive ? nil : config.id)
+                }
+                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                .help(isActive ? "Deactivate Configuration" : "Activate Configuration")
+                .barControl()
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture(count: 2) {
+            _ = workspace.setActiveConfiguration(id: config.id)
+        }
+        .contextMenu {
+            Button(isActive ? "Deactivate" : "Activate") {
+                _ = workspace.setActiveConfiguration(id: isActive ? nil : config.id)
+            }
+            Button("Duplicate") {
+                _ = workspace.duplicateConfiguration(id: config.id)
+            }
+            Button("Rename…") {
+                renameText = config.name
+                isRenaming = true
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                _ = workspace.deleteConfiguration(id: config.id)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(config.name)\(isActive ? ", Active" : "")\(config.isDefault ? ", Default" : "")")
     }
 }
 

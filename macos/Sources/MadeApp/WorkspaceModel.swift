@@ -4605,6 +4605,8 @@ final class WorkspaceModel {
             let componentInstances = package.documentData.componentInstances ?? []
             let sheets = package.documentData.sheets ?? []
             let activeSheetId = package.documentData.activeSheetId
+            let configurations = package.documentData.configurations ?? []
+            let activeConfigurationId = package.documentData.activeConfigurationId
             if let features = package.documentData.features {
                 document.reset(
                     with: features,
@@ -4615,6 +4617,8 @@ final class WorkspaceModel {
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
                     componentInstances: componentInstances,
+                    configurations: configurations,
+                    activeConfigurationId: activeConfigurationId,
                     sheets: sheets,
                     activeSheetId: activeSheetId,
                     metadata: docMetadata
@@ -4629,6 +4633,8 @@ final class WorkspaceModel {
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
                     componentInstances: componentInstances,
+                    configurations: configurations,
+                    activeConfigurationId: activeConfigurationId,
                     sheets: sheets,
                     activeSheetId: activeSheetId,
                     metadata: docMetadata
@@ -4678,6 +4684,8 @@ final class WorkspaceModel {
             componentMirrors: document.componentMirrors,
             explodedViews: document.explodedViews,
             activeExplodedViewId: document.activeExplodedViewId,
+            configurations: document.configurations,
+            activeConfigurationId: document.activeConfigurationId,
             studies: document.studies.isEmpty ? nil : document.studies,
             activeStudyId: document.activeStudyId,
             sheets: document.sheets,
@@ -4902,6 +4910,8 @@ final class WorkspaceModel {
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
                     settings: docSettings,
+                    configurations: package.documentData.configurations ?? [],
+                    activeConfigurationId: package.documentData.activeConfigurationId,
                     metadata: docMetadata
                 )
             } else {
@@ -4911,6 +4921,8 @@ final class WorkspaceModel {
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
                     settings: docSettings,
+                    configurations: package.documentData.configurations ?? [],
+                    activeConfigurationId: package.documentData.activeConfigurationId,
                     metadata: docMetadata
                 )
             }
@@ -9332,6 +9344,194 @@ public struct SimulationAnimationState: Sendable, Equatable {
         markDocumentModified()
         for solidId in affected {
             recomputeSolid(id: solidId)
+        }
+    }
+
+    // MARK: - Configurations (BL-PAR-04, #177)
+
+    var configurations: [MadeCore.DocumentConfiguration] {
+        document.configurations
+    }
+
+    var activeConfigurationId: UUID? {
+        document.activeConfigurationId
+    }
+
+    var activeConfiguration: MadeCore.DocumentConfiguration? {
+        document.activeConfiguration
+    }
+
+    @discardableResult
+    func addConfiguration(
+        name: String,
+        comment: String = "",
+        isDefault: Bool = false,
+        parameterOverrides: [String: Double] = [:],
+        suppressionOverrides: [UUID: Bool] = [:]
+    ) -> MadeCore.DocumentConfiguration? {
+        let config = MadeCore.DocumentConfiguration(
+            name: name,
+            comment: comment,
+            parameterOverrides: parameterOverrides,
+            suppressionOverrides: suppressionOverrides,
+            isDefault: isDefault
+        )
+        let result = document.addConfiguration(config)
+        switch result {
+        case .success(let created):
+            markDocumentModified()
+            return created
+        case .failure:
+            return nil
+        }
+    }
+
+    @discardableResult
+    func updateConfiguration(_ config: MadeCore.DocumentConfiguration) -> Bool {
+        let result = document.updateConfiguration(config)
+        switch result {
+        case .success:
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    @discardableResult
+    func deleteConfiguration(id: UUID) -> Bool {
+        let oldObjects = document.objects
+        let result = document.deleteConfiguration(id: id)
+        switch result {
+        case .success:
+            syncMeshes(removedFrom: oldObjects, to: document.objects)
+            for solidId in document.activeFeatures.compactMap(\.outputSolidId) {
+                recomputeSolid(id: solidId)
+            }
+            invalidateViewport(.model)
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    @discardableResult
+    func setActiveConfiguration(id: UUID?) -> Bool {
+        let oldObjects = document.objects
+        let result = document.setActiveConfiguration(id: id)
+        switch result {
+        case .success:
+            syncMeshes(removedFrom: oldObjects, to: document.objects)
+            for solidId in document.activeFeatures.compactMap(\.outputSolidId) {
+                recomputeSolid(id: solidId)
+            }
+            invalidateViewport(.model)
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    @discardableResult
+    func duplicateConfiguration(id: UUID, newName: String? = nil) -> MadeCore.DocumentConfiguration? {
+        let result = document.duplicateConfiguration(id: id, newName: newName)
+        switch result {
+        case .success(let duplicated):
+            markDocumentModified()
+            return duplicated
+        case .failure:
+            return nil
+        }
+    }
+
+    @discardableResult
+    func setParameterOverride(configurationId: UUID, parameterName: String, value: Double) -> Bool {
+        let result = document.setParameterOverride(configurationId: configurationId, parameterName: parameterName, value: value)
+        switch result {
+        case .success:
+            if document.activeConfigurationId == configurationId {
+                for solidId in document.activeFeatures.compactMap(\.outputSolidId) {
+                    recomputeSolid(id: solidId)
+                }
+                invalidateViewport(.model)
+            }
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    @discardableResult
+    func removeParameterOverride(configurationId: UUID, parameterName: String) -> Bool {
+        let result = document.removeParameterOverride(configurationId: configurationId, parameterName: parameterName)
+        switch result {
+        case .success:
+            if document.activeConfigurationId == configurationId {
+                for solidId in document.activeFeatures.compactMap(\.outputSolidId) {
+                    recomputeSolid(id: solidId)
+                }
+                invalidateViewport(.model)
+            }
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    @discardableResult
+    func setSuppressionOverride(configurationId: UUID, featureId: UUID, isSuppressed: Bool) -> Bool {
+        let oldObjects = document.objects
+        let result = document.setSuppressionOverride(configurationId: configurationId, featureId: featureId, isSuppressed: isSuppressed)
+        switch result {
+        case .success:
+            if document.activeConfigurationId == configurationId {
+                syncMeshes(removedFrom: oldObjects, to: document.objects)
+                for solidId in document.activeFeatures.compactMap(\.outputSolidId) {
+                    recomputeSolid(id: solidId)
+                }
+                invalidateViewport(.model)
+            }
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    @discardableResult
+    func removeSuppressionOverride(configurationId: UUID, featureId: UUID) -> Bool {
+        let oldObjects = document.objects
+        let result = document.removeSuppressionOverride(configurationId: configurationId, featureId: featureId)
+        switch result {
+        case .success:
+            if document.activeConfigurationId == configurationId {
+                syncMeshes(removedFrom: oldObjects, to: document.objects)
+                for solidId in document.activeFeatures.compactMap(\.outputSolidId) {
+                    recomputeSolid(id: solidId)
+                }
+                invalidateViewport(.model)
+            }
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    @discardableResult
+    func setComponentInstanceConfiguration(id: UUID, configurationName: String?, configurationId: UUID? = nil) -> Bool {
+        let result = document.setComponentInstanceConfiguration(id: id, configurationName: configurationName, configurationId: configurationId)
+        switch result {
+        case .success:
+            invalidateViewport(.model)
+            markDocumentModified()
+            return true
+        case .failure:
+            return false
         }
     }
 

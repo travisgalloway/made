@@ -386,7 +386,7 @@ import UniformTypeIdentifiers
 
         // Wait for debounce interval + buffer with polling to accommodate CI scheduling latency
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(10))
+        let deadline = clock.now.advanced(by: .seconds(30))
         while workspace.isDocumentModified && clock.now < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }

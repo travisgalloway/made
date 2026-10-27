@@ -199,3 +199,4 @@ Date: 2026-10-17. The run parked 84 findings, in source order and unranked. Form
 - (no id) | macos/Sources/MadeApp/WorkspaceModel.swift:373 | decimalPrecision.didSet updates defaults but does not propagate to document.settings.units.decimalPrecision. | execution #259
 - (no id) | macos/Package.swift:1 | SwiftPM incremental build emits 'missing creator for mutated node' warning for MadeNative_MadeCore.bundle resource bundle. | execution #190
 - (no id) | macos/Tests/MadeCoreTests/MCPServerTests.swift:1 | MCPServerTests TCP socket tests can encounter transient timeout failures under heavy multi-core test parallelism. | execution #329
+- (no id) | macos/Tests/MadeAppTests/CADMetalViewRepresentableTests.swift:1107 | Redundant #require macro call on non-optional createMesh return value emits compiler warning. | execution #177

@@ -412,6 +412,23 @@ struct SolidMenuCommands: Commands {
             }
             .keyboardShortcut(WorkspaceModel.deleteShortcutKey, modifiers: WorkspaceModel.deleteShortcutModifiers)
             .disabled(!workspace.canDeleteSelectedObject)
+
+            Divider()
+
+            Menu("Configurations") {
+                Button("New Configuration…") {
+                    _ = workspace.addConfiguration(name: "Config \(workspace.document.configurations.count + 1)")
+                }
+                if !workspace.document.configurations.isEmpty {
+                    Divider()
+                    ForEach(workspace.document.configurations) { config in
+                        let isActive = workspace.document.activeConfigurationId == config.id
+                        Button(isActive ? "✓ \(config.name)" : config.name) {
+                            _ = workspace.setActiveConfiguration(id: isActive ? nil : config.id)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -969,6 +986,23 @@ struct AssemblyMenuCommands: Commands {
                 }
             }
             .disabled(workspace.document.documentType != .assembly && workspace.document.componentInstances.isEmpty)
+
+            Divider()
+
+            Menu("Configurations") {
+                Button("New Configuration…") {
+                    _ = workspace.addConfiguration(name: "Config \(workspace.document.configurations.count + 1)")
+                }
+                if !workspace.document.configurations.isEmpty {
+                    Divider()
+                    ForEach(workspace.document.configurations) { config in
+                        let isActive = workspace.document.activeConfigurationId == config.id
+                        Button(isActive ? "✓ \(config.name)" : config.name) {
+                            _ = workspace.setActiveConfiguration(id: isActive ? nil : config.id)
+                        }
+                    }
+                }
+            }
         }
     }
 }
