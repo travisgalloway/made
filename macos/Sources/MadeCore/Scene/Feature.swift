@@ -233,7 +233,9 @@ public struct SketchFeatureData: Sendable, Codable, Equatable {
         try container.encodeIfPresent(datumPlaneFeatureId, forKey: .datumPlaneFeatureId)
         try container.encode(entities, forKey: .entities)
         try container.encode(constraints, forKey: .constraints)
-        try container.encode(underlays, forKey: .underlays)
+        if !underlays.isEmpty {
+            try container.encode(underlays, forKey: .underlays)
+        }
     }
 }
 
