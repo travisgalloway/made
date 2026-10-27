@@ -174,6 +174,43 @@ fragment float4 billboardFragmentShader(
     return float4(in.color.rgb, in.color.a * texColor.a);
 }
 
+struct UnderlayUniforms {
+    float4x4 viewMatrix;
+    float4x4 projectionMatrix;
+    float opacity;
+    float3 _padding;
+};
+
+struct UnderlayVertexOut {
+    float4 position [[position]];
+    float2 texCoord;
+    float opacity;
+};
+
+vertex UnderlayVertexOut underlayVertexShader(
+    uint vertexID [[vertex_id]],
+    constant packed_float3 *positions [[buffer(0)]],
+    constant float2 *texCoords [[buffer(1)]],
+    constant UnderlayUniforms &uniforms [[buffer(2)]]
+) {
+    UnderlayVertexOut out;
+    float3 pos = float3(positions[vertexID]);
+    float4 viewPos = uniforms.viewMatrix * float4(pos, 1.0);
+    out.position = uniforms.projectionMatrix * viewPos;
+    out.texCoord = texCoords[vertexID];
+    out.opacity = uniforms.opacity;
+    return out;
+}
+
+fragment float4 underlayFragmentShader(
+    UnderlayVertexOut in [[stage_in]],
+    texture2d<float> underlayTexture [[texture(0)]],
+    sampler underlaySampler [[sampler(0)]]
+) {
+    float4 texColor = underlayTexture.sample(underlaySampler, in.texCoord);
+    return float4(texColor.rgb, texColor.a * in.opacity);
+}
+
 struct OutlineUniforms {
     float4x4 modelMatrix;
     float4x4 viewMatrix;

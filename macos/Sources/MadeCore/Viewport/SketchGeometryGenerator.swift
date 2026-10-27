@@ -1,5 +1,8 @@
 import Foundation
 import simd
+import Metal
+import CoreGraphics
+import ImageIO
 
 /// Metadata for a rendered sketch entity in the viewport.
 public struct SketchRenderItem: Sendable, Equatable {
@@ -32,8 +35,105 @@ public struct SketchGeometry: Sendable, Equatable {
     }
 }
 
+/// Geometry representation of an underlay quad for Metal rendering.
+public struct SketchUnderlayQuad: Sendable, Equatable {
+    public let underlayId: UUID
+    public let positions: [Float] // 3 floats per vertex * 6 vertices = 18 floats
+    public let texCoords: [Float] // 2 floats per vertex * 6 vertices = 12 floats
+    public let opacity: Float
+
+    public init(underlayId: UUID, positions: [Float], texCoords: [Float], opacity: Float) {
+        self.underlayId = underlayId
+        self.positions = positions
+        self.texCoords = texCoords
+        self.opacity = opacity
+    }
+}
+
 /// Generates discretized 3D line geometry for sketch entities on a `SketchPlane`.
 public enum SketchGeometryGenerator {
+    /// Generates textured planar quads on the given sketch plane for active visible underlays.
+    /// Each quad is composed of 2 counter-clockwise triangles (6 vertices).
+    public static func generateUnderlayQuads(underlays: [SketchImageUnderlay], plane: SketchPlane) -> [SketchUnderlayQuad] {
+        var quads: [SketchUnderlayQuad] = []
+        for underlay in underlays where underlay.isVisible {
+            let corners = underlay.corners(on: plane)
+            guard corners.count == 4 else { continue }
+            let c0 = corners[0] // bottom-left
+            let c1 = corners[1] // bottom-right
+            let c2 = corners[2] // top-right
+            let c3 = corners[3] // top-left
+
+            // Triangle 1: (c0, c1, c2)
+            // Triangle 2: (c0, c2, c3)
+            let positions: [Float] = [
+                c0.x, c0.y, c0.z,
+                c1.x, c1.y, c1.z,
+                c2.x, c2.y, c2.z,
+                c0.x, c0.y, c0.z,
+                c2.x, c2.y, c2.z,
+                c3.x, c3.y, c3.z
+            ]
+            let texCoords: [Float] = [
+                0, 1,
+                1, 1,
+                1, 0,
+                0, 1,
+                1, 0,
+                0, 0
+            ]
+            quads.append(SketchUnderlayQuad(
+                underlayId: underlay.id,
+                positions: positions,
+                texCoords: texCoords,
+                opacity: Float(underlay.opacity)
+            ))
+        }
+        return quads
+    }
+
+    /// Creates an MTLTexture from raw image data (PNG, JPEG, etc.) via CoreGraphics.
+    public static func createTexture(from data: Data, device: MTLDevice) -> MTLTexture? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return nil }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return nil }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let pixelData = context.data else { return nil }
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        desc.usage = [.shaderRead]
+        guard let texture = device.makeTexture(descriptor: desc) else { return nil }
+
+        texture.replace(
+            region: MTLRegionMake2D(0, 0, width, height),
+            mipmapLevel: 0,
+            withBytes: pixelData,
+            bytesPerRow: width * 4
+        )
+        return texture
+    }
     /// Default color for regular sketch profile entities: high-contrast cyan/sky blue.
     public static let defaultRegularColor = SIMD4<Float>(0.2, 0.7, 1.0, 1.0)
     /// Default color for construction geometry: amber.

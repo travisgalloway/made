@@ -194,6 +194,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
     var onCancelAnimation: (() -> Void)?
     var activeSketchPlane: SketchPlane?
     var sketchEntities: [SketchEntity]
+    var sketchUnderlays: [SketchImageUnderlay]
     var sketchRegions: [SketchRegion]
     var onHoverSketchRegion: ((UUID?) -> Void)?
     var onSelectSketchRegion: ((UUID) -> Void)?
@@ -255,6 +256,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         onCancelAnimation: (() -> Void)? = nil,
         activeSketchPlane: SketchPlane? = nil,
         sketchEntities: [SketchEntity] = [],
+        sketchUnderlays: [SketchImageUnderlay] = [],
         sketchRegions: [SketchRegion] = [],
         onHoverSketchRegion: ((UUID?) -> Void)? = nil,
         onSelectSketchRegion: ((UUID) -> Void)? = nil,
@@ -310,6 +312,7 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         self.onCancelAnimation = onCancelAnimation
         self.activeSketchPlane = activeSketchPlane
         self.sketchEntities = sketchEntities
+        self.sketchUnderlays = sketchUnderlays
         self.sketchRegions = sketchRegions
         self.onHoverSketchRegion = onHoverSketchRegion
         self.onSelectSketchRegion = onSelectSketchRegion
@@ -383,8 +386,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
         renderer.showsEdges = showsEdges
         renderer.displayMode = displayMode
         renderer.showsGizmo = showsGizmo && !isLocked && activeSelectedIds.count <= 1
-        if activeSketchPlane != nil || !sketchEntities.isEmpty {
-            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities)
+        if activeSketchPlane != nil || !sketchEntities.isEmpty || !sketchUnderlays.isEmpty {
+            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities, underlays: sketchUnderlays)
         }
         return view
     }
@@ -445,8 +448,8 @@ public struct CADMetalViewRepresentable: NSViewRepresentable {
             renderer.showsGrid = showsGrid
             needsInvalidate = true
         }
-        if renderer.activeSketchPlane != activeSketchPlane || renderer.activeSketchEntities != sketchEntities {
-            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities)
+        if renderer.activeSketchPlane != activeSketchPlane || renderer.activeSketchEntities != sketchEntities || renderer.activeSketchUnderlays != sketchUnderlays {
+            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities, underlays: sketchUnderlays)
             needsInvalidate = true
         }
         if renderer.showsAxes != showsAxes {
@@ -2350,6 +2353,7 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
     var onCancelAnimation: (() -> Void)?
     var activeSketchPlane: SketchPlane?
     var sketchEntities: [SketchEntity]
+    var sketchUnderlays: [SketchImageUnderlay]
     var sketchRegions: [SketchRegion]
     var onHoverSketchRegion: ((UUID?) -> Void)?
     var onSelectSketchRegion: ((UUID) -> Void)?
@@ -2397,6 +2401,7 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         onCancelAnimation: (() -> Void)? = nil,
         activeSketchPlane: SketchPlane? = nil,
         sketchEntities: [SketchEntity] = [],
+        sketchUnderlays: [SketchImageUnderlay] = [],
         sketchRegions: [SketchRegion] = [],
         onHoverSketchRegion: ((UUID?) -> Void)? = nil,
         onSelectSketchRegion: ((UUID) -> Void)? = nil,
@@ -2443,6 +2448,7 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         self.onCancelAnimation = onCancelAnimation
         self.activeSketchPlane = activeSketchPlane
         self.sketchEntities = sketchEntities
+        self.sketchUnderlays = sketchUnderlays
         self.sketchRegions = sketchRegions
         self.onHoverSketchRegion = onHoverSketchRegion
         self.onSelectSketchRegion = onSelectSketchRegion
@@ -2504,8 +2510,8 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
         renderer.showsEdges = showsEdges
         renderer.displayMode = displayMode
         renderer.showsGizmo = showsGizmo && !isLocked && activeSelectedIds.count <= 1
-        if activeSketchPlane != nil || !sketchEntities.isEmpty {
-            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities)
+        if activeSketchPlane != nil || !sketchEntities.isEmpty || !sketchUnderlays.isEmpty {
+            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities, underlays: sketchUnderlays)
         }
         return view
     }
@@ -2564,8 +2570,8 @@ public struct CADMetalViewRepresentable: UIViewRepresentable {
             renderer.showsGrid = showsGrid
             needsInvalidate = true
         }
-        if renderer.activeSketchPlane != activeSketchPlane || renderer.activeSketchEntities != sketchEntities {
-            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities)
+        if renderer.activeSketchPlane != activeSketchPlane || renderer.activeSketchEntities != sketchEntities || renderer.activeSketchUnderlays != sketchUnderlays {
+            renderer.updateSketch(plane: activeSketchPlane, entities: sketchEntities, underlays: sketchUnderlays)
             needsInvalidate = true
         }
         if renderer.showsAxes != showsAxes {

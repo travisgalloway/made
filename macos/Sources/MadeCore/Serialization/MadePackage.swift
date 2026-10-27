@@ -230,6 +230,27 @@ public struct MadePackage: Sendable, Equatable {
             decodedDoc.features = features
         }
 
+        // Link assets into sketch underlays where imageData is missing
+        if var features = decodedDoc.features {
+            for i in 0..<features.count {
+                if case .sketch(var sketchData) = features[i].operation {
+                    var underlaysChanged = false
+                    for u in 0..<sketchData.underlays.count {
+                        if sketchData.underlays[u].imageData == nil,
+                           let assetFilename = sketchData.underlays[u].assetFilename,
+                           let assetData = loadedAssets[assetFilename] {
+                            sketchData.underlays[u].imageData = assetData
+                            underlaysChanged = true
+                        }
+                    }
+                    if underlaysChanged {
+                        features[i].operation = .sketch(sketchData)
+                    }
+                }
+            }
+            decodedDoc.features = features
+        }
+
         // Link parts into .part solids and features where present
         for i in 0..<decodedDoc.objects.count {
             if case .part(let url, let shape) = decodedDoc.objects[i].def {

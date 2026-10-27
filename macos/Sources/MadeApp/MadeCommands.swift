@@ -64,6 +64,11 @@ struct FileMenuCommands: Commands {
             }
             .disabled(workspace.selectedSketchFeature == nil)
 
+            Button("Add Image Underlay to Sketch…") {
+                workspace.promptAddSketchImageUnderlay()
+            }
+            .disabled(workspace.selectedSketchFeature == nil)
+
             Button("Link External File…") {
                 workspace.promptLinkExternalFile()
             }
@@ -657,6 +662,11 @@ struct ToolsMenuCommands: Commands {
 
                 Button("Import SVG…") {
                     workspace.promptImportSVGToSketch()
+                }
+                .disabled(workspace.selectedSketchFeature == nil)
+
+                Button("Add Image Underlay…") {
+                    workspace.promptAddSketchImageUnderlay()
                 }
                 .disabled(workspace.selectedSketchFeature == nil)
 

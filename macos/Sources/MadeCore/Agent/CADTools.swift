@@ -453,6 +453,42 @@ public final class CADToolRegistry {
                     ],
                     required: ["sketchId"]
                 )
+            ),
+            MCPToolDefinition(
+                name: "cad_place_image_underlay",
+                description: "Places a reference raster image underlay on a 2D sketch plane with specified dimensions, position, rotation, and opacity.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the target sketch feature"),
+                        "imageBase64": MCPProperty(type: "string", description: "Base64-encoded raw image data (PNG, JPEG, etc., required if filePath is omitted)"),
+                        "filePath": MCPProperty(type: "string", description: "Absolute path to an image file on disk (used if imageBase64 is omitted)"),
+                        "name": MCPProperty(type: "string", description: "Optional descriptive display name for the image underlay"),
+                        "positionX": MCPProperty(type: "number", description: "Optional X coordinate of the underlay origin in sketch plane units (default 0.0)"),
+                        "positionY": MCPProperty(type: "number", description: "Optional Y coordinate of the underlay origin in sketch plane units (default 0.0)"),
+                        "width": MCPProperty(type: "number", description: "Optional width in sketch plane units (defaults to pixel width)"),
+                        "height": MCPProperty(type: "number", description: "Optional height in sketch plane units (defaults to pixel height)"),
+                        "rotation": MCPProperty(type: "number", description: "Optional rotation angle in radians counter-clockwise (default 0.0)"),
+                        "opacity": MCPProperty(type: "number", description: "Optional display opacity from 0.0 to 1.0 (default 1.0)"),
+                        "preserveAspectRatio": MCPProperty(type: "boolean", description: "Optional boolean whether to preserve aspect ratio when scaling (default true)")
+                    ],
+                    required: ["sketchId"]
+                )
+            ),
+            MCPToolDefinition(
+                name: "cad_calibrate_image_underlay",
+                description: "Calibrates the scale and position of a sketch image underlay using two reference points and a known real-world distance.",
+                inputSchema: MCPInputSchema(
+                    properties: [
+                        "sketchId": MCPProperty(type: "string", description: "The UUID of the target sketch feature"),
+                        "underlayId": MCPProperty(type: "string", description: "The UUID of the image underlay to calibrate"),
+                        "point1X": MCPProperty(type: "number", description: "X coordinate of the first calibration anchor point in sketch plane units"),
+                        "point1Y": MCPProperty(type: "number", description: "Y coordinate of the first calibration anchor point in sketch plane units"),
+                        "point2X": MCPProperty(type: "number", description: "X coordinate of the second calibration point in sketch plane units"),
+                        "point2Y": MCPProperty(type: "number", description: "Y coordinate of the second calibration point in sketch plane units"),
+                        "targetDistance": MCPProperty(type: "number", description: "Target distance in millimeters between the two points (> 0.0)")
+                    ],
+                    required: ["sketchId", "underlayId", "point1X", "point1Y", "point2X", "point2Y", "targetDistance"]
+                )
             )
         ]
     }
@@ -542,6 +578,12 @@ public final class CADToolRegistry {
 
         case "cad_import_svg_to_sketch", "import_svg_to_sketch":
             return handleImportSVGToSketch(arguments: arguments)
+
+        case "cad_place_image_underlay", "place_image_underlay":
+            return handlePlaceImageUnderlay(arguments: arguments)
+
+        case "cad_calibrate_image_underlay", "calibrate_image_underlay":
+            return handleCalibrateImageUnderlay(arguments: arguments)
             
         default:
             return .error("Unknown tool: '\(name)'")
@@ -3166,6 +3208,153 @@ public final class CADToolRegistry {
             return .text("Imported \(entities.count) entities and \(constraints.count) constraints into sketch '\(sketchIdStr)'")
         case .failure(let err):
             return .error("SVG import failed: \(err.localizedDescription)")
+        }
+    }
+
+    private func handlePlaceImageUnderlay(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+
+        let imageData: Data
+        let assetFilename: String?
+        if let base64Str = arguments["imageBase64"]?.stringValue, !base64Str.isEmpty {
+            guard let decoded = Data(base64Encoded: base64Str) else {
+                return .error("Failed to decode base64 image data")
+            }
+            imageData = decoded
+            assetFilename = "underlay-\(UUID().uuidString).png"
+        } else if let path = arguments["filePath"]?.stringValue, !path.isEmpty {
+            do {
+                imageData = try Data(contentsOf: URL(fileURLWithPath: path))
+                assetFilename = URL(fileURLWithPath: path).lastPathComponent
+            } catch {
+                return .error("Failed to read image file at '\(path)': \(error.localizedDescription)")
+            }
+        } else {
+            return .error("Either 'imageBase64' or 'filePath' must be provided")
+        }
+
+        let name = arguments["name"]?.stringValue ?? "Image Underlay"
+        let posX = arguments["positionX"]?.doubleValue ?? 0.0
+        let posY = arguments["positionY"]?.doubleValue ?? 0.0
+        let width = arguments["width"]?.doubleValue
+        let height = arguments["height"]?.doubleValue
+        let rotation = arguments["rotation"]?.doubleValue ?? 0.0
+        let opacity = arguments["opacity"]?.doubleValue ?? 1.0
+        let preserveAspect = arguments["preserveAspectRatio"]?.boolValue ?? true
+
+        let underlay: SketchImageUnderlay
+        do {
+            underlay = try SketchImageUnderlay(
+                id: UUID(),
+                name: name,
+                imageData: imageData,
+                assetFilename: assetFilename,
+                origin: SIMD2<Double>(posX, posY),
+                width: width,
+                height: height,
+                rotationAngle: rotation,
+                opacity: opacity,
+                isLocked: false,
+                isVisible: true,
+                preserveAspectRatio: preserveAspect
+            )
+        } catch {
+            return .error("Failed to create image underlay: \(error.localizedDescription)")
+        }
+
+        let result = document.addSketchImageUnderlay(to: sketchUUID, underlay: underlay)
+        switch result {
+        case .success:
+            onViewportInvalidated?()
+            let summary: [String: Any] = [
+                "sketchId": sketchIdStr,
+                "underlayId": underlay.id.uuidString,
+                "name": underlay.name,
+                "pixelWidth": underlay.pixelWidth,
+                "pixelHeight": underlay.pixelHeight,
+                "width": underlay.width,
+                "height": underlay.height,
+                "position": ["x": underlay.origin.x, "y": underlay.origin.y],
+                "rotation": underlay.rotationAngle,
+                "opacity": underlay.opacity
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]),
+               let jsonText = String(data: jsonData, encoding: .utf8) {
+                return .text(jsonText)
+            }
+            return .text("Placed image underlay '\(underlay.id.uuidString)' in sketch '\(sketchIdStr)'")
+        case .failure(let err):
+            return .error("Failed to add image underlay: \(err.localizedDescription)")
+        }
+    }
+
+    private func handleCalibrateImageUnderlay(arguments: [String: AnyCodableValue]) -> MCPToolCallResult {
+        guard let sketchIdStr = arguments["sketchId"]?.stringValue else {
+            return .error("Missing required argument 'sketchId'")
+        }
+        guard let sketchUUID = UUID(uuidString: sketchIdStr) else {
+            return .error("Invalid UUID for 'sketchId': '\(sketchIdStr)'")
+        }
+        guard let underlayIdStr = arguments["underlayId"]?.stringValue else {
+            return .error("Missing required argument 'underlayId'")
+        }
+        guard let underlayUUID = UUID(uuidString: underlayIdStr) else {
+            return .error("Invalid UUID for 'underlayId': '\(underlayIdStr)'")
+        }
+        var p1x = arguments["point1X"]?.doubleValue
+        var p1y = arguments["point1Y"]?.doubleValue
+        var p2x = arguments["point2X"]?.doubleValue
+        var p2y = arguments["point2Y"]?.doubleValue
+
+        if (p1x == nil || p1y == nil), let arr1 = arguments["point1"]?.arrayValue, arr1.count >= 2 {
+            p1x = arr1[0].doubleValue
+            p1y = arr1[1].doubleValue
+        }
+        if (p2x == nil || p2y == nil), let arr2 = arguments["point2"]?.arrayValue, arr2.count >= 2 {
+            p2x = arr2[0].doubleValue
+            p2y = arr2[1].doubleValue
+        }
+
+        guard let x1 = p1x, let y1 = p1y, let x2 = p2x, let y2 = p2y,
+              let targetDist = arguments["targetDistance"]?.doubleValue else {
+            return .error("Missing required numeric calibration coordinates or targetDistance")
+        }
+
+        let p1 = SIMD2<Double>(x1, y1)
+        let p2 = SIMD2<Double>(x2, y2)
+        let measuredDist = simd_distance(p1, p2)
+        let scaleFactor = measuredDist > 1e-9 ? targetDist / measuredDist : 1.0
+
+        do {
+            let updated = try document.calibrateSketchImageUnderlay(
+                in: sketchUUID,
+                underlayId: underlayUUID,
+                point1: p1,
+                point2: p2,
+                targetDistance: targetDist
+            )
+            onViewportInvalidated?()
+            let summary: [String: Any] = [
+                "sketchId": sketchIdStr,
+                "underlayId": updated.id.uuidString,
+                "width": updated.width,
+                "height": updated.height,
+                "origin": ["x": updated.origin.x, "y": updated.origin.y],
+                "targetDistance": targetDist,
+                "scaleFactor": scaleFactor
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys, .prettyPrinted]),
+               let jsonText = String(data: jsonData, encoding: .utf8) {
+                return .text(jsonText)
+            }
+            return .text("Calibrated image underlay '\(underlayIdStr)' in sketch '\(sketchIdStr)'")
+        } catch {
+            return .error("Calibration failed: \(error.localizedDescription)")
         }
     }
 }
