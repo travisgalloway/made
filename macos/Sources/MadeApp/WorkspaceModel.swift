@@ -4605,6 +4605,8 @@ final class WorkspaceModel {
             let componentInstances = package.documentData.componentInstances ?? []
             let sheets = package.documentData.sheets ?? []
             let activeSheetId = package.documentData.activeSheetId
+            let configurations = package.documentData.configurations ?? []
+            let activeConfigurationId = package.documentData.activeConfigurationId
             if let features = package.documentData.features {
                 document.reset(
                     with: features,
@@ -4615,6 +4617,8 @@ final class WorkspaceModel {
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
                     componentInstances: componentInstances,
+                    configurations: configurations,
+                    activeConfigurationId: activeConfigurationId,
                     sheets: sheets,
                     activeSheetId: activeSheetId,
                     metadata: docMetadata
@@ -4629,6 +4633,8 @@ final class WorkspaceModel {
                     parameters: package.documentData.parameters ?? [],
                     documentType: docType,
                     componentInstances: componentInstances,
+                    configurations: configurations,
+                    activeConfigurationId: activeConfigurationId,
                     sheets: sheets,
                     activeSheetId: activeSheetId,
                     metadata: docMetadata
@@ -4678,6 +4684,8 @@ final class WorkspaceModel {
             componentMirrors: document.componentMirrors,
             explodedViews: document.explodedViews,
             activeExplodedViewId: document.activeExplodedViewId,
+            configurations: document.configurations,
+            activeConfigurationId: document.activeConfigurationId,
             studies: document.studies.isEmpty ? nil : document.studies,
             activeStudyId: document.activeStudyId,
             sheets: document.sheets,
@@ -4902,6 +4910,8 @@ final class WorkspaceModel {
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
                     settings: docSettings,
+                    configurations: package.documentData.configurations ?? [],
+                    activeConfigurationId: package.documentData.activeConfigurationId,
                     metadata: docMetadata
                 )
             } else {
@@ -4911,6 +4921,8 @@ final class WorkspaceModel {
                     selectedId: package.documentData.selectedId,
                     rollbackIndex: package.documentData.rollbackIndex,
                     settings: docSettings,
+                    configurations: package.documentData.configurations ?? [],
+                    activeConfigurationId: package.documentData.activeConfigurationId,
                     metadata: docMetadata
                 )
             }

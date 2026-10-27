@@ -143,4 +143,32 @@ import SwiftUI
         let navConfigRow = NavigatorConfigurationRow(config: config).environment(ws)
         _ = navConfigRow
     }
+
+    // MARK: - Package Persistence and Restoration
+
+    @Test func testConfigurationPackagePersistenceAndRestoration() throws {
+        let ws = WorkspaceModel()
+        ws.setUp()
+        ws.newDocument()
+
+        let config = ws.addConfiguration(name: "HighTorque", comment: "Custom motor", isDefault: true)!
+        _ = ws.setActiveConfiguration(id: config.id)
+
+        let pkg = try ws.makePackage()
+        #expect(pkg.documentData.configurations?.count == 1)
+        #expect(pkg.documentData.configurations?.first?.name == "HighTorque")
+        #expect(pkg.documentData.activeConfigurationId == config.id)
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".made")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        try pkg.write(to: tempURL)
+
+        let restoredWs = WorkspaceModel()
+        restoredWs.setUp()
+        _ = restoredWs.openDocument(at: tempURL)
+
+        #expect(restoredWs.configurations.count == 1)
+        #expect(restoredWs.configurations.first?.name == "HighTorque")
+        #expect(restoredWs.activeConfigurationId == config.id)
+    }
 }
