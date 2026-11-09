@@ -1,5 +1,6 @@
 import Foundation
 import simd
+import Accelerate
 
 /// Numerical solution results for linear static finite element analysis (ADR-D5, BL-FEA-01, #219).
 public struct LinearStaticResult: Sendable, Codable, Equatable {
@@ -1553,99 +1554,269 @@ public enum LinearStaticSolver: Sendable {
         return tensor.vonMisesStress
     }
 
-    // MARK: - Linear Solver (Preconditioned Conjugate Gradient)
+    // MARK: - Linear System Solver (Accelerate Sparse Cholesky + vDSP-Accelerated PCG Fallback)
 
-    package static func solvePCG(
+    /// Solves the sparse linear system $\mathbf{K} \mathbf{x} = \mathbf{b}$ using Apple's Accelerate framework.
+    ///
+    /// The solver first attempts direct hardware-accelerated Cholesky factorization via `SparseFactor(SparseFactorizationCholesky, ...)`
+    /// on the lower-triangle Compressed Sparse Column (CSC) representation. If the matrix is symmetric positive-definite,
+    /// `SparseSolve` calculates the machine-precision solution in a single AMX step.
+    ///
+    /// If the matrix is indefinite, semi-definite, or Cholesky reports a non-zero status or unverified residual,
+    /// the solver seamlessly falls back to a contiguous flat-CSR Jacobi-Preconditioned Conjugate Gradient (PCG) loop
+    /// vectorized with `vDSP_dotprD`, `vDSP_vsmaD`, and `vDSP_vmulD`.
+    @discardableResult
+    public static func solvePCG(
         K: [[Int: Double]],
         b: [Double],
-        dirichlet: [Int: Double],
-        maxIterations: Int,
-        tolerance: Double
+        dirichlet: [Int: Double] = [:],
+        maxIterations: Int = 5000,
+        tolerance: Double = 1e-7
     ) -> (x: [Double], iterations: Int, finalResidual: Double) {
         let n = b.count
-        var x = [Double](repeating: 0.0, count: n)
-        for (idx, val) in dirichlet {
-            x[idx] = val
+        guard n > 0 else {
+            return ([], 0, 0.0)
         }
 
+        var x = [Double](repeating: 0.0, count: n)
+        for (idx, val) in dirichlet {
+            if idx >= 0 && idx < n {
+                x[idx] = val
+            }
+        }
+
+        var bNormSq = 0.0
+        vDSP_dotprD(b, 1, b, 1, &bNormSq, vDSP_Length(n))
+        let initNorm = max(sqrt(bNormSq), 1e-12)
+
+        if bNormSq < 1e-30 && dirichlet.isEmpty {
+            return (x, 0, 0.0)
+        }
+
+        // 1. Build lower-triangle CSC for Accelerate Sparse direct Cholesky factorization
+        var colCounts = [Int](repeating: 0, count: n)
+        for i in 0..<n {
+            for (j, _) in K[i] {
+                if j <= i && j < n {
+                    colCounts[j] += 1
+                }
+            }
+        }
+
+        var colStarts = [Int](repeating: 0, count: n + 1)
+        for j in 0..<n {
+            colStarts[j + 1] = colStarts[j] + colCounts[j]
+        }
+        let totalLowerEntries = colStarts[n]
+
+        var rowIndices = [Int32](repeating: 0, count: totalLowerEntries)
+        var cscValues = [Double](repeating: 0.0, count: totalLowerEntries)
+        var currentOffsets = colStarts
+
+        for i in 0..<n {
+            for (j, val) in K[i] {
+                if j <= i && j < n {
+                    let pos = currentOffsets[j]
+                    rowIndices[pos] = Int32(i)
+                    cscValues[pos] = val
+                    currentOffsets[j] += 1
+                }
+            }
+        }
+
+        // 2. Direct Cholesky solve via Apple Accelerate Sparse
+        var choleskySucceeded = false
+        var choleskySolution = [Double](repeating: 0.0, count: n)
+        var choleskyResidual = Double.infinity
+
+        colStarts.withUnsafeMutableBufferPointer { colStartsPtr in
+            rowIndices.withUnsafeMutableBufferPointer { rowIndicesPtr in
+                cscValues.withUnsafeMutableBufferPointer { valuesPtr in
+                    var attributes = SparseAttributes_t()
+                    attributes.kind = SparseSymmetric
+                    attributes.triangle = SparseLowerTriangle
+                    let structure = SparseMatrixStructure(
+                        rowCount: Int32(n),
+                        columnCount: Int32(n),
+                        columnStarts: colStartsPtr.baseAddress!,
+                        rowIndices: rowIndicesPtr.baseAddress!,
+                        attributes: attributes,
+                        blockSize: 1
+                    )
+                    let matrix = SparseMatrix_Double(structure: structure, data: valuesPtr.baseAddress!)
+                    let factor = SparseFactor(SparseFactorizationCholesky, matrix)
+                    defer { SparseCleanup(factor) }
+
+                    if factor.status == SparseStatusOK {
+                        var bCopy = b
+                        bCopy.withUnsafeMutableBufferPointer { bPtr in
+                            choleskySolution.withUnsafeMutableBufferPointer { xPtr in
+                                let bVec = DenseVector_Double(count: Int32(n), data: bPtr.baseAddress!)
+                                let xVec = DenseVector_Double(count: Int32(n), data: xPtr.baseAddress!)
+                                SparseSolve(factor, bVec, xVec)
+                            }
+                        }
+                        for (idx, val) in dirichlet {
+                            if idx >= 0 && idx < n {
+                                choleskySolution[idx] = val
+                            }
+                        }
+
+                        // Compute verified residual ||b - K*x||_2
+                        var kx = [Double](repeating: 0.0, count: n)
+                        choleskySolution.withUnsafeMutableBufferPointer { xPtr in
+                            kx.withUnsafeMutableBufferPointer { kxPtr in
+                                let xVec = DenseVector_Double(count: Int32(n), data: xPtr.baseAddress!)
+                                let kxVec = DenseVector_Double(count: Int32(n), data: kxPtr.baseAddress!)
+                                SparseMultiply(matrix, xVec, kxVec)
+                            }
+                        }
+
+                        var r = [Double](repeating: 0.0, count: n)
+                        var negOne = -1.0
+                        vDSP_vsmaD(kx, 1, &negOne, b, 1, &r, 1, vDSP_Length(n))
+                        var rNormSq = 0.0
+                        vDSP_dotprD(r, 1, r, 1, &rNormSq, vDSP_Length(n))
+                        let res = sqrt(rNormSq)
+                        choleskyResidual = res
+                        if res <= max(tolerance * initNorm, 1e-11) {
+                            choleskySucceeded = true
+                        }
+                    }
+                }
+            }
+        }
+
+        if choleskySucceeded {
+            return (x: choleskySolution, iterations: 1, finalResidual: choleskyResidual)
+        }
+
+        // 3. Fallback: Contiguous flat-CSR + vDSP Jacobi-Preconditioned Conjugate Gradient
         var invM = [Double](repeating: 1.0, count: n)
         for i in 0..<n {
             let diag = K[i][i] ?? 1.0
             invM[i] = abs(diag) > 1e-15 ? (1.0 / diag) : 1.0
         }
 
+        var totalEntries = 0
+        for i in 0..<n {
+            totalEntries += K[i].count
+        }
+
+        var csrRowStarts = [Int](repeating: 0, count: n + 1)
+        var csrCols = [Int32]()
+        csrCols.reserveCapacity(totalEntries)
+        var csrVals = [Double]()
+        csrVals.reserveCapacity(totalEntries)
+
+        var offset = 0
+        for i in 0..<n {
+            csrRowStarts[i] = offset
+            for (col, val) in K[i] {
+                if col < n {
+                    csrCols.append(Int32(col))
+                    csrVals.append(val)
+                    offset += 1
+                }
+            }
+        }
+        csrRowStarts[n] = offset
+
         var r = b
         for i in 0..<n {
+            let start = csrRowStarts[i]
+            let end = csrRowStarts[i + 1]
             var sum = 0.0
-            for (col, val) in K[i] {
-                sum += val * x[col]
+            for k in start..<end {
+                sum += csrVals[k] * x[Int(csrCols[k])]
             }
             r[i] -= sum
         }
 
         var rNormSq = 0.0
-        for val in r { rNormSq += val * val }
-        let initNorm = max(sqrt(rNormSq), 1e-12)
-
-        if sqrt(rNormSq) / initNorm < tolerance {
-            return (x, 0, sqrt(rNormSq))
+        vDSP_dotprD(r, 1, r, 1, &rNormSq, vDSP_Length(n))
+        var currentRes = sqrt(rNormSq)
+        if currentRes / initNorm < tolerance {
+            return (x: x, iterations: 0, finalResidual: currentRes)
         }
 
         var z = [Double](repeating: 0.0, count: n)
-        for i in 0..<n { z[i] = invM[i] * r[i] }
+        vDSP_vmulD(invM, 1, r, 1, &z, 1, vDSP_Length(n))
 
         var p = z
         var gamma = 0.0
-        for i in 0..<n { gamma += r[i] * z[i] }
+        vDSP_dotprD(r, 1, z, 1, &gamma, vDSP_Length(n))
 
         var iter = 0
-        var currentRes = sqrt(rNormSq)
+        var q = [Double](repeating: 0.0, count: n)
 
         while iter < maxIterations {
             iter += 1
 
-            var q = [Double](repeating: 0.0, count: n)
-            for i in 0..<n {
-                var sum = 0.0
-                for (col, val) in K[i] {
-                    sum += val * p[col]
+            csrCols.withUnsafeBufferPointer { colPtr in
+                csrVals.withUnsafeBufferPointer { valPtr in
+                    let cBase = colPtr.baseAddress!
+                    let vBase = valPtr.baseAddress!
+                    p.withUnsafeBufferPointer { pPtr in
+                        let pBase = pPtr.baseAddress!
+                        q.withUnsafeMutableBufferPointer { qPtr in
+                            let qBase = qPtr.baseAddress!
+                            for i in 0..<n {
+                                let start = csrRowStarts[i]
+                                let end = csrRowStarts[i + 1]
+                                var sum = 0.0
+                                for k in start..<end {
+                                    sum += vBase[k] * pBase[Int(cBase[k])]
+                                }
+                                qBase[i] = sum
+                            }
+                        }
+                    }
                 }
-                q[i] = sum
             }
 
             var pDotQ = 0.0
-            for i in 0..<n { pDotQ += p[i] * q[i] }
+            vDSP_dotprD(p, 1, q, 1, &pDotQ, vDSP_Length(n))
             if abs(pDotQ) < 1e-30 { break }
 
-            let alpha = gamma / pDotQ
+            var alpha = gamma / pDotQ
+            vDSP_vsmaD(p, 1, &alpha, x, 1, &x, 1, vDSP_Length(n))
 
-            for i in 0..<n {
-                x[i] += alpha * p[i]
-                r[i] -= alpha * q[i]
-            }
+            var negAlpha = -alpha
+            vDSP_vsmaD(q, 1, &negAlpha, r, 1, &r, 1, vDSP_Length(n))
 
             var rNorm2 = 0.0
-            for val in r { rNorm2 += val * val }
+            vDSP_dotprD(r, 1, r, 1, &rNorm2, vDSP_Length(n))
             currentRes = sqrt(rNorm2)
 
             if currentRes / initNorm < tolerance {
                 break
             }
 
-            for i in 0..<n { z[i] = invM[i] * r[i] }
+            vDSP_vmulD(invM, 1, r, 1, &z, 1, vDSP_Length(n))
 
             var gammaNew = 0.0
-            for i in 0..<n { gammaNew += r[i] * z[i] }
+            vDSP_dotprD(r, 1, z, 1, &gammaNew, vDSP_Length(n))
 
-            let beta = gammaNew / gamma
+            var beta = gammaNew / gamma
             gamma = gammaNew
 
-            for i in 0..<n {
-                p[i] = z[i] + beta * p[i]
-            }
+            vDSP_vsmaD(p, 1, &beta, z, 1, &p, 1, vDSP_Length(n))
         }
 
-        return (x, iter, currentRes)
+        return (x: x, iterations: iter, finalResidual: currentRes)
+    }
+
+    /// Solves the sparse linear system matrix * solution = rhs with Accelerate Sparse Cholesky / PCG.
+    @discardableResult
+    public static func solvePCG(
+        matrix: [[Int: Double]],
+        rhs: [Double],
+        tolerance: Double = 1e-7,
+        maxIterations: Int = 5000
+    ) -> (solution: [Double], iterations: Int, residual: Double) {
+        let res = solvePCG(K: matrix, b: rhs, dirichlet: [:], maxIterations: maxIterations, tolerance: tolerance)
+        return (solution: res.x, iterations: res.iterations, residual: res.finalResidual)
     }
 
     // MARK: - Mathematical Helpers

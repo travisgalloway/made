@@ -1942,6 +1942,7 @@ public final class CADToolRegistry {
         }
 
         let feature = document.addSketchFeature(planeName: resolvedPlaneName, entities: entities)
+        document.undoManager?.setActionName("MCP: cad_create_sketch")
         let summary: [String: Any] = [
             "id": feature.id.uuidString,
             "name": feature.name,
@@ -1979,6 +1980,7 @@ public final class CADToolRegistry {
         let result = document.addSketchEntity(to: sketchUUID, entity: entity)
         switch result {
         case .success:
+            document.undoManager?.setActionName("MCP: cad_add_sketch_entity")
             return .text("Added \(entity.kind) entity '\(entity.id.uuidString)' to sketch '\(sketchIdStr)'")
         case .failure(let err):
             return .error("Failed to add entity to sketch: \(err)")
@@ -2171,6 +2173,7 @@ public final class CADToolRegistry {
         let res = document.addSketchConstraint(to: sketchUUID, constraint: constraint)
         switch res {
         case .success:
+            document.undoManager?.setActionName("MCP: cad_add_constraint")
             let statusSuffix = isDriven ? " (driven reference)" : ""
             return .text("Added \(kind.rawValue)\(statusSuffix) constraint '\(constraint.id.uuidString)' to sketch '\(sketchIdStr)'")
         case .failure(let err):
@@ -2213,13 +2216,15 @@ public final class CADToolRegistry {
         }
 
         do {
-            let extrudeFeature = try document.extrudeSketch(
-                sketchFeatureId: sketchUUID,
-                distance: rawDistance,
-                isSymmetric: isSymmetric,
-                draftAngle: draftAngle,
-                regionId: regionUUID
-            )
+            let extrudeFeature = try document.performAgentTransaction(name: "MCP: cad_extrude") {
+                try document.extrudeSketch(
+                    sketchFeatureId: sketchUUID,
+                    distance: rawDistance,
+                    isSymmetric: isSymmetric,
+                    draftAngle: draftAngle,
+                    regionId: regionUUID
+                )
+            }
             guard let solidId = extrudeFeature.outputSolidId else {
                 return .error("Extrude feature did not produce an output solid")
             }
@@ -2268,6 +2273,7 @@ public final class CADToolRegistry {
         let res = await kernelClient.request(req)
         switch res {
         case .success:
+            document.undoManager?.setActionName("MCP: cad_fillet")
             if let sink = meshSink {
                 _ = SolidMeshApplier.apply(res, to: solidId, document: document, sink: sink)
             }

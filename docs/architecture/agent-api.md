@@ -114,9 +114,28 @@ The [`CADToolRegistry`](../../macos/Sources/MadeCore/Agent/CADTools.swift#L16) p
 | `cad_add_sketch_entity` | `sketchId`, `type` ("line" \| "arc" \| "circle"), entity coordinates (`startX`, `startY`, `endX`, `endY`, `centerX`, `centerY`, `radius`, `clockwise`, `isConstruction`) | Adds a 2D geometric entity to an existing sketch in the document. Returns the created entity ID, entity type, and sketch ID. |
 | `cad_add_constraint` | `sketchId`, `type` ("parallel" \| "perpendicular" \| "tangent" \| "concentric" \| "symmetric" \| "coincident" \| "horizontal" \| "vertical"), `entityIds`, `referenceEntityId` (optional) | Applies a geometric constraint between entities in a sketch. Returns the constraint ID, type, and affected entity IDs. |
 | `cad_extrude` | `sketchId`, `distance`, `isSymmetric` (optional, default false), `draftAngle` (optional, default 0), `regionId` (optional) | Extrudes a closed 2D sketch into a 3D parametric solid by the specified distance, creating an Extrude feature in the history tree and updating the viewport mesh. Returns the extrude feature ID, solid ID, distance, and symmetry status. |
-| `cad_fillet` | `solidId`, `edge` (topological reference label or UUID), `radius` | Applies a topological fillet blend of the specified radius to an edge of a solid by topological reference label or UUID. Updates the solid mesh in the kernel and viewport. Returns the solid ID, edge reference, and fillet radius. |
+| `cad_fillet` | `solidId`, `edge` (topological reference label, UUID, or semantic selector e.g. `">Z"`), `radius` | Applies a topological fillet blend of the specified radius to an edge of a solid by topological reference label, UUID, or CadQuery/build123d-style semantic selector (#333). Updates the solid mesh in the kernel and viewport. Returns the solid ID, edge reference, and fillet radius. |
 | `cad_query_tree` | `featureId` (optional) | Queries the document feature history tree, returning features, operations, parameters, output solids, suppression status, and generated topological references for sub-element addressing. When `featureId` is specified, returns details for that feature. |
-| `cad_query_topology` | `solidId` (optional), `featureId` (optional), `elementType` (optional: "face" \| "edge" \| "vertex") | Queries 3D topological sub-elements (faces, edges, vertices) of a solid or feature, returning deterministic IDs, labels, surface/curve types, normal vectors, centroids, areas, and lengths for downstream reference selection. |
+| `cad_query_topology` | `solidId` (optional), `featureId` (optional), `elementType` (optional: "face" \| "edge" \| "vertex"), `selector` (optional e.g. `">Z"`, `"|Z"`) | Queries 3D topological sub-elements (faces, edges, vertices) of a solid or feature, returning deterministic IDs, labels, surface/curve types, normal vectors, centroids, areas, and lengths for downstream reference selection. Supports CadQuery/build123d-style semantic string selectors (#333). |
+
+### Atomic "Agent Turn" Undo Grouping
+When an AI agent fulfills a user request, it frequently performs a composite sequence of mutations across multiple sequential tool calls (e.g., `cad_create_sketch` $\to$ `cad_add_sketch_entity` $\times 4$ $\to$ `cad_add_constraint` $\times 4$ $\to$ `cad_extrude` $\to$ `cad_fillet`).
+
+If each MCP tool call registered an isolated action on the macOS `UndoManager`, the document's undo stack would become heavily fragmented. A user attempting to undo the agent's turn with `Cmd+Z` would be forced to step through dozens of intermediate, partially formed states (such as an unconstrained sketch or unextruded profile).
+
+`made` implements **Atomic "Agent Turn" Undo Grouping**:
+- The MCP session controller wraps each multi-tool agent turn in a logical transaction scope via `DocumentModel.beginAgentTransaction(name:)` and `DocumentModel.endAgentTransaction()`.
+- All intermediate mutations (adding sketch primitives, applying constraints, generating feature nodes, executing boolean evaluations) are grouped into a single compound undo entry in `UndoManager`.
+- **Single-Stroke User Undo:** Pressing `Cmd+Z` in the GUI restores the entire document state prior to the start of the agent turn in a single step.
+- **Automatic Failure Rollback:** If an agent tool call fails midway through a turn (e.g., constraint solver divergence, non-manifold boolean failure, or broken topological reference), the session invokes `DocumentModel.rollbackAgentTransaction()`, atomically restoring the document to its clean pre-transaction baseline without leaving orphaned geometry or corrupt feature nodes.
+
+### Deterministic Semantic Topological Selectors (#333)
+Autonomous agents cannot reliably target geometry using transient memory pointers or volatile numeric indices that change across re-evaluations.
+
+In accordance with [ADR-D3](./adr/ADR-D3-topological-naming.md) (#333), `CADToolRegistry` mutation and query tools (`cad_fillet`, `cad_extrude`, `cad_query_topology`) accept CadQuery/build123d-style deterministic semantic selectors:
+- **Directional & Spatial Filters:** `.faces(">Z")` (topmost face along +Z), `.faces("<Z")` (bottommost face), `.faces(">X")`, `.faces("|Z")` (faces parallel to the Z axis), `.faces("#Z")` (faces perpendicular to the Z axis), `.edges(">Z")` (uppermost edges), `.edges("%circle")` (circular blend/fillet edges).
+- **Structured Semantic Queries:** `select_faces(normal="+Z", order_by="max_z")` or `select_edges(curve_type="circle", min_radius=5.0)`.
+- **Parametric Stability:** Semantic queries are re-evaluated dynamically by `KernelClient` against the generated B-rep solid. This guarantees that agent-generated modeling scripts and automated parametric edits remain robust against upstream parameter changes and regeneration cycles.
 
 ### Error Behavior
 A failing tool call returns a successful JSON-RPC response whose `result` has `isError: true` (never a JSON-RPC error payload). JSON-RPC error payloads are limited to the following protocol cases:

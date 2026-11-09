@@ -1,5 +1,6 @@
 import Foundation
 import simd
+import Accelerate
 
 /// Numerical solution results for steady-state thermal conduction (ADR-D5, BL-THM-01, #190).
 public struct ThermalConductionResult: Sendable, Codable, Equatable {
@@ -565,103 +566,43 @@ public enum ThermalConductionSolver: Sendable {
         return -k * gradT
     }
 
-    // MARK: - Linear Solver (Preconditioned Conjugate Gradient)
+    // MARK: - Linear System Solver (Accelerate Sparse Cholesky + vDSP-Accelerated PCG Fallback)
 
-    private static func solvePCG(
+    /// Solves the sparse symmetric linear system K * x = b using Apple Accelerate Sparse Cholesky
+    /// direct factorization with seamless fallback to contiguous flat-CSR vDSP-accelerated Jacobi PCG.
+    @discardableResult
+    public static func solvePCG(
         K: [[Int: Double]],
         b: [Double],
-        dirichlet: [Int: Double],
-        maxIterations: Int,
-        tolerance: Double
+        dirichlet: [Int: Double] = [:],
+        maxIterations: Int = 5000,
+        tolerance: Double = 1e-7
     ) -> (x: [Double], iterations: Int, finalResidual: Double) {
-        let n = b.count
-        var x = [Double](repeating: 0.0, count: n)
-        for (idx, val) in dirichlet {
-            x[idx] = val
-        }
+        LinearStaticSolver.solvePCG(
+            K: K,
+            b: b,
+            dirichlet: dirichlet,
+            maxIterations: maxIterations,
+            tolerance: tolerance
+        )
+    }
 
-        // Jacobi preconditioner: invM[i] = 1 / K_ii
-        var invM = [Double](repeating: 1.0, count: n)
-        for i in 0..<n {
-            let diag = K[i][i] ?? 1.0
-            invM[i] = abs(diag) > 1e-15 ? (1.0 / diag) : 1.0
-        }
-
-        // r = b - K * x
-        var r = b
-        for i in 0..<n {
-            var sum = 0.0
-            for (col, val) in K[i] {
-                sum += val * x[col]
-            }
-            r[i] -= sum
-        }
-
-        var rNormSq = 0.0
-        for val in r { rNormSq += val * val }
-        let initNorm = max(sqrt(rNormSq), 1e-12)
-
-        if sqrt(rNormSq) / initNorm < tolerance {
-            return (x, 0, sqrt(rNormSq))
-        }
-
-        // z = M^-1 * r
-        var z = [Double](repeating: 0.0, count: n)
-        for i in 0..<n { z[i] = invM[i] * r[i] }
-
-        var p = z
-        var gamma = 0.0
-        for i in 0..<n { gamma += r[i] * z[i] }
-
-        var iter = 0
-        var currentRes = sqrt(rNormSq)
-
-        while iter < maxIterations {
-            iter += 1
-
-            // q = K * p
-            var q = [Double](repeating: 0.0, count: n)
-            for i in 0..<n {
-                var sum = 0.0
-                for (col, val) in K[i] {
-                    sum += val * p[col]
-                }
-                q[i] = sum
-            }
-
-            var pDotQ = 0.0
-            for i in 0..<n { pDotQ += p[i] * q[i] }
-            if abs(pDotQ) < 1e-30 { break }
-
-            let alpha = gamma / pDotQ
-
-            for i in 0..<n {
-                x[i] += alpha * p[i]
-                r[i] -= alpha * q[i]
-            }
-
-            var rNorm2 = 0.0
-            for val in r { rNorm2 += val * val }
-            currentRes = sqrt(rNorm2)
-
-            if currentRes / initNorm < tolerance {
-                break
-            }
-
-            for i in 0..<n { z[i] = invM[i] * r[i] }
-
-            var gammaNew = 0.0
-            for i in 0..<n { gammaNew += r[i] * z[i] }
-
-            let beta = gammaNew / gamma
-            gamma = gammaNew
-
-            for i in 0..<n {
-                p[i] = z[i] + beta * p[i]
-            }
-        }
-
-        return (x, iter, currentRes)
+    /// Solves the sparse linear system matrix * solution = rhs with Accelerate Sparse Cholesky / PCG.
+    @discardableResult
+    public static func solvePCG(
+        matrix: [[Int: Double]],
+        rhs: [Double],
+        tolerance: Double = 1e-7,
+        maxIterations: Int = 5000
+    ) -> (solution: [Double], iterations: Int, residual: Double) {
+        let res = LinearStaticSolver.solvePCG(
+            K: matrix,
+            b: rhs,
+            dirichlet: [:],
+            maxIterations: maxIterations,
+            tolerance: tolerance
+        )
+        return (solution: res.x, iterations: res.iterations, residual: res.finalResidual)
     }
 
     // MARK: - Geometry & Quadrature Helpers

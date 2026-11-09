@@ -3,13 +3,36 @@ import MadeCore
 import simd
 
 /// Floating viewport overlay rendering CAE color gradient legend and screen-projected min/max markers (BL-RES-02, #193).
-struct SimulationContourLegendOverlayView: View {
+public struct SimulationContourLegendOverlayView: View {
     @Environment(WorkspaceModel.self) private var workspace
-    let studyId: UUID
-    let settings: SimulationContourSettings
-    let extrema: SimulationContourExtrema
+    public let studyId: UUID
+    public let settings: SimulationContourSettings
+    public let extrema: SimulationContourExtrema
 
-    var body: some View {
+    public var onRangeChanged: ((Double, Double) -> Void)? = nil
+    public var clipOutsideRange: Bool = false
+    public var onToggleClipOutsideRange: ((Bool) -> Void)? = nil
+
+    @State private var dragMin: Double? = nil
+    @State private var dragMax: Double? = nil
+
+    public init(
+        studyId: UUID,
+        settings: SimulationContourSettings,
+        extrema: SimulationContourExtrema,
+        onRangeChanged: ((Double, Double) -> Void)? = nil,
+        clipOutsideRange: Bool = false,
+        onToggleClipOutsideRange: ((Bool) -> Void)? = nil
+    ) {
+        self.studyId = studyId
+        self.settings = settings
+        self.extrema = extrema
+        self.onRangeChanged = onRangeChanged
+        self.clipOutsideRange = clipOutsideRange
+        self.onToggleClipOutsideRange = onToggleClipOutsideRange
+    }
+
+    public var body: some View {
         GeometryReader { geo in
             let viewportSize = geo.size
 
@@ -88,7 +111,7 @@ struct SimulationContourLegendOverlayView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
-        .allowsHitTesting(false)
+        .allowsHitTesting(onRangeChanged != nil || onToggleClipOutsideRange != nil)
         .accessibilityIdentifier("simulation-contour-legend-overlay")
     }
 
@@ -113,17 +136,67 @@ struct SimulationContourLegendOverlayView: View {
             HStack(spacing: 8) {
                 // Gradient bar: top is high (t=1.0), bottom is low (t=0.0)
                 let gradientColors = SimulationColorMap.gradientColors(map: settings.colorMap, sampleCount: 32).reversed()
-                LinearGradient(
-                    colors: Array(gradientColors),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(width: 14, height: 140)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 3)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
-                )
+                ZStack(alignment: .topLeading) {
+                    LinearGradient(
+                        colors: Array(gradientColors),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(width: 14, height: 140)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
+                    )
+
+                    if onRangeChanged != nil {
+                        let curMax = dragMax ?? extrema.effectiveMax
+                        let curMin = dragMin ?? extrema.effectiveMin
+                        let effectiveRange = max(1e-9, extrema.effectiveMax - extrema.effectiveMin)
+                        let maxFrac = max(0.0, min(1.0, (curMax - extrema.effectiveMin) / effectiveRange))
+                        let maxY = (1.0 - maxFrac) * 140.0
+
+                        let minFrac = max(0.0, min(1.0, (curMin - extrema.effectiveMin) / effectiveRange))
+                        let minY = (1.0 - minFrac) * 140.0
+
+                        // Max threshold handle
+                        thresholdHandle(isMax: true, yPos: maxY)
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { val in
+                                        let newY = max(0.0, min(minY - 4.0, maxY + val.translation.height))
+                                        let newFrac = 1.0 - (newY / 140.0)
+                                        let newMax = extrema.effectiveMin + newFrac * effectiveRange
+                                        dragMax = newMax
+                                        onRangeChanged?(curMin, newMax)
+                                    }
+                                    .onEnded { _ in
+                                        let finalMax = dragMax ?? curMax
+                                        onRangeChanged?(curMin, finalMax)
+                                        dragMax = nil
+                                    }
+                            )
+
+                        // Min threshold handle
+                        thresholdHandle(isMax: false, yPos: minY)
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { val in
+                                        let newY = max(maxY + 4.0, min(140.0, minY + val.translation.height))
+                                        let newFrac = 1.0 - (newY / 140.0)
+                                        let newMin = extrema.effectiveMin + newFrac * effectiveRange
+                                        dragMin = newMin
+                                        onRangeChanged?(newMin, curMax)
+                                    }
+                                    .onEnded { _ in
+                                        let finalMin = dragMin ?? curMin
+                                        onRangeChanged?(finalMin, curMax)
+                                        dragMin = nil
+                                    }
+                            )
+                    }
+                }
+                .frame(width: onRangeChanged != nil ? 26 : 14, height: 140)
 
                 // Tick intervals: 5 values from effectiveMax down to effectiveMin
                 VStack(alignment: .leading, spacing: 0) {
@@ -150,6 +223,26 @@ struct SimulationContourLegendOverlayView: View {
                     .font(.system(size: 9, weight: .regular, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
+
+            // Iso-Volume Clip Toggle button
+            if onToggleClipOutsideRange != nil {
+                Divider()
+                    .padding(.vertical, 2)
+                Button(action: {
+                    onToggleClipOutsideRange?(!clipOutsideRange)
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: clipOutsideRange ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 11))
+                            .foregroundStyle(clipOutsideRange ? Color.accentColor : Color.secondary)
+                        Text("Iso-Volume Clip")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("simulation-contour-clip-toggle")
+            }
         }
         .padding(10)
         .background(.ultraThinMaterial)
@@ -159,6 +252,20 @@ struct SimulationContourLegendOverlayView: View {
                 .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+    }
+
+    @ViewBuilder
+    private func thresholdHandle(isMax: Bool, yPos: CGFloat) -> some View {
+        HStack(spacing: 1) {
+            Rectangle()
+                .fill(isMax ? Color.red : Color.blue)
+                .frame(width: 14, height: 2)
+            Image(systemName: "arrowtriangle.backward.fill")
+                .font(.system(size: 7))
+                .foregroundStyle(isMax ? Color.red : Color.blue)
+        }
+        .offset(x: 0, y: max(0, min(138, yPos - 1)))
+        .accessibilityIdentifier(isMax ? "simulation-legend-max-handle" : "simulation-legend-min-handle")
     }
 
     // MARK: - Screen-Projected Marker Callout

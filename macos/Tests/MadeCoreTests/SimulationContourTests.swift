@@ -100,6 +100,30 @@ import SwiftUI
     }
     #endif
 
+    @Test func testPlasmaInfernoCividisColorMaps() {
+        // Plasma
+        #expect(SimulationColorMapKind.plasma.displayName == "Plasma")
+        let plasma0 = SimulationColorMap.evaluate(t: 0.0, map: .plasma)
+        let plasma1 = SimulationColorMap.evaluate(t: 1.0, map: .plasma)
+        #expect(abs(plasma0.x - 0.050) < 1e-2)
+        #expect(plasma0.z > 0.5) // Deep indigo/blue
+        #expect(plasma1.x > 0.9 && plasma1.y > 0.9) // Bright yellow
+
+        // Inferno
+        #expect(SimulationColorMapKind.inferno.displayName == "Inferno")
+        let inferno0 = SimulationColorMap.evaluate(t: 0.0, map: .inferno)
+        let inferno1 = SimulationColorMap.evaluate(t: 1.0, map: .inferno)
+        #expect(inferno0.x < 0.01 && inferno0.y < 0.01) // Near black
+        #expect(inferno1.x > 0.9 && inferno1.y > 0.9) // Pale yellow
+
+        // Cividis
+        #expect(SimulationColorMapKind.cividis.displayName == "Cividis")
+        let cividis0 = SimulationColorMap.evaluate(t: 0.0, map: .cividis)
+        let cividis1 = SimulationColorMap.evaluate(t: 1.0, map: .cividis)
+        #expect(cividis0.z > 0.25) // Blue
+        #expect(cividis1.x > 0.9 && cividis1.y > 0.8) // Yellow
+    }
+
     // MARK: - Contour Settings Tests
 
     @Test func testContourSettingsEffectiveRange() {

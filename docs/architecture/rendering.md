@@ -96,8 +96,61 @@ Shaders are written in Metal Shading Language (MSL) in [`Shaders.metal`](../../m
 
 The viewport draws a ground grid on Z = 0 (#102) with 10 mm pitch matching snapToGrid, and a labelled XYZ axes indicator at the origin (#103).
 
-### Camera
+### Camera & Large-Coordinate Precision
 `Camera` in `Camera.swift` holds a position, a target, distance and pitch limits, projection mode (`CameraProjection`: `.perspective` or `.orthographic`), and `orthographicScale`. It provides orbit, pan, and zoom operations, plus view presets (perspective, top, front, right, isometric). Users switch projections via the segmented picker in the viewport header (#128). In perspective mode, zooming adjusts camera distance along the line of sight; in orthographic mode, zooming scales `orthographicScale` (adjusting view frustum extents `halfH` and `halfW`) without moving the eye position or target. `CameraFraming.swift` computes `SceneBounds` and frames the camera on the scene. `ViewportTool` (select, orbit, pan, zoom) chooses what a drag does. Camera input and projection switches invalidate the viewport with the `camera` reason.
+
+**Dual-Precision CPU Camera Math & Camera-Relative 32-bit Float Shaders:**
+Industrial CAD models span millimeter features up to multi-meter assemblies. Evaluating 3D transformations purely in 32-bit floating-point coordinates causes severe precision degradation, z-fighting, and visible polygon jitter during close-up inspection of distant geometry:
+1. **64-bit CPU Precision:** All camera world positions, look-at targets, view orbit/pan accumulators, and scene bounding box calculations are computed in double precision (`Double`, `simd_double4x4`).
+2. **Camera-Relative 32-bit GPU Upload:** Prior to uploading matrices to the GPU argument table, model and view transformations are converted to camera-relative 32-bit floats (`Float`, `simd_float4x4`):
+   $$\mathbf{x}_{\text{eye}} = \mathbf{V}_{\text{rel}} \cdot (\mathbf{x}_{\text{world}} - \mathbf{c}_{\text{camera}})$$
+   By centering coordinates about the camera eye before single-precision truncation, 32-bit Metal vertex shaders maintain full 24-bit mantissa precision directly within the local view frustum, completely eliminating floating-point cancellation artifacts and z-buffer flutter.
+
+---
+
+## Transparency & Order-Independent Transparency (WBOIT, #391)
+
+Mechanical CAD assemblies routinely exhibit overlapping translucent geometry: thin-wall transparent casings, fluid flow cavities, phantom reference geometry (ADR-D3), sketch planes, and ghosted downstream features. Standard alpha blending requires sorting thousands of transparent triangles back-to-front every frame on the CPU—a process that fails on intersecting or cyclic meshes and severely degrades frame rates.
+
+`made` implements **McGuire & Bavoil Weighted Blended Order-Independent Transparency (WBOIT)** (#391):
+
+1. **Accumulation Pass:** Transparent geometry is rendered after the opaque geometry pass with depth testing enabled but depth writes disabled (`MTLDepthWriteMaskZero`). The fragment shader outputs to two offscreen render targets simultaneously:
+   - **Accumulation Texture (`RGBA16Float`):** Accumulates weighted color:
+     $$\mathbf{C}_{\text{accum}} = \sum_{i} \mathbf{C}_i \cdot \alpha_i \cdot w(z_i, \alpha_i)$$
+     using McGuire's depth weighting function:
+     $$w(z, \alpha) = \alpha \cdot \max\left(10^{-2}, \min\left(3 \cdot 10^3, \frac{10}{10^{-5} + (|z| / 200.0)^3}\right)\right)$$
+   - **Revealage Texture (`R8Unorm`):** Accumulates the multiplicative transmittance product using `MTLBlendOperationAdd` with `destinationAlpha * (1 - sourceAlpha)`:
+     $$R = \prod_{i} (1 - \alpha_i)$$
+2. **Compositing Pass:** A full-screen post-processing quad blends the accumulated transparent colors over the opaque framebuffer:
+   $$\mathbf{C}_{\text{final}} = \frac{\mathbf{C}_{\text{accum}}}{\max(1.0 - R, 10^{-4})} \cdot (1 - R) + \mathbf{C}_{\text{opaque}} \cdot R$$
+This produces artifact-free, order-independent transparency for overlapping surfaces at zero CPU sorting cost.
+
+---
+
+## CAE Simulation Visualization Pipeline (#192, #194, #195, #219)
+
+The viewport rendering engine integrates specialized Metal 4 compute and vertex pipelines for interactive finite element (FEA) and computational fluid dynamics (CFD) post-processing:
+
+### 1. Zero-Copy GPU Deformed-Shape Displacement
+In structural FEA (#219), nodal displacement vector fields $\mathbf{u} = (u_x, u_y, u_z)$ are uploaded into `.storageModeShared` Metal buffers alongside original rest coordinates $\mathbf{x}_0$. 
+
+Rather than regenerating deformed triangle meshes on the CPU, the vertex shader computes the deformed position on-the-fly:
+$$\mathbf{x}_{\text{rendered}} = \mathbf{x}_0 + s \cdot \mathbf{u}$$
+where $s$ is an interactive displacement scale factor bound to an Inspector slider. The user can scrub deformation magnification smoothly at 120 Hz with zero CPU overhead, zero memory allocations, and zero kernel dispatches.
+
+### 2. Interactive Colorbar Legend Clamping & Iso-Volume Mode
+Scalar nodal fields (e.g., von Mises equivalent stress, principal stresses, temperatures) are mapped to perceptually uniform colormaps (Turbo, Viridis) via a 1D texture lookup table.
+- **Dynamic Clamping:** Dual-slider handles on the viewport colorbar legend dynamically update scalar thresholds $[v_{\text{min}}, v_{\text{max}}]$ in shader uniforms, rescaling the color gradient across specific stress ranges.
+- **`Iso-Volume` Clipping Mode:** When enabled, the fragment shader executes `discard_fragment()` for any pixel where the interpolated scalar value falls outside $[v_{\text{min}}, v_{\text{max}}]$. This allows interactive "volume peeling" to visually isolate yielding structural regions or thermal hotspots deep within solid bodies without clipping planes.
+
+### 3. Marching Tetrahedra Isosurfaces (#194)
+For volumetric visualization of 3D scalar fields across tetrahedral meshes ($C3D4$, $C3D10$), `made` executes a GPU Marching Tetrahedra compute pass. Because tetrahedra have planar boundaries and unambiguous linear interpolation across edges, the algorithm extracts smooth, watertight 3D isosurfaces ($f(x, y, z) = c$) directly into GPU vertex buffers without the topological ambiguities and hole artifacts inherent to Marching Cubes.
+
+### 4. RK4 GPU Streamlines (#195)
+For CFD velocity vector fields $\mathbf{v}(\mathbf{x})$ (#186), a Metal compute kernel implements 4th-order Runge-Kutta (RK4) particle integration:
+$$\mathbf{k}_1 = \mathbf{v}(\mathbf{x}_n), \quad \mathbf{k}_2 = \mathbf{v}\left(\mathbf{x}_n + \frac{\Delta t}{2}\mathbf{k}_1\right), \quad \mathbf{k}_3 = \mathbf{v}\left(\mathbf{x}_n + \frac{\Delta t}{2}\mathbf{k}_2\right), \quad \mathbf{k}_4 = \mathbf{v}(\mathbf{x}_n + \Delta t \mathbf{k}_3)$$
+$$\mathbf{x}_{n+1} = \mathbf{x}_n + \frac{\Delta t}{6}(\mathbf{k}_1 + 2\mathbf{k}_2 + 2\mathbf{k}_3 + \mathbf{k}_4)$$
+The compute pass advects thousands of particles simultaneously through the fluid domain, dynamically emitting 3D camera-facing ribbon geometry or line strips colored by local velocity magnitude, rendering animated flow streaklines at 60–120 FPS.
 
 ---
 

@@ -206,8 +206,282 @@ enum OCCTEngine {
                 }
             }
             throw EngineError.emptyData
-        case .boolean, .extrude, .revolve, .part, .chamfer, .shell, .hole, .pattern, .mirror:
+        case .extrude(let params):
+            return try buildExtrude(profile: params.profile, distance: params.distance, isSymmetric: params.isSymmetric)
+        case .revolve(let params):
+            return try buildRevolve(params: params)
+        case .part(_, let shape):
+            if let shape {
+                return try buildShape(from: shape)
+            }
             throw EngineError.tessellationFailed
+        case .boolean, .chamfer, .shell, .hole, .pattern, .mirror:
+            throw EngineError.tessellationFailed
+        }
+    }
+
+    /// Evaluates a `ShapeNode` AST directly into a canonical OCCT B-Rep `Shape`.
+    static func buildShape(from node: ShapeNode) throws -> Shape {
+        switch node {
+        case .box(let p):
+            guard let shape = Shape.box(
+                origin: SIMD3(
+                    -Double(p.width) / 2.0,
+                    -Double(p.depth) / 2.0,
+                    -Double(p.height) / 2.0
+                ),
+                width: Double(p.width),
+                height: Double(p.depth),
+                depth: Double(p.height)
+            ) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
+        case .cylinder(let p, _):
+            guard let shape = Shape.cylinder(
+                at: SIMD2(0, 0),
+                bottomZ: -Double(p.height) / 2.0,
+                radius: Double(p.radius),
+                height: Double(p.height)
+            ) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
+        case .sphere(let p, _):
+            guard let shape = Shape.sphere(radius: Double(p.radius)) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
+        case .cone(let p, _):
+            guard let shape = Shape.cone(
+                at: SIMD3(0, 0, -Double(p.height) / 2.0),
+                direction: SIMD3(0, 0, 1),
+                bottomRadius: Double(p.bottomRadius),
+                topRadius: Double(p.topRadius),
+                height: Double(p.height)
+            ) else {
+                throw EngineError.tessellationFailed
+            }
+            return shape
+        case .extrude(let profile, let distance, let centered):
+            return try buildExtrude(profile: profile, distance: Double(distance), isSymmetric: centered)
+        case .revolve(let profile, let angleDegrees, _):
+            return try buildRevolve(profile: profile, angleDegrees: Double(angleDegrees))
+        case .revolveSolid(let params, _):
+            return try buildRevolve(params: params)
+        case .translate(let child, let offset):
+            let shape = try buildShape(from: child)
+            guard let res = shape.translated(by: SIMD3<Double>(Double(offset.x), Double(offset.y), Double(offset.z))) else {
+                throw EngineError.tessellationFailed
+            }
+            return res
+        case .rotate(let child, let axis, let angleDegrees):
+            let shape = try buildShape(from: child)
+            let rad = Double(angleDegrees) * .pi / 180.0
+            let ax = SIMD3<Double>(Double(axis.x), Double(axis.y), Double(axis.z))
+            guard let res = shape.rotated(axis: ax, angle: rad) else {
+                throw EngineError.tessellationFailed
+            }
+            return res
+        case .scale(let child, let factor):
+            let shape = try buildShape(from: child)
+            if abs(factor.x - factor.y) < 1e-6 && abs(factor.y - factor.z) < 1e-6 {
+                guard let res = shape.scaled(by: Double(factor.x)) else {
+                    throw EngineError.tessellationFailed
+                }
+                return res
+            } else {
+                let transform = Transform(scale: factor)
+                guard let res = transformed(shape, by: transform) else {
+                    throw EngineError.tessellationFailed
+                }
+                return res
+            }
+        case .boolean(let op, let lhs, let rhs):
+            let sA = try buildShape(from: lhs)
+            let sB = try buildShape(from: rhs)
+            guard let res = try booleanOperation(op: op, shapeA: sA, shapeB: sB) else {
+                throw EngineError.tessellationFailed
+            }
+            return res
+        }
+    }
+
+    /// Builds a planar OCCT `Shape` (face with optional holes) from a 2D sketch profile in world 3D coordinates.
+    static func buildFace(from profile: SketchProfile) throws -> Shape {
+        guard profile.points.count >= 3 else {
+            throw EngineError.tessellationFailed
+        }
+        let plane = profile.plane
+        let planeNorm = simd_length(plane.normal) > 1e-6 ? simd_normalize(SIMD3<Double>(plane.normal)) : SIMD3<Double>(0, 0, 1)
+        let rawX = simd_length(plane.xAxis) > 1e-6 ? simd_normalize(SIMD3<Double>(plane.xAxis)) : SIMD3<Double>(1, 0, 0)
+        let planeX = simd_normalize(rawX - simd_dot(rawX, planeNorm) * planeNorm)
+        let planeY = simd_cross(planeNorm, planeX)
+        let planeOrigin = SIMD3<Double>(plane.origin)
+
+        func unproject(_ pt: SIMD2<Float>) -> SIMD3<Double> {
+            planeOrigin + Double(pt.x) * planeX + Double(pt.y) * planeY
+        }
+
+        var pts = orientedProfilePoints(profile.points, clockwise: false)
+        if pts.count >= 2, let first = pts.first, let last = pts.last, simd_distance(first, last) < 1e-5 {
+            pts.removeLast()
+        }
+        guard pts.count >= 3 else {
+            throw EngineError.tessellationFailed
+        }
+        let outerPoints3D = pts.map { unproject($0) }
+        guard let outerWire = Wire.polygon3D(outerPoints3D, closed: true) else {
+            throw EngineError.tessellationFailed
+        }
+
+        var holeWires: [Wire] = []
+        for hole in profile.holes {
+            var hPts = hole
+            if hPts.count >= 2, let first = hPts.first, let last = hPts.last, simd_distance(first, last) < 1e-5 {
+                hPts.removeLast()
+            }
+            guard hPts.count >= 3 else { continue }
+            let holePoints3D = hPts.map { unproject($0) }
+            if let hWire = Wire.polygon3D(holePoints3D, closed: true) {
+                holeWires.append(hWire)
+            }
+        }
+
+        let faceShape: Shape?
+        if holeWires.isEmpty {
+            faceShape = Shape.face(from: outerWire, planar: true)
+        } else {
+            faceShape = Shape.face(outer: outerWire, holes: holeWires)
+        }
+        guard let faceShape else {
+            throw EngineError.tessellationFailed
+        }
+        return faceShape
+    }
+
+    /// Extrudes a sketch profile into a canonical OCCT B-Rep solid along its plane normal.
+    static func buildExtrude(profile: SketchProfile, distance: Double, isSymmetric: Bool = false) throws -> Shape {
+        guard abs(distance) > 1e-6 else {
+            throw EngineError.tessellationFailed
+        }
+        let face = try buildFace(from: profile)
+        let plane = profile.plane
+        let planeNorm = simd_length(plane.normal) > 1e-6 ? simd_normalize(SIMD3<Double>(plane.normal)) : SIMD3<Double>(0, 0, 1)
+        let vec = planeNorm * distance
+        guard let extruded = face.extruded(by: vec) else {
+            throw EngineError.tessellationFailed
+        }
+        if isSymmetric {
+            let offset = planeNorm * (-distance / 2.0)
+            guard let translated = extruded.translated(by: offset) else {
+                throw EngineError.tessellationFailed
+            }
+            return translated
+        }
+        return extruded
+    }
+
+    /// Revolves a sketch profile around the sketch plane's in-plane vertical axis (u = 0).
+    static func buildRevolve(profile: SketchProfile, angleDegrees: Double) throws -> Shape {
+        guard angleDegrees > 1e-6 else {
+            throw EngineError.tessellationFailed
+        }
+        let face = try buildFace(from: profile)
+        let plane = profile.plane
+        let planeNorm = simd_length(plane.normal) > 1e-6 ? simd_normalize(SIMD3<Double>(plane.normal)) : SIMD3<Double>(0, 0, 1)
+        let rawX = simd_length(plane.xAxis) > 1e-6 ? simd_normalize(SIMD3<Double>(plane.xAxis)) : SIMD3<Double>(1, 0, 0)
+        let planeX = simd_normalize(rawX - simd_dot(rawX, planeNorm) * planeNorm)
+        let planeY = simd_cross(planeNorm, planeX)
+        let axisOrigin = SIMD3<Double>(plane.origin)
+        let axisDirection = planeY
+
+        if angleDegrees >= 360.0 - 1e-4 {
+            guard let revolved = face.revolved(axisOrigin: axisOrigin, axisDirection: axisDirection) else {
+                throw EngineError.tessellationFailed
+            }
+            return revolved
+        } else {
+            let angleRad = angleDegrees * .pi / 180.0
+            guard let revolved = face.revolved(axisOrigin: axisOrigin, axisDirection: axisDirection, angle: angleRad) else {
+                throw EngineError.tessellationFailed
+            }
+            return revolved
+        }
+    }
+
+    /// Revolves a sketch profile according to full 3D `RevolveParams`.
+    static func buildRevolve(params: RevolveParams) throws -> Shape {
+        let dirLen = simd_length(params.axisDirection)
+        guard dirLen > 1e-6 else {
+            throw EngineError.tessellationFailed
+        }
+        let axisDirection = simd_normalize(SIMD3<Double>(Double(params.axisDirection.x), Double(params.axisDirection.y), Double(params.axisDirection.z)))
+        let axisOrigin = SIMD3<Double>(Double(params.axisOrigin.x), Double(params.axisOrigin.y), Double(params.axisOrigin.z))
+
+        let face = try buildFace(from: params.profile)
+
+        let isFull = params.mode == .full || (params.mode == .angle && params.angle >= 360.0 - 1e-4)
+        if isFull {
+            guard let revolved = face.revolved(axisOrigin: axisOrigin, axisDirection: axisDirection) else {
+                throw EngineError.tessellationFailed
+            }
+            return revolved
+        }
+
+        switch params.mode {
+        case .full:
+            guard let revolved = face.revolved(axisOrigin: axisOrigin, axisDirection: axisDirection) else {
+                throw EngineError.tessellationFailed
+            }
+            return revolved
+        case .angle:
+            let angleRad = params.angle * .pi / 180.0
+            guard let revolved = face.revolved(axisOrigin: axisOrigin, axisDirection: axisDirection, angle: angleRad) else {
+                throw EngineError.tessellationFailed
+            }
+            return revolved
+        case .symmetric:
+            let halfAngleRad = (params.angle / 2.0) * .pi / 180.0
+            let totalAngleRad = params.angle * .pi / 180.0
+            guard let centeredFace = face
+                .translated(by: -axisOrigin)?
+                .rotated(axis: axisDirection, angle: -halfAngleRad)?
+                .translated(by: axisOrigin) else {
+                throw EngineError.tessellationFailed
+            }
+            guard let revolved = centeredFace.revolved(axisOrigin: axisOrigin, axisDirection: axisDirection, angle: totalAngleRad) else {
+                throw EngineError.tessellationFailed
+            }
+            return revolved
+        case .twoDirection:
+            let angle2Rad = params.angle2 * .pi / 180.0
+            let totalAngleRad = (params.angle + params.angle2) * .pi / 180.0
+            guard let startFace = face
+                .translated(by: -axisOrigin)?
+                .rotated(axis: axisDirection, angle: -angle2Rad)?
+                .translated(by: axisOrigin) else {
+                throw EngineError.tessellationFailed
+            }
+            guard let revolved = startFace.revolved(axisOrigin: axisOrigin, axisDirection: axisDirection, angle: totalAngleRad) else {
+                throw EngineError.tessellationFailed
+            }
+            return revolved
+        }
+    }
+
+    private static func orientedProfilePoints(_ points: [SIMD2<Float>], clockwise: Bool) -> [SIMD2<Float>] {
+        var twiceArea: Double = 0
+        for i in 0..<points.count {
+            let a = points[i]
+            let b = points[(i + 1) % points.count]
+            twiceArea += Double(a.x) * Double(b.y) - Double(b.x) * Double(a.y)
+        }
+        let isCCW = twiceArea > 0
+        if clockwise {
+            return isCCW ? points.reversed() : points
+        } else {
+            return isCCW ? points : points.reversed()
         }
     }
 
