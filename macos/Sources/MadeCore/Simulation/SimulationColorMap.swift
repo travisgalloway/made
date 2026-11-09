@@ -11,6 +11,9 @@ public enum SimulationColorMapKind: String, Sendable, Codable, CaseIterable, Equ
     case viridis
     case coolWarm
     case magma
+    case plasma
+    case inferno
+    case cividis
     case grayscale
 
     public var id: String { rawValue }
@@ -27,6 +30,12 @@ public enum SimulationColorMapKind: String, Sendable, Codable, CaseIterable, Equ
             return "Cool to Warm"
         case .magma:
             return "Magma"
+        case .plasma:
+            return "Plasma"
+        case .inferno:
+            return "Inferno"
+        case .cividis:
+            return "Cividis"
         case .grayscale:
             return "Grayscale"
         }
@@ -52,6 +61,12 @@ public enum SimulationColorMap: Sendable {
             return evaluateCoolWarm(x)
         case .magma:
             return evaluateMagma(x)
+        case .plasma:
+            return evaluatePlasma(x)
+        case .inferno:
+            return evaluateInferno(x)
+        case .cividis:
+            return evaluateCividis(x)
         case .grayscale:
             return evaluateGrayscale(x)
         }
@@ -156,6 +171,54 @@ public enum SimulationColorMap: Sendable {
             (0.50, SIMD3<Double>(0.716, 0.215, 0.475)),
             (0.75, SIMD3<Double>(0.987, 0.578, 0.380)),
             (1.00, SIMD3<Double>(0.987, 0.991, 0.750))
+        ]
+        return interpolateStops(x, stops: stops)
+    }
+
+    /// Perceptually uniform Plasma colormap evaluated with 9 control stops.
+    private static func evaluatePlasma(_ x: Double) -> SIMD4<Float> {
+        let stops: [(Double, SIMD3<Double>)] = [
+            (0.000, SIMD3<Double>(0.050, 0.030, 0.528)),
+            (0.125, SIMD3<Double>(0.255, 0.014, 0.615)),
+            (0.250, SIMD3<Double>(0.418, 0.001, 0.658)),
+            (0.375, SIMD3<Double>(0.563, 0.052, 0.642)),
+            (0.500, SIMD3<Double>(0.693, 0.165, 0.565)),
+            (0.625, SIMD3<Double>(0.808, 0.297, 0.445)),
+            (0.750, SIMD3<Double>(0.904, 0.448, 0.303)),
+            (0.875, SIMD3<Double>(0.971, 0.625, 0.154)),
+            (1.000, SIMD3<Double>(0.940, 0.975, 0.131))
+        ]
+        return interpolateStops(x, stops: stops)
+    }
+
+    /// Perceptually uniform Inferno colormap evaluated with 9 control stops.
+    private static func evaluateInferno(_ x: Double) -> SIMD4<Float> {
+        let stops: [(Double, SIMD3<Double>)] = [
+            (0.000, SIMD3<Double>(0.001, 0.000, 0.014)),
+            (0.125, SIMD3<Double>(0.134, 0.038, 0.317)),
+            (0.250, SIMD3<Double>(0.334, 0.065, 0.435)),
+            (0.375, SIMD3<Double>(0.540, 0.144, 0.419)),
+            (0.500, SIMD3<Double>(0.728, 0.247, 0.336)),
+            (0.625, SIMD3<Double>(0.879, 0.393, 0.216)),
+            (0.750, SIMD3<Double>(0.973, 0.582, 0.058)),
+            (0.875, SIMD3<Double>(0.984, 0.784, 0.274)),
+            (1.000, SIMD3<Double>(0.988, 0.998, 0.645))
+        ]
+        return interpolateStops(x, stops: stops)
+    }
+
+    /// Perceptually uniform and color-vision-deficiency-optimized Cividis colormap evaluated with 9 control stops.
+    private static func evaluateCividis(_ x: Double) -> SIMD4<Float> {
+        let stops: [(Double, SIMD3<Double>)] = [
+            (0.000, SIMD3<Double>(0.000, 0.135, 0.304)),
+            (0.125, SIMD3<Double>(0.088, 0.201, 0.394)),
+            (0.250, SIMD3<Double>(0.199, 0.273, 0.449)),
+            (0.375, SIMD3<Double>(0.320, 0.350, 0.472)),
+            (0.500, SIMD3<Double>(0.449, 0.435, 0.468)),
+            (0.625, SIMD3<Double>(0.585, 0.528, 0.437)),
+            (0.750, SIMD3<Double>(0.727, 0.628, 0.374)),
+            (0.875, SIMD3<Double>(0.871, 0.738, 0.266)),
+            (1.000, SIMD3<Double>(0.996, 0.852, 0.063))
         ]
         return interpolateStops(x, stops: stops)
     }

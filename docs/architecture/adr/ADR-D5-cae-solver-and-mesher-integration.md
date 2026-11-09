@@ -58,7 +58,9 @@ Dispatch simulation input decks to remote high-performance compute nodes or clou
 
 ### 4. Clean-Room Pure-Swift Solver and Mesher in `libs/` — Accepted as Strategic App Store Fallback
 
-Develop pure-Swift linear static FEA (#416) and 3D Delaunay volume meshing (#417) libraries in `libs/` under the clean-room procedure (#415).
+Develop pure-Swift linear static FEA (#416) and 3D volume meshing (#417) libraries in `libs/` under the clean-room procedure (#415):
+- **Apple Silicon Mathematical Backbone for FEM (`libs/made-fem`, #416):** Utilizes Apple **`Accelerate` (`SparseSolvers`)** (`SparseMatrix_Double`, `SparseFactorizationCholesky`, `SparseFactorizationQR`, `SparseConjugateGradient` tuned for the Apple Matrix Coprocessor / AMX) combined with Metal Compute shaders for massively parallel element stiffness and thermal matrix assembly in unified memory.
+- **Envelope Meshing & Anisotropic Remeshing Foundation (`libs/made-mesh`, #417):** Implements clean-room volume meshing based on **`wildmeshing/fTetWild`** (**MPL-2.0**, matching `made`'s license) for robust envelope-based tetrahedral meshing on dirty or unhealed triangle soups, combined with **`Mmg` (`mmg3d`)** anisotropic remeshing principles for curvature adaptation and boundary-layer refinement.
 - **Advantages:**
   1. **100% Unencumbered for App Store & iPadOS:** Authored from first-principles engineering textbooks (e.g., Bathe, *Finite Element Procedures*; Zienkiewicz & Taylor, *The Finite Element Method*) without inspecting GPL source code. Fully unencumbered for the Apple App Store (#419) and iPadOS sandboxes (#84).
   2. **Native Swift 6 & Apple Silicon Optimization:** Direct integration with Apple's Accelerate framework (`SparseSolve`, `vDSP`, BLAS/LAPACK) and Metal compute shaders.
@@ -88,8 +90,10 @@ Develop pure-Swift linear static FEA (#416) and 3D Delaunay volume meshing (#417
    - **MSH 2.2 Grammar:** `MadeCore` parses the ASCII grammar containing `$MeshFormat` (version `2.2 0 8`), `$Nodes` (node count followed by `id x y z`), and `$Elements` (element count followed by `id type num-tags tags... node-indices...`). Supported element types include type 4 (linear C3D4 tetrahedra), type 11 (quadratic C3D10 tetrahedra), type 2 (linear 3-node boundary triangles), and type 9 (quadratic 6-node boundary triangles).
    - **License Compliance:** Gmsh is licensed under GPL-2.0-or-later. Under ADR-D8 mere aggregation guidelines, Gmsh is invoked strictly out-of-process via standard POSIX process spawns with file exchange on disk, preserving `made`'s MPL-2.0 license.
 
-5. **Canonical CFD Solver Selection: OpenFOAM (Phase 8, #186).**
-   OpenFOAM is designated as the solver for incompressible steady fluid flow in Phase 8 (#186), driven via standard OpenFOAM case directories (`0/`, `constant/`, `system/`).
+5. **Two-Tier CFD Architecture (Phase 8, #186).**
+   Computational Fluid Dynamics (CFD) is structured as a two-tier architecture balancing interactive design feedback with rigorous engineering validation:
+   - **Tier 1 (Interactive Real-Time Metal LBM):** An in-process, unified-memory Lattice Boltzmann Method (LBM) solver utilizing a **D3Q19** velocity lattice running entirely on Apple Silicon GPUs via Metal compute shaders (ported from architectural patterns in `ProjectPhysX/FluidX3D`). Because velocity and density distributions reside directly in `.storageModeShared` unified memory, the solver renders 60 FPS aerodynamic smoke streamlines, pressure contours, and real-time lift/drag estimates with zero CPU copy overhead while geometry parameters are scrubbed interactively.
+   - **Tier 2 (High-Fidelity RANS Validation):** High-fidelity steady, turbulent, and compressible flow validation executes out-of-process using **`OpenFOAM`** (simpleFoam / pimpleFoam) or **`SU2`** (LGPL-2.1) as isolated subprocesses driven by standard case directories and file decks. Tier 2 computes full Reynolds-Averaged Navier-Stokes (RANS) solutions with standard two-equation turbulence models ($k$-$\epsilon$, $k$-$\omega$ SST) for definitive engineering verification.
 
 6. **Bundled Helper Distribution and Binary Location Resolution Order (#413).**
    For direct-download releases (#254), pre-compiled, code-signed, and notarized arm64 binaries for `ccx` and `gmsh` are bundled inside `MadeApp.app/Contents/Helpers/`. When executing a simulation or meshing job, `MadeCore` resolves the executable binary path using the following strict priority sequence:
@@ -101,8 +105,12 @@ Develop pure-Swift linear static FEA (#416) and 3D Delaunay volume meshing (#417
 7. **Dual-Engine Distribution Strategy & Clean-Room Swift Fallback (#415-#417, #419).**
    - Direct-download macOS releases (#254) bundle CalculiX and Gmsh under `Contents/Helpers/` (#413), accompanied by full license texts, attribution notices (#425), and a written offer for corresponding source code fulfilling GPL mere aggregation requirements.
    - App Store builds on macOS (#419) and iPadOS (#84) utilize clean-room pure-Swift reimplementations:
-     - `libs/made-fem`: Pure-Swift FEM solver implementing linear elastic and thermal conduction formulations on linear/quadratic tetrahedra (#416).
-     - `libs/made-mesh`: Pure-Swift Delaunay tetrahedral volume mesher operating from boundary surface representations (#417).
+     - **`libs/made-fem` (Pure-Swift Structural/Thermal FEM Solver, #416):**
+       - **Mathematical Backbone:** Powered by **Apple `Accelerate` (`SparseSolvers`)** using `SparseMatrix_Double` for compressed sparse column (CSC) global system representations. Employs direct Cholesky factorization (`SparseFactorizationCholesky`) for symmetric positive-definite linear elastic systems, sparse QR (`SparseFactorizationQR`) for ill-conditioned or constrained equations, and preconditioned conjugate gradient (`SparseConjugateGradient`) tuned specifically for Apple Silicon hardware matrix acceleration (Apple Matrix Coprocessor / AMX).
+       - **Metal Compute Stiffness Assembly:** Element stiffness matrices ($12 \times 12$ for linear C3D4 tetrahedra, $30 \times 30$ for quadratic C3D10 tetrahedra) and element thermal conduction matrices are evaluated and assembled across GPU threadgroups using Metal compute kernels, writing assembled sparse triplets directly into shared unified memory without CPU bottlenecks.
+     - **`libs/made-mesh` (Pure-Swift Volume Mesher, #417):**
+       - **Envelope-Based Dirty Geometry Meshing:** Implements the algorithmic foundation of **`wildmeshing/fTetWild`** (**MPL-2.0**, matching `made`'s project license). Generates valid, conformal tetrahedral volume meshes directly from unhealed, self-intersecting, or non-watertight CAD triangle soups through adaptive octree background refinement, robust BSP-based envelope containment testing, and floating-point rational arithmetic filters.
+       - **Anisotropic Metric Remeshing:** Incorporates **`Mmg` (`mmg3d`)** anisotropic remeshing principles (metric-driven edge splitting, edge collapsing, face/edge swapping, and vertex relocation) to deliver curvature-adapted elements and boundary-layer refinement aligned with geometric features and simulation stress gradients.
    - Reimplementations are developed in accordance with the clean-room provenance protocol (#415), citing academic textbooks and papers in `PROVENANCE.md`.
 
 8. **Strict Engine-Neutral Swift Interface in `MadeCore` (Invariant 4).**

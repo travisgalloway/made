@@ -49,7 +49,12 @@ FreeCAD's Sketcher module utilizes `planegcs` (Geometric Constraint Solver, orig
 - **Packaging:** Integrated as a pre-compiled dynamic framework (`PlaneGCS.xcframework`) or dynamic library, wrapped via a thin C-compatible interface or Swift 6.2 C++ interoperability.
 
 ### 3. Clean-Room Pure-Swift Constraint Solver in `libs/` (#415) — Accepted as App Store Fallback
-A modular, pure-Swift sparse non-linear constraint solver developed in `libs/` under the clean-room procedure (#415).
+A modular, pure-Swift sparse non-linear constraint solver developed in `libs/` under the clean-room procedure (#415), incorporating modern numerical optimizations:
+- **Exact Analytic Jacobians:** Replaces finite-difference approximations with exact analytical symbolic partial derivatives for all geometric and dimensional equations, eliminating finite-difference truncation error and ensuring quadratic local convergence in Dogleg/Levenberg-Marquardt solvers.
+- **Apple Accelerate LAPACK Integration:** Utilizes Apple Silicon hardware-accelerated LAPACK routines: column-pivoted QR decomposition (`dgeqp3`) for fast rank-deficiency detection and redundant constraint identification, and singular value decomposition (`dgesvd`) for singular vector nullspace extraction and minimal conflicting constraint subset isolation.
+- **First-Class Dimensional Constraint Equations:** Integrates distance, radius, diameter, angle, and span constraints as primary algebraic equations in the unified sparse system.
+- **Scale-on-First-Dimension:** Automatically scales unconstrained sketch primitives proportionally upon entering the first dimensional constraint, preserving design intent without geometric collapse.
+- **CavalierContours Bulge-Factor Offsetting:** Adopts the mathematical formulation of `jbuckmccready/cavalier_contours` (MIT) using the arc bulge factor ($b = \tan(\theta/4)$) for robust 2D polyline parallel offsetting, self-intersection clipping, and closed-loop winding/island topology detection.
 - **Advantages:**
   1. **Zero C++ Toolchain Friction:** 100% native Swift 6 code, eliminating C++ bridging, header dependencies, and platform-specific compilation hurdles.
   2. **Unencumbered Licensing for App Store & iPadOS:** Developed from published numerical optimization textbooks (e.g., Nocedal & Wright, *Numerical Optimization*) and public mathematical papers without reading or incorporating GPL/LGPL source code. Fully unencumbered for the Apple App Store on macOS and iPadOS (#84, #419).
@@ -108,6 +113,16 @@ A modular, pure-Swift sparse non-linear constraint solver developed in `libs/` u
 
 10. **Synergy with 3D Assembly Constraint Solving (#164).**
     - The mathematical solver architecture, numerical methods, and typed diagnostic structures developed for 2D sketching establish the foundation for 3D assembly mate solving (coincident, concentric, distance, align) in Phase 7 (#164).
+
+11. **Pure-Swift Fallback Solver Numerical Architecture (`libs/` #415).**
+    When running under the pure-Swift fallback solver (`ConstraintSolver.swift` / `libs/made-constraint`), the engine executes with a modern numerical architecture:
+    - **Exact Analytic Jacobians:** Replaces finite differences with exact symbolic analytical derivatives for all geometric and dimensional constraints (coincident, horizontal, vertical, distance, radius, angle, tangency, concentricity). This removes step-size tuning errors, halves residual evaluations, and enables quadratic convergence in Dogleg and Levenberg-Marquardt iterations.
+    - **Apple Accelerate LAPACK QR & SVD Decompositions:**
+      - Column-pivoted QR decomposition (`dgeqp3`) evaluates the effective numerical rank of the Jacobian matrix, isolating linearly dependent, redundant constraint rows.
+      - Singular value decomposition (`dgesvd`) extracts left singular vectors corresponding to vanishing singular values ($\sigma_i < 10^{-9}$), identifying the minimal conflicting constraint subset for structured error envelopes (#197).
+    - **First-Class Dimensional Equations:** Formulates dimensional constraints directly as primary algebraic equations in the non-linear system rather than post-hoc penalty terms.
+    - **Scale-on-First-Dimension:** The first dimensional constraint placed on an unconstrained sketch calculates the ratio $s = d_{\text{target}} / d_{\text{current}}$ and scales all unconstrained sketch geometry uniformly about the sketch centroid, preserving geometric proportions and preventing violent topology flipping.
+    - **CavalierContours Bulge-Factor Polyline Offsetting:** Adopts the mathematical formulation of `jbuckmccready/cavalier_contours` (MIT) using arc bulge factors ($b = \tan(\theta/4)$) for 2D polyline parallel offsetting, self-intersection clipping, closed-loop winding analysis, and island/hole tree detection.
 
 ## Consequences
 

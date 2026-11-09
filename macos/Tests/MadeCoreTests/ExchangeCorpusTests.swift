@@ -234,4 +234,145 @@ import OCCTSwift
             }
         }
     }
+
+    // MARK: - OCCT Canonical B-Rep Extrude & Revolve Tests
+
+    @Test func testOCCTCanonicalExtrude() throws {
+        let profile = SketchProfile(
+            plane: .xy,
+            points: [
+                SIMD2<Float>(0, 0),
+                SIMD2<Float>(20, 0),
+                SIMD2<Float>(20, 10),
+                SIMD2<Float>(0, 10)
+            ]
+        )
+        let node = ShapeNode.extrude(profile: profile, distance: 15.0, centered: false)
+        let shape = try OCCTEngine.buildShape(from: node)
+        #expect(shape.isValid)
+        #expect(shape.solidCount == 1)
+
+        let vol = try #require(shape.volume)
+        #expect(abs(vol - 3000.0) <= 0.1)
+
+        let bbox = try #require(shape.boundingBox)
+        #expect(abs(bbox.min.x - 0.0) <= 0.01)
+        #expect(abs(bbox.max.x - 20.0) <= 0.01)
+        #expect(abs(bbox.min.y - 0.0) <= 0.01)
+        #expect(abs(bbox.max.y - 10.0) <= 0.01)
+        #expect(abs(bbox.min.z - 0.0) <= 0.01)
+        #expect(abs(bbox.max.z - 15.0) <= 0.01)
+
+        // Symmetric extrude
+        let symNode = ShapeNode.extrude(profile: profile, distance: 15.0, centered: true)
+        let symShape = try OCCTEngine.buildShape(from: symNode)
+        #expect(symShape.isValid)
+        let symBBox = try #require(symShape.boundingBox)
+        #expect(abs(symBBox.min.z - (-7.5)) <= 0.01)
+        #expect(abs(symBBox.max.z - 7.5) <= 0.01)
+
+        // ObjectDef.extrude
+        let def = ObjectDef.extrude(ExtrudeParams(profile: profile, distance: 15.0, isSymmetric: false))
+        let defShape = try OCCTEngine.buildShape(for: def)
+        #expect(defShape.isValid)
+        #expect(defShape.solidCount == 1)
+        let defVol = try #require(defShape.volume)
+        #expect(abs(defVol - 3000.0) <= 0.1)
+    }
+
+    @Test func testOCCTCanonicalRevolve() throws {
+        // Rectangle off-axis: r in [10, 20], z in [0, 5]
+        let profile = SketchProfile(
+            plane: .xy,
+            points: [
+                SIMD2<Float>(10, 0),
+                SIMD2<Float>(20, 0),
+                SIMD2<Float>(20, 5),
+                SIMD2<Float>(10, 5)
+            ]
+        )
+        let node = ShapeNode.revolve(profile: profile, angleDegrees: 360.0, slices: 64)
+        let shape = try OCCTEngine.buildShape(from: node)
+        #expect(shape.isValid)
+        #expect(shape.solidCount == 1)
+
+        let vol = try #require(shape.volume)
+        // Expected volume: pi * (20^2 - 10^2) * 5 = 1500 * pi ≈ 4712.38898
+        let expectedVolume = .pi * (400.0 - 100.0) * 5.0
+        #expect(abs(vol - expectedVolume) <= 1.0)
+
+        // ObjectDef.revolve
+        let params = RevolveParams(
+            profile: profile,
+            mode: .full,
+            angle: 360.0,
+            axisOrigin: SIMD3<Float>(0, 0, 0),
+            axisDirection: SIMD3<Float>(0, 1, 0)
+        )
+        let def = ObjectDef.revolve(params)
+        let defShape = try OCCTEngine.buildShape(for: def)
+        #expect(defShape.isValid)
+        #expect(defShape.solidCount == 1)
+        let defVol = try #require(defShape.volume)
+        #expect(abs(defVol - expectedVolume) <= 1.0)
+    }
+
+    // MARK: - Atomic Agent Undo Transaction Tests
+
+    @Test @MainActor func testAtomicAgentUndoGrouping() throws {
+        let doc = DocumentModel()
+        let initialCount = doc.objects.count
+
+        doc.performAgentTransaction(name: "MCP: compound_test") {
+            _ = doc.addObject(def: .box(BoxParams(width: 10, depth: 10, height: 10)))
+            _ = doc.addObject(def: .cylinder(CylinderParams(radius: 5, height: 20)))
+        }
+
+        #expect(doc.objects.count == initialCount + 2)
+        #expect(doc.canUndo == true)
+        #expect(doc.undoManager?.undoActionName == "MCP: compound_test")
+        #expect(doc.undoActionTitle == "Undo MCP: compound_test")
+
+        doc.undo()
+
+        #expect(doc.objects.count == initialCount)
+        #expect(doc.canRedo == true)
+        #expect(doc.redoActionTitle == "Redo MCP: compound_test")
+
+        doc.redo()
+
+        #expect(doc.objects.count == initialCount + 2)
+    }
+
+    @Test @MainActor func testCADToolsExtrudeUndoGrouping() async throws {
+        let doc = DocumentModel()
+        let kernel = KernelClient(debounceDuration: .milliseconds(5))
+        let registry = CADToolRegistry(document: doc, kernelClient: kernel)
+
+        // 1. Create a sketch with a rectangle
+        let sketchFeat = doc.addSketchFeature(planeName: "XY", entities: [
+            SketchEntity.line(start: SIMD2(0, 0), end: SIMD2(20, 0)),
+            SketchEntity.line(start: SIMD2(20, 0), end: SIMD2(20, 10)),
+            SketchEntity.line(start: SIMD2(20, 10), end: SIMD2(0, 10)),
+            SketchEntity.line(start: SIMD2(0, 10), end: SIMD2(0, 0))
+        ])
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        // 2. Call cad_extrude via CADToolRegistry
+        let extrudeRes = await registry.callTool(name: "cad_extrude", arguments: [
+            "sketchId": .string(sketchFeat.id.uuidString),
+            "distance": .double(25.0)
+        ])
+        #expect(extrudeRes.isError == false)
+        #expect(doc.undoManager?.undoActionName == "MCP: cad_extrude")
+        #expect(doc.undoActionTitle == "Undo MCP: cad_extrude")
+        #expect(doc.canUndo == true)
+
+        doc.undo()
+        #expect(doc.canRedo == true)
+        #expect(doc.redoActionTitle == "Redo MCP: cad_extrude")
+
+        doc.redo()
+        #expect(doc.undoActionTitle == "Undo MCP: cad_extrude")
+    }
 }

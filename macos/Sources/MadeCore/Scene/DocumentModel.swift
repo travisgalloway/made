@@ -925,6 +925,7 @@ public final class DocumentModel {
     public private(set) var activeInteractiveSketchDrag: (featureId: UUID, initialEntities: [SketchEntity])?
     public private(set) var activeAssemblyDragInitialTransforms: [UUID: Transform]?
     private var activeAssemblyDragInitialInstances: [ComponentInstance]?
+    private var activeAgentTransactionNames: [String] = []
     @ObservationIgnored private var undoObservers: [NSObjectProtocol] = []
 
     public var isRolledBack: Bool { rollbackIndex != nil }
@@ -1996,6 +1997,52 @@ public final class DocumentModel {
 
     public func redo() {
         undoManager?.redo()
+    }
+
+    /// Begins an atomic undo transaction group for multi-step agent or script operations.
+    public func beginAgentTransaction(name: String) {
+        activeAgentTransactionNames.append(name)
+        undoManager?.beginUndoGrouping()
+        if !name.isEmpty {
+            registerAgentTransactionHeadHook(name: name)
+            undoManager?.setActionName(name)
+        }
+    }
+
+    /// Ends an active atomic undo transaction group.
+    public func endAgentTransaction() {
+        let name = activeAgentTransactionNames.popLast() ?? ""
+        if !name.isEmpty {
+            registerAgentTransactionTailHook(name: name)
+            undoManager?.setActionName(name)
+        }
+        undoManager?.endUndoGrouping()
+        undoStateVersion += 1
+    }
+
+    private func registerAgentTransactionHeadHook(name: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.registerAgentTransactionHeadHook(name: name)
+                target.undoManager?.setActionName(name)
+            }
+        }
+    }
+
+    private func registerAgentTransactionTailHook(name: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated {
+                target.registerAgentTransactionTailHook(name: name)
+                target.undoManager?.setActionName(name)
+            }
+        }
+    }
+
+    /// Executes a synchronous `@MainActor` block inside a single atomic undo transaction group.
+    public func performAgentTransaction<T>(name: String, _ body: () throws -> T) rethrows -> T {
+        beginAgentTransaction(name: name)
+        defer { endAgentTransaction() }
+        return try body()
     }
 
     // MARK: - Document Settings Mutators (BL-FND-11)

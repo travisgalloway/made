@@ -94,6 +94,41 @@ Each candidate carries a screen distance in pixels. Candidates beyond `defaultSn
 
 ---
 
+## Advanced Selection & Inspection Modalities
+
+Precision mechanical modeling requires rapid, disambiguated selection of topological sub-elements (faces, edges, vertices) within dense assemblies:
+
+### 1. Directional Marquee Selection (`Window` vs `Crossing`)
+Dragging a selection box in the viewport implements directional marquee semantics:
+- **Left-to-Right (`Window` Selection):** Rendered with a solid outline and blue translucent fill. Selects only entities (solids, faces, edges, or sketch primitives) whose screen projections lie **strictly enclosed** within the selection rectangle.
+- **Right-to-Left (`Crossing` Selection):** Rendered with a dashed outline and green translucent fill. Selects any entity that is **either enclosed by or intersects** the bounding rectangle.
+
+### 2. "Select Other" Depth-Peeling Hover Popup
+When selecting internal faces, counterbores, or rear edges obscured by front geometry, clicking or hovering near dense features activates the **"Select Other"** popup:
+- The camera ray performs screen-space depth peeling across all intersecting geometry layers.
+- A compact HUD menu appears adjacent to the cursor, listing all pierced sub-elements ordered from nearest to furthest with their topological type (e.g., `Planar Face (Top)`, `Cylindrical Face (Hole #2)`, `Back Face`).
+- Hovering over a list item renders that sub-element in cyan x-ray highlight through front geometry. Clicking commits the selection without requiring camera reorientation.
+
+### 3. Double-Click Tangent Chain & Loop Propagation
+- **Tangent Chain Propagation:** Double-clicking an edge evaluates the tangent continuity ($G^1$) across adjacent edges. If connected edges deviate by less than the angular tangent threshold (default $5^\circ$), the selection automatically chains along the continuous fillet or blend run.
+- **Closed Loop Propagation:** Shift-double-clicking an edge traverses the face boundary perimeter, selecting the entire closed topological wire (e.g., all bounding edges of an extruded pocket or boss).
+
+### 4. `Look Normal To` (`N` Shortcut)
+Pressing the `N` key smoothly animates the camera orientation to align its line of sight perpendicular to the selected planar face, reference datum plane, or active 2D sketch plane. If the viewport is in perspective mode, it temporarily aligns the view matrix and aligns the plane's local coordinate axes with screen +Y up.
+
+### 5. Paint / Brush Selection with Crease Stop
+Holding `Shift + Option` while dragging the pointer activates Paint / Brush Selection:
+- A circular brush cursor paints across adjacent geometry, adding brushed faces directly to the active selection set.
+- **Crease Angle Stop:** The paint flood automatically terminates at sharp feature edges where the dihedral angle between adjacent face normals exceeds a configurable crease angle threshold (default $30^\circ$). This allows instant single-stroke selection of complex curved fillets or pocket floors without spilling onto adjacent sidewalls.
+
+### 6. Single-Click Mate Connector LCS Pucks
+For 3D assembly mate constraints (#164) and datum attachment:
+- Hovering over solid geometry dynamically displays Local Coordinate System (LCS) "pucks" (circular disc glyphs displaying local $X$ red, $Y$ green, and $Z$ blue axes).
+- Candidate pucks snap automatically to topological landmarks: face centroids, hole centers, cylinder axis endpoints/midpoints, sphere centers, and edge midpoints.
+- Single-clicking an LCS puck instantiates a persistent mate coordinate frame, fully constraining 3D origin, surface normal (+Z), and tangent orientation (+X) in a single gesture.
+
+---
+
 ## 3D Manipulation Gizmo (Move / Rotate / Scale)
 
 Implemented in [`Gizmo.swift`](../../macos/Sources/MadeCore/Input/Gizmo.swift) and [`MetalRenderer+Gizmo.swift`](../../macos/Sources/MadeCore/Viewport/MetalRenderer+Gizmo.swift) (#71 Phase 4.19, #72 Phase 4.20):
@@ -105,6 +140,11 @@ When an object is selected in the viewport under the Select tool, 3D translation
 - **Screen-Space Hit-Testing**: Evaluates pointer proximity against 3D arrow shafts, rotation ring planes/perimeters, and scale shaft extensions/cube edges within `defaultGizmoTolerancePx` (16 pt).
 - **Touch Input Offset**: For touch input (`isTouch: true`), the hit test lifts the contact point upwards by `touchPickOffsetPt` (28 pt) so the handle remains visible above the user's finger during touch contact.
 - **Gesture Arbitration Lock**: On mouse/pointer down on a gizmo handle, the coordinator locks `GestureArbiter` into `.manipulate`, completely preventing camera orbit/pan until pointer release.
+- **Pivot Re-Anchoring (`Option` / `Alt` Drag):** Holding `Option` allows the user to drag the gizmo center independently of the object geometry. Snapping (vertex, edge, midpoint, cylinder axis) applies to the pivot, allowing users to re-anchor the center of rotation to an arbitrary point in 3D space prior to rotating or scaling.
+- **Protractor Detents & Angular Snapping (`ImGuizmo` / `Ketchup3D` Patterns):**
+  - While dragging a rotation ring, an on-screen circular protractor HUD overlay visualizes the swept angle and angular subdivisions.
+  - By default, rotation snaps to discrete **$15^\circ$ detents** when dragging along the inner radius of the ring.
+  - Dragging outward toward the perimeter or holding `Shift` switches to fine **$1^\circ$ vernier increments**, delivering precision tactile feedback without requiring manual numeric typing.
 
 ### Drag Projections & Math
 - **Translation (Skew-Ray Parameter)**: Computes the closest point parameter $s$ between the camera ray and the selected 3D translation axis $L(s) = \mathbf{C} + s\mathbf{u}$. Movement is projected along the axis as $\Delta s \cdot \mathbf{u}$.

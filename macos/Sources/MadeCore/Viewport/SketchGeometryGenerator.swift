@@ -138,6 +138,13 @@ public enum SketchGeometryGenerator {
     public static let defaultRegularColor = SIMD4<Float>(0.2, 0.7, 1.0, 1.0)
     /// Default color for construction geometry: amber.
     public static let defaultConstructionColor = SIMD4<Float>(1.0, 0.65, 0.0, 0.85)
+    /// Standard CAD DOF color constants (ADR-D4, #196, #397)
+    public static let underConstrainedColor = SIMD4<Float>(0.2, 0.75, 1.0, 1.0) // Sky Blue / Cyan
+    public static let fullyConstrainedColor = SIMD4<Float>(0.92, 0.95, 0.98, 1.0) // High-contrast White / Near-White for dark viewport
+    public static let overConstrainedColor = SIMD4<Float>(1.0, 0.22, 0.22, 1.0) // Bright Red
+    public static let drivenReferenceColor = SIMD4<Float>(0.95, 0.65, 0.2, 1.0) // Amber / Orange for projected entity.isProjected or driven reference geometry
+    public static let defaultSelectedColor = SIMD4<Float>(1.0, 0.8, 0.0, 1.0) // High-contrast selection yellow/gold
+    public static let defaultHoveredColor = SIMD4<Float>(0.5, 0.85, 1.0, 1.0) // High-contrast hover cyan
     /// Default dash segment length in sketch plane units.
     public static let defaultDashLength: Double = 3.0
     /// Default gap segment length in sketch plane units.
@@ -151,7 +158,13 @@ public enum SketchGeometryGenerator {
         regularColor: SIMD4<Float> = defaultRegularColor,
         constructionColor: SIMD4<Float> = defaultConstructionColor,
         dashLength: Double = defaultDashLength,
-        gapLength: Double = defaultGapLength
+        gapLength: Double = defaultGapLength,
+        selectedEntityIds: Set<UUID> = [],
+        hoveredEntityId: UUID? = nil,
+        selectedColor: SIMD4<Float> = defaultSelectedColor,
+        hoveredColor: SIMD4<Float> = defaultHoveredColor,
+        entityDOFStatus: [UUID: SketchDOFStatus] = [:],
+        overallDOFStatus: SketchDOFStatus? = nil
     ) -> SketchGeometry {
         guard !entities.isEmpty else {
             return SketchGeometry(items: [], positions: [], colors: [])
@@ -166,7 +179,29 @@ public enum SketchGeometryGenerator {
         let period = effectiveDash + effectiveGap
 
         for entity in entities {
-            let entityColor = entity.isConstruction ? constructionColor : regularColor
+            let entityColor: SIMD4<Float>
+            if selectedEntityIds.contains(entity.id) {
+                entityColor = selectedColor
+            } else if entity.id == hoveredEntityId {
+                entityColor = hoveredColor
+            } else if entity.isConstruction {
+                entityColor = constructionColor
+            } else if entity.isProjected {
+                entityColor = drivenReferenceColor
+            } else if let status = entityDOFStatus[entity.id] ?? overallDOFStatus {
+                switch status {
+                case .underConstrained:
+                    entityColor = underConstrainedColor
+                case .fullyConstrained:
+                    entityColor = fullyConstrainedColor
+                case .overConstrained:
+                    entityColor = overConstrainedColor
+                case .inactive:
+                    entityColor = regularColor
+                }
+            } else {
+                entityColor = regularColor
+            }
             let startIndex = positions.count
 
             func appendSegment(_ p0: SIMD3<Float>, _ p1: SIMD3<Float>) {

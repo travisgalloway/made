@@ -58,13 +58,20 @@ When upstream parameters change, the geometry kernel recomputes the boundary rep
 
 6. **Serialization in `.made` Packages (ADR-D7).** Topological references serialize cleanly into `document.json` within `.made` directory packages as human-readable, Git-friendly JSON objects without proprietary binary blobs.
 
-7. **Graceful Failure and Diagnostics.** When an upstream edit eliminates a referenced topological entity (such as a boss feature being deleted or swallowed by a boolean cut), the query resolution fails cleanly without crashing the kernel service:
-   - The kernel returns a typed failure (`KernelErrorCode.topologicalReferenceBroken` / `RecomputeFailures`).
-   - The affected feature is flagged with an error state in the Feature Tree (#34, #170).
-   - The Inspector highlights the missing reference and prompts the user for interactive re-selection repair.
-   - Agent MCP inspection tools (`cad_diagnostics`, #153) return actionable diagnostic envelopes detailing the missing reference and candidate topology.
+7. **Graceful Failure and the "Missing Reference" Re-Binding Assistant UX.** When an upstream edit eliminates or substantially alters a referenced topological entity (such as a boss feature being deleted or swallowed by a boolean cut), query resolution fails gracefully without crashing the kernel service:
+   - **Typed Kernel Diagnostic:** The kernel returns a structured failure (`KernelErrorCode.topologicalReferenceBroken` / `RecomputeFailures`).
+   - **Amber Warning Badge in Feature Tree:** The affected feature is badged with an amber warning icon in the Navigator Feature Tree (#34, #170), indicating a broken reference without halting overall scene evaluation.
+   - **Ghosted Downstream Geometry:** Downstream features that depend on the broken reference are rendered in the viewport in a semi-transparent, desaturated "ghosted" state (e.g., 25% opacity wireframe/solid) so the user sees the original design intent.
+   - **Translucent 3D Phantom Outline:** The Metal viewport renders a 3D translucent phantom wireframe bounding box representing the missing entity's last known `GeometricSignature` (centroid, bounding extents, surface area, and outward normal vector arrow), showing exactly where the referenced geometry used to exist in 3D space.
+   - **Single-Click Candidate Face Healing:** The Inspector surfaces a "Re-Binding Assistant" ranking existing solid faces by geometric similarity (evaluating normal vector cosine similarity, centroid Euclidean distance, and surface area ratio). Hovering over a candidate highlights it in cyan in the viewport; a single click accepts the candidate, re-binds the `TopologicalReference`, and triggers instant parametric regeneration.
+   - **Autonomous Agent Repair:** Agent MCP inspection tools (`cad_get_diagnostics`, `cad_query_topology`, #153, #428) return structured diagnostic envelopes containing the missing reference, its last known signature, and candidate topological IDs for autonomous remediation.
 
 8. **Clean-Room Swift B-Rep Equivalence.** The clean-room Swift B-rep fallback (#420 to #424) in `libs/` implements identical query semantics and generation history tracking. Swapping the geometry kernel between OCCT and the Swift fallback under Invariant 4 introduces zero changes to document structure or serialized topological references.
+
+9. **Deterministic Semantic Topological Selectors (`CadQuery`/`build123d`-Style, #333).** For programmatic scripting (`CADDSL`, `.part.ts` brepjs runtime, [ADR-D6](./ADR-D6-scripting-runtime.md)) and autonomous MCP agent targeting (#153, #333, #428), `made` provides deterministic semantic topological selectors inspired by CadQuery and build123d:
+   - **Directional & Spatial String Selectors:** Select sub-elements using spatial filters such as `.faces(">Z")` (topmost face along +Z), `.faces("<Z")` (bottommost face), `.faces(">X")`, `.faces("|Z")` (faces parallel to the Z axis), `.faces("#Z")` (faces perpendicular to the Z axis), `.edges(">Z")`, and `.edges("%circle")` (circular blend/fillet edges).
+   - **Semantic Filtering API:** Programmatic functions such as `select_faces(normal="+Z", order_by="max_z")` or `select_edges(curve_type="circle", min_radius=5.0)` allow scripts and MCP agents to target topology deterministically without depending on brittle integer indices or internal pointers.
+   - **Parametric Resilience:** Semantic queries re-evaluate dynamically against the regenerated solid geometry, ensuring scripts and automated agent edits survive major upstream dimensional changes without breaking downstream blend or sketch attachments.
 
 ## Consequences
 

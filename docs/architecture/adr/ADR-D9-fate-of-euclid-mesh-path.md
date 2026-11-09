@@ -44,17 +44,25 @@ As `made` expands to support exact B-Rep modeling, topological naming ([ADR-D3](
    - The draft preview backend for procedural scripting expressions prior to exact B-Rep feature baking.
 
 2. **Reaffirm the multi-tier geometry architecture:**
-   - **Tier 1 (Fast CSG Engine):** Pure-Swift `EuclidEngine` / `LocalKernelEngine`. Provides immediate polygonal CSG booleans (`subtract`, `union`, `intersect`), parametric primitives (box, cylinder, sphere, cone), profile extrusion/revolution, and indexed triangle payload generation (`MeshPayload`).
+   - **Tier 1 (Fast CSG & Implicit Mesh Engine):** Pure-Swift `EuclidEngine` / `LocalKernelEngine` paired with **`elalish/manifold`** (`manifoldc`, Apache-2.0) and Metal SDF compute shaders. Provides immediate polygonal CSG booleans (`subtract`, `union`, `intersect`), guaranteed-watertight manifold mesh booleans, parametric primitives (box, cylinder, sphere, cone), profile extrusion/revolution, 120 Hz interactive TPMS lattice previews, and indexed triangle payload generation (`MeshPayload`).
    - **Tier 2 (Canonical Exact B-Rep Engine):** OpenCASCADE Technology via `OCCTSwift` (#82) / clean-room Swift B-Rep (#420–#424). Provides exact analytic curves, NURBS, topological B-Rep entities, fillets, chamfers, drafts, shells, and STEP/IGES exchange.
    - **Tier 3 (Declarative CAD DSL):** Declarative scripting layer (`CADDSL.swift`, `ShapeNode.swift`). Compiles shape operation trees evaluated against the active kernel engine.
 
-3. **Strict adherence to the engine-neutral interface (Invariant 4).**
-   All higher-level subsystems—including SwiftUI views, Inspector, Metal viewport, document model, scripting, and agent tooling—must interact with geometry exclusively via `KernelClientProtocol`, `KernelRequest`, and `MeshPayload` defined in [`macos/Sources/MadeCore/Kernel/Types.swift`](../../../macos/Sources/MadeCore/Kernel/Types.swift).
-   - No Euclid types (`Euclid.Mesh`, `Euclid.Polygon`, `Euclid.Vector`) may leak past the `Kernel/` boundary into `Scene/`, `Viewport/`, `Agent/`, or `Scripting/`.
-   - `LayeringTests.scriptingReferencesNoEuclid` strictly enforces this boundary at build and test time.
+3. **Guaranteed-Watertight Mesh Booleans via `elalish/manifold` (Apache-2.0).**
+   While Euclid provides pure-Swift BSP polygon clipping for baseline testing and preview, complex multi-operand CSG trees with coplanar boundaries or sliver polygons can suffer from non-manifold edge anomalies. `made` integrates **`elalish/manifold`** (`manifoldc`, Apache-2.0) alongside Euclid in Tier 1. Manifold guarantees that output meshes are mathematically 2-manifold, closed, and watertight, executing order-of-magnitude faster than CPU BSP trees while preventing mesh boolean failures in procedural workflows.
 
-4. **Preserve actor and process isolation (Invariants 1 & 7).**
-   All Euclid operations execute off the main thread within `KernelClient` or engine actors (`LocalKernelEngine`), ensuring responsive UI interactions, debounce conflation, and thread safety under Swift 6 strict concurrency.
+4. **Metal SDF Ray-Marching & Manifold Dual Contouring for TPMS and Topology Optimization (#284, #285).**
+   To support Triply Periodic Minimal Surfaces (TPMS: Gyroid, Schwarz Diamond, Schwarz Primitive, Neovius) and conformal implicit infill (#285) alongside topology optimization density fields (#284), Tier 1 incorporates an implicit geometry pipeline:
+   - **120 Hz Interactive SDF Ray-Marching:** In the viewport, implicit lattices are evaluated as signed distance functions (SDFs) directly on the GPU using Metal fragment and compute ray-marching shaders. This provides instant 120 Hz ProMotion preview during cell size, thickness, and grading parameter scrubbing with zero CPU tessellation overhead.
+   - **Manifold Dual Contouring Isosurface Extraction:** For solid export, boundary meshing, or conversion into volumetric finite elements, the implicit field is polygonized using GPU-accelerated Manifold Dual Contouring / Surface Nets (drawing upon architectural patterns from `libfive` and `NanoVDB`), producing guaranteed crack-free, watertight boundary meshes.
+
+5. **Strict adherence to the engine-neutral interface (Invariant 4).**
+   All higher-level subsystems—including SwiftUI views, Inspector, Metal viewport, document model, scripting, and agent tooling—must interact with geometry exclusively via `KernelClientProtocol`, `KernelRequest`, and `MeshPayload` defined in [`macos/Sources/MadeCore/Kernel/Types.swift`](../../../macos/Sources/MadeCore/Kernel/Types.swift).
+   - No Euclid or Manifold types (`Euclid.Mesh`, `manifold_manifold`, etc.) may leak past the `Kernel/` boundary into `Scene/`, `Viewport/`, `Agent/`, or `Scripting/`.
+   - `LayeringTests.scriptingReferencesNoKernelInternals` strictly enforces this boundary at build and test time.
+
+6. **Preserve actor and process isolation (Invariants 1 & 7).**
+   All Euclid, Manifold, and procedural mesh operations execute off the main thread within `KernelClient` or engine actors (`LocalKernelEngine`), ensuring responsive UI interactions, debounce conflation, and thread safety under Swift 6 strict concurrency.
 
 ## Consequences
 
@@ -67,4 +75,4 @@ As `made` expands to support exact B-Rep modeling, topological naming ([ADR-D3](
 
 ## Notes
 
-- 2026-10-17: `LayeringTests.scriptingReferencesNoEuclid` was renamed. `LayeringTests.scriptingReferencesNoKernelInternals` (`macos/Tests/MadeCoreTests/LayeringTests.swift:27`) now enforces the boundary in Decision item 3.
+- 2026-10-17: `LayeringTests.scriptingReferencesNoEuclid` was renamed. `LayeringTests.scriptingReferencesNoKernelInternals` (`macos/Tests/MadeCoreTests/LayeringTests.swift:27`) now enforces the boundary in Decision item 5.

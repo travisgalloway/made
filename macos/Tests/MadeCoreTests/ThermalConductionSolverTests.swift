@@ -402,4 +402,101 @@ import simd
         #expect(abs(flux.y) < 1.0)
         #expect(abs(flux.z) < 1.0)
     }
+
+    // MARK: - Case 9: Accelerate Sparse Linear System Solvers
+
+    @Test func testAccelerateSparseCholeskyAndPCGSolvers() throws {
+        // 1. Standard 5x5 SPD tridiagonal system
+        let n = 5
+        var K = [[Int: Double]](repeating: [:], count: n)
+        for i in 0..<n {
+            K[i][i] = 4.0
+            if i > 0 { K[i][i - 1] = -1.0 }
+            if i < n - 1 { K[i][i + 1] = -1.0 }
+        }
+        let expectedX = [1.0, 2.0, 3.0, 2.0, 1.0]
+        var b = [Double](repeating: 0.0, count: n)
+        for i in 0..<n {
+            for (j, val) in K[i] {
+                b[i] += val * expectedX[j]
+            }
+        }
+
+        // Solve using LinearStaticSolver.solvePCG (matrix:rhs:)
+        let resultStatic = LinearStaticSolver.solvePCG(matrix: K, rhs: b, tolerance: 1e-9)
+        #expect(resultStatic.iterations == 1, "Direct Cholesky solve should converge in 1 AMX step")
+        #expect(resultStatic.residual < 1e-8)
+        for i in 0..<n {
+            #expect(abs(resultStatic.solution[i] - expectedX[i]) < 1e-7)
+        }
+
+        // Solve using ThermalConductionSolver.solvePCG (K:b:dirichlet:)
+        let resultThermal = ThermalConductionSolver.solvePCG(K: K, b: b, dirichlet: [:], tolerance: 1e-9)
+        #expect(resultThermal.iterations == 1)
+        #expect(resultThermal.finalResidual < 1e-8)
+        for i in 0..<n {
+            #expect(abs(resultThermal.x[i] - expectedX[i]) < 1e-7)
+        }
+
+        // 2. Larger multi-DOF 3D grid system (100 DOFs) with Dirichlet boundary condition
+        let nDOF = 100
+        var KLarge = [[Int: Double]](repeating: [:], count: nDOF)
+        for i in 0..<nDOF {
+            KLarge[i][i] = 6.0
+            if i >= 1 && i % 10 != 0 {
+                KLarge[i][i - 1] = -1.0
+                KLarge[i - 1][i] = -1.0
+            }
+            if i >= 10 {
+                KLarge[i][i - 10] = -1.0
+                KLarge[i - 10][i] = -1.0
+            }
+        }
+        // Fixed boundary condition at DOF 0
+        KLarge[0].removeAll()
+        KLarge[0][0] = 1.0
+        for j in 1..<nDOF {
+            KLarge[j].removeValue(forKey: 0)
+        }
+
+        var bLarge = [Double](repeating: 10.0, count: nDOF)
+        bLarge[0] = 50.0 // Prescribed value
+
+        let largeRes = LinearStaticSolver.solvePCG(K: KLarge, b: bLarge, dirichlet: [0: 50.0], tolerance: 1e-8)
+        #expect(largeRes.iterations == 1)
+        #expect(largeRes.finalResidual < 1e-7)
+        #expect(abs(largeRes.x[0] - 50.0) < 1e-9)
+
+        // Verify K * x = b holds accurately across all 100 DOFs
+        for i in 0..<nDOF {
+            var rowSum = 0.0
+            for (j, val) in KLarge[i] {
+                rowSum += val * largeRes.x[j]
+            }
+            #expect(abs(rowSum - bLarge[i]) < 1e-5, "DOF \(i) residual too high: got \(rowSum), expected \(bLarge[i])")
+        }
+
+        // 3. Indefinite / non-SPD system verifying fallback to flat-CSR vDSP Jacobi-PCG
+        let Kindef: [[Int: Double]] = [
+            [0: -4.0, 1: 1.0],
+            [0: 1.0, 1: -4.0]
+        ]
+        let bindef = [-3.0, -3.0] // Analytic solution: [1.0, 1.0]
+        let indefRes = LinearStaticSolver.solvePCG(matrix: Kindef, rhs: bindef, tolerance: 1e-7)
+        #expect(abs(indefRes.solution[0] - 1.0) < 1e-5)
+        #expect(abs(indefRes.solution[1] - 1.0) < 1e-5)
+
+        // 4. Edge cases
+        let emptyRes = LinearStaticSolver.solvePCG(matrix: [], rhs: [])
+        #expect(emptyRes.solution.isEmpty)
+        #expect(emptyRes.iterations == 0)
+        #expect(emptyRes.residual == 0.0)
+
+        let zeroRhsRes = ThermalConductionSolver.solvePCG(matrix: K, rhs: [Double](repeating: 0.0, count: n))
+        #expect(zeroRhsRes.iterations == 0)
+        #expect(zeroRhsRes.residual == 0.0)
+        for val in zeroRhsRes.solution {
+            #expect(abs(val) < 1e-12)
+        }
+    }
 }
