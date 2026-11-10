@@ -1,11 +1,21 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'macos/**'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - 'Makefile'
+  merge_group:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'macos/**'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/**'
+      - '.github/actions/**'
       - 'Makefile'
   workflow_dispatch:
 
@@ -13,8 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   swift:
@@ -27,15 +37,8 @@ jobs:
         working-directory: macos
     steps:
       - uses: actions/checkout@v4
-
-      - name: Show toolchain
-        run: |
-          xcodebuild -version
-          swift --version
-
-      # Shaders compile at build time, and Xcode 26 ships the Metal compiler as a separate component.
-      - name: Install Metal Toolchain
-        run: xcodebuild -downloadComponent MetalToolchain
+        with:
+          fetch-depth: 0
 
       - name: Cache SwiftPM build
         uses: actions/cache@v4
@@ -45,15 +48,48 @@ jobs:
           restore-keys: |
             spm-v9-${{ runner.os }}-swift-
 
+      - name: Resolve affected unit tests
+        id: affected
+        working-directory: .
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          macos/scripts/test-affected.sh \
+            --ci \
+            --base-branch "origin/${{ github.base_ref || 'main' }}" \
+            --mode plan
+
+      - name: Show toolchain
+        if: steps.affected.outputs.affected_unit == 'true'
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # Shaders compile at build time, and Xcode 26 ships the Metal compiler as a separate component.
+      - name: Install Metal Toolchain
+        if: steps.affected.outputs.affected_unit == 'true'
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Purge stale build metadata
+        if: steps.affected.outputs.affected_unit == 'true'
         run: rm -rf .build/out/Intermediates.noindex/XCBuildData macos/.build/out/Intermediates.noindex/XCBuildData
 
       # Swift Build compiles Shaders.metal into default.metallib; the native build system only copies it.
       - name: Build
+        if: steps.affected.outputs.affected_unit == 'true'
         run: swift build --build-system swiftbuild --build-tests
 
-      - name: Test
-        run: swift test --build-system swiftbuild --skip-build
+      - name: Test (Selective on PR, Full on main/merge_group/fail-open)
+        if: steps.affected.outputs.affected_unit == 'true'
+        working-directory: .
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          macos/scripts/test-affected.sh \
+            --ci \
+            --skip-build \
+            --base-branch "origin/${{ github.base_ref || 'main' }}" \
+            --mode unit
 
   ui-tests:
     name: Panel UI tests
@@ -62,14 +98,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      - name: Show toolchain
-        run: |
-          xcodebuild -version
-          swift --version
-
-      - name: Install Metal Toolchain
-        run: xcodebuild -downloadComponent MetalToolchain
+        with:
+          fetch-depth: 0
 
       - name: Cache SwiftPM build
         uses: actions/cache@v4
@@ -79,8 +109,36 @@ jobs:
           restore-keys: |
             spm-v9-${{ runner.os }}-ui-
 
+      - name: Resolve affected UI tests
+        id: affected
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          macos/scripts/test-affected.sh \
+            --ci \
+            --base-branch "origin/${{ github.base_ref || 'main' }}" \
+            --mode plan
+
+      - name: Show toolchain
+        if: steps.affected.outputs.affected_ui == 'true'
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install Metal Toolchain
+        if: steps.affected.outputs.affected_ui == 'true'
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Purge stale build metadata
+        if: steps.affected.outputs.affected_ui == 'true'
         run: rm -rf .build/out/Intermediates.noindex/XCBuildData macos/.build/out/Intermediates.noindex/XCBuildData
 
       - name: Run panel UI tests
-        run: make test-ui
+        if: steps.affected.outputs.affected_ui == 'true'
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          macos/scripts/test-affected.sh \
+            --ci \
+            --base-branch "origin/${{ github.base_ref || 'main' }}" \
+            --mode ui
