@@ -1,6 +1,7 @@
-.PHONY: all help setup build build-tests test test-ui test-viewport bundle package run run-mcp clean ci-local hooks fetch-helpers
+.PHONY: all help setup build build-tests test test-affected test-ui test-viewport bundle package run run-mcp clean ci-local hooks fetch-helpers
 
 PKG_PATH := macos
+BASE_REF ?= origin/main
 # Swift Build compiles Shaders.metal; the native build system (the Swift 6.3 default) only copies it.
 SWIFT_FLAGS := --package-path $(PKG_PATH) --build-system swiftbuild
 APP_BINARY := $(PKG_PATH)/.build/Made.app/Contents/MacOS/MadeApp
@@ -13,6 +14,7 @@ help:
 	@echo "  make build          Build MadeApp and MadeCore library"
 	@echo "  make build-tests    Build application targets and unit test suite"
 	@echo "  make test           Run all unit tests (or 'make test FILTER=<name>')"
+	@echo "  make test-affected  Run affected unit tests against BASE_REF (default: origin/main)"
 	@echo "  make test-ui        Run XCUITest UI tests (or 'make test-ui FILTER=<name>')"
 	@echo "  make test-viewport  Run Metal 4 XCUITest viewport tests (or 'make test-viewport FILTER=<name>')"
 	@echo "  make bundle         Assemble macos/.build/Made.app with the kernel XPC service"
@@ -36,6 +38,9 @@ ifdef FILTER
 else
 	swift test $(SWIFT_FLAGS)
 endif
+
+test-affected:
+	$(PKG_PATH)/scripts/test-affected.sh --base-branch $(BASE_REF) --mode unit
 
 fetch-helpers:
 	$(PKG_PATH)/scripts/fetch-helpers.sh
