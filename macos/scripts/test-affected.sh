@@ -85,6 +85,36 @@ ensure_xst() {
     return 1
 }
 
+resolve_suite_ids() {
+    local target="$1"
+    local file="$2"
+    python3 - "$target" "$file" <<'PY'
+import os, re, sys
+
+target, path = sys.argv[1], sys.argv[2]
+if not os.path.isfile(path):
+    sys.exit(1)
+text = open(path, encoding="utf-8").read()
+if "@Test" not in text:
+    sys.exit(1)
+
+suites = []
+for m in re.finditer(r"(?m)^extension\s+([A-Za-z0-9_.]+)\s*\{([\s\S]*?)^\}", text):
+    outer, body = m.group(1), m.group(2)
+    for inner in re.findall(r"(?:struct|class|actor)\s+([A-Za-z0-9_]+Tests)\b", body):
+        suites.append(f"{target}\\.{outer}\\.{inner}")
+
+for m in re.finditer(r"(?m)^(?:@[A-Za-z0-9_().\s]+\s+)*(?:final\s+)?(?:struct|class|actor)\s+([A-Za-z0-9_]+Tests)\b", text):
+    suites.append(f"{target}\\.{m.group(1)}")
+
+if not suites:
+    sys.exit(1)
+
+for s in sorted(set(suites)):
+    print(s)
+PY
+}
+
 FULL_SUITE=0
 FULL_REASON=""
 declare -a CHANGED_FILES=()
@@ -103,26 +133,34 @@ if [ "$FULL_SUITE" -eq 0 ]; then
     if [ "${#EXPLICIT_FILES[@]}" -gt 0 ]; then
         CHANGED_FILES=("${EXPLICIT_FILES[@]}")
     else
-        resolved_base="$BASE_BRANCH"
-        if ! git rev-parse --verify "${resolved_base}^{commit}" >/dev/null 2>&1; then
-            if git rev-parse --verify "HEAD~1^{commit}" >/dev/null 2>&1; then
-                resolved_base="HEAD~1"
+        if ! git rev-parse --verify "${BASE_BRANCH}^{commit}" >/dev/null 2>&1; then
+            FULL_SUITE=1
+            FULL_REASON="base branch '${BASE_BRANCH}' could not be resolved; failing open to full suite"
+        else
+            raw_changes=""
+            if ! merge_diff=$(git diff --name-only "${BASE_BRANCH}...HEAD" 2>/dev/null); then
+                FULL_SUITE=1
+                FULL_REASON="git diff '${BASE_BRANCH}...HEAD' failed (no merge base); failing open to full suite"
             else
-                resolved_base="HEAD"
+                raw_changes="$merge_diff"
+                if [ "$CI_MODE" -eq 0 ]; then
+                    if ! wt_diff=$(git diff --name-only HEAD 2>/dev/null) ||
+                       ! cached_diff=$(git diff --name-only --cached 2>/dev/null) ||
+                       ! untracked_diff=$(git ls-files --others --exclude-standard 2>/dev/null); then
+                        FULL_SUITE=1
+                        FULL_REASON="local working tree diff failed; failing open to full suite"
+                    else
+                        raw_changes=$(printf '%s\n%s\n%s\n%s\n' "$raw_changes" "$wt_diff" "$cached_diff" "$untracked_diff")
+                    fi
+                fi
+            fi
+
+            if [ "$FULL_SUITE" -eq 0 ] && [ -n "$raw_changes" ]; then
+                while IFS= read -r line; do
+                    [ -n "$line" ] && CHANGED_FILES+=("$line")
+                done < <(printf '%s\n' "$raw_changes" | sort -u)
             fi
         fi
-
-        while IFS= read -r line; do
-            [ -n "$line" ] && CHANGED_FILES+=("$line")
-        done < <(
-            {
-                git diff --name-only "${resolved_base}...HEAD"
-                if [ "$CI_MODE" -eq 0 ]; then
-                    git diff --name-only HEAD
-                    git diff --name-only --cached
-                fi
-            } | sort -u
-        )
     fi
 fi
 
@@ -217,8 +255,13 @@ elif [ "${#CHANGED_FILES[@]}" -gt 0 ]; then
                 ;;
             macos/Tests/MadeCoreTests/*.swift)
                 core_tests_changed=1
-                suite_name=$(basename "$file" .swift)
-                touched_suites+=("MadeCoreTests\\.${suite_name}")
+                if resolved=$(resolve_suite_ids "MadeCoreTests" "$file"); then
+                    while IFS= read -r suite_id; do
+                        [ -n "$suite_id" ] && touched_suites+=("$suite_id")
+                    done <<< "$resolved"
+                else
+                    only_unit_test_suites=0
+                fi
                 ;;
             macos/Tests/MadeCoreTests/*)
                 core_tests_changed=1
@@ -226,8 +269,13 @@ elif [ "${#CHANGED_FILES[@]}" -gt 0 ]; then
                 ;;
             macos/Tests/MadeAppTests/*.swift)
                 app_tests_changed=1
-                suite_name=$(basename "$file" .swift)
-                touched_suites+=("MadeAppTests\\.${suite_name}")
+                if resolved=$(resolve_suite_ids "MadeAppTests" "$file"); then
+                    while IFS= read -r suite_id; do
+                        [ -n "$suite_id" ] && touched_suites+=("$suite_id")
+                    done <<< "$resolved"
+                else
+                    only_unit_test_suites=0
+                fi
                 ;;
             macos/Tests/MadeAppTests/*)
                 app_tests_changed=1

@@ -8,6 +8,8 @@ on:
       - 'macos/**'
       - '.github/workflows/**'
       - '.github/actions/**'
+      - '.githooks/**'
+      - 'img/made.icon/**'
       - 'Makefile'
   merge_group:
   pull_request:
@@ -16,6 +18,8 @@ on:
       - 'macos/**'
       - '.github/workflows/**'
       - '.github/actions/**'
+      - '.githooks/**'
+      - 'img/made.icon/**'
       - 'Makefile'
   workflow_dispatch:
 
