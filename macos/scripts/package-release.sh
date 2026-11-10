@@ -76,14 +76,12 @@ if [ "$notarize" = true ] && [ "$identity" = "-" ]; then
     exit 1
 fi
 
+echo "package-release: building targets..."
+swift build --package-path "$pkg_dir" --build-system swiftbuild
 bin_dir=$(swift build --package-path "$pkg_dir" --build-system swiftbuild --show-bin-path)
-if [ ! -f "$bin_dir/MadeApp" ] || [ ! -f "$bin_dir/MadeKernelService" ]; then
-    echo "package-release: binaries missing, building targets..."
-    swift build --package-path "$pkg_dir" --build-system swiftbuild
-fi
 
-if [ ! -x "$pkg_dir/Support/Helpers/ccx" ] || [ ! -x "$pkg_dir/Support/Helpers/gmsh" ]; then
-    echo "package-release: helper binaries missing in Support/Helpers, invoking fetch-helpers.sh..."
+if [ ! -x "$pkg_dir/Support/Helpers/ccx" ] || [ ! -x "$pkg_dir/Support/Helpers/gmsh" ] || [ -f "$pkg_dir/Support/Helpers/.stub" ] || [ ! -f "$pkg_dir/Support/Helpers/.verified" ]; then
+    echo "package-release: helper binaries missing or unverified in Support/Helpers, invoking fetch-helpers.sh..."
     "$pkg_dir/scripts/fetch-helpers.sh"
 fi
 

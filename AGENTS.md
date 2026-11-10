@@ -19,7 +19,7 @@ This file provides guidance to coding agents (`CLAUDE.md` and `.github/copilot-i
 
 The original SvelteKit prototype was removed from the tree. Its code is in the git history at commit `fa75631`, and its documentation lives in `docs/archive/web-prototype/`. Do not restore it, and do not cite its files in new issues or docs.
 
-CI (`.github/workflows/ci.yml`) runs on `macos-26` using selective testing (`macos/scripts/test-affected.sh`) on non-draft pull requests touching `macos/**`, workflow, or build files, and runs the full test suite as a backstop on `push` to `main`, `merge_group`, or when fail-open infrastructure/dependency files change. Manual runs can be triggered with `gh workflow run ci.yml`.
+CI (`.github/workflows/ci.yml`) and release packaging (`.github/workflows/release.yml`) run on `macos-26` and share toolchain setup and multi-tier dependency/build caching via `.github/actions/setup-swift/action.yml`. CI uses selective testing (`macos/scripts/test-affected.sh`) on non-draft pull requests touching `macos/**`, workflow, or build files, and runs the full test suite as a backstop on `push` to `main`, `merge_group`, or when fail-open infrastructure/dependency files change. Manual runs can be triggered with `gh workflow run ci.yml`.
 
 ## Commands
 

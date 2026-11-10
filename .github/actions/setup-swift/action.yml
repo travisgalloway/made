@@ -1,0 +1,128 @@
+name: 'Set up Swift and Build Caches'
+description: 'Configures the Xcode and Metal toolchains, restores deterministic source timestamps, and caches common SwiftPM dependencies, build outputs, and optional CAE helpers.'
+
+inputs:
+  cache-scope:
+    description: 'Cache scope identifier for the calling job (e.g. swift, ui, release)'
+    required: false
+    default: 'swift'
+  cache-cae-helpers:
+    description: 'Whether to cache CAE helper binaries in macos/Support/Helpers'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Show toolchain
+      id: toolchain
+      shell: bash
+      run: |
+        xcodebuild -version
+        swift --version
+        xcode_build=$(xcodebuild -version | awk '/Build version/ {print $3}')
+        echo "xcode_build=${xcode_build:-unknown}" >> "$GITHUB_OUTPUT"
+
+    # Shaders compile at build time, and Xcode 26 ships the Metal compiler as a separate component.
+    - name: Install Metal Toolchain
+      shell: bash
+      run: |
+        if xcrun -find metal >/dev/null 2>&1; then
+          echo "Metal compiler already available at $(xcrun -find metal)"
+        else
+          xcodebuild -downloadComponent MetalToolchain
+        fi
+
+    - name: Cache SwiftPM package dependencies
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/Library/Caches/org.swift.swiftpm/repositories
+          ~/Library/Caches/org.swift.swiftpm/artifacts
+          ~/Library/Caches/org.swift.swiftpm/manifests
+        key: spm-deps-v1-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+        restore-keys: |
+          spm-deps-v1-${{ runner.os }}-
+
+    # Restore deterministic commit mtimes on tracked source files so llbuild's device-agnostic
+    # build.db sees identical (size, mtime) signatures for unchanged files across CI runners.
+    - name: Normalize tracked source timestamps
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import os, subprocess
+
+        out = subprocess.check_output(
+            ["git", "log", "--format=COMMIT:%ct", "--name-only", "--", "macos", "img/made.icon"],
+            text=True,
+        )
+        seen = set()
+        ts = None
+        for line in out.splitlines():
+            if line.startswith("COMMIT:"):
+                ts = int(line[7:])
+            elif line and line not in seen and ts is not None:
+                seen.add(line)
+                if os.path.exists(line) and not os.path.islink(line):
+                    os.utime(line, (ts, ts))
+        print(f"Restored deterministic commit timestamps on {len(seen)} tracked files.")
+        PY
+
+    - name: Cache SwiftPM build
+      uses: actions/cache@v5
+      with:
+        path: |
+          macos/.build/*
+          macos/.build/.buildSystem*
+          !macos/.build/Made.app
+          !macos/.build/dist
+          !macos/.build/out
+          !macos/.build/UITests
+          !macos/.build/manifest.pif
+          !macos/.build/viewport-pass
+          macos/.build/out/CompilationCache.noindex
+          macos/.build/out/ModuleCache.noindex
+          macos/.build/out/PCH
+          macos/.build/out/Products
+          macos/.build/out/SDKExplicitPrecompiledModules
+          macos/.build/out/SDKStatCaches.noindex
+          macos/.build/out/v5
+          macos/.build/out/Intermediates.noindex/*
+          !macos/.build/out/Intermediates.noindex/XCBuildData
+          macos/.build/out/Intermediates.noindex/XCBuildData/build.db
+          macos/.build/out/Intermediates.noindex/XCBuildData/PIFCache
+          macos/.build/UITests/CompilationCache.noindex
+          macos/.build/UITests/Index.noindex
+          macos/.build/UITests/ModuleCache.noindex
+          macos/.build/UITests/SDKExplicitPrecompiledModules
+          macos/.build/UITests/SDKStatCaches.noindex
+          macos/.build/UITests/Build/Products
+          macos/.build/UITests/Build/Intermediates.noindex/*
+          !macos/.build/UITests/Build/Intermediates.noindex/XCBuildData
+          macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/build.db
+          macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/PIFCache
+        key: spm-build-v10-${{ runner.os }}-${{ inputs.cache-scope }}-${{ steps.toolchain.outputs.xcode_build }}-${{ hashFiles('macos/Package.resolved') }}-${{ hashFiles('macos/Package.swift', 'macos/Sources/**', 'macos/Tests/**', 'macos/UITests/**') }}
+        restore-keys: |
+          spm-build-v10-${{ runner.os }}-${{ inputs.cache-scope }}-${{ steps.toolchain.outputs.xcode_build }}-${{ hashFiles('macos/Package.resolved') }}-
+          spm-build-v10-${{ runner.os }}-swift-${{ steps.toolchain.outputs.xcode_build }}-${{ hashFiles('macos/Package.resolved') }}-
+          spm-build-v10-${{ runner.os }}-${{ inputs.cache-scope }}-${{ steps.toolchain.outputs.xcode_build }}-
+          spm-build-v10-${{ runner.os }}-
+
+    # Purge only runner-specific .xcbuilddata descriptions (which embed the ephemeral cryptexd
+    # MetalToolchain mount path) while keeping XCBuildData/build.db intact for incremental builds.
+    - name: Purge stale build descriptions
+      shell: bash
+      run: |
+        rm -rf \
+          macos/.build/out/Intermediates.noindex/XCBuildData/*.xcbuilddata \
+          macos/.build/out/Intermediates.noindex/XCBuildData/prior-build-descriptions.txt \
+          macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata \
+          macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/prior-build-descriptions.txt \
+          macos/.build/manifest.pif
+
+    - name: Cache CAE helper binaries
+      if: inputs.cache-cae-helpers == 'true'
+      uses: actions/cache@v5
+      with:
+        path: macos/Support/Helpers
+        key: cae-helpers-v1-${{ runner.os }}-${{ hashFiles('macos/scripts/fetch-helpers.sh') }}
