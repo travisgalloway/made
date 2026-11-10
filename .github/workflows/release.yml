@@ -92,6 +92,14 @@ jobs:
               --dry-run
           fi
 
+      - name: Prune unverified helper stubs before caching
+        if: always()
+        run: |
+          if [ -f macos/Support/Helpers/.stub ] || [ ! -f macos/Support/Helpers/.verified ]; then
+            echo "CAE helpers are unverified stubs; pruning from Support/Helpers so they are not cached."
+            rm -rf macos/Support/Helpers
+          fi
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -51,7 +51,11 @@ done
 
 if [ "$check" = true ]; then
     if [ -x "$helpers_dir/ccx" ] && [ -x "$helpers_dir/gmsh" ]; then
-        echo "fetch-helpers: all helper binaries present and executable in $helpers_dir"
+        if [ -f "$helpers_dir/.stub" ] || [ ! -f "$helpers_dir/.verified" ]; then
+            echo "fetch-helpers: all helper binaries present (stubs) in $helpers_dir"
+        else
+            echo "fetch-helpers: all helper binaries present and verified in $helpers_dir"
+        fi
         exit 0
     else
         echo "fetch-helpers: missing helper binaries in $helpers_dir" >&2
@@ -79,6 +83,8 @@ exit 0
 EOF
     fi
     chmod +x "$helpers_dir/ccx" "$helpers_dir/gmsh"
+    rm -f "$helpers_dir/.verified"
+    touch "$helpers_dir/.stub"
     echo "fetch-helpers: mock helper binaries ready."
 }
 
@@ -87,8 +93,8 @@ if [ "$stub" = true ]; then
     exit 0
 fi
 
-if [ "$force" = false ] && [ -x "$helpers_dir/ccx" ] && [ -x "$helpers_dir/gmsh" ]; then
-    echo "fetch-helpers: helper binaries already present in $helpers_dir (use --force to re-acquire)"
+if [ "$force" = false ] && [ -x "$helpers_dir/ccx" ] && [ -x "$helpers_dir/gmsh" ] && [ ! -f "$helpers_dir/.stub" ] && [ -f "$helpers_dir/.verified" ]; then
+    echo "fetch-helpers: verified helper binaries already present in $helpers_dir (use --force to re-acquire)"
     exit 0
 fi
 
@@ -131,6 +137,8 @@ exit 0
 EOF
         fi
         chmod +x "$helpers_dir/gmsh"
+        rm -f "$helpers_dir/.verified"
+        touch "$helpers_dir/.stub"
     fi
 fi
 
@@ -168,7 +176,13 @@ exit 0
 EOF
         fi
         chmod +x "$helpers_dir/ccx"
+        rm -f "$helpers_dir/.verified"
+        touch "$helpers_dir/.stub"
     fi
+fi
+
+if [ -x "$helpers_dir/ccx" ] && [ -x "$helpers_dir/gmsh" ] && [ ! -f "$helpers_dir/.stub" ]; then
+    touch "$helpers_dir/.verified"
 fi
 
 echo "fetch-helpers: helpers available in $helpers_dir:"
