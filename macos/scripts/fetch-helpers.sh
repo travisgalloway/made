@@ -98,9 +98,14 @@ if [ "$force" = false ] && [ -x "$helpers_dir/ccx" ] && [ -x "$helpers_dir/gmsh"
     exit 0
 fi
 
+# Unverified helpers or stubs require forced reacquisition and clean markers
+force=true
+rm -f "$helpers_dir/.stub" "$helpers_dir/.verified"
+gmsh_acquired=false
+ccx_acquired=false
+
 # Attempt to acquire Gmsh 4.13.1
 if [ "$force" = true ] || [ ! -x "$helpers_dir/gmsh" ]; then
-    gmsh_acquired=false
     echo "fetch-helpers: acquiring Gmsh 4.13.1..."
     tmp_gmsh=$(mktemp -d "${TMPDIR:-/tmp}/gmsh-download.XXXXXX")
     cleanup_gmsh() { rm -rf "$tmp_gmsh"; }
@@ -181,8 +186,14 @@ EOF
     fi
 fi
 
-if [ -x "$helpers_dir/ccx" ] && [ -x "$helpers_dir/gmsh" ] && [ ! -f "$helpers_dir/.stub" ]; then
+if [ "$gmsh_acquired" = true ] && [ "$ccx_acquired" = true ]; then
+    rm -f "$helpers_dir/.stub"
     touch "$helpers_dir/.verified"
+    echo "fetch-helpers: verified helper binaries installed in $helpers_dir."
+else
+    rm -f "$helpers_dir/.verified"
+    touch "$helpers_dir/.stub"
+    echo "fetch-helpers: unverified or mock helper binaries in $helpers_dir."
 fi
 
 echo "fetch-helpers: helpers available in $helpers_dir:"
