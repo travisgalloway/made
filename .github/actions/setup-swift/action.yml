@@ -72,15 +72,35 @@ runs:
       uses: actions/cache@v5
       with:
         path: |
-          macos/.build
+          macos/.build/*
+          macos/.build/.buildSystem*
           !macos/.build/Made.app
           !macos/.build/dist
-          !macos/.build/UITests/Logs
-          !macos/.build/UITests/TestResults
-          !macos/.build/out/Intermediates.noindex/XCBuildData/*.xcbuilddata
-          !macos/.build/out/Intermediates.noindex/XCBuildData/prior-build-descriptions.txt
-          !macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata
-          !macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/prior-build-descriptions.txt
+          !macos/.build/out
+          !macos/.build/UITests
+          !macos/.build/manifest.pif
+          !macos/.build/viewport-pass
+          macos/.build/out/CompilationCache.noindex
+          macos/.build/out/ModuleCache.noindex
+          macos/.build/out/PCH
+          macos/.build/out/Products
+          macos/.build/out/SDKExplicitPrecompiledModules
+          macos/.build/out/SDKStatCaches.noindex
+          macos/.build/out/v5
+          macos/.build/out/Intermediates.noindex/*
+          !macos/.build/out/Intermediates.noindex/XCBuildData
+          macos/.build/out/Intermediates.noindex/XCBuildData/build.db
+          macos/.build/out/Intermediates.noindex/XCBuildData/PIFCache
+          macos/.build/UITests/CompilationCache.noindex
+          macos/.build/UITests/Index.noindex
+          macos/.build/UITests/ModuleCache.noindex
+          macos/.build/UITests/SDKExplicitPrecompiledModules
+          macos/.build/UITests/SDKStatCaches.noindex
+          macos/.build/UITests/Build/Products
+          macos/.build/UITests/Build/Intermediates.noindex/*
+          !macos/.build/UITests/Build/Intermediates.noindex/XCBuildData
+          macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/build.db
+          macos/.build/UITests/Build/Intermediates.noindex/XCBuildData/PIFCache
         key: spm-build-v10-${{ runner.os }}-${{ inputs.cache-scope }}-${{ steps.toolchain.outputs.xcode_build }}-${{ hashFiles('macos/Package.resolved') }}-${{ hashFiles('macos/Package.swift', 'macos/Sources/**', 'macos/Tests/**', 'macos/UITests/**') }}
         restore-keys: |
           spm-build-v10-${{ runner.os }}-${{ inputs.cache-scope }}-${{ steps.toolchain.outputs.xcode_build }}-${{ hashFiles('macos/Package.resolved') }}-
@@ -106,5 +126,3 @@ runs:
       with:
         path: macos/Support/Helpers
         key: cae-helpers-v1-${{ runner.os }}-${{ hashFiles('macos/scripts/fetch-helpers.sh') }}
-        restore-keys: |
-          cae-helpers-v1-${{ runner.os }}-
