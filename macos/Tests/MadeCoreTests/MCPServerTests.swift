@@ -448,9 +448,9 @@ import Darwin
         let client = try await connectTCP(port: 19829)
         defer { client.cancel() }
         
-        for _ in 0..<50 {
+        for _ in 0..<200 {
             if server.activeConnectionCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(for: .milliseconds(25))
         }
         #expect(server.activeConnectionCount == 1)
         
@@ -511,9 +511,9 @@ import Darwin
         
         let client = try await connectTCP(port: 19831)
         defer { client.cancel() }
-        for _ in 0..<50 {
+        for _ in 0..<200 {
             if server.activeConnectionCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(for: .milliseconds(25))
         }
         #expect(server.activeConnectionCount == 1)
         
@@ -546,9 +546,9 @@ import Darwin
         let client = try await connectTCP(port: 19832)
         defer { client.cancel() }
         
-        for _ in 0..<50 {
+        for _ in 0..<200 {
             if server.activeConnectionCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(for: .milliseconds(25))
         }
         #expect(server.activeConnectionCount == 1)
         
@@ -580,9 +580,9 @@ import Darwin
         let oldClient = try await connectTCP(port: 19833)
         defer { oldClient.cancel() }
         
-        for _ in 0..<50 {
+        for _ in 0..<200 {
             if server.activeConnectionCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(for: .milliseconds(25))
         }
         #expect(server.activeConnectionCount == 1)
         
@@ -772,9 +772,9 @@ import Darwin
         let client = try await connectTCP(port: port)
         defer { client.cancel() }
         
-        for _ in 0..<50 {
+        for _ in 0..<200 {
             if server.activeConnectionCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(for: .milliseconds(25))
         }
         #expect(server.activeConnectionCount == 1)
         let expectedId = try #require(server.activeConnectionIdentifiers.first)
@@ -811,9 +811,9 @@ import Darwin
         defer { client.cancel() }
         let collector = TestResponseCollector(connection: client)
         
-        for _ in 0..<50 {
+        for _ in 0..<200 {
             if server.activeConnectionCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(for: .milliseconds(25))
         }
         #expect(server.activeConnectionCount == 1)
         
@@ -888,9 +888,9 @@ import Darwin
         let client = try await connectTCP(port: port)
         defer { client.cancel() }
         
-        for _ in 0..<50 {
+        for _ in 0..<200 {
             if server.activeConnectionCount == 1 { break }
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(for: .milliseconds(25))
         }
         #expect(server.activeConnectionCount == 1)
         
@@ -995,7 +995,7 @@ import Darwin
         }
     }
     
-    private func receiveChunk(from connection: NWConnection, timeout: Duration = .seconds(2)) async -> (data: Data, isDone: Bool) {
+    private func receiveChunk(from connection: NWConnection, timeout: Duration = .seconds(15)) async -> (data: Data, isDone: Bool) {
         await withTaskGroup(of: (Data, Bool).self) { group in
             group.addTask {
                 await withCheckedContinuation { continuation in

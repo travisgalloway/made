@@ -65,7 +65,9 @@ EOF
 done
 
 XST_VERSION="0.16.1"
-XST_BIN="$repo_root/macos/.build/tools/xcode-selective-test"
+XST_CACHE_DIR="${XST_CACHE_DIR:-$HOME/.cache/made-ci/xcode-selective-test/${XST_VERSION}}"
+XST_BIN="$XST_CACHE_DIR/xcode-selective-test"
+XST_LEGACY_BIN="$repo_root/macos/.build/tools/xcode-selective-test"
 
 ensure_xst() {
     if command -v xcode-selective-test >/dev/null 2>&1; then
@@ -76,9 +78,15 @@ ensure_xst() {
         echo "$XST_BIN"
         return 0
     fi
-    mkdir -p "$(dirname "$XST_BIN")"
+    if [ -x "$XST_LEGACY_BIN" ]; then
+        mkdir -p "$XST_CACHE_DIR"
+        cp "$XST_LEGACY_BIN" "$XST_BIN" 2>/dev/null || true
+        echo "$XST_LEGACY_BIN"
+        return 0
+    fi
+    mkdir -p "$XST_CACHE_DIR"
     local archive_url="https://github.com/mikeger/XcodeSelectiveTesting/releases/download/${XST_VERSION}/xcode-selective-test.tar.gz"
-    if curl -fsSL "$archive_url" | tar -xz -C "$(dirname "$XST_BIN")" 2>/dev/null && [ -x "$XST_BIN" ]; then
+    if curl -fsSL "$archive_url" | tar -xz -C "$XST_CACHE_DIR" 2>/dev/null && [ -x "$XST_BIN" ]; then
         echo "$XST_BIN"
         return 0
     fi
